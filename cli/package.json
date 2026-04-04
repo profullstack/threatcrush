@@ -1,10 +1,13 @@
 {
-  "name": "threatcrush",
+  "name": "@profullstack/threatcrush",
   "version": "0.1.0",
   "description": "All-in-one security agent daemon — monitor, detect, scan, and protect servers in real-time",
   
   "bin": {
     "threatcrush": "./dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsup",
