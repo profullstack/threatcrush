@@ -9,7 +9,7 @@ const features = [
   {
     icon: "🔍",
     title: "Live Attack Detection",
-    desc: "Monitors your server logs in real-time. Detects SQLi, XSS, brute force, path traversal, and RCE attempts as they happen.",
+    desc: "Monitors all inbound connections — every port, every protocol. Detects SQLi, XSS, brute force, SSH attacks, port scans, DNS tunneling, and more in real-time.",
   },
   {
     icon: "🛡️",
@@ -23,8 +23,8 @@ const features = [
   },
   {
     icon: "🔀",
-    title: "Request Interceptor",
-    desc: "Inspect and analyze HTTP requests as a reverse proxy. See exactly what's hitting your server and why.",
+    title: "Network Monitor",
+    desc: "Watches all TCP/UDP traffic across every port — HTTP, SSH, DNS, FTP, database connections. See exactly what's hitting your server and flag anomalies.",
   },
   {
     icon: "🔔",
@@ -49,7 +49,7 @@ const faqs = [
   },
   {
     q: "What servers does it support?",
-    a: "Any Linux server running nginx, Apache, or similar web servers. ThreatCrush auto-detects your setup during `threatcrush init`.",
+    a: "Any Linux server. ThreatCrush monitors all network connections (not just web traffic), plus application logs from nginx, Apache, SSH, and more. Auto-detects your setup during `threatcrush init`.",
   },
   {
     q: "What payment methods do you accept?",
@@ -137,9 +137,9 @@ export default function Home() {
 
             <ScrollReveal delay={200}>
               <p className="mx-auto max-w-2xl text-lg sm:text-xl text-tc-text-dim mb-10 leading-relaxed">
-                A real-time security agent that lives on your server.
-                Monitors logs, detects attacks, scans your code, and pentests your APIs
-                — all from the command line.
+                An all-in-one security agent that lives on your server.
+                Monitors every connection on every port — not just HTTP. Detects live attacks,
+                scans your code, pentests your APIs, and alerts you in real-time.
               </p>
             </ScrollReveal>
 
@@ -176,13 +176,14 @@ export default function Home() {
                   <span className="text-tc-text-dim text-xs ml-2">threatcrush — zsh</span>
                 </div>
                 <div className="space-y-1">
-                  <p><span className="text-tc-text-dim">$</span> <span className="text-tc-green/80">threatcrush monitor --server nginx</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:41]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">Connected to /var/log/nginx/access.log</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:42]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">Loaded 847 attack signatures</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:45]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">SQLi attempt blocked</span> <span className="text-tc-text-dim">— 185.43.21.8 → /api/users?id=1 OR 1=1</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:47]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">Path traversal</span> <span className="text-tc-text-dim">— 91.232.105.3 → /../../etc/passwd</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:52]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">1,247 requests analyzed, 3 threats detected</span></p>
-                  <p><span className="text-tc-text-dim">[12:04:01]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">Brute force</span> <span className="text-tc-text-dim">— 45.33.32.156 → 23 failed logins in 60s</span></p>
+                  <p><span className="text-tc-text-dim">$</span> <span className="text-tc-green/80">threatcrush monitor</span></p>
+                  <p><span className="text-tc-text-dim">[12:03:41]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">Monitoring all ports · nginx · sshd · postgres</span></p>
+                  <p><span className="text-tc-text-dim">[12:03:42]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">Loaded 1,247 attack signatures</span></p>
+                  <p><span className="text-tc-text-dim">[12:03:45]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">SQLi attempt</span> <span className="text-tc-text-dim">— :443 185.43.21.8 → /api/users?id=1 OR 1=1</span></p>
+                  <p><span className="text-tc-text-dim">[12:03:47]</span> <span className="text-red-400">✗</span> <span className="text-red-400">SSH brute force</span> <span className="text-tc-text-dim">— :22 91.232.105.3 → 47 failed attempts</span></p>
+                  <p><span className="text-tc-text-dim">[12:03:50]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">Port scan</span> <span className="text-tc-text-dim">— 45.33.32.156 scanning :21-:8080 (SYN flood)</span></p>
+                  <p><span className="text-tc-text-dim">[12:03:52]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">DNS tunneling</span> <span className="text-tc-text-dim">— :53 suspicious TXT queries from 103.44.8.2</span></p>
+                  <p><span className="text-tc-text-dim">[12:04:01]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">3,891 connections analyzed · 4 threats · 1 blocked</span></p>
                 </div>
               </div>
             </ScrollReveal>
@@ -244,7 +245,7 @@ export default function Home() {
                   step: "02",
                   title: "Configure",
                   desc: "threatcrush init",
-                  subdesc: "Auto-detects your web server, sets up monitoring",
+                  subdesc: "Auto-detects all services — web, SSH, DNS, databases",
                   icon: "⚙️",
                 },
                 {
