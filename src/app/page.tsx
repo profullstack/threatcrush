@@ -115,12 +115,26 @@ export default function Home() {
               GitHub
             </a>
           </div>
-          <button
-            onClick={openModal}
-            className="rounded-lg bg-tc-green px-4 py-2 text-sm font-bold text-black transition-all hover:bg-tc-green-dim"
-          >
-            Join Waitlist
-          </button>
+          <div className="flex items-center gap-3">
+            <a
+              href="/auth/login"
+              className="text-sm text-tc-text-dim hover:text-tc-green transition-colors"
+            >
+              Log In
+            </a>
+            <a
+              href="/auth/signup"
+              className="rounded-lg bg-tc-green px-4 py-2 text-sm font-bold text-black transition-all hover:bg-tc-green-dim"
+            >
+              Sign Up
+            </a>
+            <button
+              onClick={openModal}
+              className="rounded-lg border border-tc-green/30 px-4 py-2 text-sm font-bold text-tc-green transition-all hover:bg-tc-green/10"
+            >
+              Join Waitlist
+            </button>
+          </div>
         </div>
       </nav>
 
