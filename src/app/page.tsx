@@ -64,6 +64,10 @@ const faqs = [
     a: "Yes. Full API access with generous rate limits is included. Enterprise rate limits available on request.",
   },
   {
+    q: "What about AI-enhanced modules?",
+    a: "Some modules use AI for advanced threat classification, anomaly detection, and smart alerting. These are usage-based — you only pay for what you use. Your lifetime license covers the core platform; AI usage is metered separately so you're never overpaying.",
+  },
+  {
     q: "How does the referral program work?",
     a: "After signing up, you get a unique referral link. Your friend pays $399 ($100 off), and you earn $100 per referral, paid out in crypto via <a href='https://coinpayportal.com' target='_blank' rel='noopener noreferrer' class='text-tc-green hover:underline'>CoinPayPortal</a> (BTC, ETH, USDT, SOL). No limits — refer 5 friends and you've paid for your own license. Must be a paying member to earn.",
   },
@@ -73,11 +77,11 @@ const included = [
   "Live attack detection & blocking",
   "Code vulnerability scanner",
   "Automated pentest engine",
-  "Request interceptor / reverse proxy",
+  "Network monitor — all ports, all protocols",
   "Real-time alerts (Slack, email, webhooks)",
   "systemd daemon — runs 24/7",
-  "Full CLI & API access",
-  "All future updates",
+  "Full CLI, desktop & mobile apps",
+  "All core modules + future updates",
   "Priority support",
 ];
 
@@ -675,6 +679,7 @@ export default function Home() {
                     <span className="text-tc-text-dim text-lg">/once</span>
                   </div>
                   <p className="text-tc-text-dim mt-2">Full platform: CLI, daemon, scanner, pentest engine, API. Pay once.</p>
+                  <p className="text-tc-text-dim text-xs mt-1">AI-enhanced modules billed on usage — <span className="text-tc-green">pay only for what you use</span></p>
                   <p className="text-tc-green text-sm mt-1 font-medium">🎁 Refer a friend → they save $100, you earn $100</p>
                 </div>
 
