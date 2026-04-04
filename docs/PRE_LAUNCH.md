@@ -256,7 +256,27 @@ cd extension && pnpm install && node scripts/build.js all
 
 ---
 
-## 10. Docker Hub (Optional)
+## 10. GitHub OAuth (Signup/Login)
+
+**What:** Let users sign up / log in with their GitHub account.
+
+**Set up in Supabase:**
+1. Go to Supabase Dashboard → Authentication → Providers → GitHub
+2. Enable GitHub
+3. You'll need a GitHub OAuth App:
+   - Go to https://github.com/settings/developers → OAuth Apps → New
+   - Application name: `ThreatCrush`
+   - Homepage URL: `https://threatcrush.com`
+   - Callback URL: `https://odhaoehucfyrqhanthyq.supabase.co/auth/v1/callback`
+   - Copy Client ID + Client Secret
+4. Paste Client ID + Client Secret into Supabase GitHub provider settings
+5. Save
+
+No env vars needed in Railway — Supabase handles the OAuth flow.
+
+---
+
+## 11. Docker Hub (Optional)
 
 **What:** Publish `profullstack/threatcrush` Docker image.
 
