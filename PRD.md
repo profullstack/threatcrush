@@ -311,6 +311,14 @@ GET    /api/modules/:name/download  # Download module package
 - **DB:** Supabase
 - **Payments:** CoinPayPortal + Stripe
 
+### Browser Extension
+- **Manifest:** V3 (Chrome, Firefox, Safari)
+- **Framework:** Vite + React 19 + Tailwind CSS 3
+- **Auth:** Via ThreatCrush API (all data routed through our server)
+- **Features:** Site scanning, real-time alerts, dashboard popup, module store
+- **Build:** Per-browser builds via `node scripts/build.js [chrome|firefox|safari|all]`
+- **Distribution:** Chrome Web Store, Firefox AMO, Safari (coming soon)
+
 ## Pricing
 
 | Tier | Price | Includes |

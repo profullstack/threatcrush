@@ -582,7 +582,7 @@ export default function Home() {
               </div>
             </ScrollReveal>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* CLI */}
               <ScrollReveal delay={0}>
                 <div className="rounded-xl border border-tc-border bg-tc-card/60 p-6 backdrop-blur-sm hover:border-tc-green/30 transition-all h-full">
@@ -653,6 +653,32 @@ export default function Home() {
                     </span>
                     <span className="inline-flex items-center gap-1.5 rounded-lg border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim">
                       🤖 Google Play
+                    </span>
+                  </div>
+                  <p className="mt-3 text-xs text-tc-green font-mono">Coming soon</p>
+                </div>
+              </ScrollReveal>
+
+              {/* Browser Extension */}
+              <ScrollReveal delay={300}>
+                <div className="rounded-xl border border-tc-border bg-tc-card/60 p-6 backdrop-blur-sm hover:border-tc-green/30 transition-all h-full">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-12 h-12 rounded-lg bg-tc-green/10 border border-tc-green/20 flex items-center justify-center text-2xl">🌐</div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white">Browser Extension</h3>
+                      <p className="text-xs text-tc-text-dim">Chrome · Firefox · Edge</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-tc-text-dim mb-4">Scan any website from your browser. Get real-time alerts, check security headers, and monitor your servers without leaving the tab.</p>
+                  <div className="flex gap-2 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim">
+                      🔵 Chrome
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim">
+                      🦊 Firefox
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim">
+                      🧭 Safari <span className="text-[10px] text-tc-text-dim">(soon)</span>
                     </span>
                   </div>
                   <p className="mt-3 text-xs text-tc-green font-mono">Coming soon</p>

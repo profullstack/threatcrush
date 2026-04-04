@@ -134,6 +134,16 @@ Pay once, access forever. All core modules, CLI, daemon, API, and lifetime updat
 
 👉 [Get lifetime access at threatcrush.com](https://threatcrush.com)
 
+## Browser Extension
+
+Monitor security from your browser:
+
+- **Chrome** — Chrome Web Store (coming soon)
+- **Firefox** — Firefox Add-ons (coming soon)
+- **Safari** — Coming soon
+
+Features: scan any site, real-time alerts, security headers check, dashboard popup.
+
 ## Links
 
 - 🌐 **Website:** [threatcrush.com](https://threatcrush.com)

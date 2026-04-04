@@ -235,7 +235,28 @@ railway variables set OPENAI_API_KEY=...
 
 ---
 
-## 9. Domain & DNS
+## 9. Chrome Web Store + Firefox AMO (Extension Publishing)
+
+**Chrome Web Store:**
+1. Go to https://chrome.google.com/webstore/devconsole
+2. Pay $5 one-time developer fee
+3. Upload built zip from `extension/dist/chrome-vX.X.X.zip`
+4. Fill in store listing (screenshots, description)
+
+**Firefox AMO:**
+1. Go to https://addons.mozilla.org/developers/
+2. Create account (free)
+3. Upload built zip from `extension/dist/firefox-vX.X.X.zip`
+
+**Build extension:**
+```bash
+cd extension && pnpm install && node scripts/build.js all
+# Outputs: dist/chrome-v0.1.10.zip, dist/firefox-v0.1.10.zip
+```
+
+---
+
+## 10. Domain & DNS
 
 **threatcrush.com:**
 - Point to Railway: CNAME → `threatcrush-production.up.railway.app`

@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "ThreatCrush",
+  "version": "0.1.10",
+  "description": "Real-time security monitoring, threat detection, and site scanning from your browser",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
+    "default_title": "ThreatCrush"
+  },
+  "background": {
+    "scripts": ["background/index.js"],
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options/index.html",
+    "open_in_tab": true
+  },
+  "permissions": ["storage", "alarms", "notifications"],
+  "optional_permissions": ["tabs", "activeTab"],
+  "host_permissions": [
+    "https://threatcrush.com/*",
+    "https://*.supabase.co/*",
+    "https://coinpayportal.com/*",
+    "http://localhost:3000/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "threatcrush@threatcrush.com",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
+}

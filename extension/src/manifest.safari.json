@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "ThreatCrush",
+  "version": "0.1.10",
+  "description": "Real-time security monitoring, threat detection, and site scanning from your browser — Safari support coming soon",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    },
+    "default_title": "ThreatCrush"
+  },
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "options_page": "options/index.html",
+  "permissions": ["storage", "alarms", "notifications"],
+  "optional_permissions": ["tabs", "activeTab"],
+  "host_permissions": [
+    "https://threatcrush.com/*",
+    "https://*.supabase.co/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

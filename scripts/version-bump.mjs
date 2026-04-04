@@ -106,6 +106,7 @@ function main() {
     'cli/package.json',
     'desktop/package.json',
     'mobile/package.json',
+    'extension/package.json',
   ];
 
   console.log('📝 Updating package.json files:');
