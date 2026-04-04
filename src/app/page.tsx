@@ -153,12 +153,30 @@ export default function Home() {
                 <div className="flex flex-col gap-2">
                   <div className="group relative rounded-lg border border-tc-border bg-tc-card/80 px-4 py-3 font-mono text-sm backdrop-blur-sm">
                     <span className="text-tc-text-dim">$ </span>
-                    <span className="text-tc-green">npm i -g @profullstack/threatcrush</span>
+                    <span className="text-tc-green">curl -fsSL https://threatcrush.com/install.sh | sh</span>
                   </div>
-                  <p className="text-xs text-tc-text-dim text-center">or</p>
-                  <div className="group relative rounded-lg border border-tc-border bg-tc-card/80 px-4 py-3 font-mono text-sm backdrop-blur-sm">
-                    <span className="text-tc-text-dim">$ </span>
-                    <span className="text-tc-green">npx @profullstack/threatcrush</span>
+                  <div className="flex items-center gap-3 justify-center">
+                    <span className="h-px flex-1 bg-tc-border" />
+                    <span className="text-xs text-tc-text-dim">or install directly</span>
+                    <span className="h-px flex-1 bg-tc-border" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg border border-tc-border bg-tc-card/80 px-3 py-2 font-mono text-xs backdrop-blur-sm">
+                      <span className="text-tc-text-dim">$ </span>
+                      <span className="text-tc-green">npm i -g @profullstack/threatcrush</span>
+                    </div>
+                    <div className="rounded-lg border border-tc-border bg-tc-card/80 px-3 py-2 font-mono text-xs backdrop-blur-sm">
+                      <span className="text-tc-text-dim">$ </span>
+                      <span className="text-tc-green">pnpm add -g @profullstack/threatcrush</span>
+                    </div>
+                    <div className="rounded-lg border border-tc-border bg-tc-card/80 px-3 py-2 font-mono text-xs backdrop-blur-sm">
+                      <span className="text-tc-text-dim">$ </span>
+                      <span className="text-tc-green">yarn global add @profullstack/threatcrush</span>
+                    </div>
+                    <div className="rounded-lg border border-tc-border bg-tc-card/80 px-3 py-2 font-mono text-xs backdrop-blur-sm">
+                      <span className="text-tc-text-dim">$ </span>
+                      <span className="text-tc-green">bun add -g @profullstack/threatcrush</span>
+                    </div>
                   </div>
                 </div>
               </div>
