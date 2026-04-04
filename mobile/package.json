@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush-mobile",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "main": "index.js",
   "scripts": {
