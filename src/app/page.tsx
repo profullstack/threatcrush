@@ -53,7 +53,7 @@ const faqs = [
   },
   {
     q: "What payment methods do you accept?",
-    a: "Credit/debit cards via Stripe, and cryptocurrency (BTC, ETH, USDT, and more) via CoinPayPortal.",
+    a: "Credit/debit cards via Stripe, and cryptocurrency (BTC, ETH, USDT, SOL, and more) via <a href='https://coinpayportal.com' target='_blank' rel='noopener noreferrer' class='text-tc-green hover:underline'>CoinPayPortal</a>.",
   },
   {
     q: "Can I get a refund?",
@@ -696,7 +696,7 @@ export default function Home() {
                 <div className="flex items-center justify-center gap-4 mt-4 text-xs text-tc-text-dim">
                   <span>💳 Stripe</span>
                   <span>·</span>
-                  <span>₿ Crypto</span>
+                  <a href="https://coinpayportal.com" target="_blank" rel="noopener noreferrer" className="hover:text-tc-green transition-colors">₿ CoinPayPortal</a>
                   <span>·</span>
                   <span>🔒 30-day refund</span>
                 </div>
