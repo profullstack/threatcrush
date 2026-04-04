@@ -148,34 +148,42 @@ export default function Home() {
             </ScrollReveal>
 
             <ScrollReveal delay={300}>
-              <div className="mx-auto max-w-lg mb-8">
-                <p className="text-sm text-tc-text-dim mb-3">Install in seconds:</p>
-                <div className="flex flex-col gap-2">
-                  <div className="group relative rounded-lg border border-tc-border bg-tc-card/80 px-4 py-3 font-mono text-sm backdrop-blur-sm">
+              <div className="mx-auto max-w-2xl mb-10">
+                {/* Main install command */}
+                <div className="rounded-xl border border-tc-green/20 bg-tc-card/60 p-6 backdrop-blur-md">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="text-tc-green text-lg">⚡</span>
+                    <span className="text-sm font-semibold text-tc-text">Get started in one line</span>
+                  </div>
+                  <div className="group relative rounded-lg bg-black/60 border border-tc-border px-5 py-4 font-mono text-base cursor-pointer transition-all hover:border-tc-green/40"
+                    onClick={() => { navigator.clipboard?.writeText('curl -fsSL https://threatcrush.com/install.sh | sh'); }}
+                  >
                     <span className="text-tc-text-dim">$ </span>
-                    <span className="text-tc-green">curl -fsSL https://threatcrush.com/install.sh | sh</span>
+                    <span className="text-tc-green">curl -fsSL threatcrush.com/install.sh | sh</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity">📋 click to copy</span>
                   </div>
-                  <div className="flex items-center gap-3 justify-center">
-                    <span className="h-px flex-1 bg-tc-border" />
-                    <span className="text-xs text-tc-text-dim">or install directly</span>
-                    <span className="h-px flex-1 bg-tc-border" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg border border-tc-border bg-tc-card/80 px-3 py-2 font-mono text-xs backdrop-blur-sm">
-                      <span className="text-tc-text-dim">$ </span>
-                      <span className="text-tc-green">npm i -g @profullstack/threatcrush</span>
-                    </div>
-                    <div className="rounded-lg border border-tc-border bg-tc-card/80 px-3 py-2 font-mono text-xs backdrop-blur-sm">
-                      <span className="text-tc-text-dim">$ </span>
-                      <span className="text-tc-green">pnpm add -g @profullstack/threatcrush</span>
-                    </div>
-                    <div className="rounded-lg border border-tc-border bg-tc-card/80 px-3 py-2 font-mono text-xs backdrop-blur-sm">
-                      <span className="text-tc-text-dim">$ </span>
-                      <span className="text-tc-green">yarn global add @profullstack/threatcrush</span>
-                    </div>
-                    <div className="rounded-lg border border-tc-border bg-tc-card/80 px-3 py-2 font-mono text-xs backdrop-blur-sm">
-                      <span className="text-tc-text-dim">$ </span>
-                      <span className="text-tc-green">bun add -g @profullstack/threatcrush</span>
+
+                  {/* Package manager tabs */}
+                  <div className="mt-4 pt-4 border-t border-tc-border/50">
+                    <p className="text-xs text-tc-text-dim mb-3">Or install with your package manager:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { label: 'npm', cmd: 'npm i -g @profullstack/threatcrush' },
+                        { label: 'pnpm', cmd: 'pnpm add -g @profullstack/threatcrush' },
+                        { label: 'yarn', cmd: 'yarn global add @profullstack/threatcrush' },
+                        { label: 'bun', cmd: 'bun add -g @profullstack/threatcrush' },
+                      ].map((pm) => (
+                        <button
+                          key={pm.label}
+                          onClick={() => { navigator.clipboard?.writeText(pm.cmd); }}
+                          className="group/pm flex items-center gap-2 rounded-lg border border-tc-border bg-black/40 px-3 py-2 font-mono text-xs transition-all hover:border-tc-green/40 hover:bg-black/60"
+                        >
+                          <span className="text-tc-green font-semibold">{pm.label}</span>
+                          <span className="text-tc-text-dim hidden sm:inline">{pm.cmd}</span>
+                          <span className="text-tc-text-dim sm:hidden">{pm.cmd.split(' ').slice(0, 3).join(' ')}...</span>
+                          <span className="text-[10px] text-tc-text-dim opacity-0 group-hover/pm:opacity-100 transition-opacity">📋</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>

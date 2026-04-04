@@ -1,4 +1,5 @@
-packages: []
+packages:
+  - desktop
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
