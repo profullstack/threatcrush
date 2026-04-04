@@ -3843,6 +3843,7 @@ var import_readline = __toESM(require("readline"));
 var import_node_child_process = require("child_process");
 var import_node_fs = require("fs");
 var import_node_path = require("path");
+var import_node_os2 = require("os");
 var PKG_VERSION = "0.1.8";
 try {
   const pkg = JSON.parse((0, import_node_fs.readFileSync)((0, import_node_path.join)(__dirname, "..", "package.json"), "utf-8"));
@@ -4064,8 +4065,120 @@ program2.command("remove").description("Uninstall ThreatCrush CLI completely").a
 program2.command("modules").description("Manage security modules").argument("[action]", "list | install | remove | available | update").argument("[name]", "module name").action(async () => {
   await emailGate();
 });
-program2.command("store").description("Browse the module marketplace").argument("[action]", "search | info | publish").argument("[query]", "search query or module name").action(async () => {
+var storeCmd = program2.command("store").description("Browse the module marketplace").action(async () => {
   await emailGate();
+});
+storeCmd.command("search <query>").description("Search for modules in the store").action(async () => {
+  await emailGate();
+});
+storeCmd.command("publish <url>").description("Publish a module from a git URL or web URL").action(async (url) => {
+  console.log(LOGO);
+  const configPath = (0, import_node_path.join)((0, import_node_os2.homedir)(), ".threatcrush", "config.json");
+  let email = "";
+  try {
+    const config = JSON.parse((0, import_node_fs.readFileSync)(configPath, "utf-8"));
+    email = config.email || "";
+  } catch {
+  }
+  if (!email) {
+    const rl2 = import_readline.default.createInterface({ input: process.stdin, output: process.stdout });
+    email = await new Promise((resolve) => {
+      rl2.question(source_default.green("  Enter your email: "), (answer) => {
+        rl2.close();
+        resolve(answer.trim());
+      });
+    });
+    if (!email || !email.includes("@")) {
+      console.log(source_default.red("\n  Invalid email.\n"));
+      return;
+    }
+    try {
+      const dir = (0, import_node_path.join)((0, import_node_os2.homedir)(), ".threatcrush");
+      if (!(0, import_node_fs.existsSync)(dir)) (0, import_node_fs.mkdirSync)(dir, { recursive: true });
+      (0, import_node_fs.writeFileSync)(configPath, JSON.stringify({ email }, null, 2));
+      console.log(source_default.dim(`  Saved email to ${configPath}`));
+    } catch {
+    }
+  }
+  console.log(source_default.dim(`
+  Fetching metadata from ${url}...
+`));
+  let meta;
+  try {
+    const res = await fetch(`${API_URL}/api/modules/fetch-meta`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, git_url: url })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      console.log(source_default.red(`  \u2717 Failed to fetch metadata: ${err.error}
+`));
+      return;
+    }
+    meta = await res.json();
+  } catch (err) {
+    console.log(source_default.red(`  \u2717 Failed to fetch metadata: ${err instanceof Error ? err.message : err}
+`));
+    return;
+  }
+  console.log(source_default.green("  \u2500\u2500 Module Preview \u2500\u2500\n"));
+  console.log(`  ${source_default.bold("Name:")}         ${meta.name || source_default.dim("(none)")}`);
+  console.log(`  ${source_default.bold("Display:")}      ${meta.display_name || source_default.dim("(none)")}`);
+  console.log(`  ${source_default.bold("Description:")}  ${meta.description || source_default.dim("(none)")}`);
+  console.log(`  ${source_default.bold("Version:")}      ${meta.version || "0.1.0"}`);
+  console.log(`  ${source_default.bold("License:")}      ${meta.license || "MIT"}`);
+  console.log(`  ${source_default.bold("Author:")}       ${meta.author_name || source_default.dim("(none)")}`);
+  console.log(`  ${source_default.bold("Homepage:")}     ${meta.homepage_url || source_default.dim("(none)")}`);
+  console.log(`  ${source_default.bold("Git:")}          ${meta.git_url || url}`);
+  if (Array.isArray(meta.tags) && meta.tags.length > 0) {
+    console.log(`  ${source_default.bold("Tags:")}         ${meta.tags.join(", ")}`);
+  }
+  if (meta.stars) {
+    console.log(`  ${source_default.bold("Stars:")}        \u2B50 ${meta.stars}`);
+  }
+  console.log();
+  const rl = import_readline.default.createInterface({ input: process.stdin, output: process.stdout });
+  const confirm = await new Promise((resolve) => {
+    rl.question(source_default.yellow("  Publish this module? (y/N): "), (answer) => {
+      rl.close();
+      resolve(answer.trim().toLowerCase());
+    });
+  });
+  if (confirm !== "y" && confirm !== "yes") {
+    console.log(source_default.dim("\n  Cancelled.\n"));
+    return;
+  }
+  console.log(source_default.dim("\n  Publishing..."));
+  try {
+    const res = await fetch(`${API_URL}/api/modules`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...meta,
+        author_email: email,
+        git_url: meta.git_url || url,
+        homepage_url: meta.homepage_url || url
+      })
+    });
+    const result = await res.json();
+    if (!res.ok) {
+      console.log(source_default.red(`
+  \u2717 Publish failed: ${result.error}
+`));
+      return;
+    }
+    const mod = result.module;
+    const slug = mod?.slug || meta.name;
+    console.log(source_default.green(`
+  \u2713 Module published!`));
+    console.log(source_default.dim(`  ${API_URL}/store/${slug}
+`));
+  } catch (err) {
+    console.log(source_default.red(`
+  \u2717 Publish failed: ${err instanceof Error ? err.message : err}
+`));
+  }
 });
 program2.action(() => {
   console.log(LOGO);

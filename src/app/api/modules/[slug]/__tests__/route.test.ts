@@ -17,7 +17,10 @@ vi.mock("@/lib/supabase", () => ({
 function createChainable(result: { data: unknown; error: unknown }) {
   const handler: ProxyHandler<object> = {
     get(_target, prop: string) {
-      if (prop === "then") return undefined;
+      if (prop === "then") {
+        // Make the proxy thenable — when awaited directly, resolve to result
+        return (resolve: (v: unknown) => void) => resolve(result);
+      }
       if (prop === "single" || prop === "maybeSingle") {
         return vi.fn().mockResolvedValue(result);
       }
@@ -58,7 +61,7 @@ describe("GET /api/modules/:slug", () => {
     };
   });
 
-  it.skip("returns module with versions and reviews", async () => {
+  it("returns module with versions and reviews", async () => {
     const req = makeRequest("http://localhost/api/modules/test-scanner");
     const res = await GET(req, makeContext("test-scanner"));
     const body = await res.json();
@@ -145,7 +148,7 @@ describe("DELETE /api/modules/:slug", () => {
     vi.clearAllMocks();
   });
 
-  it.skip("deletes a module", async () => {
+  it("deletes a module", async () => {
     mockFromResponses = {
       modules: createChainable({
         data: { id: "mod-001", author_email: "test@example.com" },

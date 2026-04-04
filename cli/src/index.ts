@@ -4,8 +4,9 @@ import { Command } from "commander";
 import chalk from "chalk";
 import readline from "readline";
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { homedir } from "node:os";
 
 let PKG_VERSION = "0.1.8";
 try {
@@ -266,13 +267,138 @@ program
     await emailGate();
   });
 
-program
+const storeCmd = program
   .command("store")
   .description("Browse the module marketplace")
-  .argument("[action]", "search | info | publish")
-  .argument("[query]", "search query or module name")
   .action(async () => {
     await emailGate();
+  });
+
+storeCmd
+  .command("search <query>")
+  .description("Search for modules in the store")
+  .action(async () => {
+    await emailGate();
+  });
+
+storeCmd
+  .command("publish <url>")
+  .description("Publish a module from a git URL or web URL")
+  .action(async (url: string) => {
+    console.log(LOGO);
+
+    // 1. Get email
+    const configPath = join(homedir(), ".threatcrush", "config.json");
+    let email = "";
+    try {
+      const config = JSON.parse(readFileSync(configPath, "utf-8"));
+      email = config.email || "";
+    } catch {}
+
+    if (!email) {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      email = await new Promise<string>((resolve) => {
+        rl.question(chalk.green("  Enter your email: "), (answer) => {
+          rl.close();
+          resolve(answer.trim());
+        });
+      });
+
+      if (!email || !email.includes("@")) {
+        console.log(chalk.red("\n  Invalid email.\n"));
+        return;
+      }
+
+      // Save email
+      try {
+        const dir = join(homedir(), ".threatcrush");
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        writeFileSync(configPath, JSON.stringify({ email }, null, 2));
+        console.log(chalk.dim(`  Saved email to ${configPath}`));
+      } catch {}
+    }
+
+    console.log(chalk.dim(`\n  Fetching metadata from ${url}...\n`));
+
+    // 2. Fetch metadata
+    let meta: Record<string, unknown>;
+    try {
+      const res = await fetch(`${API_URL}/api/modules/fetch-meta`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, git_url: url }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        console.log(chalk.red(`  ✗ Failed to fetch metadata: ${(err as Record<string, string>).error}\n`));
+        return;
+      }
+      meta = await res.json() as Record<string, unknown>;
+    } catch (err) {
+      console.log(chalk.red(`  ✗ Failed to fetch metadata: ${err instanceof Error ? err.message : err}\n`));
+      return;
+    }
+
+    // 3. Preview
+    console.log(chalk.green("  ── Module Preview ──\n"));
+    console.log(`  ${chalk.bold("Name:")}         ${meta.name || chalk.dim("(none)")}`);
+    console.log(`  ${chalk.bold("Display:")}      ${meta.display_name || chalk.dim("(none)")}`);
+    console.log(`  ${chalk.bold("Description:")}  ${meta.description || chalk.dim("(none)")}`);
+    console.log(`  ${chalk.bold("Version:")}      ${meta.version || "0.1.0"}`);
+    console.log(`  ${chalk.bold("License:")}      ${meta.license || "MIT"}`);
+    console.log(`  ${chalk.bold("Author:")}       ${meta.author_name || chalk.dim("(none)")}`);
+    console.log(`  ${chalk.bold("Homepage:")}     ${meta.homepage_url || chalk.dim("(none)")}`);
+    console.log(`  ${chalk.bold("Git:")}          ${meta.git_url || url}`);
+    if (Array.isArray(meta.tags) && meta.tags.length > 0) {
+      console.log(`  ${chalk.bold("Tags:")}         ${(meta.tags as string[]).join(", ")}`);
+    }
+    if (meta.stars) {
+      console.log(`  ${chalk.bold("Stars:")}        ⭐ ${meta.stars}`);
+    }
+    console.log();
+
+    // 4. Confirm
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const confirm = await new Promise<string>((resolve) => {
+      rl.question(chalk.yellow("  Publish this module? (y/N): "), (answer) => {
+        rl.close();
+        resolve(answer.trim().toLowerCase());
+      });
+    });
+
+    if (confirm !== "y" && confirm !== "yes") {
+      console.log(chalk.dim("\n  Cancelled.\n"));
+      return;
+    }
+
+    // 5. Publish
+    console.log(chalk.dim("\n  Publishing..."));
+    try {
+      const res = await fetch(`${API_URL}/api/modules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...meta,
+          author_email: email,
+          git_url: (meta.git_url as string) || url,
+          homepage_url: (meta.homepage_url as string) || url,
+        }),
+      });
+
+      const result = await res.json() as Record<string, unknown>;
+
+      if (!res.ok) {
+        console.log(chalk.red(`\n  ✗ Publish failed: ${(result as Record<string, string>).error}\n`));
+        return;
+      }
+
+      const mod = result.module as Record<string, string>;
+      const slug = mod?.slug || meta.name;
+      console.log(chalk.green(`\n  ✓ Module published!`));
+      console.log(chalk.dim(`  ${API_URL}/store/${slug}\n`));
+    } catch (err) {
+      console.log(chalk.red(`\n  ✗ Publish failed: ${err instanceof Error ? err.message : err}\n`));
+    }
   });
 
 // Default action (no command — show help)

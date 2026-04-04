@@ -112,7 +112,7 @@ describe("POST /api/modules", () => {
     resetChain();
   });
 
-  it.skip("creates a module with valid data", async () => {
+  it("creates a module with valid data", async () => {
     const newModule = { ...TEST_MODULE, id: "mod-new" };
     // slug check returns no existing, then insert returns new module
     resetChain({
