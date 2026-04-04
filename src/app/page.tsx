@@ -449,8 +449,8 @@ export default function Home() {
             {/* Desktop + Mobile side by side */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 items-start">
               {/* Desktop Mock */}
-              <ScrollReveal delay={100}>
-                <div className="lg:col-span-3">
+              <ScrollReveal delay={100} className="lg:col-span-3">
+                <div>
                   <h3 className="text-center text-sm font-mono text-tc-green mb-6 tracking-wider">🖥️ Desktop App</h3>
                   <div className="rounded-xl border border-tc-border bg-[#0a0a0a] p-1 shadow-2xl shadow-tc-green/5">
                     {/* Window chrome */}
@@ -512,8 +512,8 @@ export default function Home() {
               </ScrollReveal>
 
               {/* Mobile Mock */}
-              <ScrollReveal delay={200}>
-                <div className="lg:col-span-2 flex justify-center">
+              <ScrollReveal delay={200} className="lg:col-span-2">
+                <div className="flex justify-center">
                   <div>
                     <h3 className="text-center text-sm font-mono text-tc-green mb-6 tracking-wider">📱 Mobile App</h3>
                     <div className="w-[260px] rounded-[2rem] border-2 border-tc-border bg-[#0a0a0a] p-2 shadow-2xl shadow-tc-green/5">
