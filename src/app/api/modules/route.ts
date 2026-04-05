@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin, slugify } from "@/lib/supabase";
 
+async function getAuthenticatedUser(request: NextRequest) {
+  const sb = getSupabaseAdmin();
+  const authHeader = request.headers.get("authorization");
+  const tokenFromHeader = authHeader?.replace("Bearer ", "");
+  const tokenFromCookie = request.cookies?.get?.("sb-access-token")?.value
+    || request.cookies?.get?.("supabase-auth-token")?.value;
+
+  for (const token of [tokenFromHeader, tokenFromCookie]) {
+    if (!token) continue;
+    const { data } = await sb.auth.getUser(token);
+    if (data?.user) return data.user;
+  }
+
+  return null;
+}
+
 /**
  * GET /api/modules
  * List modules with search, category filter, sorting, and pagination.
@@ -67,6 +83,11 @@ export async function GET(request: NextRequest) {
  * Accepts name + git_url/homepage_url + optional overrides.
  */
 export async function POST(request: NextRequest) {
+  const user = await getAuthenticatedUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "You must be logged in to publish modules." }, { status: 401 });
+  }
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -84,18 +105,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "author_email is required" }, { status: 400 });
   }
 
-  // Verify user is registered
   const sb = getSupabaseAdmin();
   const { data: profile } = await sb
     .from("user_profiles")
     .select("id, email, email_verified")
-    .eq("email", author_email)
+    .eq("id", user.id)
     .single();
 
   if (!profile) {
     return NextResponse.json(
       { error: "You must create an account at threatcrush.com/auth/signup before publishing modules." },
       { status: 401 }
+    );
+  }
+
+  if (profile.email !== author_email) {
+    return NextResponse.json(
+      { error: "Author email must match your logged-in account." },
+      { status: 403 }
     );
   }
 

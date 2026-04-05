@@ -136,6 +136,30 @@ describe("API Response Contracts", () => {
   // ─── Module Contracts ───
 
   describe("Module contracts", () => {
+    it("module publish auth error response shape", () => {
+      const response = {
+        error: "You must be logged in to publish modules.",
+      };
+
+      expect(response).toEqual(
+        expect.objectContaining({
+          error: expect.any(String),
+        })
+      );
+    });
+
+    it("module publish author-email mismatch response shape", () => {
+      const response = {
+        error: "Author email must match your logged-in account.",
+      };
+
+      expect(response).toEqual(
+        expect.objectContaining({
+          error: expect.any(String),
+        })
+      );
+    });
+
     it("module list response shape", () => {
       const response = {
         modules: [

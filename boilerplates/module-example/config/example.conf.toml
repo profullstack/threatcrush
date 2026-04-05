@@ -1,0 +1,4 @@
+[example-alert-module]
+enabled = true
+watch_event_types = ["network:connection", "log:auth"]
+severity_threshold = "medium"

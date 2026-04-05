@@ -1,0 +1,21 @@
+[module]
+name = "example-alert-module"
+version = "0.1.0"
+description = "Example ThreatCrush module that reacts to events and emits alerts"
+author = "Your Name"
+license = "MIT"
+homepage = "https://example.com/modules/example-alert-module"
+
+[module.pricing]
+type = "free" # free | paid | freemium
+# price_usd = 9.99
+
+[module.requirements]
+threatcrush = ">=0.1.0"
+os = ["linux"]
+capabilities = []
+
+[module.config.defaults]
+enabled = true
+watch_event_types = ["network:connection", "log:auth"]
+severity_threshold = "medium"

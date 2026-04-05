@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TEST_MODULE } from "@/__tests__/helpers/supabase-mock";
 
-// ─── Supabase mock setup ───
-
 const mockSelect = vi.fn();
 const mockInsert = vi.fn();
 const mockEq = vi.fn();
@@ -11,6 +9,9 @@ const mockOrder = vi.fn();
 const mockRange = vi.fn();
 const mockSingle = vi.fn();
 const mockSelectChain = vi.fn();
+const mockAuthGetUser = vi.fn();
+const mockProfileSingle = vi.fn();
+const mockVersionInsert = vi.fn().mockResolvedValue({ data: null, error: null });
 
 function resetChain(overrides: {
   rangeResult?: { data: unknown; error: unknown; count: number | null };
@@ -29,14 +30,20 @@ function resetChain(overrides: {
   mockSelect.mockReturnValue({ eq: mockEq });
 }
 
-const mockProfileSingle = vi.fn().mockResolvedValue({ data: { id: 'user-1', email: 'test@example.com', email_verified: true }, error: null });
-
 vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
+    auth: {
+      getUser: mockAuthGetUser,
+    },
     from: (table: string) => {
-      if (table === 'user_profiles') {
+      if (table === "user_profiles") {
         return {
           select: () => ({ eq: () => ({ single: mockProfileSingle }) }),
+        };
+      }
+      if (table === "module_versions") {
+        return {
+          insert: mockVersionInsert,
         };
       }
       return {
@@ -62,6 +69,8 @@ describe("GET /api/modules", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetChain();
+    mockAuthGetUser.mockResolvedValue({ data: { user: null } });
+    mockProfileSingle.mockResolvedValue({ data: { id: "user-1", email: "test@example.com", email_verified: true }, error: null });
   });
 
   it("returns module list with defaults", async () => {
@@ -89,7 +98,6 @@ describe("GET /api/modules", () => {
     const req = makeRequest("http://localhost/api/modules?category=security");
     await GET(req);
 
-    // eq is called for published=true and category=security
     expect(mockEq).toHaveBeenCalledWith("category", "security");
   });
 
@@ -97,7 +105,6 @@ describe("GET /api/modules", () => {
     const req = makeRequest("http://localhost/api/modules?page=2&limit=10");
     await GET(req);
 
-    // offset = (2-1)*10 = 10, range(10, 19)
     expect(mockRange).toHaveBeenCalledWith(10, 19);
   });
 
@@ -119,21 +126,37 @@ describe("POST /api/modules", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetChain();
+    mockAuthGetUser.mockResolvedValue({ data: { user: { id: "user-1", email: "test@example.com" } } });
+    mockProfileSingle.mockResolvedValue({ data: { id: "user-1", email: "test@example.com", email_verified: true }, error: null });
   });
 
-  it("creates a module with valid data", async () => {
-    const newModule = { ...TEST_MODULE, id: "mod-new" };
-    // slug check returns no existing, then insert returns new module
-    resetChain({
-      singleResult: { data: null, error: null },
+  it("rejects unauthenticated publish attempts", async () => {
+    mockAuthGetUser.mockResolvedValue({ data: { user: null } });
+
+    const req = makeRequest("http://localhost/api/modules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "test-scanner", author_email: "test@example.com" }),
     });
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(body.error).toContain("logged in");
+  });
+
+  it("creates a module with valid authenticated data", async () => {
+    const newModule = { ...TEST_MODULE, id: "mod-new" };
     mockSingle
       .mockResolvedValueOnce({ data: null, error: null })
       .mockResolvedValueOnce({ data: newModule, error: null });
 
     const req = makeRequest("http://localhost/api/modules", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token-123",
+      },
       body: JSON.stringify({ name: "test-scanner", author_email: "test@example.com" }),
     });
     const res = await POST(req);
@@ -146,7 +169,7 @@ describe("POST /api/modules", () => {
   it("rejects missing name", async () => {
     const req = makeRequest("http://localhost/api/modules", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token-123" },
       body: JSON.stringify({ author_email: "test@example.com" }),
     });
     const res = await POST(req);
@@ -159,7 +182,7 @@ describe("POST /api/modules", () => {
   it("rejects missing author_email", async () => {
     const req = makeRequest("http://localhost/api/modules", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token-123" },
       body: JSON.stringify({ name: "test-scanner" }),
     });
     const res = await POST(req);
@@ -169,14 +192,25 @@ describe("POST /api/modules", () => {
     expect(body.error).toContain("author_email");
   });
 
-  it("rejects duplicate slug", async () => {
-    resetChain({
-      singleResult: { data: { id: "existing-id" }, error: null },
+  it("rejects author email mismatch", async () => {
+    const req = makeRequest("http://localhost/api/modules", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token-123" },
+      body: JSON.stringify({ name: "test-scanner", author_email: "someoneelse@example.com" }),
     });
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toContain("must match your logged-in account");
+  });
+
+  it("rejects duplicate slug", async () => {
+    mockSingle.mockResolvedValueOnce({ data: { id: "existing-id" }, error: null });
 
     const req = makeRequest("http://localhost/api/modules", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token-123" },
       body: JSON.stringify({ name: "test-scanner", author_email: "test@example.com" }),
     });
     const res = await POST(req);
@@ -189,7 +223,7 @@ describe("POST /api/modules", () => {
   it("rejects invalid JSON", async () => {
     const req = makeRequest("http://localhost/api/modules", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token-123" },
       body: "not json",
     });
     const res = await POST(req);
