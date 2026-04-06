@@ -865,7 +865,7 @@ export default function Home() {
               <a href="https://www.npmjs.com/package/@profullstack/threatcrush" target="_blank" rel="noopener noreferrer" className="hover:text-tc-green transition-colors">npm</a>
             </div>
             <p className="text-xs text-tc-text-dim">
-              © {new Date().getFullYear()} ThreatCrush. All rights reserved.
+              © {new Date().getFullYear()} <a href="https://profullstack.com" className="hover:text-tc-green transition-colors">Profullstack, Inc.</a>
             </p>
           </div>
         </div>

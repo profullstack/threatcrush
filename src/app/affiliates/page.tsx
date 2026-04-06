@@ -217,7 +217,7 @@ export default function AffiliatesPage() {
               <a href="https://github.com/profullstack/threatcrush" target="_blank" rel="noopener noreferrer" className="hover:text-[#00ff41] transition-colors">GitHub</a>
             </div>
             <p className="text-xs text-[#666]">
-              © {new Date().getFullYear()} ThreatCrush. All rights reserved.
+              © {new Date().getFullYear()} <a href="https://profullstack.com" className="hover:text-tc-green transition-colors">Profullstack, Inc.</a>
             </p>
           </div>
         </div>

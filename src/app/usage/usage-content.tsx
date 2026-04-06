@@ -396,7 +396,7 @@ export default function UsageContent() {
               <Link href="/#pricing" className="hover:text-tc-green transition-colors">Pricing</Link>
             </div>
             <p className="text-xs text-tc-text-dim">
-              © {new Date().getFullYear()} ThreatCrush. All rights reserved.
+              © {new Date().getFullYear()} <a href="https://profullstack.com" className="hover:text-tc-green transition-colors">Profullstack, Inc.</a>
             </p>
           </div>
         </div>
