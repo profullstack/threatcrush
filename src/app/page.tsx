@@ -490,7 +490,7 @@ export default function Home() {
                   <img
                     src="/images/gallery-cli.png"
                     alt="ThreatCrush CLI"
-                    className="w-full rounded-xl border border-tc-border shadow-2xl shadow-tc-green/5"
+                    className="w-full shadow-2xl shadow-tc-green/5"
                   />
                 </div>
                 <div>
@@ -498,7 +498,7 @@ export default function Home() {
                   <img
                     src="/images/gallery-tui.png"
                     alt="ThreatCrush TUI Dashboard"
-                    className="w-full rounded-xl border border-tc-border shadow-2xl shadow-tc-green/5"
+                    className="w-full shadow-2xl shadow-tc-green/5"
                   />
                 </div>
               </div>
@@ -513,7 +513,7 @@ export default function Home() {
                   <img
                     src="/images/gallery-desktop.png"
                     alt="ThreatCrush Desktop App"
-                    className="w-full rounded-xl border border-tc-border shadow-2xl shadow-tc-green/5"
+                    className="w-full shadow-2xl shadow-tc-green/5"
                   />
                 </div>
               </ScrollReveal>
@@ -526,7 +526,7 @@ export default function Home() {
                     <img
                       src="/images/gallery-mobile.png"
                       alt="ThreatCrush Mobile App"
-                      className="w-full rounded-xl border border-tc-border shadow-2xl shadow-tc-green/5"
+                      className="w-full shadow-2xl shadow-tc-green/5"
                     />
                   </div>
                 </div>
