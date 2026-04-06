@@ -1,8 +1,9 @@
 import Constants from 'expo-constants';
+import pkg from '../package.json';
 
 export const config = {
   apiUrl: Constants.expoConfig?.extra?.apiUrl || 'https://threatcrush.com',
-  appVersion: Constants.expoConfig?.version || '0.1.6',
+  appVersion: Constants.expoConfig?.version || pkg.version,
 };
 
 export const theme = {
