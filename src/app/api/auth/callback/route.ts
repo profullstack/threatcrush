@@ -23,6 +23,8 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const ref = searchParams.get("ref") || "";
+  const nextParam = searchParams.get("next") || "/account";
+  const nextPath = nextParam.startsWith("/") ? nextParam : "/account";
 
   if (!code) {
     return NextResponse.redirect(`${APP_URL}/auth/login?error=no_code`);
@@ -71,6 +73,6 @@ export async function GET(request: NextRequest) {
   const refreshToken = sessionData.session?.refresh_token || "";
 
   return NextResponse.redirect(
-    `${APP_URL}/account#access_token=${accessToken}&refresh_token=${refreshToken}&type=oauth`
+    `${APP_URL}${nextPath}#access_token=${accessToken}&refresh_token=${refreshToken}&type=oauth`
   );
 }

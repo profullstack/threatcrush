@@ -91,6 +91,20 @@ export default function ReleasesDocsPage() {
           </ul>
         </section>
 
+        <section className="mb-12 rounded-2xl border border-tc-border bg-tc-card p-8">
+          <h2 className="text-2xl font-bold text-white">Repo TODO docs</h2>
+          <div className="mt-4 space-y-3 text-sm text-tc-text-dim">
+            <p>
+              Release/setup gaps are also documented directly in the repo under <code className="rounded bg-black/40 px-2 py-1 font-mono text-tc-green">docs/</code> so they do not live only in chat context.
+            </p>
+            <ul className="list-disc space-y-2 pl-6">
+              <li><code className="font-mono text-tc-green">docs/MOBILE_RELEASE_TODO.md</code></li>
+              <li><code className="font-mono text-tc-green">docs/DESKTOP_RELEASE_TODO.md</code></li>
+              <li><code className="font-mono text-tc-green">docs/RELEASE_STATUS.md</code></li>
+            </ul>
+          </div>
+        </section>
+
         <section className="rounded-2xl border border-tc-border bg-tc-card p-8">
           <h2 className="text-2xl font-bold text-white">Recommended release path</h2>
           <div className="mt-4 space-y-3 text-sm text-tc-text-dim">

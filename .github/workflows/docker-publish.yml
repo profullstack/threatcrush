@@ -42,7 +42,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push to GHCR
+        if: env.DOCKER_USERNAME == ''
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/profullstack/threatcrush:latest
+            ghcr.io/profullstack/threatcrush:${{ steps.version.outputs.version }}
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+
+      - name: Build and push to Docker Hub + GHCR
+        if: env.DOCKER_USERNAME != ''
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -53,3 +67,5 @@ jobs:
             profullstack/threatcrush:${{ steps.version.outputs.version }}
             ghcr.io/profullstack/threatcrush:latest
             ghcr.io/profullstack/threatcrush:${{ steps.version.outputs.version }}
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}

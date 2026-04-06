@@ -12,10 +12,11 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const ref = searchParams.get("ref") || "";
+  const next = searchParams.get("next") || "/account";
 
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  const redirectTo = `${APP_URL}/api/auth/callback?ref=${encodeURIComponent(ref)}`;
+  const redirectTo = `${APP_URL}/api/auth/callback?ref=${encodeURIComponent(ref)}&next=${encodeURIComponent(next)}`;
 
   const { data, error } = await sb.auth.signInWithOAuth({
     provider: "github",
