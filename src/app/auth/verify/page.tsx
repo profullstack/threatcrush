@@ -3,17 +3,19 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { authHeaders, getAccessToken } from "@/lib/auth-client";
+import { authHeaders, getAccessToken, setAccessToken } from "@/lib/auth-client";
 
 function VerifyContent() {
   const searchParams = useSearchParams();
-  const emailParam = searchParams.get("email") || "";
-  const phoneParam = searchParams.get("phone") || "";
+  const emailParamQS = searchParams.get("email") || "";
+  const phoneParamQS = searchParams.get("phone") || "";
 
+  const [emailParam, setEmailParam] = useState(emailParamQS);
+  const [phoneParam, setPhoneParam] = useState(phoneParamQS);
   const [emailVerified, setEmailVerified] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [phoneCode, setPhoneCode] = useState("");
-  const [phone, setPhone] = useState(phoneParam);
+  const [phone, setPhone] = useState(phoneParamQS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -21,6 +23,21 @@ function VerifyContent() {
   const [smsSending, setSmsSending] = useState(false);
   const [smsSent, setSmsSent] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
+
+  // Supabase email-confirm redirects back with tokens in the URL hash.
+  // Capture them so this page has a session even when the user arrived
+  // directly from the confirmation email.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.location.hash) return;
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const accessToken = hash.get("access_token");
+    if (accessToken) {
+      setAccessToken(accessToken);
+      // Clean the hash so tokens aren't left in the URL bar.
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+  }, []);
 
   // Check current verification status
   useEffect(() => {
@@ -35,6 +52,12 @@ function VerifyContent() {
           const data = await res.json();
           setEmailVerified(!!data.email_verified);
           setPhoneVerified(!!data.phone_verified);
+          // Fall back to profile values when query string didn't carry them.
+          if (!emailParamQS && data.email) setEmailParam(data.email);
+          if (!phoneParamQS && data.phone) {
+            setPhoneParam(data.phone);
+            setPhone((prev) => prev || data.phone);
+          }
         }
       } catch {
         // Silent fail

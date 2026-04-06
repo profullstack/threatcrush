@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     const admin = getSupabaseAdmin();
     const { data: profile, error } = await admin
       .from("user_profiles")
-      .select("email_verified, phone_verified, license_status")
+      .select("email, phone, email_verified, phone_verified, license_status")
       .eq("id", userId)
       .single();
 
@@ -35,6 +35,8 @@ export async function GET(req: NextRequest) {
     const canPay = profile.email_verified && profile.phone_verified;
 
     return NextResponse.json({
+      email: profile.email,
+      phone: profile.phone,
       email_verified: profile.email_verified,
       phone_verified: profile.phone_verified,
       license_status: profile.license_status,
