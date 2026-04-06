@@ -21,6 +21,17 @@
 <h4 align="center">All-in-one security agent — monitor, detect, scan, and protect servers in real-time.</h4>
 
 <p align="center">
+  <img src="https://threatcrush.com/images/gallery-cli.png" alt="ThreatCrush CLI" width="48%" />
+  <img src="https://threatcrush.com/images/gallery-tui.png" alt="ThreatCrush TUI" width="48%" />
+</p>
+<p align="center">
+  <img src="https://threatcrush.com/images/gallery-desktop.png" alt="ThreatCrush Desktop" width="60%" />
+</p>
+<p align="center">
+  <img src="https://threatcrush.com/images/gallery-mobile.png" alt="ThreatCrush Mobile" width="30%" />
+</p>
+
+<p align="center">
   <a href="https://threatcrush.com">Website</a> •
   <a href="#install">Install</a> •
   <a href="#usage">Usage</a> •
