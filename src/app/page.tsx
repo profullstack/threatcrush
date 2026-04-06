@@ -109,7 +109,7 @@ export default function Home() {
 
       {/* ─── NAV ─── */}
       <nav className="fixed top-0 left-0 right-0 z-40 border-b border-tc-border/50 bg-tc-darker/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-2 sm:px-6">
           <a href="/" className="flex items-center gap-2">
             <img src="/logo.svg" alt="ThreatCrush" width={90} height={40} className="w-[90px] h-10 object-contain" />
             <span className="text-xl font-bold text-tc-green glow-green font-mono">
