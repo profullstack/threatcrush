@@ -313,26 +313,14 @@ export default function Home() {
               </p>
             </ScrollReveal>
 
-            {/* Terminal decoration */}
+            {/* CLI screenshot */}
             <ScrollReveal delay={500}>
-              <div className="mt-16 mx-auto max-w-2xl rounded-xl border border-tc-border bg-tc-card/80 p-4 text-left font-mono text-sm backdrop-blur-sm">
-                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-tc-border">
-                  <span className="w-3 h-3 rounded-full bg-red-500/80" />
-                  <span className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                  <span className="w-3 h-3 rounded-full bg-green-500/80" />
-                  <span className="text-tc-text-dim text-xs ml-2">threatcrush — zsh</span>
-                </div>
-                <div className="space-y-1">
-                  <p><span className="text-tc-text-dim">$</span> <span className="text-tc-green/80">threatcrush monitor</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:41]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">Monitoring all ports · nginx · sshd · postgres</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:42]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">Loaded 1,247 attack signatures</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:45]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">SQLi attempt</span> <span className="text-tc-text-dim">— :443 185.43.21.8 → /api/users?id=1 OR 1=1</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:47]</span> <span className="text-red-400">✗</span> <span className="text-red-400">SSH brute force</span> <span className="text-tc-text-dim">— :22 91.232.105.3 → 47 failed attempts</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:50]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">Port scan</span> <span className="text-tc-text-dim">— 45.33.32.156 scanning :21-:8080 (SYN flood)</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:52]</span> <span className="text-yellow-400">⚠</span> <span className="text-yellow-400">DNS tunneling</span> <span className="text-tc-text-dim">— :53 suspicious TXT queries from 103.44.8.2</span></p>
-                  <p><span className="text-tc-text-dim">[12:03:55]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">Honeypot triggered — logging attacker recon on :2222</span></p>
-                  <p><span className="text-tc-text-dim">[12:04:01]</span> <span className="text-tc-green">✓</span> <span className="text-tc-text-dim">3,891 connections · 4 threats · 1 blocked · 2 tar-pitted</span></p>
-                </div>
+              <div className="mt-16 mx-auto max-w-2xl">
+                <img
+                  src="/images/gallery-cli.png"
+                  alt="ThreatCrush CLI"
+                  className="w-full shadow-2xl shadow-tc-green/5"
+                />
               </div>
             </ScrollReveal>
           </div>
