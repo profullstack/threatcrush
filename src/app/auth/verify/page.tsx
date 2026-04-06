@@ -17,6 +17,9 @@ function VerifyContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [smsCooldown, setSmsCooldown] = useState(0);
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsSent, setSmsSent] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState(true);
 
   // Check current verification status
@@ -45,13 +48,57 @@ function VerifyContent() {
     return () => clearInterval(interval);
   }, []);
 
-  // Resend cooldown timer
+  // Resend cooldown timers
   useEffect(() => {
     if (resendCooldown > 0) {
       const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
       return () => clearTimeout(timer);
     }
   }, [resendCooldown]);
+
+  useEffect(() => {
+    if (smsCooldown > 0) {
+      const timer = setTimeout(() => setSmsCooldown(smsCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [smsCooldown]);
+
+  const handleSendPhoneCode = async (targetPhone?: string) => {
+    const phoneToUse = (targetPhone ?? phone ?? phoneParam).trim();
+    if (!phoneToUse) {
+      setError("Enter a phone number first");
+      return;
+    }
+    if (smsCooldown > 0 || smsSending) return;
+    setSmsSending(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/send-phone-code", {
+        method: "POST",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ phone: phoneToUse }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Could not send SMS");
+        return;
+      }
+      setSmsSent(true);
+      setSmsCooldown(30);
+    } catch {
+      setError("Network error sending SMS");
+    } finally {
+      setSmsSending(false);
+    }
+  };
+
+  // Auto-send the SMS code once on mount if we have a phone from the query string.
+  useEffect(() => {
+    if (phoneParam && !phoneVerified && !smsSent && getAccessToken()) {
+      handleSendPhoneCode(phoneParam);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phoneParam]);
 
   const handleResendEmail = async () => {
     if (resendCooldown > 0) return;
@@ -84,15 +131,12 @@ function VerifyContent() {
       const res = await fetch("/api/auth/verify-phone", {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({
-          phone: phone || phoneParam,
-          code: phoneCode,
-        }),
+        body: JSON.stringify({ code: phoneCode }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error);
+        setError(data.error || "Verification failed");
         return;
       }
 
@@ -175,21 +219,46 @@ function VerifyContent() {
                 {!phoneParam && (
                   <div>
                     <label className="block text-sm text-tc-text-dim mb-1">Phone number</label>
-                    <input
-                      type="tel"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      placeholder="+1 555 123 4567"
-                      className="w-full bg-tc-darker border border-tc-border rounded-lg px-4 py-2.5 text-white placeholder:text-tc-text-dim focus:outline-none focus:border-tc-green/50 transition-colors"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="+1 555 123 4567"
+                        className="min-w-0 flex-1 bg-tc-darker border border-tc-border rounded-lg px-3 py-2.5 text-white placeholder:text-tc-text-dim focus:outline-none focus:border-tc-green/50 transition-colors"
+                      />
+                      <button
+                        onClick={() => handleSendPhoneCode()}
+                        disabled={smsSending || smsCooldown > 0 || !phone.trim()}
+                        className="shrink-0 bg-tc-border text-white font-semibold px-4 py-2.5 rounded-lg hover:bg-tc-border/80 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {smsSending ? "..." : smsCooldown > 0 ? `${smsCooldown}s` : "Send code"}
+                      </button>
+                    </div>
                   </div>
                 )}
                 <p className="text-tc-text-dim text-sm">
-                  Enter the 6-digit code sent to <span className="text-white">{phone || phoneParam || "your phone"}</span>
+                  {smsSent
+                    ? <>Code sent to <span className="text-white">{phone || phoneParam}</span>. Enter it below.</>
+                    : <>We&apos;ll text a 6-digit code to <span className="text-white">{phone || phoneParam || "your phone"}</span>.</>
+                  }
                 </p>
-                <p className="text-yellow-500/80 text-xs">
-                  ⚠️ Beta: Any 6-digit code will work for now
-                </p>
+                {phoneParam && (
+                  <button
+                    type="button"
+                    onClick={() => handleSendPhoneCode()}
+                    disabled={smsSending || smsCooldown > 0}
+                    className="text-sm text-tc-green hover:underline disabled:text-tc-text-dim disabled:no-underline"
+                  >
+                    {smsSending
+                      ? "Sending..."
+                      : smsCooldown > 0
+                      ? `Resend in ${smsCooldown}s`
+                      : smsSent
+                      ? "Resend code"
+                      : "Send code"}
+                  </button>
+                )}
                 <div className="flex gap-2 w-full">
                   <input
                     type="text"

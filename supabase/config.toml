@@ -1,0 +1,60 @@
+project_id = "threatcrush"
+
+[auth]
+enabled = true
+site_url = "https://threatcrush.com"
+additional_redirect_urls = [
+  "https://threatcrush.com",
+  "https://www.threatcrush.com",
+  "https://threatcrush.com/auth/verify",
+  "https://www.threatcrush.com/auth/verify",
+  "https://threatcrush.com/auth/login",
+  "https://www.threatcrush.com/auth/login",
+]
+jwt_expiry = 3600
+enable_signup = true
+enable_anonymous_sign_ins = false
+enable_manual_linking = false
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+secure_password_change = false
+max_frequency = "1s"
+otp_length = 6
+otp_expiry = 3600
+
+[auth.email.template.confirmation]
+subject = "Confirm your ThreatCrush account"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your ThreatCrush password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.invite]
+subject = "You're invited to ThreatCrush"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.magic_link]
+subject = "Your ThreatCrush magic link"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new ThreatCrush email"
+content_path = "./supabase/templates/email_change.html"
+
+# Supabase Auth's built-in SMS is disabled — ThreatCrush sends SMS via Telnyx
+# in its own backend (src/app/api/auth/verify-phone), not through Supabase Auth.
+[auth.sms]
+enable_signup = false
+enable_confirmations = false
+template = "Your code is {{ .Code }}"
+max_frequency = "5s"
+
+[auth.sms.twilio]
+enabled = false
+account_sid = ""
+message_service_sid = ""
+auth_token = ""
