@@ -36,6 +36,10 @@
     "vitest": "^2.1.9"
   },
   "pnpm": {
+    "overrides": {
+      "@types/react": "18.3.12",
+      "@types/react-dom": "18.3.7"
+    },
     "onlyBuiltDependencies": [
       "electron",
       "esbuild"
