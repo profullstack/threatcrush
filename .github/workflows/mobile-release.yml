@@ -60,9 +60,16 @@ jobs:
         run: |
           printf '%s\n' '${{ secrets.ENV_FILE }}' > .env
 
+      - name: Prepare mobile-only install context
+        shell: bash
+        run: |
+          cp pnpm-lock.yaml mobile/pnpm-lock.yaml
+          cp pnpm-workspace.yaml mobile/pnpm-workspace.yaml
+
       - name: Validate Expo app
         working-directory: mobile
         run: |
+          pnpm install --frozen-lockfile
           pnpm exec tsc --noEmit
           pnpm exec expo config --type public
 
