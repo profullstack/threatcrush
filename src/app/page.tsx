@@ -111,7 +111,7 @@ export default function Home() {
       <nav className="fixed top-0 left-0 right-0 z-40 border-b border-tc-border/50 bg-tc-darker/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <a href="/" className="flex items-center gap-2">
-            <img src="/logo.svg" alt="ThreatCrush" className="h-8 w-8" />
+            <img src="/logo.svg" alt="ThreatCrush" width={90} height={40} className="w-[90px] h-10 object-contain" />
             <span className="text-xl font-bold text-tc-green glow-green font-mono">
               ThreatCrush
             </span>
@@ -482,215 +482,52 @@ export default function Home() {
               </div>
             </ScrollReveal>
 
-            {/* CLI / TUI Mock */}
+            {/* CLI / TUI screenshots */}
             <ScrollReveal delay={0}>
-              <div className="mb-16">
-                <h3 className="text-center text-sm font-mono text-tc-green mb-6 tracking-wider">⚡ CLI &amp; TUI Dashboard</h3>
-                <div className="mx-auto max-w-4xl rounded-xl border border-tc-border bg-[#0a0a0a] p-1 shadow-2xl shadow-tc-green/5">
-                  {/* Terminal chrome */}
-                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-tc-border">
-                    <span className="w-3 h-3 rounded-full bg-red-500/80" />
-                    <span className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                    <span className="w-3 h-3 rounded-full bg-green-500/80" />
-                    <span className="text-tc-text-dim text-xs ml-2 font-mono">threatcrush — tui</span>
-                  </div>
-                  {/* TUI content */}
-                  <div className="p-4 font-mono text-xs leading-relaxed">
-                    <div className="grid grid-cols-12 gap-3">
-                      {/* Left sidebar - modules */}
-                      <div className="col-span-3 border-r border-tc-border pr-3">
-                        <p className="text-tc-green font-bold mb-2">┌ MODULES</p>
-                        {[
-                          { name: 'network-mon', on: true },
-                          { name: 'ssh-guard', on: true },
-                          { name: 'log-watcher', on: true },
-                          { name: 'dns-monitor', on: true },
-                          { name: 'code-scanner', on: false },
-                          { name: 'pentest-eng', on: false },
-                          { name: 'firewall', on: true },
-                          { name: 'alert-sys', on: true },
-                        ].map((m) => (
-                          <div key={m.name} className="flex items-center gap-1.5 py-0.5">
-                            <span className={m.on ? 'text-tc-green' : 'text-red-400'}>{m.on ? '●' : '○'}</span>
-                            <span className="text-tc-text-dim">{m.name}</span>
-                          </div>
-                        ))}
-                        <p className="text-tc-text-dim mt-3 text-[10px]">6/8 active</p>
-                      </div>
-                      {/* Center - event stream */}
-                      <div className="col-span-6">
-                        <p className="text-tc-green font-bold mb-2">┌ LIVE EVENTS</p>
-                        {[
-                          { time: '14:23:01', type: 'info', icon: '✓', msg: 'Monitoring 847 connections', color: 'text-tc-green' },
-                          { time: '14:23:05', type: 'warn', icon: '⚠', msg: 'SQLi — :443 185.43.21.8 → /api/users', color: 'text-yellow-400' },
-                          { time: '14:23:07', type: 'crit', icon: '✗', msg: 'SSH brute — :22 91.232.105.3 (47 fails)', color: 'text-red-400' },
-                          { time: '14:23:09', type: 'warn', icon: '⚠', msg: 'Port scan — 45.33.32.156 :21-:8080', color: 'text-yellow-400' },
-                          { time: '14:23:12', type: 'warn', icon: '⚠', msg: 'DNS tunnel — :53 TXT from 103.44.8.2', color: 'text-yellow-400' },
-                          { time: '14:23:15', type: 'info', icon: '✓', msg: 'Tar pit engaged — 91.232.105.3 (slowing)', color: 'text-tc-green' },
-                          { time: '14:23:18', type: 'crit', icon: '✗', msg: 'XSS attempt — :443 /search?q=<script>', color: 'text-red-400' },
-                          { time: '14:23:22', type: 'info', icon: '✓', msg: 'Rate limited 45.33.32.156 (50 req/s)', color: 'text-tc-green' },
-                        ].map((e, i) => (
-                          <div key={i} className="flex gap-2 py-0.5">
-                            <span className="text-tc-text-dim">[{e.time}]</span>
-                            <span className={e.color}>{e.icon}</span>
-                            <span className={e.color === 'text-tc-green' ? 'text-tc-text-dim' : e.color}>{e.msg}</span>
-                          </div>
-                        ))}
-                      </div>
-                      {/* Right panel - threat IPs */}
-                      <div className="col-span-3 border-l border-tc-border pl-3">
-                        <p className="text-tc-green font-bold mb-2">┌ TOP THREATS</p>
-                        {[
-                          { ip: '91.232.105.3', hits: 47, flag: '🇷🇺' },
-                          { ip: '45.33.32.156', hits: 23, flag: '🇨🇳' },
-                          { ip: '185.43.21.8', hits: 12, flag: '🇺🇦' },
-                          { ip: '103.44.8.2', hits: 8, flag: '🇻🇳' },
-                          { ip: '77.88.55.60', hits: 5, flag: '🇷🇺' },
-                        ].map((t) => (
-                          <div key={t.ip} className="flex items-center justify-between py-0.5">
-                            <span className="text-tc-text-dim">{t.flag} {t.ip}</span>
-                            <span className="text-red-400">{t.hits}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    {/* Stats bar */}
-                    <div className="mt-3 pt-2 border-t border-tc-border flex justify-between text-[10px]">
-                      <span className="text-tc-green">▲ 3,891 events</span>
-                      <span className="text-yellow-400">⚠ 12 warnings</span>
-                      <span className="text-red-400">✗ 4 threats</span>
-                      <span className="text-tc-green">✓ 1 blocked</span>
-                      <span className="text-tc-text-dim">● 847 conn/s</span>
-                      <span className="text-tc-text-dim">uptime 14d 6h</span>
-                    </div>
-                  </div>
+              <div className="mb-16 grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                  <h3 className="text-center text-sm font-mono text-tc-green mb-6 tracking-wider">⚡ CLI</h3>
+                  <img
+                    src="/images/gallery-cli.png"
+                    alt="ThreatCrush CLI"
+                    className="w-full rounded-xl border border-tc-border shadow-2xl shadow-tc-green/5"
+                  />
+                </div>
+                <div>
+                  <h3 className="text-center text-sm font-mono text-tc-green mb-6 tracking-wider">▣ TUI Dashboard</h3>
+                  <img
+                    src="/images/gallery-tui.png"
+                    alt="ThreatCrush TUI Dashboard"
+                    className="w-full rounded-xl border border-tc-border shadow-2xl shadow-tc-green/5"
+                  />
                 </div>
               </div>
             </ScrollReveal>
 
             {/* Desktop + Mobile side by side */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-8 items-start">
-              {/* Desktop Mock */}
+              {/* Desktop screenshot */}
               <ScrollReveal delay={100} className="lg:col-span-3">
                 <div>
                   <h3 className="text-center text-sm font-mono text-tc-green mb-6 tracking-wider">🖥️ Desktop App</h3>
-                  <div className="rounded-xl border border-tc-border bg-[#0a0a0a] p-1 shadow-2xl shadow-tc-green/5">
-                    {/* Window chrome */}
-                    <div className="flex items-center gap-2 px-4 py-2 border-b border-tc-border">
-                      <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80" />
-                      <span className="w-2.5 h-2.5 rounded-full bg-green-500/80" />
-                      <span className="text-tc-text-dim text-xs ml-auto font-mono">ThreatCrush</span>
-                    </div>
-                    <div className="p-4">
-                      <div className="flex gap-4">
-                        {/* Sidebar nav */}
-                        <div className="w-36 space-y-1">
-                          {['Dashboard', 'Monitor', 'Modules', 'Settings'].map((item, i) => (
-                            <div key={item} className={`rounded-lg px-3 py-2 text-xs font-mono ${
-                              i === 0 ? 'bg-tc-green/10 border border-tc-green/30 text-tc-green' : 'text-tc-text-dim hover:text-tc-text'
-                            }`}>
-                              {item}
-                            </div>
-                          ))}
-                        </div>
-                        {/* Dashboard content */}
-                        <div className="flex-1 space-y-3">
-                          {/* Stats row */}
-                          <div className="grid grid-cols-4 gap-2">
-                            {[
-                              { label: 'Events', value: '3,891', color: 'text-tc-green' },
-                              { label: 'Threats', value: '4', color: 'text-red-400' },
-                              { label: 'Blocked', value: '1', color: 'text-yellow-400' },
-                              { label: 'Uptime', value: '14d 6h', color: 'text-tc-text-dim' },
-                            ].map((s) => (
-                              <div key={s.label} className="rounded-lg border border-tc-border bg-tc-card/60 p-2 text-center">
-                                <p className={`text-lg font-bold font-mono ${s.color}`}>{s.value}</p>
-                                <p className="text-[10px] text-tc-text-dim">{s.label}</p>
-                              </div>
-                            ))}
-                          </div>
-                          {/* Mini event stream */}
-                          <div className="rounded-lg border border-tc-border bg-tc-card/40 p-2 font-mono text-[10px] space-y-1">
-                            <div className="flex gap-2"><span className="text-tc-text-dim">[14:23:05]</span><span className="text-yellow-400">⚠ SQLi attempt blocked</span></div>
-                            <div className="flex gap-2"><span className="text-tc-text-dim">[14:23:07]</span><span className="text-red-400">✗ SSH brute force detected</span></div>
-                            <div className="flex gap-2"><span className="text-tc-text-dim">[14:23:15]</span><span className="text-tc-green">✓ IP blocked via iptables</span></div>
-                            <div className="flex gap-2"><span className="text-tc-text-dim">[14:23:18]</span><span className="text-red-400">✗ XSS attempt on /search</span></div>
-                          </div>
-                          {/* Module grid */}
-                          <div className="grid grid-cols-3 gap-1.5">
-                            {['network-mon', 'ssh-guard', 'firewall', 'log-watcher', 'dns-monitor', 'alert-sys'].map((m) => (
-                              <div key={m} className="rounded border border-tc-border bg-tc-card/40 px-2 py-1.5 text-[10px] font-mono flex items-center gap-1">
-                                <span className="text-tc-green">●</span>
-                                <span className="text-tc-text-dim">{m}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <img
+                    src="/images/gallery-desktop.png"
+                    alt="ThreatCrush Desktop App"
+                    className="w-full rounded-xl border border-tc-border shadow-2xl shadow-tc-green/5"
+                  />
                 </div>
               </ScrollReveal>
 
-              {/* Mobile Mock */}
+              {/* Mobile screenshot */}
               <ScrollReveal delay={200} className="lg:col-span-2">
                 <div className="flex justify-center">
-                  <div>
+                  <div className="w-full max-w-[320px]">
                     <h3 className="text-center text-sm font-mono text-tc-green mb-6 tracking-wider">📱 Mobile App</h3>
-                    <div className="w-[260px] rounded-[2rem] border-2 border-tc-border bg-[#0a0a0a] p-2 shadow-2xl shadow-tc-green/5">
-                      {/* Phone notch */}
-                      <div className="mx-auto w-24 h-5 bg-black rounded-b-xl mb-2" />
-                      {/* Screen content */}
-                      <div className="rounded-2xl bg-[#0a0a0a] px-3 py-2 space-y-3">
-                        {/* Status bar */}
-                        <div className="flex justify-between text-[9px] text-tc-text-dim font-mono">
-                          <span>14:23</span>
-                          <span className="text-tc-green font-bold">ThreatCrush</span>
-                          <span>●●●●</span>
-                        </div>
-                        {/* Alert banner */}
-                        <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2">
-                          <p className="text-red-400 text-[10px] font-bold">🚨 4 Active Threats</p>
-                          <p className="text-red-400/60 text-[9px]">SSH brute force on :22</p>
-                        </div>
-                        {/* Stats */}
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="rounded-lg border border-tc-border bg-tc-card/40 p-2 text-center">
-                            <p className="text-tc-green font-bold font-mono text-sm">3,891</p>
-                            <p className="text-[9px] text-tc-text-dim">Events</p>
-                          </div>
-                          <div className="rounded-lg border border-tc-border bg-tc-card/40 p-2 text-center">
-                            <p className="text-yellow-400 font-bold font-mono text-sm">847</p>
-                            <p className="text-[9px] text-tc-text-dim">Conn/s</p>
-                          </div>
-                        </div>
-                        {/* Recent events */}
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] text-tc-green font-mono font-bold">Recent</p>
-                          {[
-                            { icon: '⚠', msg: 'SQLi on :443', time: '2m', color: 'text-yellow-400' },
-                            { icon: '✗', msg: 'SSH brute force', time: '4m', color: 'text-red-400' },
-                            { icon: '✓', msg: 'IP blocked', time: '4m', color: 'text-tc-green' },
-                            { icon: '⚠', msg: 'Port scan :21-:8080', time: '7m', color: 'text-yellow-400' },
-                          ].map((e, i) => (
-                            <div key={i} className="flex items-center gap-2 rounded-lg border border-tc-border bg-tc-card/40 px-2 py-1.5">
-                              <span className={`text-xs ${e.color}`}>{e.icon}</span>
-                              <span className="text-[10px] text-tc-text-dim flex-1">{e.msg}</span>
-                              <span className="text-[9px] text-tc-text-dim">{e.time}</span>
-                            </div>
-                          ))}
-                        </div>
-                        {/* Bottom nav */}
-                        <div className="flex justify-around pt-2 border-t border-tc-border">
-                          {['📊', '🔍', '🪢', '⚙️'].map((icon, i) => (
-                            <span key={i} className={`text-sm ${i === 0 ? 'text-tc-green' : 'text-tc-text-dim'}`}>{icon}</span>
-                          ))}
-                        </div>
-                      </div>
-                      {/* Home indicator */}
-                      <div className="mx-auto w-24 h-1 bg-tc-text-dim/30 rounded-full mt-2" />
-                    </div>
+                    <img
+                      src="/images/gallery-mobile.png"
+                      alt="ThreatCrush Mobile App"
+                      className="w-full rounded-xl border border-tc-border shadow-2xl shadow-tc-green/5"
+                    />
                   </div>
                 </div>
               </ScrollReveal>
