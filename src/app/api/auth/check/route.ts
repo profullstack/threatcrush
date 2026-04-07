@@ -7,26 +7,33 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabaseClient();
 
     const token = authHeader?.replace("Bearer ", "");
+    const emailParam = req.nextUrl.searchParams.get("email");
     let userId: string | null = null;
 
     if (token) {
       const { data: { user } } = await supabase.auth.getUser(token);
       userId = user?.id ?? null;
-    } else {
+    } else if (!emailParam) {
       const { data: { session } } = await supabase.auth.getSession();
       userId = session?.user?.id ?? null;
     }
 
-    if (!userId) {
+    const admin = getSupabaseAdmin();
+
+    // Email fallback: when the verify page polls right after signup it has
+    // no Bearer token (signUp() returned no session). Look up by email.
+    let query = admin
+      .from("user_profiles")
+      .select("email, phone, email_verified, phone_verified, license_status");
+    if (userId) {
+      query = query.eq("id", userId);
+    } else if (emailParam) {
+      query = query.eq("email", emailParam.toLowerCase().trim());
+    } else {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const admin = getSupabaseAdmin();
-    const { data: profile, error } = await admin
-      .from("user_profiles")
-      .select("email, phone, email_verified, phone_verified, license_status")
-      .eq("id", userId)
-      .single();
+    const { data: profile, error } = await query.single();
 
     if (error || !profile) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });

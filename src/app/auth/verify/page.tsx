@@ -39,20 +39,25 @@ function VerifyContent() {
     }
   }, []);
 
-  // Check current verification status
+  // Check current verification status. Works with either a Bearer token
+  // (post email-confirm) or an email query param (right after signup).
   useEffect(() => {
     const checkStatus = async () => {
-      if (!getAccessToken()) {
-        setCheckingStatus(false);
-        return;
-      }
       try {
-        const res = await fetch("/api/auth/check", { headers: authHeaders() });
+        const url = getAccessToken()
+          ? "/api/auth/check"
+          : emailParam
+          ? `/api/auth/check?email=${encodeURIComponent(emailParam)}`
+          : null;
+        if (!url) {
+          setCheckingStatus(false);
+          return;
+        }
+        const res = await fetch(url, { headers: authHeaders() });
         if (res.ok) {
           const data = await res.json();
           setEmailVerified(!!data.email_verified);
           setPhoneVerified(!!data.phone_verified);
-          // Fall back to profile values when query string didn't carry them.
           if (!emailParamQS && data.email) setEmailParam(data.email);
           if (!phoneParamQS && data.phone) {
             setPhoneParam(data.phone);
@@ -66,10 +71,9 @@ function VerifyContent() {
     };
 
     checkStatus();
-    // Poll every 5s for email verification
     const interval = setInterval(checkStatus, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [emailParam]);
 
   // Resend cooldown timers
   useEffect(() => {
@@ -99,7 +103,7 @@ function VerifyContent() {
       const res = await fetch("/api/auth/send-phone-code", {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ phone: phoneToUse }),
+        body: JSON.stringify({ phone: phoneToUse, email: emailParam || undefined }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -116,12 +120,15 @@ function VerifyContent() {
   };
 
   // Auto-send the SMS code once on mount if we have a phone from the query string.
+  // Note: signup already fires one SMS server-side, so this is mostly a safety
+  // net for users who land here directly. We rely on the server-side cooldown
+  // to dedupe back-to-back sends.
   useEffect(() => {
-    if (phoneParam && !phoneVerified && !smsSent && getAccessToken()) {
+    if (phoneParam && !phoneVerified && !smsSent && (getAccessToken() || emailParam)) {
       handleSendPhoneCode(phoneParam);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phoneParam]);
+  }, [phoneParam, emailParam]);
 
   const handleResendEmail = async () => {
     if (resendCooldown > 0) return;
@@ -154,7 +161,7 @@ function VerifyContent() {
       const res = await fetch("/api/auth/verify-phone", {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ code: phoneCode }),
+        body: JSON.stringify({ code: phoneCode, email: emailParam || undefined }),
       });
 
       const data = await res.json();

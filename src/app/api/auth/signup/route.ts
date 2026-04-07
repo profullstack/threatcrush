@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import { issuePhoneCode } from "@/lib/phone-verification";
 
 function generateReferralCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
@@ -77,11 +78,29 @@ export async function POST(req: NextRequest) {
 
     // Verification email is sent automatically by auth.signUp above.
 
+    // Send the phone verification SMS server-side immediately. With email
+    // confirmation enabled, auth.signUp() returns no session, so the verify
+    // page has no Bearer token and cannot trigger an SMS itself. Doing it
+    // here guarantees one SMS goes out the moment the account is created.
+    let sms_sent = false;
+    let sms_error: string | null = null;
+    if (phone) {
+      try {
+        await issuePhoneCode({ userId, phone, bypassCooldown: true });
+        sms_sent = true;
+      } catch (err) {
+        sms_error = (err as Error).message || "SMS send failed";
+        console.error("[signup] phone code send failed:", err);
+      }
+    }
+
     return NextResponse.json({
       user: { id: userId, email },
       referral_code: userReferralCode,
       needs_email_verification: true,
       needs_phone_verification: !!phone,
+      sms_sent,
+      sms_error,
     });
   } catch (err) {
     console.error("Signup error:", err);

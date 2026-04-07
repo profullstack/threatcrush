@@ -1,29 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "node:crypto";
-import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { resolveUserId, sha256 } from "@/lib/phone-verification";
 
 const MAX_ATTEMPTS = 5;
 
-function sha256(input: string): string {
-  return createHash("sha256").update(input).digest("hex");
-}
-
 export async function POST(req: NextRequest) {
   try {
-    const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    if (!token) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const anon = getSupabaseClient();
-    const { data: { user } } = await anon.auth.getUser(token);
-    if (!user?.id) {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
-    }
-
-    const { code } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const code: string | undefined = body.code;
+    const email: string | undefined = body.email;
     if (!code || !/^\d{6}$/.test(code)) {
       return NextResponse.json({ error: "Enter the 6-digit code" }, { status: 400 });
+    }
+
+    const token = req.headers.get("authorization")?.replace("Bearer ", "");
+    const userId = await resolveUserId({ bearerToken: token, email });
+    if (!userId) {
+      return NextResponse.json({ error: "Could not identify user" }, { status: 401 });
     }
 
     const admin = getSupabaseAdmin();
@@ -31,7 +24,7 @@ export async function POST(req: NextRequest) {
     const { data: record, error: selectError } = await admin
       .from("phone_verification_codes")
       .select("id, code_hash, expires_at, attempts, phone")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -49,10 +42,7 @@ export async function POST(req: NextRequest) {
 
     if (new Date(record.expires_at).getTime() < Date.now()) {
       await admin.from("phone_verification_codes").delete().eq("id", record.id);
-      return NextResponse.json(
-        { error: "Code expired. Request a new one." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Code expired. Request a new one." }, { status: 400 });
     }
 
     if (record.attempts >= MAX_ATTEMPTS) {
@@ -71,7 +61,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid code" }, { status: 400 });
     }
 
-    // Success — mark verified and delete the code row.
     const { error: updateError } = await admin
       .from("user_profiles")
       .update({
@@ -79,7 +68,7 @@ export async function POST(req: NextRequest) {
         phone_verified: true,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", user.id);
+      .eq("id", userId);
 
     if (updateError) {
       console.error("user_profiles update failed:", updateError);
