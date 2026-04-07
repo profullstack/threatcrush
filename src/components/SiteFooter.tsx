@@ -13,6 +13,8 @@ export default function SiteFooter() {
             <a href="/investors" className="hover:text-tc-green transition-colors">Investors</a>
             <a href="/#faq" className="hover:text-tc-green transition-colors">FAQ</a>
             <a href="/affiliates" className="hover:text-tc-green transition-colors">Affiliates</a>
+            <a href="/terms" className="hover:text-tc-green transition-colors">Terms</a>
+            <a href="/privacy" className="hover:text-tc-green transition-colors">Privacy</a>
             <a
               href="https://github.com/profullstack/threatcrush"
               target="_blank"
