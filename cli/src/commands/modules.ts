@@ -54,6 +54,7 @@ export async function modulesInstallCommand(name: string): Promise<void> {
 
   if (name.startsWith('./') || name.startsWith('/')) {
     console.log(chalk.yellow(`  Local module installation from: ${name}`));
+    console.log(chalk.gray('  → Linking local module...'));
     console.log(chalk.gray('  → This feature is coming soon.'));
   } else {
     console.log(chalk.yellow(`  Installing module: ${chalk.white.bold(name)}`));
@@ -64,4 +65,45 @@ export async function modulesInstallCommand(name: string): Promise<void> {
   }
 
   console.log();
+}
+
+export async function modulesCommand(opts: { action?: string; name?: string }): Promise<void> {
+  const action = opts.action || 'list';
+
+  switch (action) {
+    case 'list':
+    case 'available':
+    case 'ls':
+      await modulesListCommand();
+      break;
+    case 'install':
+    case 'add':
+      if (!opts.name) {
+        banner();
+        console.log(chalk.red('  Module name required.'));
+        console.log(chalk.gray('  Usage: threatcrush modules install <name>\n'));
+        return;
+      }
+      await modulesInstallCommand(opts.name);
+      break;
+    case 'remove':
+    case 'rm':
+    case 'uninstall':
+      if (!opts.name) {
+        banner();
+        console.log(chalk.red('  Module name required.'));
+        console.log(chalk.gray('  Usage: threatcrush modules remove <name>\n'));
+        return;
+      }
+      banner();
+      console.log(chalk.yellow(`  Removing module: ${chalk.white.bold(opts.name)}`));
+      console.log(chalk.gray('  → Module removal is coming soon.\n'));
+      break;
+    default:
+      banner();
+      console.log(chalk.yellow(`  Unknown action: ${action}`));
+      console.log(chalk.gray('  Available actions: list, install, remove\n'));
+      await modulesListCommand();
+      break;
+  }
 }
