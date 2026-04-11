@@ -69,18 +69,13 @@ All commands below currently just prompt for email and say "Coming soon — Thre
 
 ## 🟡 Significant Gaps
 
-### 9. Mobile App — Not Shipped
-- [ ] Run `eas login` (Expo auth not completed).
-- [ ] Create or link Expo project under intended identity (`eas init`).
-- [ ] Configure `EXPO_TOKEN` GitHub secret.
-- [ ] Produce at least one successful preview build in EAS.
-- [ ] Decide on production build + auto-submit path.
-- [ ] Confirm Apple App Store Connect and Google Play setup.
-- [ ] Update site copy once real artifacts exist.
-- [ ] Add mobile release notes to `/docs/releases`.
-- [ ] Replace minimal sanity screen in `mobile/app/index.tsx` with real functionality.
-- [ ] Integrate E2E encryption (`mobile/src/lib/crypto.ts`) into real communication flow (currently described as "stubs").
-- [ ] Replace hardcoded demo data in `mobile/src/stores/events.ts` with real API calls.
+### 9. Mobile App — Skipped for now
+- [ ] EAS login, Expo project setup, `EXPO_TOKEN` GitHub secret
+- [ ] Produce preview build in EAS
+- [ ] Apple App Store Connect and Google Play setup
+- [ ] Replace minimal sanity screen in `mobile/app/index.tsx` with real functionality
+- [ ] Replace hardcoded demo data in `mobile/src/stores/events.ts` with real API calls
+- [ ] Integrate E2E encryption (`mobile/src/lib/crypto.ts`) into real communication flow
 
 ### 10. Browser Extension — Demo Data Only
 - [ ] Replace `checkForEvents()` demo data with real API calls (`extension/src/background/index.js:58-59`).

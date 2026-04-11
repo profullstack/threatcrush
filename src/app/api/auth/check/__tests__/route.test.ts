@@ -56,7 +56,7 @@ function makeRequest(token?: string, searchParams?: Record<string, string>) {
     : "http://localhost/api/auth/check";
   const req = new Request(url, { headers }) as unknown as import("next/server").NextRequest;
   // Next.js adds nextUrl from the URL
-  (req as Record<string, unknown>).nextUrl = new URL(url);
+  (req as unknown as Record<string, unknown>).nextUrl = new URL(url);
   return req;
 }
 
