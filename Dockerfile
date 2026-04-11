@@ -7,6 +7,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY desktop/package.json desktop/
 COPY mobile/package.json mobile/
+COPY extension/package.json extension/
 RUN pnpm install --frozen-lockfile
 
 # --- builder ---

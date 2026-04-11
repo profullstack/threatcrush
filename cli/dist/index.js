@@ -26,9 +26,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/error.js
+// ../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/error.js
 var require_error = __commonJS({
-  "../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/error.js"(exports2) {
+  "../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/error.js"(exports2) {
     "use strict";
     var CommanderError2 = class extends Error {
       /**
@@ -62,9 +62,9 @@ var require_error = __commonJS({
   }
 });
 
-// ../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/argument.js
+// ../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/argument.js
 var require_argument = __commonJS({
-  "../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/argument.js"(exports2) {
+  "../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/argument.js"(exports2) {
     "use strict";
     var { InvalidArgumentError: InvalidArgumentError2 } = require_error();
     var Argument2 = class {
@@ -97,7 +97,7 @@ var require_argument = __commonJS({
             this._name = name;
             break;
         }
-        if (this._name.length > 3 && this._name.slice(-3) === "...") {
+        if (this._name.endsWith("...")) {
           this.variadic = true;
           this._name = this._name.slice(0, -3);
         }
@@ -113,11 +113,12 @@ var require_argument = __commonJS({
       /**
        * @package
        */
-      _concatValue(value, previous) {
+      _collectValue(value, previous) {
         if (previous === this.defaultValue || !Array.isArray(previous)) {
           return [value];
         }
-        return previous.concat(value);
+        previous.push(value);
+        return previous;
       }
       /**
        * Set the default value, and optionally supply the description to be displayed in the help.
@@ -156,7 +157,7 @@ var require_argument = __commonJS({
             );
           }
           if (this.variadic) {
-            return this._concatValue(arg, previous);
+            return this._collectValue(arg, previous);
           }
           return arg;
         };
@@ -190,9 +191,9 @@ var require_argument = __commonJS({
   }
 });
 
-// ../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/help.js
+// ../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/help.js
 var require_help = __commonJS({
-  "../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/help.js"(exports2) {
+  "../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/help.js"(exports2) {
     "use strict";
     var { humanReadableArgName } = require_argument();
     var Help2 = class {
@@ -470,7 +471,11 @@ var require_help = __commonJS({
           extraInfo.push(`env: ${option.envVar}`);
         }
         if (extraInfo.length > 0) {
-          return `${option.description} (${extraInfo.join(", ")})`;
+          const extraDescription = `(${extraInfo.join(", ")})`;
+          if (option.description) {
+            return `${option.description} ${extraDescription}`;
+          }
+          return extraDescription;
         }
         return option.description;
       }
@@ -501,6 +506,41 @@ var require_help = __commonJS({
           return extraDescription;
         }
         return argument.description;
+      }
+      /**
+       * Format a list of items, given a heading and an array of formatted items.
+       *
+       * @param {string} heading
+       * @param {string[]} items
+       * @param {Help} helper
+       * @returns string[]
+       */
+      formatItemList(heading, items, helper) {
+        if (items.length === 0) return [];
+        return [helper.styleTitle(heading), ...items, ""];
+      }
+      /**
+       * Group items by their help group heading.
+       *
+       * @param {Command[] | Option[]} unsortedItems
+       * @param {Command[] | Option[]} visibleItems
+       * @param {Function} getGroup
+       * @returns {Map<string, Command[] | Option[]>}
+       */
+      groupItems(unsortedItems, visibleItems, getGroup) {
+        const result = /* @__PURE__ */ new Map();
+        unsortedItems.forEach((item) => {
+          const group = getGroup(item);
+          if (!result.has(group)) result.set(group, []);
+        });
+        visibleItems.forEach((item) => {
+          const group = getGroup(item);
+          if (!result.has(group)) {
+            result.set(group, []);
+          }
+          result.get(group).push(item);
+        });
+        return result;
       }
       /**
        * Generate the built-in help text.
@@ -535,26 +575,23 @@ var require_help = __commonJS({
             helper.styleArgumentDescription(helper.argumentDescription(argument))
           );
         });
-        if (argumentList.length > 0) {
-          output = output.concat([
-            helper.styleTitle("Arguments:"),
-            ...argumentList,
-            ""
-          ]);
-        }
-        const optionList = helper.visibleOptions(cmd).map((option) => {
-          return callFormatItem(
-            helper.styleOptionTerm(helper.optionTerm(option)),
-            helper.styleOptionDescription(helper.optionDescription(option))
-          );
+        output = output.concat(
+          this.formatItemList("Arguments:", argumentList, helper)
+        );
+        const optionGroups = this.groupItems(
+          cmd.options,
+          helper.visibleOptions(cmd),
+          (option) => option.helpGroupHeading ?? "Options:"
+        );
+        optionGroups.forEach((options, group) => {
+          const optionList = options.map((option) => {
+            return callFormatItem(
+              helper.styleOptionTerm(helper.optionTerm(option)),
+              helper.styleOptionDescription(helper.optionDescription(option))
+            );
+          });
+          output = output.concat(this.formatItemList(group, optionList, helper));
         });
-        if (optionList.length > 0) {
-          output = output.concat([
-            helper.styleTitle("Options:"),
-            ...optionList,
-            ""
-          ]);
-        }
         if (helper.showGlobalOptions) {
           const globalOptionList = helper.visibleGlobalOptions(cmd).map((option) => {
             return callFormatItem(
@@ -562,27 +599,24 @@ var require_help = __commonJS({
               helper.styleOptionDescription(helper.optionDescription(option))
             );
           });
-          if (globalOptionList.length > 0) {
-            output = output.concat([
-              helper.styleTitle("Global Options:"),
-              ...globalOptionList,
-              ""
-            ]);
-          }
-        }
-        const commandList = helper.visibleCommands(cmd).map((cmd2) => {
-          return callFormatItem(
-            helper.styleSubcommandTerm(helper.subcommandTerm(cmd2)),
-            helper.styleSubcommandDescription(helper.subcommandDescription(cmd2))
+          output = output.concat(
+            this.formatItemList("Global Options:", globalOptionList, helper)
           );
-        });
-        if (commandList.length > 0) {
-          output = output.concat([
-            helper.styleTitle("Commands:"),
-            ...commandList,
-            ""
-          ]);
         }
+        const commandGroups = this.groupItems(
+          cmd.commands,
+          helper.visibleCommands(cmd),
+          (sub) => sub.helpGroup() || "Commands:"
+        );
+        commandGroups.forEach((commands, group) => {
+          const commandList = commands.map((sub) => {
+            return callFormatItem(
+              helper.styleSubcommandTerm(helper.subcommandTerm(sub)),
+              helper.styleSubcommandDescription(helper.subcommandDescription(sub))
+            );
+          });
+          output = output.concat(this.formatItemList(group, commandList, helper));
+        });
         return output.join("\n");
       }
       /**
@@ -760,9 +794,9 @@ ${itemIndentStr}`);
   }
 });
 
-// ../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/option.js
+// ../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/option.js
 var require_option = __commonJS({
-  "../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/option.js"(exports2) {
+  "../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/option.js"(exports2) {
     "use strict";
     var { InvalidArgumentError: InvalidArgumentError2 } = require_error();
     var Option2 = class {
@@ -795,6 +829,7 @@ var require_option = __commonJS({
         this.argChoices = void 0;
         this.conflictsWith = [];
         this.implied = void 0;
+        this.helpGroupHeading = void 0;
       }
       /**
        * Set the default value, and optionally supply the description to be displayed in the help.
@@ -905,11 +940,12 @@ var require_option = __commonJS({
       /**
        * @package
        */
-      _concatValue(value, previous) {
+      _collectValue(value, previous) {
         if (previous === this.defaultValue || !Array.isArray(previous)) {
           return [value];
         }
-        return previous.concat(value);
+        previous.push(value);
+        return previous;
       }
       /**
        * Only allow option value to be one of choices.
@@ -926,7 +962,7 @@ var require_option = __commonJS({
             );
           }
           if (this.variadic) {
-            return this._concatValue(arg, previous);
+            return this._collectValue(arg, previous);
           }
           return arg;
         };
@@ -954,6 +990,16 @@ var require_option = __commonJS({
           return camelcase(this.name().replace(/^no-/, ""));
         }
         return camelcase(this.name());
+      }
+      /**
+       * Set the help group heading.
+       *
+       * @param {string} heading
+       * @return {Option}
+       */
+      helpGroup(heading) {
+        this.helpGroupHeading = heading;
+        return this;
       }
       /**
        * Check if `arg` matches the short or long flag.
@@ -1062,9 +1108,9 @@ var require_option = __commonJS({
   }
 });
 
-// ../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/suggestSimilar.js
+// ../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/suggestSimilar.js
 var require_suggestSimilar = __commonJS({
-  "../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/suggestSimilar.js"(exports2) {
+  "../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/suggestSimilar.js"(exports2) {
     "use strict";
     var maxDistance = 3;
     function editDistance(a, b) {
@@ -1143,9 +1189,9 @@ var require_suggestSimilar = __commonJS({
   }
 });
 
-// ../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/command.js
+// ../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/command.js
 var require_command = __commonJS({
-  "../node_modules/.pnpm/commander@13.1.0/node_modules/commander/lib/command.js"(exports2) {
+  "../node_modules/.pnpm/commander@14.0.3/node_modules/commander/lib/command.js"(exports2) {
     "use strict";
     var EventEmitter = require("events").EventEmitter;
     var childProcess = require("child_process");
@@ -1212,6 +1258,9 @@ var require_command = __commonJS({
         this._addImplicitHelpCommand = void 0;
         this._helpCommand = void 0;
         this._helpConfiguration = {};
+        this._helpGroupHeading = void 0;
+        this._defaultCommandGroup = void 0;
+        this._defaultOptionGroup = void 0;
       }
       /**
        * Copy settings that are useful to have in common across root command and subcommands.
@@ -1351,7 +1400,10 @@ var require_command = __commonJS({
        */
       configureOutput(configuration) {
         if (configuration === void 0) return this._outputConfiguration;
-        Object.assign(this._outputConfiguration, configuration);
+        this._outputConfiguration = {
+          ...this._outputConfiguration,
+          ...configuration
+        };
         return this;
       }
       /**
@@ -1422,16 +1474,16 @@ var require_command = __commonJS({
        *
        * @param {string} name
        * @param {string} [description]
-       * @param {(Function|*)} [fn] - custom argument processing function
+       * @param {(Function|*)} [parseArg] - custom argument processing function or default value
        * @param {*} [defaultValue]
        * @return {Command} `this` command for chaining
        */
-      argument(name, description, fn, defaultValue) {
+      argument(name, description, parseArg, defaultValue) {
         const argument = this.createArgument(name, description);
-        if (typeof fn === "function") {
-          argument.default(defaultValue).argParser(fn);
+        if (typeof parseArg === "function") {
+          argument.default(defaultValue).argParser(parseArg);
         } else {
-          argument.default(fn);
+          argument.default(parseArg);
         }
         this.addArgument(argument);
         return this;
@@ -1461,7 +1513,7 @@ var require_command = __commonJS({
        */
       addArgument(argument) {
         const previousArgument = this.registeredArguments.slice(-1)[0];
-        if (previousArgument && previousArgument.variadic) {
+        if (previousArgument?.variadic) {
           throw new Error(
             `only the last argument can be variadic '${previousArgument.name()}'`
           );
@@ -1490,10 +1542,13 @@ var require_command = __commonJS({
       helpCommand(enableOrNameAndArgs, description) {
         if (typeof enableOrNameAndArgs === "boolean") {
           this._addImplicitHelpCommand = enableOrNameAndArgs;
+          if (enableOrNameAndArgs && this._defaultCommandGroup) {
+            this._initCommandGroup(this._getHelpCommand());
+          }
           return this;
         }
-        enableOrNameAndArgs = enableOrNameAndArgs ?? "help [command]";
-        const [, helpName, helpArgs] = enableOrNameAndArgs.match(/([^ ]+) *(.*)/);
+        const nameAndArgs = enableOrNameAndArgs ?? "help [command]";
+        const [, helpName, helpArgs] = nameAndArgs.match(/([^ ]+) *(.*)/);
         const helpDescription = description ?? "display help for command";
         const helpCommand = this.createCommand(helpName);
         helpCommand.helpOption(false);
@@ -1501,6 +1556,7 @@ var require_command = __commonJS({
         if (helpDescription) helpCommand.description(helpDescription);
         this._addImplicitHelpCommand = true;
         this._helpCommand = helpCommand;
+        if (enableOrNameAndArgs || description) this._initCommandGroup(helpCommand);
         return this;
       }
       /**
@@ -1517,6 +1573,7 @@ var require_command = __commonJS({
         }
         this._addImplicitHelpCommand = true;
         this._helpCommand = helpCommand;
+        this._initCommandGroup(helpCommand);
         return this;
       }
       /**
@@ -1665,6 +1722,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
           throw new Error(`Cannot add option '${option.flags}'${this._name && ` to command '${this._name}'`} due to conflicting flag '${matchingFlag}'
 -  already used by option '${matchingOption.flags}'`);
         }
+        this._initOptionGroup(option);
         this.options.push(option);
       }
       /**
@@ -1688,6 +1746,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
             `cannot add command '${newCmd}' as already have command '${existingCmd}'`
           );
         }
+        this._initCommandGroup(command);
         this.commands.push(command);
       }
       /**
@@ -1720,7 +1779,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
           if (val !== null && option.parseArg) {
             val = this._callParseArg(option, val, oldValue, invalidValueMessage);
           } else if (val !== null && option.variadic) {
-            val = option._concatValue(val, oldValue);
+            val = option._collectValue(val, oldValue);
           }
           if (val == null) {
             if (option.negate) {
@@ -2372,7 +2431,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
        * @private
        */
       _chainOrCall(promise, fn) {
-        if (promise && promise.then && typeof promise.then === "function") {
+        if (promise?.then && typeof promise.then === "function") {
           return promise.then(() => fn());
         }
         return fn();
@@ -2477,7 +2536,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
           promiseChain = this._chainOrCallHooks(promiseChain, "postAction");
           return promiseChain;
         }
-        if (this.parent && this.parent.listenerCount(commandEvent)) {
+        if (this.parent?.listenerCount(commandEvent)) {
           checkForUnknownOptions();
           this._processArguments();
           this.parent.emit(commandEvent, operands, unknown);
@@ -2588,26 +2647,34 @@ Expecting one of '${allowedValues.join("', '")}'`);
        *     sub --unknown uuu op => [sub], [--unknown uuu op]
        *     sub -- --unknown uuu op => [sub --unknown uuu op], []
        *
-       * @param {string[]} argv
+       * @param {string[]} args
        * @return {{operands: string[], unknown: string[]}}
        */
-      parseOptions(argv) {
+      parseOptions(args) {
         const operands = [];
         const unknown = [];
         let dest = operands;
-        const args = argv.slice();
         function maybeOption(arg) {
           return arg.length > 1 && arg[0] === "-";
         }
+        const negativeNumberArg = (arg) => {
+          if (!/^-(\d+|\d*\.\d+)(e[+-]?\d+)?$/.test(arg)) return false;
+          return !this._getCommandAndAncestors().some(
+            (cmd) => cmd.options.map((opt) => opt.short).some((short) => /^-\d$/.test(short))
+          );
+        };
         let activeVariadicOption = null;
-        while (args.length) {
-          const arg = args.shift();
+        let activeGroup = null;
+        let i = 0;
+        while (i < args.length || activeGroup) {
+          const arg = activeGroup ?? args[i++];
+          activeGroup = null;
           if (arg === "--") {
             if (dest === unknown) dest.push(arg);
-            dest.push(...args);
+            dest.push(...args.slice(i));
             break;
           }
-          if (activeVariadicOption && !maybeOption(arg)) {
+          if (activeVariadicOption && (!maybeOption(arg) || negativeNumberArg(arg))) {
             this.emit(`option:${activeVariadicOption.name()}`, arg);
             continue;
           }
@@ -2616,13 +2683,13 @@ Expecting one of '${allowedValues.join("', '")}'`);
             const option = this._findOption(arg);
             if (option) {
               if (option.required) {
-                const value = args.shift();
+                const value = args[i++];
                 if (value === void 0) this.optionMissingArgument(option);
                 this.emit(`option:${option.name()}`, value);
               } else if (option.optional) {
                 let value = null;
-                if (args.length > 0 && !maybeOption(args[0])) {
-                  value = args.shift();
+                if (i < args.length && (!maybeOption(args[i]) || negativeNumberArg(args[i]))) {
+                  value = args[i++];
                 }
                 this.emit(`option:${option.name()}`, value);
               } else {
@@ -2639,7 +2706,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
                 this.emit(`option:${option.name()}`, arg.slice(2));
               } else {
                 this.emit(`option:${option.name()}`);
-                args.unshift(`-${arg.slice(2)}`);
+                activeGroup = `-${arg.slice(2)}`;
               }
               continue;
             }
@@ -2652,27 +2719,24 @@ Expecting one of '${allowedValues.join("', '")}'`);
               continue;
             }
           }
-          if (maybeOption(arg)) {
+          if (dest === operands && maybeOption(arg) && !(this.commands.length === 0 && negativeNumberArg(arg))) {
             dest = unknown;
           }
           if ((this._enablePositionalOptions || this._passThroughOptions) && operands.length === 0 && unknown.length === 0) {
             if (this._findCommand(arg)) {
               operands.push(arg);
-              if (args.length > 0) unknown.push(...args);
+              unknown.push(...args.slice(i));
               break;
             } else if (this._getHelpCommand() && arg === this._getHelpCommand().name()) {
-              operands.push(arg);
-              if (args.length > 0) operands.push(...args);
+              operands.push(arg, ...args.slice(i));
               break;
             } else if (this._defaultCommandName) {
-              unknown.push(arg);
-              if (args.length > 0) unknown.push(...args);
+              unknown.push(arg, ...args.slice(i));
               break;
             }
           }
           if (this._passThroughOptions) {
-            dest.push(arg);
-            if (args.length > 0) dest.push(...args);
+            dest.push(arg, ...args.slice(i));
             break;
           }
           dest.push(arg);
@@ -3025,6 +3089,69 @@ Expecting one of '${allowedValues.join("', '")}'`);
         return this;
       }
       /**
+       * Set/get the help group heading for this subcommand in parent command's help.
+       *
+       * @param {string} [heading]
+       * @return {Command | string}
+       */
+      helpGroup(heading) {
+        if (heading === void 0) return this._helpGroupHeading ?? "";
+        this._helpGroupHeading = heading;
+        return this;
+      }
+      /**
+       * Set/get the default help group heading for subcommands added to this command.
+       * (This does not override a group set directly on the subcommand using .helpGroup().)
+       *
+       * @example
+       * program.commandsGroup('Development Commands:);
+       * program.command('watch')...
+       * program.command('lint')...
+       * ...
+       *
+       * @param {string} [heading]
+       * @returns {Command | string}
+       */
+      commandsGroup(heading) {
+        if (heading === void 0) return this._defaultCommandGroup ?? "";
+        this._defaultCommandGroup = heading;
+        return this;
+      }
+      /**
+       * Set/get the default help group heading for options added to this command.
+       * (This does not override a group set directly on the option using .helpGroup().)
+       *
+       * @example
+       * program
+       *   .optionsGroup('Development Options:')
+       *   .option('-d, --debug', 'output extra debugging')
+       *   .option('-p, --profile', 'output profiling information')
+       *
+       * @param {string} [heading]
+       * @returns {Command | string}
+       */
+      optionsGroup(heading) {
+        if (heading === void 0) return this._defaultOptionGroup ?? "";
+        this._defaultOptionGroup = heading;
+        return this;
+      }
+      /**
+       * @param {Option} option
+       * @private
+       */
+      _initOptionGroup(option) {
+        if (this._defaultOptionGroup && !option.helpGroupHeading)
+          option.helpGroup(this._defaultOptionGroup);
+      }
+      /**
+       * @param {Command} cmd
+       * @private
+       */
+      _initCommandGroup(cmd) {
+        if (this._defaultCommandGroup && !cmd.helpGroup())
+          cmd.helpGroup(this._defaultCommandGroup);
+      }
+      /**
        * Set the name of the command from script filename, such as process.argv[1],
        * or require.main.filename, or __filename.
        *
@@ -3158,15 +3285,20 @@ Expecting one of '${allowedValues.join("', '")}'`);
       helpOption(flags, description) {
         if (typeof flags === "boolean") {
           if (flags) {
-            this._helpOption = this._helpOption ?? void 0;
+            if (this._helpOption === null) this._helpOption = void 0;
+            if (this._defaultOptionGroup) {
+              this._initOptionGroup(this._getHelpOption());
+            }
           } else {
             this._helpOption = null;
           }
           return this;
         }
-        flags = flags ?? "-h, --help";
-        description = description ?? "display help for command";
-        this._helpOption = this.createOption(flags, description);
+        this._helpOption = this.createOption(
+          flags ?? "-h, --help",
+          description ?? "display help for command"
+        );
+        if (flags || description) this._initOptionGroup(this._helpOption);
         return this;
       }
       /**
@@ -3191,6 +3323,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
        */
       addHelpOption(option) {
         this._helpOption = option;
+        this._initOptionGroup(option);
         return this;
       }
       /**
@@ -3303,9 +3436,9 @@ Expecting one of '${allowedValues.join("', '")}'`);
   }
 });
 
-// ../node_modules/.pnpm/commander@13.1.0/node_modules/commander/index.js
+// ../node_modules/.pnpm/commander@14.0.3/node_modules/commander/index.js
 var require_commander = __commonJS({
-  "../node_modules/.pnpm/commander@13.1.0/node_modules/commander/index.js"(exports2) {
+  "../node_modules/.pnpm/commander@14.0.3/node_modules/commander/index.js"(exports2) {
     "use strict";
     var { Argument: Argument2 } = require_argument();
     var { Command: Command2 } = require_command();
@@ -3326,7 +3459,7 @@ var require_commander = __commonJS({
   }
 });
 
-// ../node_modules/.pnpm/commander@13.1.0/node_modules/commander/esm.mjs
+// ../node_modules/.pnpm/commander@14.0.3/node_modules/commander/esm.mjs
 var import_index = __toESM(require_commander(), 1);
 var {
   program,
@@ -3861,6 +3994,8 @@ ${source_default.dim("                    C R U S H")}
 `;
 var API_URL = process.env.THREATCRUSH_API_URL || "https://threatcrush.com";
 var PKG_NAME = "@profullstack/threatcrush";
+var DESKTOP_PKG_NAME = "@profullstack/threatcrush-desktop";
+var INSTALL_CONFIG_PATH = (0, import_node_path.join)((0, import_node_os2.homedir)(), ".threatcrush", "install.json");
 async function promptEmail() {
   const rl = import_readline.default.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
@@ -3929,6 +4064,55 @@ function detectPackageManager() {
   }
   return "npm";
 }
+function readInstallConfig() {
+  try {
+    return JSON.parse((0, import_node_fs.readFileSync)(INSTALL_CONFIG_PATH, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+function getGlobalInstallCommand(pm, pkgName, action) {
+  const commands = {
+    npm: {
+      install: `npm i -g ${pkgName}`,
+      update: `npm update -g ${pkgName}`,
+      remove: `npm uninstall -g ${pkgName}`
+    },
+    pnpm: {
+      install: `pnpm add -g ${pkgName}`,
+      update: `pnpm update -g ${pkgName}`,
+      remove: `pnpm remove -g ${pkgName}`
+    },
+    yarn: {
+      install: `yarn global add ${pkgName}`,
+      update: `yarn global upgrade ${pkgName}`,
+      remove: `yarn global remove ${pkgName}`
+    },
+    bun: {
+      install: `bun add -g ${pkgName}`,
+      update: `bun update -g ${pkgName}`,
+      remove: `bun remove -g ${pkgName}`
+    }
+  };
+  return commands[pm]?.[action] || commands.npm[action];
+}
+function packageLooksInstalled(pm, pkgName) {
+  try {
+    const listCommands = {
+      npm: `npm ls -g ${pkgName} --depth=0`,
+      pnpm: `pnpm list -g ${pkgName} --depth=0`,
+      yarn: `yarn global list --pattern ${pkgName}`,
+      bun: `bun pm ls -g`
+    };
+    const output = (0, import_node_child_process.execSync)(listCommands[pm] || listCommands.npm, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    return output.includes(pkgName);
+  } catch {
+    return false;
+  }
+}
 var program2 = new Command();
 program2.name("threatcrush").description(
   `${source_default.green("\u26A1 ThreatCrush")} \u2014 All-in-one security agent
@@ -3984,46 +4168,43 @@ gatedCommand("start", "Start the ThreatCrush daemon");
 gatedCommand("stop", "Stop the ThreatCrush daemon");
 gatedCommand("logs", "Tail daemon logs");
 gatedCommand("activate", "Activate your license key");
-program2.command("update").description("Update ThreatCrush CLI and all installed modules").option("--cli", "Update CLI only").option("--modules", "Update modules only").action(async (opts) => {
+program2.command("update").description("Update ThreatCrush CLI and installed bundle").option("--cli", "Update CLI only").option("--modules", "Update modules only").option("--desktop", "Update desktop app too").action(async (opts) => {
   console.log(LOGO);
   if (opts.modules) {
     console.log(source_default.yellow("  Module updates coming soon.\n"));
     return;
   }
   const pm = detectPackageManager();
-  console.log(source_default.dim(`  Detected package manager: ${pm}
+  const installConfig = readInstallConfig();
+  const installMode = opts.cli ? "server" : opts.desktop ? "desktop" : installConfig.installMode || "server";
+  console.log(source_default.dim(`  Detected package manager: ${pm}`));
+  console.log(source_default.dim(`  Install mode: ${installMode}
 `));
-  const commands = {
-    npm: `npm update -g ${PKG_NAME}`,
-    pnpm: `pnpm update -g ${PKG_NAME}`,
-    yarn: `yarn global upgrade ${PKG_NAME}`,
-    bun: `bun update -g ${PKG_NAME}`
-  };
-  const cmd = commands[pm] || commands.npm;
-  console.log(source_default.green(`  \u2192 ${cmd}
-`));
+  const commands = [getGlobalInstallCommand(pm, PKG_NAME, "update")];
+  if (installMode === "desktop") {
+    commands.push(getGlobalInstallCommand(pm, DESKTOP_PKG_NAME, "update"));
+  }
   try {
-    (0, import_node_child_process.execSync)(cmd, { stdio: "inherit" });
-    console.log(source_default.green("\n  \u2713 ThreatCrush updated successfully!\n"));
-    try {
-      const newVersion = (0, import_node_child_process.execSync)(`${pm === "npm" ? "npm" : pm} list -g ${PKG_NAME} --depth=0`, {
-        encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"]
-      });
-      const match = newVersion.match(/@[\d.]+/);
-      if (match) {
-        console.log(source_default.dim(`  Version: ${match[0]}
+    for (const cmd of commands) {
+      console.log(source_default.green(`  \u2192 ${cmd}
 `));
-      }
-    } catch {
+      (0, import_node_child_process.execSync)(cmd, { stdio: "inherit" });
+    }
+    console.log(source_default.green("\n  \u2713 ThreatCrush updated successfully!\n"));
+    if (installMode === "desktop") {
+      console.log(source_default.dim("  Updated bundle: CLI + desktop app\n"));
+    } else {
+      console.log(source_default.dim("  Updated bundle: CLI only\n"));
     }
   } catch (err) {
     console.log(source_default.red("\n  \u2717 Update failed. Try manually:\n"));
-    console.log(source_default.dim(`    ${cmd}
-`));
+    for (const cmd of commands) {
+      console.log(source_default.dim(`    ${cmd}`));
+    }
+    console.log();
   }
 });
-program2.command("remove").description("Uninstall ThreatCrush CLI completely").alias("uninstall").action(async () => {
+program2.command("remove").description("Uninstall ThreatCrush and the installed bundle").alias("uninstall").action(async () => {
   console.log(LOGO);
   const rl = import_readline.default.createInterface({ input: process.stdin, output: process.stdout });
   const confirm = await new Promise((resolve) => {
@@ -4037,29 +4218,35 @@ program2.command("remove").description("Uninstall ThreatCrush CLI completely").a
     return;
   }
   const pm = detectPackageManager();
+  const installConfig = readInstallConfig();
+  const installMode = installConfig.installMode || "server";
+  const commands = [getGlobalInstallCommand(pm, PKG_NAME, "remove")];
+  if (installMode === "desktop" && packageLooksInstalled(pm, DESKTOP_PKG_NAME)) {
+    commands.push(getGlobalInstallCommand(pm, DESKTOP_PKG_NAME, "remove"));
+  }
   console.log(source_default.dim(`
-  Detected package manager: ${pm}
-`));
-  const commands = {
-    npm: `npm uninstall -g ${PKG_NAME}`,
-    pnpm: `pnpm remove -g ${PKG_NAME}`,
-    yarn: `yarn global remove ${PKG_NAME}`,
-    bun: `bun remove -g ${PKG_NAME}`
-  };
-  const cmd = commands[pm] || commands.npm;
-  console.log(source_default.green(`  \u2192 ${cmd}
+  Detected package manager: ${pm}`));
+  console.log(source_default.dim(`  Install mode: ${installMode}
 `));
   try {
-    (0, import_node_child_process.execSync)(cmd, { stdio: "inherit" });
+    for (const cmd of commands) {
+      console.log(source_default.green(`  \u2192 ${cmd}
+`));
+      (0, import_node_child_process.execSync)(cmd, { stdio: "inherit" });
+    }
     console.log(source_default.green("\n  \u2713 ThreatCrush has been uninstalled.\n"));
     console.log(source_default.dim("  We're sorry to see you go! \u{1F44B}\n"));
     console.log(source_default.dim("  Config files may remain at /etc/threatcrush/"));
     console.log(source_default.dim("  Logs may remain at /var/log/threatcrush/"));
-    console.log(source_default.dim("  State may remain at /var/lib/threatcrush/\n"));
+    console.log(source_default.dim("  State may remain at /var/lib/threatcrush/"));
+    console.log(source_default.dim(`  Local install metadata may remain at ${INSTALL_CONFIG_PATH}
+`));
   } catch (err) {
     console.log(source_default.red("\n  \u2717 Uninstall failed. Try manually:\n"));
-    console.log(source_default.dim(`    ${cmd}
-`));
+    for (const cmd of commands) {
+      console.log(source_default.dim(`    ${cmd}`));
+    }
+    console.log();
   }
 });
 program2.command("modules").description("Manage security modules").argument("[action]", "list | install | remove | available | update").argument("[name]", "module name").action(async () => {
