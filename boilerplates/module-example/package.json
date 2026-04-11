@@ -10,6 +10,9 @@
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist"
   },
+  "dependencies": {
+    "@threatcrush/sdk": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.9.3"
   }

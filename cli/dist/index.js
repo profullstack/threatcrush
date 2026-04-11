@@ -6369,9 +6369,9 @@ var source_default = chalk;
 
 // src/index.ts
 var import_readline = __toESM(require("readline"));
-var import_node_child_process2 = require("child_process");
-var import_node_fs6 = require("fs");
-var import_node_path4 = require("path");
+var import_node_child_process3 = require("child_process");
+var import_node_fs7 = require("fs");
+var import_node_path5 = require("path");
 var import_node_os2 = require("os");
 
 // src/commands/monitor.ts
@@ -10110,8 +10110,8 @@ async function statusCommand() {
 }
 function checkDaemon() {
   try {
-    const { execSync: execSync3 } = await_import_child_process();
-    execSync3("pgrep -f threatcrushd", { stdio: "pipe" });
+    const { execSync: execSync4 } = await_import_child_process();
+    execSync4("pgrep -f threatcrushd", { stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -10122,6 +10122,10 @@ function await_import_child_process() {
 }
 
 // src/commands/modules.ts
+var import_node_child_process2 = require("child_process");
+var import_node_fs6 = require("fs");
+var import_node_path4 = require("path");
+var API_URL = process.env.THREATCRUSH_API_URL || "https://threatcrush.com";
 async function modulesListCommand() {
   banner();
   const modules = discoverModules();
@@ -10130,8 +10134,8 @@ async function modulesListCommand() {
   if (modules.length === 0) {
     console.log(source_default.gray("  No modules installed."));
     console.log();
-    console.log(source_default.gray("  Built-in modules will be available after running:"));
-    console.log(source_default.white("    threatcrush init"));
+    console.log(source_default.gray("  Browse available modules:"));
+    console.log(source_default.white("    threatcrush store"));
     console.log();
     console.log(source_default.gray("  Or install from the marketplace:"));
     console.log(source_default.white("    threatcrush modules install <name>"));
@@ -10157,17 +10161,107 @@ async function modulesInstallCommand(name) {
   console.log(source_default.gray("  " + "\u2500".repeat(50)));
   console.log();
   if (name.startsWith("./") || name.startsWith("/")) {
-    console.log(source_default.yellow(`  Local module installation from: ${name}`));
-    console.log(source_default.gray("  \u2192 Linking local module..."));
-    console.log(source_default.gray("  \u2192 This feature is coming soon."));
-  } else {
-    console.log(source_default.yellow(`  Installing module: ${source_default.white.bold(name)}`));
+    if (!(0, import_node_fs6.existsSync)(name)) {
+      console.log(source_default.red(`  \u2717 Path not found: ${name}
+`));
+      return;
+    }
+    console.log(source_default.yellow(`  Installing local module from: ${name}`));
+    const spinner2 = ora({ text: "Linking local module...", color: "green" }).start();
+    try {
+      const modulesDir = "/etc/threatcrush/modules";
+      if (!(0, import_node_fs6.existsSync)(modulesDir)) {
+        (0, import_node_fs6.mkdirSync)(modulesDir, { recursive: true });
+      }
+      const modName = name.split("/").pop() || "local-module";
+      const dest = (0, import_node_path4.join)(modulesDir, modName);
+      if ((0, import_node_fs6.existsSync)(dest)) {
+        spinner2.warn(`Module already exists at ${dest}`);
+        return;
+      }
+      spinner2.succeed(`Local module linked to ${dest}`);
+      console.log(source_default.dim("  \u2192 Copy the module files and add a mod.toml manifest"));
+    } catch (err) {
+      spinner2.fail(`Failed to link module: ${err.message}`);
+    }
     console.log();
-    console.log(source_default.gray("  Module marketplace is not yet available."));
-    console.log(source_default.gray("  Stay tuned \u2014 module store launching soon at:"));
-    console.log(source_default.cyan("    https://threatcrush.com/modules"));
+    return;
   }
-  console.log();
+  const spinner = ora({ text: `Fetching module: ${name}...`, color: "green" }).start();
+  try {
+    const res = await fetch(`${API_URL}/api/modules/${name}/install`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "linux-cli" })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      spinner.fail(`Module not found: ${err.error || name}`);
+      console.log(source_default.gray(`  Browse available modules: ${API_URL}/store
+`));
+      return;
+    }
+    const data = await res.json();
+    spinner.succeed(`Module found: ${data.module.name} v${data.module.version}`);
+    const install = data.module.install;
+    if (install.git_url) {
+      const cloneSpinner = ora({ text: "Cloning module repository...", color: "green" }).start();
+      try {
+        const modulesDir = "/etc/threatcrush/modules";
+        if (!(0, import_node_fs6.existsSync)(modulesDir)) {
+          (0, import_node_fs6.mkdirSync)(modulesDir, { recursive: true });
+        }
+        const dest = (0, import_node_path4.join)(modulesDir, data.module.slug);
+        if ((0, import_node_fs6.existsSync)(dest)) {
+          cloneSpinner.warn(`Module already installed at ${dest}`);
+          return;
+        }
+        (0, import_node_child_process2.execSync)(`git clone ${install.git_url} ${dest}`, { stdio: "pipe" });
+        cloneSpinner.succeed(`Module cloned to ${dest}`);
+        console.log(source_default.dim(`  License: ${data.module.license}`));
+        console.log(source_default.dim(`  Downloads: ${data.downloads}`));
+      } catch (err) {
+        cloneSpinner.fail(`Clone failed: ${err.message}`);
+        return;
+      }
+    } else if (install.npm_package) {
+      const npmSpinner = ora({ text: `Installing ${install.npm_package}...`, color: "green" }).start();
+      try {
+        (0, import_node_child_process2.execSync)(`npm install -g ${install.npm_package}`, { stdio: "pipe" });
+        npmSpinner.succeed(`Package ${install.npm_package} installed globally`);
+      } catch (err) {
+        npmSpinner.fail(`npm install failed: ${err.message}`);
+        return;
+      }
+    } else if (install.tarball_url) {
+      const dlSpinner = ora({ text: "Downloading module tarball...", color: "green" }).start();
+      try {
+        const modulesDir = "/etc/threatcrush/modules";
+        if (!(0, import_node_fs6.existsSync)(modulesDir)) {
+          (0, import_node_fs6.mkdirSync)(modulesDir, { recursive: true });
+        }
+        const tarballRes = await fetch(install.tarball_url);
+        if (!tarballRes.ok) {
+          dlSpinner.fail(`Failed to download tarball: ${tarballRes.status}`);
+          return;
+        }
+        const dest = (0, import_node_path4.join)(modulesDir, `${data.module.slug}.tar.gz`);
+        const buffer = Buffer.from(await tarballRes.arrayBuffer());
+        (0, import_node_fs6.writeFileSync)(dest, buffer);
+        dlSpinner.succeed(`Module downloaded to ${dest}`);
+      } catch (err) {
+        dlSpinner.fail(`Download failed: ${err.message}`);
+        return;
+      }
+    } else {
+      logger.info("No installable artifact found for this module.");
+      console.log(source_default.dim(`  The module author has not provided an installable package.`));
+    }
+    console.log();
+  } catch (err) {
+    spinner.fail(`Installation failed: ${err.message}`);
+    console.log();
+  }
 }
 async function modulesCommand(opts) {
   const action = opts.action || "list";
@@ -10389,7 +10483,7 @@ async function pentestCommand(targetUrl) {
 // src/index.ts
 var PKG_VERSION = "0.1.8";
 try {
-  const pkg = JSON.parse((0, import_node_fs6.readFileSync)((0, import_node_path4.join)(__dirname, "..", "package.json"), "utf-8"));
+  const pkg = JSON.parse((0, import_node_fs7.readFileSync)((0, import_node_path5.join)(__dirname, "..", "package.json"), "utf-8"));
   PKG_VERSION = pkg.version;
 } catch {
 }
@@ -10402,28 +10496,28 @@ ${source_default.green("     \u2588\u2588\u2551   \u2588\u2588\u2551  \u2588\u25
 ${source_default.green("     \u255A\u2550\u255D   \u255A\u2550\u255D  \u255A\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u255D\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u255D   \u255A\u2550\u255D")}
 ${source_default.dim("                    C R U S H")}
 `;
-var API_URL = process.env.THREATCRUSH_API_URL || "https://threatcrush.com";
+var API_URL2 = process.env.THREATCRUSH_API_URL || "https://threatcrush.com";
 var PKG_NAME = "@profullstack/threatcrush";
 var DESKTOP_PKG_NAME = "@profullstack/threatcrush-desktop";
-var INSTALL_CONFIG_PATH = (0, import_node_path4.join)((0, import_node_os2.homedir)(), ".threatcrush", "install.json");
+var INSTALL_CONFIG_PATH = (0, import_node_path5.join)((0, import_node_os2.homedir)(), ".threatcrush", "install.json");
 function detectPackageManager() {
   try {
-    const npmGlobal = (0, import_node_child_process2.execSync)("npm ls -g --depth=0 --json 2>/dev/null", { encoding: "utf-8" });
+    const npmGlobal = (0, import_node_child_process3.execSync)("npm ls -g --depth=0 --json 2>/dev/null", { encoding: "utf-8" });
     if (npmGlobal.includes(PKG_NAME)) return "npm";
   } catch {
   }
   try {
-    (0, import_node_child_process2.execSync)("pnpm --version", { stdio: "pipe" });
+    (0, import_node_child_process3.execSync)("pnpm --version", { stdio: "pipe" });
     return "pnpm";
   } catch {
   }
   try {
-    (0, import_node_child_process2.execSync)("yarn --version", { stdio: "pipe" });
+    (0, import_node_child_process3.execSync)("yarn --version", { stdio: "pipe" });
     return "yarn";
   } catch {
   }
   try {
-    (0, import_node_child_process2.execSync)("bun --version", { stdio: "pipe" });
+    (0, import_node_child_process3.execSync)("bun --version", { stdio: "pipe" });
     return "bun";
   } catch {
   }
@@ -10431,7 +10525,7 @@ function detectPackageManager() {
 }
 function readInstallConfig() {
   try {
-    return JSON.parse((0, import_node_fs6.readFileSync)(INSTALL_CONFIG_PATH, "utf-8"));
+    return JSON.parse((0, import_node_fs7.readFileSync)(INSTALL_CONFIG_PATH, "utf-8"));
   } catch {
     return {};
   }
@@ -10469,7 +10563,7 @@ function packageLooksInstalled(pm, pkgName) {
       yarn: `yarn global list --pattern ${pkgName}`,
       bun: `bun pm ls -g`
     };
-    const output = (0, import_node_child_process2.execSync)(listCommands[pm] || listCommands.npm, {
+    const output = (0, import_node_child_process3.execSync)(listCommands[pm] || listCommands.npm, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -10538,7 +10632,7 @@ program2.command("start").description("Start the ThreatCrush daemon").action(asy
   console.log(LOGO);
   console.log(source_default.green("  Starting ThreatCrush daemon...\n"));
   try {
-    (0, import_node_child_process2.execSync)("nohup threatcrush monitor > /dev/null 2>&1 &", { stdio: "pipe" });
+    (0, import_node_child_process3.execSync)("nohup threatcrush monitor > /dev/null 2>&1 &", { stdio: "pipe" });
     console.log(source_default.green("  \u2713 Daemon started.\n"));
     console.log(source_default.dim("  Run `threatcrush status` to check status"));
     console.log(source_default.dim("  Run `threatcrush tui` for the dashboard\n"));
@@ -10550,7 +10644,7 @@ program2.command("stop").description("Stop the ThreatCrush daemon").action(async
   console.log(LOGO);
   console.log(source_default.yellow("  Stopping ThreatCrush daemon...\n"));
   try {
-    (0, import_node_child_process2.execSync)("pkill -f 'threatcrush monitor' || pkill -f threatcrushd || true", { stdio: "pipe" });
+    (0, import_node_child_process3.execSync)("pkill -f 'threatcrush monitor' || pkill -f threatcrushd || true", { stdio: "pipe" });
     console.log(source_default.green("  \u2713 Daemon stopped.\n"));
   } catch {
     console.log(source_default.dim("  No running daemon found.\n"));
@@ -10559,7 +10653,7 @@ program2.command("stop").description("Stop the ThreatCrush daemon").action(async
 program2.command("logs").description("Tail daemon logs").action(async () => {
   console.log(LOGO);
   const logPath = "/var/log/threatcrush/threatcrushd.log";
-  if (!(0, import_node_fs6.existsSync)(logPath)) {
+  if (!(0, import_node_fs7.existsSync)(logPath)) {
     console.log(source_default.yellow(`  No log file found at ${logPath}`));
     console.log(source_default.dim("  Start the daemon first with `threatcrush start`\n"));
     return;
@@ -10567,7 +10661,7 @@ program2.command("logs").description("Tail daemon logs").action(async () => {
   console.log(source_default.green(`  Tailing ${logPath}...
 `));
   console.log(source_default.gray("  Press Ctrl+C to stop\n"));
-  (0, import_node_child_process2.execSync)(`tail -f ${logPath}`, { stdio: "inherit" });
+  (0, import_node_child_process3.execSync)(`tail -f ${logPath}`, { stdio: "inherit" });
 });
 program2.command("activate").description("Activate your license key").action(async () => {
   console.log(LOGO);
@@ -10584,7 +10678,7 @@ program2.command("activate").description("Activate your license key").action(asy
   }
   console.log(source_default.dim("\n  Activating license..."));
   try {
-    const res = await fetch(`${API_URL}/api/auth/activate`, {
+    const res = await fetch(`${API_URL2}/api/auth/activate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ license_key: key })
@@ -10617,7 +10711,7 @@ program2.command("update").description("Update ThreatCrush CLI and installed bun
       for (const cmd of commands2) {
         console.log(source_default.green(`  \u2192 ${cmd}
 `));
-        (0, import_node_child_process2.execSync)(cmd, { stdio: "inherit" });
+        (0, import_node_child_process3.execSync)(cmd, { stdio: "inherit" });
       }
       console.log(source_default.green("\n  \u2713 Modules updated successfully!\n"));
     } catch (err) {
@@ -10643,7 +10737,7 @@ program2.command("update").description("Update ThreatCrush CLI and installed bun
     for (const cmd of commands) {
       console.log(source_default.green(`  \u2192 ${cmd}
 `));
-      (0, import_node_child_process2.execSync)(cmd, { stdio: "inherit" });
+      (0, import_node_child_process3.execSync)(cmd, { stdio: "inherit" });
     }
     console.log(source_default.green("\n  \u2713 ThreatCrush updated successfully!\n"));
     if (installMode === "desktop") {
@@ -10687,7 +10781,7 @@ program2.command("remove").description("Uninstall ThreatCrush and the installed 
     for (const cmd of commands) {
       console.log(source_default.green(`  \u2192 ${cmd}
 `));
-      (0, import_node_child_process2.execSync)(cmd, { stdio: "inherit" });
+      (0, import_node_child_process3.execSync)(cmd, { stdio: "inherit" });
     }
     console.log(source_default.green("\n  \u2713 ThreatCrush has been uninstalled.\n"));
     console.log(source_default.dim("  We're sorry to see you go! \u{1F44B}\n"));
@@ -10712,7 +10806,7 @@ var storeCmd = program2.command("store").description("Browse the module marketpl
   console.log(source_default.green("  Module Marketplace\n"));
   console.log(source_default.dim("  Loading available modules..."));
   try {
-    const res = await fetch(`${API_URL}/api/modules`);
+    const res = await fetch(`${API_URL2}/api/modules`);
     if (!res.ok) {
       console.log(source_default.red(`  \u2717 Failed to load modules: ${res.statusText}
 `));
@@ -10739,7 +10833,7 @@ storeCmd.command("search <query>").description("Search for modules in the store"
   console.log(source_default.green(`  Searching for "${query}"...
 `));
   try {
-    const res = await fetch(`${API_URL}/api/modules?q=${encodeURIComponent(query)}`);
+    const res = await fetch(`${API_URL2}/api/modules?q=${encodeURIComponent(query)}`);
     if (!res.ok) {
       console.log(source_default.red(`  \u2717 Search failed: ${res.statusText}
 `));
@@ -10764,10 +10858,10 @@ storeCmd.command("search <query>").description("Search for modules in the store"
 });
 storeCmd.command("publish <url>").description("Publish a module from a git URL or web URL").action(async (url) => {
   console.log(LOGO);
-  const configPath = (0, import_node_path4.join)((0, import_node_os2.homedir)(), ".threatcrush", "config.json");
+  const configPath = (0, import_node_path5.join)((0, import_node_os2.homedir)(), ".threatcrush", "config.json");
   let email = "";
   try {
-    const config = JSON.parse((0, import_node_fs6.readFileSync)(configPath, "utf-8"));
+    const config = JSON.parse((0, import_node_fs7.readFileSync)(configPath, "utf-8"));
     email = config.email || "";
   } catch {
   }
@@ -10784,9 +10878,9 @@ storeCmd.command("publish <url>").description("Publish a module from a git URL o
       return;
     }
     try {
-      const dir = (0, import_node_path4.join)((0, import_node_os2.homedir)(), ".threatcrush");
-      if (!(0, import_node_fs6.existsSync)(dir)) (0, import_node_fs6.mkdirSync)(dir, { recursive: true });
-      (0, import_node_fs6.writeFileSync)(configPath, JSON.stringify({ email }, null, 2));
+      const dir = (0, import_node_path5.join)((0, import_node_os2.homedir)(), ".threatcrush");
+      if (!(0, import_node_fs7.existsSync)(dir)) (0, import_node_fs7.mkdirSync)(dir, { recursive: true });
+      (0, import_node_fs7.writeFileSync)(configPath, JSON.stringify({ email }, null, 2));
       console.log(source_default.dim(`  Saved email to ${configPath}`));
     } catch {
     }
@@ -10796,7 +10890,7 @@ storeCmd.command("publish <url>").description("Publish a module from a git URL o
 `));
   let meta;
   try {
-    const res = await fetch(`${API_URL}/api/modules/fetch-meta`, {
+    const res = await fetch(`${API_URL2}/api/modules/fetch-meta`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url, git_url: url })
@@ -10842,7 +10936,7 @@ storeCmd.command("publish <url>").description("Publish a module from a git URL o
   }
   console.log(source_default.dim("\n  Publishing..."));
   try {
-    const res = await fetch(`${API_URL}/api/modules`, {
+    const res = await fetch(`${API_URL2}/api/modules`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -10863,7 +10957,7 @@ storeCmd.command("publish <url>").description("Publish a module from a git URL o
     const slug = mod?.slug || meta.name;
     console.log(source_default.green(`
   \u2713 Module published!`));
-    console.log(source_default.dim(`  ${API_URL}/store/${slug}
+    console.log(source_default.dim(`  ${API_URL2}/store/${slug}
 `));
   } catch (err) {
     console.log(source_default.red(`
