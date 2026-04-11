@@ -5,6 +5,7 @@
  */
 
 import { BasePackageManager } from './base.js';
+import { resolveAssetSha256 } from './sha256.js';
 import type { PackageManagerConfig, ReleaseInfo, SubmissionResult, Logger } from './types.js';
 
 const DEFAULT_BUCKET_OWNER = 'profullstack';
@@ -48,7 +49,7 @@ export class ScoopPackageManager extends BasePackageManager {
     }
   }
 
-  generateManifest(release: ReleaseInfo): Promise<string> {
+  async generateManifest(release: ReleaseInfo): Promise<string> {
     // Find the Windows installer (NSIS exe)
     const x64Exe = this.findAsset(
       release,
@@ -58,6 +59,8 @@ export class ScoopPackageManager extends BasePackageManager {
     // If no x64 specific, find any exe
     const exe = x64Exe ?? this.findAsset(release, (a) => a.name.endsWith('.exe'));
 
+    const sha256 = exe ? await resolveAssetSha256(exe) : '';
+
     const manifest = {
       version: release.version,
       description: 'Collaborative screen sharing with remote control',
@@ -66,7 +69,7 @@ export class ScoopPackageManager extends BasePackageManager {
       url:
         exe?.downloadUrl ??
         `https://github.com/profullstack/threatcrush/releases/download/v${release.version}/ThreatCrush-${release.version}-x64.exe`,
-      hash: exe?.sha256 ?? 'SHA256_PLACEHOLDER',
+      hash: sha256,
       installer: {
         args: ['/S', '/D=$dir'],
       },

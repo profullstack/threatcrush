@@ -5,6 +5,7 @@
  */
 
 import { BasePackageManager } from './base.js';
+import { resolveAssetSha256 } from './sha256.js';
 import type { ReleaseInfo, SubmissionResult } from './types.js';
 
 const WINGET_OWNER = 'microsoft';
@@ -31,14 +32,14 @@ export class WingetPackageManager extends BasePackageManager {
     }
   }
 
-  generateManifest(release: ReleaseInfo): Promise<Record<string, string>> {
+  async generateManifest(release: ReleaseInfo): Promise<Record<string, string>> {
     // Find the Windows installer
     const x64Exe = this.findAsset(
       release,
       (a) => a.name.endsWith('.exe') && (a.name.includes('x64') || !a.name.includes('arm'))
     );
 
-    const x64Sha = x64Exe?.sha256?.toUpperCase() ?? 'SHA256_PLACEHOLDER';
+    const x64Sha = x64Exe ? (await resolveAssetSha256(x64Exe)).toUpperCase() : '';
     const downloadUrl =
       x64Exe?.downloadUrl ??
       `https://github.com/profullstack/threatcrush/releases/download/v${release.version}/ThreatCrush-${release.version}-x64.exe`;
