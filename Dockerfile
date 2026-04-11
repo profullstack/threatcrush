@@ -1,31 +1,31 @@
-FROM node:22-slim AS base
-RUN corepack enable && corepack prepare pnpm@10.26.2 --activate
+FROM node:22-slim
 
-# --- deps ---
-FROM base AS deps
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+
+# Install git for postinstall hook
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
+
+# Copy all package manifests first for better caching
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY cli/package.json cli/
 COPY desktop/package.json desktop/
 COPY mobile/package.json mobile/
 COPY extension/package.json extension/
+
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
-# --- builder ---
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# Copy source code
 COPY . .
+
+# Build the application
 RUN pnpm build
 
-# --- runner ---
-FROM node:22-slim AS runner
-WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
-
 EXPOSE 3000
-CMD ["node", "server.js"]
+
+CMD ["node", ".next/standalone/server.js"]
