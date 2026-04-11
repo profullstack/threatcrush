@@ -2,24 +2,41 @@ import React, { useState } from 'react';
 
 const APP_URL = import.meta.env.VITE_APP_URL || 'https://threatcrush.com';
 
+const SEVERITY_COLORS = {
+  critical: 'text-red-400',
+  high: 'text-red-300',
+  medium: 'text-yellow-300',
+  low: 'text-cyan-300',
+  info: 'text-green-300',
+};
+
+const STATUS_COLORS = {
+  secure: 'text-green-400',
+  warning: 'text-yellow-400',
+  threat: 'text-red-400',
+  error: 'text-red-300',
+  unauthenticated: 'text-gray-400',
+};
+
 export default function QuickActions() {
   const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
 
   async function handleScanSite() {
     setScanning(true);
+    setScanResult(null);
     try {
-      // Get current tab URL
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.url) {
         const response = await chrome.runtime.sendMessage({
           type: 'SCAN_URL',
           url: tab.url,
         });
-        console.log('[ThreatCrush] Scan result:', response);
-        // TODO: Show scan results in UI
+        setScanResult(response);
       }
     } catch (error) {
       console.error('[ThreatCrush] Scan failed:', error);
+      setScanResult({ status: 'error', error: error.message });
     } finally {
       setScanning(false);
     }
@@ -45,6 +62,29 @@ export default function QuickActions() {
           '🔍 Scan This Site'
         )}
       </button>
+
+      {scanResult && (
+        <div className="bg-[#111] border border-[#333] rounded-lg p-2 text-xs space-y-1">
+          <div className={STATUS_COLORS[scanResult.status] || 'text-gray-300'}>
+            Status: {scanResult.status}
+          </div>
+          {scanResult.grade && (
+            <div className="text-gray-300">Grade: <span className="text-white font-bold">{scanResult.grade}</span></div>
+          )}
+          {scanResult.score !== undefined && (
+            <div className="text-gray-300">Score: <span className="text-white">{scanResult.score}/100</span></div>
+          )}
+          {scanResult.checks && Object.entries(scanResult.checks).map(([key, check]) => (
+            <div key={key} className="flex justify-between">
+              <span className="text-gray-400">{key}</span>
+              <span className={SEVERITY_COLORS[check.status] || 'text-gray-300'}>{check.status}</span>
+            </div>
+          ))}
+          {scanResult.error && (
+            <div className="text-red-400">{scanResult.error}</div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-2">
         <button

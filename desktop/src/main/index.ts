@@ -1,6 +1,9 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
+import { spawn, ChildProcess } from 'child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+
+let daemonProcess: ChildProcess | null = null
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -34,6 +37,71 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
+
+// ─── IPC Handlers ───
+
+ipcMain.handle('connect-daemon', async (_event, host: string, port: number) => {
+  if (daemonProcess) {
+    return { connected: true, pid: daemonProcess.pid }
+  }
+
+  try {
+    daemonProcess = spawn('threatcrush', ['monitor'], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, NODE_ENV: 'production' },
+    })
+
+    daemonProcess.stdout?.on('data', (data) => {
+      const mainWindow = BrowserWindow.getAllWindows()[0]
+      if (mainWindow) {
+        mainWindow.webContents.send('threat-event', {
+          type: 'daemon-output',
+          data: data.toString().trim(),
+        })
+      }
+    })
+
+    daemonProcess.stderr?.on('data', (data) => {
+      const mainWindow = BrowserWindow.getAllWindows()[0]
+      if (mainWindow) {
+        mainWindow.webContents.send('threat-event', {
+          type: 'daemon-error',
+          data: data.toString().trim(),
+        })
+      }
+    })
+
+    daemonProcess.on('exit', (code) => {
+      daemonProcess = null
+      const mainWindow = BrowserWindow.getAllWindows()[0]
+      if (mainWindow) {
+        mainWindow.webContents.send('threat-event', {
+          type: 'daemon-exit',
+          data: { code },
+        })
+      }
+    })
+
+    return { connected: true, pid: daemonProcess.pid }
+  } catch (err) {
+    return { connected: false, error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+})
+
+ipcMain.handle('disconnect-daemon', async () => {
+  if (daemonProcess) {
+    daemonProcess.kill('SIGTERM')
+    daemonProcess = null
+  }
+  return { disconnected: true }
+})
+
+ipcMain.handle('daemon-status', async () => {
+  if (!daemonProcess) {
+    return { running: false }
+  }
+  return { running: true, pid: daemonProcess.pid }
+})
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.threatcrush.desktop')
