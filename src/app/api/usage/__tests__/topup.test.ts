@@ -23,23 +23,19 @@ describe("POST /api/usage/topup", () => {
     process.env = originalEnv;
   });
 
-  it("validates amount range — accepts $5", async () => {
+  it("validates amount range — $5 is valid input", async () => {
+    // Returns 503 because API keys aren't set, but the amount validation passed
     const req = makeRequest({ email: "user@example.com", amount_usd: 5 });
     const res = await POST(req);
-    const body = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(body.amount_usd).toBe(5);
+    expect(res.status).toBe(503);
   });
 
-  it("validates amount range — accepts $1000", async () => {
+  it("validates amount range — $1000 is valid input", async () => {
     const req = makeRequest({ email: "user@example.com", amount_usd: 1000 });
     const res = await POST(req);
-    const body = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(body.success).toBe(true);
+    expect(res.status).toBe(503);
   });
 
   it("rejects amount below $5", async () => {
@@ -78,14 +74,12 @@ describe("POST /api/usage/topup", () => {
     expect(body.error).toContain("email and amount_usd required");
   });
 
-  it("returns demo response when no API key configured", async () => {
+  it("returns 503 when no API key configured", async () => {
     const req = makeRequest({ email: "user@example.com", amount_usd: 25 });
     const res = await POST(req);
     const body = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(body.demo).toBe(true);
-    expect(body.payment_url).toBeNull();
-    expect(body.amount_usd).toBe(25);
+    expect(res.status).toBe(503);
+    expect(body.error).toContain("not available");
   });
 });
