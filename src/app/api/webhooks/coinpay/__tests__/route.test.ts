@@ -3,27 +3,39 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ─── Mock setup ───
 // The coinpay route creates its own supabase client via createClient directly.
 // Chain patterns used:
+//   .from("funding_payments").select("id").eq("coinpay_payment_id", paymentId).maybeSingle()
+//   .from("funding_payments").update({...}).eq("coinpay_payment_id", paymentId)  ← awaited
 //   .from("waitlist").select("id, email, paid").eq("payment_id", paymentId).maybeSingle()
 //   .from("waitlist").update({...}).eq("id", entry.id)       ← awaited directly
 //   .from("waitlist").select("referred_by").eq("id", entry.id).single()
 //   .from("waitlist").update({amount_usd:399}).eq("referral_code",...).eq("paid",false)  ← awaited
 
-const mockMaybeSingle = vi.fn();
-const mockSingle = vi.fn();
+const mockFundingMaybeSingle = vi.fn();
+const mockWaitlistMaybeSingle = vi.fn();
+const mockWaitlistSingle = vi.fn();
 
-// Build a fully chainable mock for the supabase client
-function buildFromMock() {
-  // Each .eq() call returns an object with more chainable methods
-  function chainableEq(): Record<string, unknown> {
-    return {
+// Build a chainable mock for a specific table
+function buildTableMock(table: string) {
+  if (table === "funding_payments") {
+    const chainableEq = () => ({
       eq: vi.fn().mockImplementation(() => chainableEq()),
-      maybeSingle: mockMaybeSingle,
-      single: mockSingle,
+      maybeSingle: mockFundingMaybeSingle,
       // When update().eq() is awaited directly (no terminal), it resolves
       then: (resolve: (v: unknown) => void) => resolve({ error: null }),
+    });
+    return {
+      select: vi.fn().mockImplementation(() => chainableEq()),
+      update: vi.fn().mockImplementation(() => chainableEq()),
     };
   }
-
+  // waitlist table
+  const chainableEq = () => ({
+    eq: vi.fn().mockImplementation(() => chainableEq()),
+    maybeSingle: mockWaitlistMaybeSingle,
+    single: mockWaitlistSingle,
+    // When update().eq() is awaited directly (no terminal), it resolves
+    then: (resolve: (v: unknown) => void) => resolve({ error: null }),
+  });
   return {
     select: vi.fn().mockImplementation(() => chainableEq()),
     update: vi.fn().mockImplementation(() => chainableEq()),
@@ -43,13 +55,15 @@ function resetMocks(overrides: {
     error: null,
   };
 
-  mockMaybeSingle.mockResolvedValue(findEntryResult);
-  mockSingle.mockResolvedValue(referralResult);
+  // funding_payments returns null so route falls through to waitlist
+  mockFundingMaybeSingle.mockResolvedValue({ data: null, error: null });
+  mockWaitlistMaybeSingle.mockResolvedValue(findEntryResult);
+  mockWaitlistSingle.mockResolvedValue(referralResult);
 }
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
-    from: () => buildFromMock(),
+    from: (table: string) => buildTableMock(table),
   }),
 }));
 

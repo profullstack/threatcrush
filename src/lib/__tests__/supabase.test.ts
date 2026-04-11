@@ -1,4 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+
+// Mock server-only to prevent import errors in test
+vi.mock("server-only", () => ({}));
+
+// Set required env vars before importing supabase module
+beforeAll(() => {
+  process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
+});
 
 // Mock @supabase/supabase-js before importing
 vi.mock("@supabase/supabase-js", () => ({

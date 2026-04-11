@@ -1,6 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import crypto from 'node:crypto';
 
+// Mock for the create-invoice tests (hoisted by vi.mock)
+const mockFundingInsert = vi.fn().mockResolvedValue({ error: null });
+
+vi.mock('@/lib/supabase', () => ({
+  getSupabaseAdmin: () => ({
+    from: () => ({
+      insert: mockFundingInsert,
+    }),
+  }),
+}));
+
 describe('lib/coinpay-client', () => {
   let originalEnv: NodeJS.ProcessEnv;
   let fetchSpy: ReturnType<typeof vi.spyOn>;
@@ -10,6 +21,9 @@ describe('lib/coinpay-client', () => {
     process.env.COINPAY_API_KEY = 'cp_test_key';
     process.env.COINPAY_BUSINESS_ID = 'biz-uuid';
     process.env.NEXT_PUBLIC_APP_URL = 'https://threatcrush.com';
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
     vi.resetModules();
     fetchSpy = vi.spyOn(globalThis, 'fetch') as never;
   });
@@ -139,10 +153,11 @@ describe('contract: POST /api/funding/create-invoice', () => {
     process.env.COINPAY_API_KEY = 'cp_test_key';
     process.env.COINPAY_BUSINESS_ID = 'biz-uuid';
     process.env.NEXT_PUBLIC_APP_URL = 'https://threatcrush.com';
-    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
     vi.resetModules();
+    vi.clearAllMocks();
     fetchSpy = vi.spyOn(globalThis, 'fetch') as never;
   });
 

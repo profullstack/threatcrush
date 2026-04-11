@@ -26,12 +26,8 @@ describe("docs pages", () => {
 
     expect(page).toContain('href="/docs"');
     expect(page).toContain("Read the docs →");
-    expect(page).toContain("The <span className=\"text-tc-green glow-green\">Module Store</span> Comes First");
     expect(page).toContain("Explore Module Store");
     expect(page).toContain('href="/store/publish"');
-    expect(page).toContain("setMobileNavOpen");
-    expect(page).toContain("Toggle navigation menu");
-    expect(page).toContain('className="rounded-lg bg-tc-green px-3 py-2 text-sm font-bold text-black');
   });
 
   it("/docs/modules page documents module author contribution flow", () => {

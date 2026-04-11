@@ -44,7 +44,22 @@ vi.mock("@/lib/supabase", () => ({
           insert: mockFromInsert,
         };
       }
-      return { select: vi.fn(), insert: vi.fn() };
+      if (table === "phone_verification_codes") {
+        return {
+          delete: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({}) }),
+          insert: vi.fn().mockReturnValue({ insert: vi.fn().mockResolvedValue({ error: null }) }),
+        };
+      }
+      return { select: vi.fn(), insert: vi.fn(), delete: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({}) }) };
+    },
+  }),
+  getSupabaseClient: () => ({
+    auth: {
+      signUp: mockCreateUser,
+      admin: {
+        createUser: mockCreateUser,
+        deleteUser: mockDeleteUser,
+      },
     },
   }),
 }));
@@ -79,7 +94,9 @@ describe("POST /api/auth/signup", () => {
     expect(mockCreateUser).toHaveBeenCalledWith({
       email: "test@example.com",
       password: "securePass1!",
-      email_confirm: false,
+      options: {
+        emailRedirectTo: "http://localhost/auth/verify",
+      },
     });
   });
 
