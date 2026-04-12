@@ -19,6 +19,9 @@ COPY . .
 
 RUN pnpm build
 
+# Next.js standalone output doesn't include static assets — copy them in
+RUN cp -r .next/static .next/standalone/.next/static
+
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
