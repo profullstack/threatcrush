@@ -96,14 +96,15 @@ export async function PATCH(
 
     const { id } = await params;
 
-    // Check user is creator
-    const { data: org, error: orgError } = await getSupabaseAdmin()
-      .from("organizations")
-      .select("created_by")
-      .eq("id", id)
+    // Check user is admin/owner
+    const { data: membership, error: memberError } = await getSupabaseAdmin()
+      .from("organization_members")
+      .select("role")
+      .eq("org_id", id)
+      .eq("user_id", user.id)
       .single();
 
-    if (orgError || !org || org.created_by !== user.id) {
+    if (memberError || !membership || !["owner", "admin"].includes(membership.role)) {
       return NextResponse.json({ error: "Not authorized to update this organization" }, { status: 403 });
     }
 

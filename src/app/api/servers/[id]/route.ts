@@ -1,6 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
+// Helper: verify user is a member of the org that owns this server
+async function verifyServerAccess(serverId: string, userId: string) {
+  const { data: server } = await getSupabaseAdmin()
+    .from("servers")
+    .select("org_id")
+    .eq("id", serverId)
+    .single();
+
+  if (!server) return { ok: false as const, error: "Server not found", status: 404 as const };
+
+  const { data: membership } = await getSupabaseAdmin()
+    .from("organization_members")
+    .select("role")
+    .eq("org_id", server.org_id)
+    .eq("user_id", userId)
+    .single();
+
+  if (!membership) return { ok: false as const, error: "Not authorized", status: 403 as const };
+  return { ok: true as const, server, role: membership.role };
+}
+
 // POST /api/servers/[id]/heartbeat — Server checks in to report status
 export async function POST(
   req: NextRequest,
@@ -14,13 +35,18 @@ export async function POST(
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    // Authenticated via API key or server token
     const { data: { user } } = await getSupabaseAdmin().auth.getUser(token);
     if (!user) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
     const { id } = await params;
+
+    // Verify user has access to this server
+    const access = await verifyServerAccess(id, user.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
 
     const body = await req.json();
     const { version, status = "online" } = body as { version?: string; status?: string };
@@ -53,7 +79,7 @@ export async function POST(
   }
 }
 
-// GET /api/servers/[id] — Get server details (public, for server's own use)
+// GET /api/servers/[id] — Get server details
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -72,6 +98,12 @@ export async function GET(
     }
 
     const { id } = await params;
+
+    // Verify user has access to this server
+    const access = await verifyServerAccess(id, user.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
 
     const { data: server, error } = await getSupabaseAdmin()
       .from("servers")

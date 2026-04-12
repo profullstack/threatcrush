@@ -1,6 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
+// Helper: verify user is a member of the org that owns this server
+async function verifyServerAccess(serverId: string, userId: string) {
+  const { data: server } = await getSupabaseAdmin()
+    .from("servers")
+    .select("org_id")
+    .eq("id", serverId)
+    .single();
+
+  if (!server) return { ok: false as const, error: "Server not found", status: 404 as const };
+
+  const { data: membership } = await getSupabaseAdmin()
+    .from("organization_members")
+    .select("role")
+    .eq("org_id", server.org_id)
+    .eq("user_id", userId)
+    .single();
+
+  if (!membership) return { ok: false as const, error: "Not authorized", status: 403 as const };
+  return { ok: true as const, server, role: membership.role };
+}
+
 // POST /api/servers/[id]/events — Server pushes threat events
 export async function POST(
   req: NextRequest,
@@ -21,15 +42,10 @@ export async function POST(
 
     const { id: serverId } = await params;
 
-    // Verify server exists
-    const { data: server } = await getSupabaseAdmin()
-      .from("servers")
-      .select("org_id")
-      .eq("id", serverId)
-      .single();
-
-    if (!server) {
-      return NextResponse.json({ error: "Server not found" }, { status: 404 });
+    // Verify user has access to this server
+    const access = await verifyServerAccess(serverId, user.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const body = await req.json();
@@ -40,7 +56,6 @@ export async function POST(
     }
 
     // For now, just acknowledge receipt. In production, you'd store these in an events table.
-    // For the MVP, we'll just update the server's last_seen and return success.
     await getSupabaseAdmin()
       .from("servers")
       .update({ last_seen: new Date().toISOString() })
@@ -77,36 +92,10 @@ export async function GET(
 
     const { id: serverId } = await params;
 
-    // Check user has access to the server's org
-    const { data: server } = await getSupabaseAdmin()
-      .from("servers")
-      .select(`
-        id,
-        name,
-        hostname,
-        status,
-        last_seen,
-        threatcrushd_version,
-        organizations!inner (
-          id,
-          organization_members (
-            user_id
-          )
-        )
-      `)
-      .eq("id", serverId)
-      .single();
-
-    if (!server) {
-      return NextResponse.json({ error: "Server not found" }, { status: 404 });
-    }
-
-    // Verify user is a member of the org
-    const orgMembers = (server as any).organizations?.organization_members || [];
-    const isMember = orgMembers.some((m: Record<string, string>) => m.user_id === user.id);
-
-    if (!isMember) {
-      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    // Verify user has access to this server
+    const access = await verifyServerAccess(serverId, user.id);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // For now, return empty events. In production, query the events table.
