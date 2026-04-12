@@ -26,6 +26,9 @@ RUN pnpm build
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 
-EXPOSE 3000
+# Use Railway's PORT env var, default to 3000
+ENV PORT=3000
+
+EXPOSE ${PORT}
 
 CMD ["node", ".next/standalone/server.js"]
