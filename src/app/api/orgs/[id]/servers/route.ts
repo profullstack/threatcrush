@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 // GET /api/orgs/[org_id]/servers — List servers in organization
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ org_id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authHeader = req.headers.get("authorization");
@@ -19,13 +19,13 @@ export async function GET(
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const { org_id } = await params;
+    const { id: orgId } = await params;
 
     // Check membership
     const { data: membership } = await getSupabaseAdmin()
       .from("organization_members")
       .select("role")
-      .eq("org_id", org_id)
+      .eq("org_id", orgId)
       .eq("user_id", user.id)
       .single();
 
@@ -36,7 +36,7 @@ export async function GET(
     const { data: servers, error } = await getSupabaseAdmin()
       .from("servers")
       .select("*")
-      .eq("org_id", org_id)
+      .eq("org_id", orgId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -54,7 +54,7 @@ export async function GET(
 // POST /api/orgs/[org_id]/servers — Register a new server
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ org_id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const authHeader = req.headers.get("authorization");
@@ -69,13 +69,13 @@ export async function POST(
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const { org_id } = await params;
+    const { id: orgId } = await params;
 
     // Check user is admin/owner
     const { data: membership } = await getSupabaseAdmin()
       .from("organization_members")
       .select("role")
-      .eq("org_id", org_id)
+      .eq("org_id", orgId)
       .eq("user_id", user.id)
       .single();
 
@@ -103,7 +103,7 @@ export async function POST(
     const { data: server, error } = await getSupabaseAdmin()
       .from("servers")
       .insert({
-        org_id,
+        org_id: orgId,
         name: name.trim(),
         hostname: hostname || null,
         ip_address: ip_address || null,

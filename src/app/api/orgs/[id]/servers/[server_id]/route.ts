@@ -4,7 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 // GET /api/orgs/[org_id]/servers/[id] — Get server details
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ org_id: string; id: string }> }
+  { params }: { params: Promise<{ id: string; server_id: string }> }
 ) {
   try {
     const authHeader = req.headers.get("authorization");
@@ -19,13 +19,13 @@ export async function GET(
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const { org_id, id } = await params;
+    const { id: orgId, server_id } = await params;
 
     // Check membership
     const { data: membership } = await getSupabaseAdmin()
       .from("organization_members")
       .select("role")
-      .eq("org_id", org_id)
+      .eq("org_id", orgId)
       .eq("user_id", user.id)
       .single();
 
@@ -36,8 +36,8 @@ export async function GET(
     const { data: server, error } = await getSupabaseAdmin()
       .from("servers")
       .select("*")
-      .eq("org_id", org_id)
-      .eq("id", id)
+      .eq("org_id", orgId)
+      .eq("id", server_id)
       .single();
 
     if (error || !server) {
@@ -54,7 +54,7 @@ export async function GET(
 // PATCH /api/orgs/[org_id]/servers/[id] — Update server metadata
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ org_id: string; id: string }> }
+  { params }: { params: Promise<{ id: string; server_id: string }> }
 ) {
   try {
     const authHeader = req.headers.get("authorization");
@@ -69,13 +69,13 @@ export async function PATCH(
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const { org_id, id } = await params;
+    const { id: orgId, server_id } = await params;
 
     // Check user is admin/owner
     const { data: membership } = await getSupabaseAdmin()
       .from("organization_members")
       .select("role")
-      .eq("org_id", org_id)
+      .eq("org_id", orgId)
       .eq("user_id", user.id)
       .single();
 
@@ -100,8 +100,8 @@ export async function PATCH(
     const { data: server, error } = await getSupabaseAdmin()
       .from("servers")
       .update(updates)
-      .eq("org_id", org_id)
-      .eq("id", id)
+      .eq("org_id", orgId)
+      .eq("id", server_id)
       .select()
       .single();
 
@@ -120,7 +120,7 @@ export async function PATCH(
 // DELETE /api/orgs/[org_id]/servers/[id] — Remove server
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: Promise<{ org_id: string; id: string }> }
+  { params }: { params: Promise<{ id: string; server_id: string }> }
 ) {
   try {
     const authHeader = req.headers.get("authorization");
@@ -135,13 +135,13 @@ export async function DELETE(
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    const { org_id, id } = await params;
+    const { id: orgId, server_id } = await params;
 
     // Check user is admin/owner
     const { data: membership } = await getSupabaseAdmin()
       .from("organization_members")
       .select("role")
-      .eq("org_id", org_id)
+      .eq("org_id", orgId)
       .eq("user_id", user.id)
       .single();
 
@@ -152,8 +152,8 @@ export async function DELETE(
     const { error } = await getSupabaseAdmin()
       .from("servers")
       .delete()
-      .eq("org_id", org_id)
-      .eq("id", id);
+      .eq("org_id", orgId)
+      .eq("id", server_id);
 
     if (error) {
       console.error("Failed to remove server:", error);
