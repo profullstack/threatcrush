@@ -3,7 +3,6 @@ packages:
   - mobile
   - extension
   - sdk
-  - boilerplates/*
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

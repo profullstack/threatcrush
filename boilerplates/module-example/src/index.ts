@@ -1,16 +1,12 @@
 /**
  * Example ThreatCrush Module
  *
- * Demonstrates the SDK interface for building ThreatCrush security modules.
- * This module reacts to auth-related log events and fires alerts.
+ * Demonstrates the interface for building ThreatCrush security modules.
+ * Once @threatcrush/sdk is published, replace these local types with:
+ *   import type { ThreatCrushModule, ModuleContext, ThreatEvent, Alert } from '@threatcrush/sdk';
  */
 
-import type {
-  ThreatCrushModule,
-  ModuleContext,
-  ThreatEvent,
-  Alert,
-} from '@threatcrush/sdk';
+import type { ThreatEvent, EventCategory, EventSeverity, ModuleContext, Alert, ThreatCrushModule } from '../../sdk/src/index.js';
 
 export default class ExampleAlertModule implements ThreatCrushModule {
   name = 'example-alert-module';
