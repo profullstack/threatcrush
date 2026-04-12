@@ -1,10 +1,10 @@
 import { AuthProvider } from "@/lib/auth-context";
 import NewServerContent from "./new-server-content";
 
-export default function NewServerPage({ params }: { params: { org_slug: string } }) {
+export default function NewServerPage({ params }: { params: { slug: string } }) {
   return (
     <AuthProvider>
-      <NewServerContent orgSlug={params.org_slug} />
+      <NewServerContent orgSlug={params.slug} />
     </AuthProvider>
   );
 }
