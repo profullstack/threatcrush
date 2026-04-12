@@ -31,4 +31,4 @@ ENV PORT=3000
 
 EXPOSE ${PORT}
 
-CMD ["node", ".next/standalone/server.js"]
+CMD ["sh", "-c", "node .next/standalone/server.js"]
