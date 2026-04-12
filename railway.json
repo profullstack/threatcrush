@@ -7,7 +7,8 @@
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
-    "healthcheckPath": "/api/health",
-    "healthcheckTimeout": 300
+    "healthcheckPath": "/",
+    "healthcheckTimeout": 300,
+    "startCommand": "node .next/standalone/server.js"
   }
 }
