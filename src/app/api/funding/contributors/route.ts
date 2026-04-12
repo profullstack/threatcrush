@@ -1,6 +1,13 @@
 import { NextResponse } from 'next/server';
 import { getSupabaseAdmin } from '@/lib/supabase';
 
+function isSchemaCacheError(err: unknown): boolean {
+  if (err && typeof err === 'object' && 'code' in err) {
+    return (err as { code?: string }).code === 'PGRST205';
+  }
+  return false;
+}
+
 /**
  * Public list of recent confirmed contributions.
  * Returns at most 10 entries, anonymized to display name only.
@@ -17,6 +24,12 @@ export async function GET() {
 
     if (error) {
       console.error('[funding/contributors] query failed:', error);
+      if (isSchemaCacheError(error)) {
+        return NextResponse.json(
+          { error: 'Service unavailable', transactions: [] },
+          { status: 503 }
+        );
+      }
       return NextResponse.json({ transactions: [] });
     }
 
@@ -38,6 +51,12 @@ export async function GET() {
     );
   } catch (e) {
     console.error('[funding/contributors] supabase error:', e);
+    if (isSchemaCacheError(e)) {
+      return NextResponse.json(
+        { error: 'Service unavailable', transactions: [] },
+        { status: 503 }
+      );
+    }
     return NextResponse.json({ transactions: [] });
   }
 }

@@ -8,6 +8,13 @@ import { getSupabaseAdmin } from '@/lib/supabase';
 
 const SUPPORTED_KEYS = Object.keys(SUPPORTED_CURRENCIES) as CoinpayCurrency[];
 
+function isSchemaCacheError(err: unknown): boolean {
+  if (err && typeof err === 'object' && 'code' in err) {
+    return (err as { code?: string }).code === 'PGRST205';
+  }
+  return false;
+}
+
 interface Body {
   amount_usd?: unknown;
   currency?: unknown;
@@ -77,9 +84,23 @@ export async function POST(req: NextRequest) {
       metadata: { checkout_url: checkoutUrl, expires_at: expiresAt },
     });
     if (error) {
+      if (isSchemaCacheError(error)) {
+        console.error('[funding/create-invoice] schema cache error (table missing):', error);
+        return NextResponse.json(
+          { error: 'Service unavailable' },
+          { status: 503 }
+        );
+      }
       console.error('[funding/create-invoice] insert failed:', error);
     }
   } catch (e) {
+    if (isSchemaCacheError(e)) {
+      console.error('[funding/create-invoice] schema cache error (table missing):', e);
+      return NextResponse.json(
+        { error: 'Service unavailable' },
+        { status: 503 }
+      );
+    }
     console.error('[funding/create-invoice] supabase unavailable:', e);
   }
 
