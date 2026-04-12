@@ -5,14 +5,8 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com";
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  throw new Error(
-    "NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set"
-  );
-}
-
-const supabaseUrl = SUPABASE_URL as string;
-const supabaseKey = SUPABASE_SERVICE_KEY as string;
+const supabaseUrl = SUPABASE_URL || "";
+const supabaseKey = SUPABASE_SERVICE_KEY || "";
 
 function generateReferralCode(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -37,6 +31,11 @@ export async function GET(request: NextRequest) {
 
   if (!code) {
     return NextResponse.redirect(`${APP_URL}/auth/login?error=no_code`);
+  }
+
+  if (!supabaseUrl || !supabaseKey) {
+    // Supabase not configured — redirect to login with env-missing hint
+    return NextResponse.redirect(`${APP_URL}/auth/login?error=env_missing`);
   }
 
   const sb = createClient(supabaseUrl, supabaseKey);
