@@ -21,6 +21,7 @@ interface UserProfile {
   notification_email: boolean;
   notification_sms: boolean;
   notification_webhook_url: string | null;
+  current_org_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +32,8 @@ interface AuthContextType {
   signedIn: boolean;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  currentOrgId: string | null;
+  setCurrentOrgId: (orgId: string | null) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -39,6 +42,8 @@ const AuthContext = createContext<AuthContextType>({
   signedIn: false,
   signOut: async () => {},
   refreshProfile: async () => {},
+  currentOrgId: null,
+  setCurrentOrgId: async () => {},
 });
 
 export function useAuth() {
@@ -49,12 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
+  const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async () => {
     const token = getAccessToken();
     if (!token) {
       setProfile(null);
       setSignedIn(false);
+      setCurrentOrgIdState(null);
       return;
     }
     try {
@@ -63,10 +70,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         setProfile(data.profile);
         setSignedIn(true);
+        setCurrentOrgIdState(data.profile.current_org_id || null);
       } else if (res.status === 401) {
         setAccessToken(null);
         setProfile(null);
         setSignedIn(false);
+        setCurrentOrgIdState(null);
       }
     } catch {
       // Network error — keep current state
@@ -76,6 +85,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshProfile = useCallback(async () => {
     await fetchProfile();
   }, [fetchProfile]);
+
+  const setCurrentOrgId = useCallback(async (orgId: string | null) => {
+    if (!orgId) {
+      setCurrentOrgIdState(null);
+      // Also clear on server
+      await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ current_org_id: null }),
+      });
+      return;
+    }
+    try {
+      const res = await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ current_org_id: orgId }),
+      });
+      if (res.ok) {
+        setCurrentOrgIdState(orgId);
+        setProfile(prev => prev ? { ...prev, current_org_id: orgId } : null);
+      }
+    } catch {
+      // Network error — ignore
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -96,10 +131,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(null);
     setProfile(null);
     setSignedIn(false);
+    setCurrentOrgIdState(null);
   };
 
   return (
-    <AuthContext.Provider value={{ profile, loading, signedIn, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ profile, loading, signedIn, signOut, refreshProfile, currentOrgId, setCurrentOrgId }}>
       {children}
     </AuthContext.Provider>
   );

@@ -13,6 +13,9 @@ import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { modulesCommand } from "./commands/modules.js";
 import { pentestCommand } from "./commands/pentest.js";
+import { orgsCommand } from "./commands/orgs.js";
+import { serversCommand } from "./commands/servers.js";
+import { connectCommand } from "./commands/connect.js";
 
 let PKG_VERSION = "0.1.8";
 try {
@@ -610,6 +613,78 @@ storeCmd
     } catch (err) {
       console.log(chalk.red(`\n  ✗ Publish failed: ${err instanceof Error ? err.message : err}\n`));
     }
+  });
+
+// ─── Organization commands ───
+
+const orgsCmd = program
+  .command("orgs")
+  .alias("org")
+  .description("Manage organizations")
+  .action(async () => {
+    await orgsCommand({});
+  });
+
+orgsCmd
+  .command("list")
+  .alias("ls")
+  .description("List your organizations")
+  .action(async () => {
+    await orgsCommand({ action: "list" });
+  });
+
+orgsCmd
+  .command("create <name>")
+  .description("Create a new organization")
+  .action(async (name: string) => {
+    await orgsCommand({ action: "create", name });
+  });
+
+orgsCmd
+  .command("use <slug>")
+  .description("Switch to an organization")
+  .action(async (slug: string) => {
+    await orgsCommand({ action: "use", name: slug });
+  });
+
+// ─── Server commands ───
+
+const serversCmd = program
+  .command("servers")
+  .alias("server")
+  .alias("srv")
+  .description("Manage servers")
+  .action(async (opts) => {
+    await serversCommand({ action: opts });
+  });
+
+serversCmd
+  .command("list")
+  .alias("ls")
+  .option("--org <slug>", "Filter by organization slug")
+  .description("List servers in current organization")
+  .action(async (opts) => {
+    await serversCommand({ action: "list", org: opts.org });
+  });
+
+// ─── Connect command ───
+
+program
+  .command("connect")
+  .description("Connect to a ThreatCrush server via SSH")
+  .argument("[target]", "Server name, user@hostname, or hostname")
+  .option("--org <slug>", "Organization slug")
+  .option("-u, --user <user>", "SSH username")
+  .option("-p, --port <port>", "SSH port", "22")
+  .option("-i, --identity <path>", "SSH identity file")
+  .action(async (target, opts) => {
+    await connectCommand({
+      target,
+      org: opts.org,
+      user: opts.user,
+      port: opts.port,
+      identity: opts.identity,
+    });
   });
 
 // Default action (no command — show help)
