@@ -3,8 +3,14 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 const api = {
   getVersion: (): string => '0.1.3',
-  connectDaemon: (_host: string, _port: number): Promise<boolean> => {
-    return Promise.resolve(false) // placeholder
+  connectDaemon: (host: string, port: number): Promise<{ connected: boolean; pid?: number; error?: string }> => {
+    return ipcRenderer.invoke('connect-daemon', host, port)
+  },
+  disconnectDaemon: (): Promise<{ disconnected: boolean }> => {
+    return ipcRenderer.invoke('disconnect-daemon')
+  },
+  daemonStatus: (): Promise<{ running: boolean; pid?: number }> => {
+    return ipcRenderer.invoke('daemon-status')
   },
   onEvent: (callback: (event: unknown) => void): (() => void) => {
     const handler = (_: unknown, data: unknown): void => callback(data)

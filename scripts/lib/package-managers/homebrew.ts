@@ -5,6 +5,7 @@
  */
 
 import { BasePackageManager } from './base.js';
+import { resolveAssetSha256 } from './sha256.js';
 import type { PackageManagerConfig, ReleaseInfo, SubmissionResult, Logger } from './types.js';
 
 const DEFAULT_TAP_OWNER = 'profullstack';
@@ -43,7 +44,7 @@ export class HomebrewPackageManager extends BasePackageManager {
     }
   }
 
-  generateManifest(release: ReleaseInfo): Promise<string> {
+  async generateManifest(release: ReleaseInfo): Promise<string> {
     // Find the DMG assets for arm64 and x64
     const arm64Dmg = this.findAsset(
       release,
@@ -55,8 +56,8 @@ export class HomebrewPackageManager extends BasePackageManager {
         !a.name.includes('arm64') && a.name.endsWith('.dmg') && a.name.includes(release.version)
     );
 
-    const arm64Sha = arm64Dmg?.sha256 ?? 'SHA256_PLACEHOLDER';
-    const x64Sha = x64Dmg?.sha256 ?? 'SHA256_PLACEHOLDER';
+    const arm64Sha = arm64Dmg ? await resolveAssetSha256(arm64Dmg) : '';
+    const x64Sha = x64Dmg ? await resolveAssetSha256(x64Dmg) : '';
 
     return Promise.resolve(`cask "threatcrush" do
   version "${release.version}"

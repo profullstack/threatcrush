@@ -7,6 +7,15 @@ import { execSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { monitorCommand } from "./commands/monitor.js";
+import { scanCommand } from "./commands/scan.js";
+import { initCommand } from "./commands/init.js";
+import { statusCommand } from "./commands/status.js";
+import { modulesCommand } from "./commands/modules.js";
+import { pentestCommand } from "./commands/pentest.js";
+import { orgsCommand } from "./commands/orgs.js";
+import { serversCommand } from "./commands/servers.js";
+import { connectCommand } from "./commands/connect.js";
 
 let PKG_VERSION = "0.1.8";
 try {
@@ -31,16 +40,6 @@ const INSTALL_CONFIG_PATH = join(homedir(), ".threatcrush", "install.json");
 
 // ─── Helpers ───
 
-async function promptEmail(): Promise<string | null> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(chalk.green("\n  Enter your email to continue: "), (answer) => {
-      rl.close();
-      resolve(answer.trim() || null);
-    });
-  });
-}
-
 async function joinWaitlist(email: string): Promise<{ referral_code?: string } | null> {
   try {
     const res = await fetch(`${API_URL}/api/waitlist`, {
@@ -52,29 +51,6 @@ async function joinWaitlist(email: string): Promise<{ referral_code?: string } |
   } catch {
     return null;
   }
-}
-
-async function emailGate(): Promise<boolean> {
-  console.log(LOGO);
-  console.log(chalk.yellow("  ⚡ Coming soon — ThreatCrush is in private beta.\n"));
-
-  const email = await promptEmail();
-  if (!email || !email.includes("@")) {
-    console.log(chalk.red("\n  Invalid email. Try again.\n"));
-    return false;
-  }
-
-  const result = await joinWaitlist(email);
-  if (result?.referral_code) {
-    console.log(chalk.green(`\n  ✓ You're on the list!`));
-    console.log(chalk.dim(`  Referral code: ${chalk.white(result.referral_code)}`));
-    console.log(chalk.dim(`  Share: ${API_URL}?ref=${result.referral_code}`));
-    console.log(chalk.green(`\n  🎁 Refer a friend → they save $100, you earn $100 in crypto via CoinPayPortal\n`));
-  } else {
-    console.log(chalk.green(`\n  ✓ Thanks! We'll notify you when ThreatCrush launches.\n`));
-  }
-
-  return true;
 }
 
 function detectPackageManager(): string {
@@ -196,29 +172,143 @@ ${chalk.dim("Modules:")}
   Browse community modules: ${chalk.green("threatcrush store")}
 `);
 
-// ─── Gated commands (coming soon) ───
+// ─── Real commands ───
 
-const gatedCommand = (name: string, desc: string, aliases?: string[]) => {
-  const cmd = program.command(name).description(desc).action(async () => {
-    await emailGate();
+program
+  .command("monitor")
+  .description("Real-time security monitoring (all ports, all protocols)")
+  .option("-m, --module <modules>", "Comma-separated module filter (e.g. ssh-guard,log-watcher)")
+  .option("--tui", "Launch the interactive TUI dashboard")
+  .action(async (opts) => {
+    await monitorCommand({
+      module: opts.module,
+      tui: opts.tui,
+    });
   });
-  if (aliases) {
-    for (const alias of aliases) {
-      cmd.alias(alias);
-    }
-  }
-};
 
-gatedCommand("monitor", "Real-time security monitoring (all ports, all protocols)");
-gatedCommand("tui", "Interactive security dashboard (htop for security)", ["dashboard"]);
-gatedCommand("init", "Auto-detect services and configure ThreatCrush");
-gatedCommand("scan", "Scan codebase for vulnerabilities and secrets");
-gatedCommand("pentest", "Penetration test URLs and APIs");
-gatedCommand("status", "Show daemon status and loaded modules");
-gatedCommand("start", "Start the ThreatCrush daemon");
-gatedCommand("stop", "Stop the ThreatCrush daemon");
-gatedCommand("logs", "Tail daemon logs");
-gatedCommand("activate", "Activate your license key");
+program
+  .command("tui")
+  .description("Interactive security dashboard (htop for security)")
+  .alias("dashboard")
+  .action(async () => {
+    await monitorCommand({ tui: true });
+  });
+
+program
+  .command("init")
+  .description("Auto-detect services and configure ThreatCrush")
+  .action(async () => {
+    await initCommand();
+  });
+
+program
+  .command("scan")
+  .description("Scan codebase for vulnerabilities and secrets")
+  .argument("[path]", "Path to scan", ".")
+  .action(async (targetPath: string) => {
+    await scanCommand(targetPath);
+  });
+
+program
+  .command("pentest")
+  .description("Penetration test URLs and APIs")
+  .argument("<url>", "Target URL to pentest")
+  .action(async (url: string) => {
+    await pentestCommand(url);
+  });
+
+program
+  .command("status")
+  .description("Show daemon status and loaded modules")
+  .action(async () => {
+    await statusCommand();
+  });
+
+program
+  .command("start")
+  .description("Start the ThreatCrush daemon")
+  .action(async () => {
+    console.log(LOGO);
+    console.log(chalk.green("  Starting ThreatCrush daemon...\n"));
+    try {
+      execSync("nohup threatcrush monitor > /dev/null 2>&1 &", { stdio: "pipe" });
+      console.log(chalk.green("  ✓ Daemon started.\n"));
+      console.log(chalk.dim("  Run `threatcrush status` to check status"));
+      console.log(chalk.dim("  Run `threatcrush tui` for the dashboard\n"));
+    } catch {
+      console.log(chalk.red("  ✗ Failed to start daemon. Try running `threatcrush monitor` directly.\n"));
+    }
+  });
+
+program
+  .command("stop")
+  .description("Stop the ThreatCrush daemon")
+  .action(async () => {
+    console.log(LOGO);
+    console.log(chalk.yellow("  Stopping ThreatCrush daemon...\n"));
+    try {
+      execSync("pkill -f 'threatcrush monitor' || pkill -f threatcrushd || true", { stdio: "pipe" });
+      console.log(chalk.green("  ✓ Daemon stopped.\n"));
+    } catch {
+      console.log(chalk.dim("  No running daemon found.\n"));
+    }
+  });
+
+program
+  .command("logs")
+  .description("Tail daemon logs")
+  .action(async () => {
+    console.log(LOGO);
+    const logPath = "/var/log/threatcrush/threatcrushd.log";
+    if (!existsSync(logPath)) {
+      console.log(chalk.yellow(`  No log file found at ${logPath}`));
+      console.log(chalk.dim("  Start the daemon first with `threatcrush start`\n"));
+      return;
+    }
+    console.log(chalk.green(`  Tailing ${logPath}...\n`));
+    console.log(chalk.gray("  Press Ctrl+C to stop\n"));
+    execSync(`tail -f ${logPath}`, { stdio: "inherit" });
+  });
+
+program
+  .command("activate")
+  .description("Activate your license key")
+  .action(async () => {
+    console.log(LOGO);
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const key = await new Promise<string>((resolve) => {
+      rl.question(chalk.green("  Enter your ThreatCrush license key: "), (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
+    });
+
+    if (!key) {
+      console.log(chalk.red("\n  No key provided.\n"));
+      return;
+    }
+
+    console.log(chalk.dim("\n  Activating license..."));
+    try {
+      const res = await fetch(`${API_URL}/api/auth/activate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ license_key: key }),
+      });
+      const result = await res.json() as Record<string, unknown>;
+
+      if (!res.ok) {
+        console.log(chalk.red(`\n  ✗ Activation failed: ${(result as Record<string, string>).error || "Unknown error"}\n`));
+        return;
+      }
+
+      console.log(chalk.green("\n  ✓ License activated successfully!\n"));
+      console.log(chalk.dim(`  Status: ${String(result.status ?? "active")}`));
+      console.log(chalk.dim(`  Expires: ${String(result.expires ?? "never")}\n`));
+    } catch {
+      console.log(chalk.red("\n  ✗ Activation failed. Check your connection and try again.\n"));
+    }
+  });
 
 // ─── Real commands ───
 
@@ -232,7 +322,25 @@ program
     console.log(LOGO);
 
     if (opts.modules) {
-      console.log(chalk.yellow("  Module updates coming soon.\n"));
+      console.log(LOGO);
+      console.log(chalk.yellow("  Updating modules...\n"));
+      const pm = detectPackageManager();
+      const commands = [
+        getGlobalInstallCommand(pm, PKG_NAME, "update"),
+      ];
+      try {
+        for (const cmd of commands) {
+          console.log(chalk.green(`  → ${cmd}\n`));
+          execSync(cmd, { stdio: "inherit" });
+        }
+        console.log(chalk.green("\n  ✓ Modules updated successfully!\n"));
+      } catch (err) {
+        console.log(chalk.red("\n  ✗ Module update failed. Try manually:\n"));
+        for (const cmd of commands) {
+          console.log(chalk.dim(`    ${cmd}`));
+        }
+        console.log();
+      }
       return;
     }
 
@@ -325,24 +433,66 @@ program
 program
   .command("modules")
   .description("Manage security modules")
-  .argument("[action]", "list | install | remove | available | update")
-  .argument("[name]", "module name")
-  .action(async () => {
-    await emailGate();
+  .argument("[action]", "list | install | remove | available")
+  .argument("[name]", "Module name or path")
+  .action(async (action?: string, name?: string) => {
+    await modulesCommand({ action, name });
   });
 
 const storeCmd = program
   .command("store")
   .description("Browse the module marketplace")
   .action(async () => {
-    await emailGate();
+    console.log(LOGO);
+    console.log(chalk.green("  Module Marketplace\n"));
+    console.log(chalk.dim("  Loading available modules..."));
+    try {
+      const res = await fetch(`${API_URL}/api/modules`);
+      if (!res.ok) {
+        console.log(chalk.red(`  ✗ Failed to load modules: ${res.statusText}\n`));
+        return;
+      }
+      const data = await res.json() as { modules?: Array<{ slug: string; display_name: string; description: string; version: string; stars?: number }> };
+      const mods = data.modules || [];
+      if (mods.length === 0) {
+        console.log(chalk.yellow("  No modules available yet.\n"));
+        return;
+      }
+      console.log();
+      for (const mod of mods) {
+        console.log(`  ${chalk.green.bold(mod.display_name || mod.slug)} ${chalk.gray(`v${mod.version}`)}${mod.stars ? chalk.gray(` ⭐${mod.stars}`) : ""}`);
+        console.log(`    ${chalk.dim(mod.description)}\n`);
+      }
+    } catch {
+      console.log(chalk.dim("  (Marketplace offline — browse at threatcrush.com/store)\n"));
+    }
   });
 
 storeCmd
   .command("search <query>")
   .description("Search for modules in the store")
-  .action(async () => {
-    await emailGate();
+  .action(async (query: string) => {
+    console.log(LOGO);
+    console.log(chalk.green(`  Searching for "${query}"...\n`));
+    try {
+      const res = await fetch(`${API_URL}/api/modules?q=${encodeURIComponent(query)}`);
+      if (!res.ok) {
+        console.log(chalk.red(`  ✗ Search failed: ${res.statusText}\n`));
+        return;
+      }
+      const data = await res.json() as { modules?: Array<{ slug: string; display_name: string; description: string; version: string }> };
+      const mods = data.modules || [];
+      if (mods.length === 0) {
+        console.log(chalk.yellow(`  No modules matching "${query}"\n`));
+        return;
+      }
+      for (const mod of mods) {
+        console.log(`  ${chalk.green.bold(mod.display_name || mod.slug)} ${chalk.gray(`v${mod.version}`)}`);
+        console.log(`    ${chalk.dim(mod.description)}\n`);
+      }
+    } catch {
+      console.log(chalk.dim(`  (Search offline — browse at threatcrush.com/store)\n`));
+    }
   });
 
 storeCmd
@@ -463,6 +613,78 @@ storeCmd
     } catch (err) {
       console.log(chalk.red(`\n  ✗ Publish failed: ${err instanceof Error ? err.message : err}\n`));
     }
+  });
+
+// ─── Organization commands ───
+
+const orgsCmd = program
+  .command("orgs")
+  .alias("org")
+  .description("Manage organizations")
+  .action(async () => {
+    await orgsCommand({});
+  });
+
+orgsCmd
+  .command("list")
+  .alias("ls")
+  .description("List your organizations")
+  .action(async () => {
+    await orgsCommand({ action: "list" });
+  });
+
+orgsCmd
+  .command("create <name>")
+  .description("Create a new organization")
+  .action(async (name: string) => {
+    await orgsCommand({ action: "create", name });
+  });
+
+orgsCmd
+  .command("use <slug>")
+  .description("Switch to an organization")
+  .action(async (slug: string) => {
+    await orgsCommand({ action: "use", name: slug });
+  });
+
+// ─── Server commands ───
+
+const serversCmd = program
+  .command("servers")
+  .alias("server")
+  .alias("srv")
+  .description("Manage servers")
+  .action(async (opts) => {
+    await serversCommand({ action: opts });
+  });
+
+serversCmd
+  .command("list")
+  .alias("ls")
+  .option("--org <slug>", "Filter by organization slug")
+  .description("List servers in current organization")
+  .action(async (opts) => {
+    await serversCommand({ action: "list", org: opts.org });
+  });
+
+// ─── Connect command ───
+
+program
+  .command("connect")
+  .description("Connect to a ThreatCrush server via SSH")
+  .argument("[target]", "Server name, user@hostname, or hostname")
+  .option("--org <slug>", "Organization slug")
+  .option("-u, --user <user>", "SSH username")
+  .option("-p, --port <port>", "SSH port", "22")
+  .option("-i, --identity <path>", "SSH identity file")
+  .action(async (target, opts) => {
+    await connectCommand({
+      target,
+      org: opts.org,
+      user: opts.user,
+      port: opts.port,
+      identity: opts.identity,
+    });
   });
 
 // Default action (no command — show help)

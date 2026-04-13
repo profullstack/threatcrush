@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// Mock server-only to prevent import errors in test
+vi.mock("server-only", () => ({}));
+
 // Mock @supabase/supabase-js before importing
 vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn().mockReturnValue({ from: vi.fn() }),

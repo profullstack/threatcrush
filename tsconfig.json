@@ -42,6 +42,8 @@
     "desktop",
     "mobile",
     "extension",
-    "scripts"
+    "scripts",
+    "boilerplates",
+    "sdk"
   ]
 }

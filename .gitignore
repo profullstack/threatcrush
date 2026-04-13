@@ -4,3 +4,4 @@ data/
 .env.local
 .env
 supabase/supabase/.temp
+.qwen/

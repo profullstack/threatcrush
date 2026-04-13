@@ -1,61 +1,51 @@
-// Example ThreatCrush module
-// This follows the interface described in PRD.md until @threatcrush/sdk is published.
+/**
+ * Example ThreatCrush Module
+ *
+ * Demonstrates the interface for building ThreatCrush security modules.
+ * Once @threatcrush/sdk is published, replace these local types with:
+ *   import type { ThreatCrushModule, ModuleContext, ThreatEvent, Alert } from '@threatcrush/sdk';
+ */
 
-export interface EventPayload {
-  type: string;
-  data?: Record<string, unknown>;
-  timestamp?: string;
-}
+import type { ThreatEvent, EventCategory, EventSeverity, ModuleContext, Alert, ThreatCrushModule } from '../../sdk/src/index.js';
 
-export interface ModuleContext {
-  config: Record<string, unknown>;
-  logger: {
-    info: (...args: unknown[]) => void;
-    warn: (...args: unknown[]) => void;
-    error: (...args: unknown[]) => void;
-  };
-  alert?: (payload: {
-    title: string;
-    severity?: "low" | "medium" | "high" | "critical";
-    body?: string;
-    event?: EventPayload;
-  }) => Promise<void> | void;
-  subscribe?: (topic: string) => void;
-}
+export default class ExampleAlertModule implements ThreatCrushModule {
+  name = 'example-alert-module';
+  version = '0.1.0';
+  description = 'Sends an alert whenever an auth event is detected';
 
-export default class ExampleAlertModule {
-  name = "example-alert-module";
-  version = "0.1.0";
   private ctx!: ModuleContext;
 
   async init(ctx: ModuleContext): Promise<void> {
     this.ctx = ctx;
-    this.ctx.logger.info(`[${this.name}] init`);
+    this.ctx.logger.info('[%s] initialized', this.name);
   }
 
   async start(): Promise<void> {
-    this.ctx.logger.info(`[${this.name}] start`);
+    this.ctx.logger.info('[%s] started', this.name);
 
-    const watchEventTypes = (this.ctx.config.watch_event_types as string[] | undefined) ?? [];
+    const watchEventTypes = (this.ctx.config.watch_event_types as string[] | undefined) ?? [
+      'log:auth',
+    ];
     for (const topic of watchEventTypes) {
-      this.ctx.subscribe?.(topic);
-    }
-  }
-
-  async onEvent(event: EventPayload): Promise<void> {
-    this.ctx.logger.info(`[${this.name}] event`, event.type);
-
-    if (event.type === "log:auth") {
-      await this.ctx.alert?.({
-        title: "Example module noticed an auth-related event",
-        severity: "medium",
-        body: "Replace this with real detection logic.",
-        event,
+      this.ctx.subscribe(topic, (event: ThreatEvent) => {
+        void this.onEvent(event);
       });
     }
   }
 
+  async onEvent(event: ThreatEvent): Promise<void> {
+    if (event.category === 'auth' || event.module === 'ssh-guard') {
+      const alert: Alert = {
+        title: 'Auth event detected',
+        severity: event.severity === 'high' || event.severity === 'critical' ? event.severity : 'medium',
+        body: `Module received auth event: ${event.message}`,
+        event,
+      };
+      this.ctx.alert(alert);
+    }
+  }
+
   async stop(): Promise<void> {
-    this.ctx.logger.info(`[${this.name}] stop`);
+    this.ctx.logger.info('[%s] stopped', this.name);
   }
 }

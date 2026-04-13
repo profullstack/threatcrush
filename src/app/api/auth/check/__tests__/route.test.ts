@@ -47,15 +47,21 @@ vi.mock("@/lib/supabase", () => ({
 
 import { GET } from "@/app/api/auth/check/route";
 
-function makeRequest(token?: string) {
+function makeRequest(token?: string, searchParams?: Record<string, string>) {
   const headers: Record<string, string> = {};
   if (token) headers["authorization"] = `Bearer ${token}`;
-  return new Request("http://localhost/api/auth/check", { headers }) as unknown as import("next/server").NextRequest;
+  const params = new URLSearchParams(searchParams).toString();
+  const url = params
+    ? `http://localhost/api/auth/check?${params}`
+    : "http://localhost/api/auth/check";
+  const req = new Request(url, { headers }) as unknown as import("next/server").NextRequest;
+  // Next.js adds nextUrl from the URL
+  (req as unknown as Record<string, unknown>).nextUrl = new URL(url);
+  return req;
 }
 
 describe("GET /api/auth/check", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
     resetMocks();
   });
 

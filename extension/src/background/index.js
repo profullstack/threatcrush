@@ -4,6 +4,8 @@
  * Handles periodic security event checks, badge updates, and notifications.
  */
 
+import { getUsageStats, scanUrl as apiScanUrl } from '../lib/api.js';
+
 const ALARM_NAME = 'threatcrush-event-check';
 const CHECK_INTERVAL_MINUTES = 5;
 
@@ -44,10 +46,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 async function checkForEvents() {
   try {
     // Get stored auth token
-    const { authToken, serverUrl } = await chrome.storage.local.get([
-      'authToken',
-      'serverUrl',
-    ]);
+    const { authToken } = await chrome.storage.local.get(['authToken']);
 
     if (!authToken) {
       // Not logged in, clear badge
@@ -55,21 +54,23 @@ async function checkForEvents() {
       return;
     }
 
-    // TODO: Replace with real API call when connected
-    // For now, use demo data
-    const stats = await getDemoStats();
+    // Fetch real usage stats from the API
+    const usage = await getUsageStats(authToken);
 
-    await updateBadge(stats);
+    const threats = usage.threats || 0;
+    const warnings = usage.warnings || 0;
+
+    await updateBadge({ threats, warnings });
 
     // Show notification for new threats
-    if (stats.threats > 0) {
+    if (threats > 0) {
       const { notificationsEnabled } = await chrome.storage.local.get('notificationsEnabled');
       if (notificationsEnabled !== false) {
         chrome.notifications.create({
           type: 'basic',
           iconUrl: 'icons/icon-128.png',
           title: 'ThreatCrush Alert',
-          message: `${stats.threats} active threat${stats.threats > 1 ? 's' : ''} detected`,
+          message: `${threats} active threat${threats > 1 ? 's' : ''} detected`,
         });
       }
     }
@@ -95,23 +96,28 @@ async function updateBadge({ threats, warnings }) {
 }
 
 /**
- * Get demo stats (placeholder until real API is connected)
- */
-async function getDemoStats() {
-  return {
-    threats: 0,
-    warnings: 0,
-    eventsToday: 12,
-    modulesRunning: 3,
-  };
-}
-
-/**
  * Handle messages from popup/options
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_STATS') {
-    getDemoStats().then(sendResponse);
+    chrome.storage.local.get(['authToken']).then(async ({ authToken }) => {
+      if (!authToken) {
+        sendResponse({ threats: 0, warnings: 0, eventsToday: 0, modulesRunning: 0 });
+        return;
+      }
+      try {
+        const usage = await getUsageStats(authToken);
+        sendResponse({
+          threats: usage.threats || 0,
+          warnings: usage.warnings || 0,
+          eventsToday: usage.today_requests || usage.events_today || 0,
+          modulesRunning: 0,
+        });
+      } catch (err) {
+        console.error('[ThreatCrush] GET_STATS failed:', err);
+        sendResponse({ threats: 0, warnings: 0, eventsToday: 0, modulesRunning: 0 });
+      }
+    });
     return true; // async response
   }
 
@@ -127,18 +133,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 /**
- * Scan a URL for security issues (placeholder)
+ * Scan a URL for security issues using the real API
  */
 async function scanUrl(url) {
-  // TODO: Real scanning logic
-  return {
-    url,
-    status: 'secure',
-    checks: {
-      ssl: { status: 'pass', message: 'Valid SSL certificate' },
-      headers: { status: 'pass', message: 'Security headers present' },
-      securityTxt: { status: 'unknown', message: 'Not checked yet' },
-    },
-    scannedAt: new Date().toISOString(),
-  };
+  const { authToken } = await chrome.storage.local.get(['authToken']);
+  if (!authToken) {
+    return { url, status: 'unauthenticated', error: 'Not logged in' };
+  }
+  try {
+    return await apiScanUrl(url, authToken);
+  } catch (err) {
+    console.error('[ThreatCrush] Scan failed:', err);
+    return { url, status: 'error', error: err.message };
+  }
 }

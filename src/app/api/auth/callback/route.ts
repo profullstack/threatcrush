@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com";
+
+const supabaseUrl = SUPABASE_URL || "";
+const supabaseKey = SUPABASE_SERVICE_KEY || "";
 
 function generateReferralCode(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -30,7 +33,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${APP_URL}/auth/login?error=no_code`);
   }
 
-  const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  if (!supabaseUrl || !supabaseKey) {
+    // Supabase not configured — redirect to login with env-missing hint
+    return NextResponse.redirect(`${APP_URL}/auth/login?error=env_missing`);
+  }
+
+  const sb = createClient(supabaseUrl, supabaseKey);
 
   // Exchange code for session
   const { data: sessionData, error: sessionError } = await sb.auth.exchangeCodeForSession(code);

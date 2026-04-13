@@ -69,6 +69,7 @@ export async function PATCH(req: NextRequest) {
       "notification_email",
       "notification_sms",
       "notification_webhook_url",
+      "current_org_id",
     ];
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };

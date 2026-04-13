@@ -17,15 +17,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Amount must be between $5 and $1,000" }, { status: 400 });
     }
 
-    // Demo mode
     if (!COINPAY_API_KEY || !COINPAY_BUSINESS_ID) {
       return NextResponse.json({
-        success: true,
-        demo: true,
-        message: "Demo mode — CoinPayPortal not configured. Top-up simulated.",
-        payment_url: null,
-        amount_usd,
-      });
+        error: "Top-up not available. Set COINPAYPORTAL_API_KEY and COINPAYPORTAL_BUSINESS_ID.",
+      }, { status: 503 });
     }
 
     // Create a top-up payment via CoinPayPortal
