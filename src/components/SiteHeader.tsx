@@ -16,9 +16,6 @@ export default function SiteHeader() {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-2 sm:px-6">
           <a href="/" className="flex items-center gap-2">
             <img src="/logo.svg" alt="ThreatCrush" className="w-[90px] h-auto" />
-            <span className="text-xl font-bold text-tc-green glow-green font-mono">
-              ThreatCrush
-            </span>
           </a>
           <div className="hidden lg:flex items-center gap-6 text-sm text-tc-text-dim">
             <a href="/store" className="text-tc-green transition-colors">Module Store</a>
