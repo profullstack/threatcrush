@@ -34,6 +34,7 @@ export default function AccountContent() {
   } | null>(null);
   const [referralWallets, setReferralWallets] = useState<ReferralWallet[]>([]);
   const [loadingWallets, setLoadingWallets] = useState(false);
+  const [showAllWallets, setShowAllWallets] = useState(false);
 
   const fetchReferralWallets = useCallback(async () => {
     const token = localStorage.getItem("tc_access_token");
@@ -310,15 +311,30 @@ export default function AccountContent() {
                     <p className="text-tc-text-dim text-xs mt-1">Loading...</p>
                   ) : referralWallets.length > 0 ? (
                     <div className="space-y-1 mt-1">
-                      {referralWallets.slice(0, 3).map((w) => (
+                      {(showAllWallets ? referralWallets : referralWallets.slice(0, 3)).map((w) => (
                         <p key={w.cryptocurrency} className="text-white text-xs font-mono flex items-center gap-1">
                           <span className="text-tc-green font-bold w-20 shrink-0">{w.cryptocurrency}</span>
                           <span className="truncate">{w.wallet_address}</span>
                           {w.is_primary && <span className="text-[10px] bg-tc-green/10 text-tc-green px-1 rounded">★</span>}
                         </p>
                       ))}
-                      {referralWallets.length > 3 && (
-                        <p className="text-tc-text-dim text-xs">+{referralWallets.length - 3} more</p>
+                      {!showAllWallets && referralWallets.length > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllWallets(true)}
+                          className="text-tc-green text-xs hover:underline cursor-pointer"
+                        >
+                          +{referralWallets.length - 3} more
+                        </button>
+                      )}
+                      {showAllWallets && referralWallets.length > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllWallets(false)}
+                          className="text-tc-text-dim text-xs hover:underline cursor-pointer"
+                        >
+                          ▲ Collapse
+                        </button>
                       )}
                     </div>
                   ) : (
