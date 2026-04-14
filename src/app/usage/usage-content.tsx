@@ -540,9 +540,19 @@ export default function UsageContent() {
                 <span className="text-white font-mono font-bold">${paymentStatus.amountUsd.toFixed(2)}</span>
               </div>
               {paymentStatus.amountCrypto && (
-                <div className="flex justify-between text-sm">
+                <div className="flex justify-between text-sm items-center">
                   <span className="text-tc-text-dim">Send exactly</span>
-                  <span className="text-tc-green font-mono font-bold">{paymentStatus.amountCrypto} {paymentStatus.currency.split("_")[0].toUpperCase()}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-tc-green font-mono font-bold">{paymentStatus.amountCrypto} {paymentStatus.currency.split("_")[0].toUpperCase()}</span>
+                    <span className="text-tc-text-dim font-mono text-xs">(${paymentStatus.amountUsd.toFixed(2)})</span>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(`${paymentStatus.amountCrypto}`); }}
+                      className="text-xs text-tc-text-dim hover:text-tc-green transition-colors"
+                      title="Click to copy"
+                    >
+                      📋
+                    </button>
+                  </div>
                 </div>
               )}
               <div className="flex justify-between text-sm">
