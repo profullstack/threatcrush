@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { authHeaders } from "@/lib/auth-client";
 import ScrollReveal from "@/components/ScrollReveal";
 
 interface UsageData {
@@ -59,7 +59,6 @@ function formatTime(iso: string): string {
 
 export default function UsageContent() {
   const { signedIn, loading: authLoading } = useAuth();
-  const router = useRouter();
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [topupAmount, setTopupAmount] = useState<number>(10);
@@ -72,7 +71,7 @@ export default function UsageContent() {
       return;
     }
     if (!authLoading && signedIn) {
-      fetch("/api/usage")
+      fetch("/api/usage", { headers: authHeaders() })
         .then((r) => r.json())
         .then((d) => {
           setData(d);
@@ -116,48 +115,35 @@ export default function UsageContent() {
 
   return (
     <>
-      {/* ─── NAV ─── */}
-      <nav className="fixed top-0 left-0 right-0 z-40 border-b border-tc-border/50 bg-tc-darker/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="text-xl font-bold text-tc-green glow-green font-mono">
-              ⚡ ThreatCrush
-            </span>
-          </Link>
-          <div className="hidden sm:flex items-center gap-6 text-sm text-tc-text-dim">
-            <Link href="/#features" className="hover:text-tc-green transition-colors">Features</Link>
-            <Link href="/store" className="hover:text-tc-green transition-colors">Module Store</Link>
-            <Link href="/usage" className="text-tc-green transition-colors">Usage</Link>
-            <Link href="/#pricing" className="hover:text-tc-green transition-colors">Pricing</Link>
-          </div>
-          <button
-            onClick={() => setShowTopup(true)}
-            className="rounded-lg bg-tc-green px-4 py-2 text-sm font-bold text-black transition-all hover:bg-tc-green-dim"
-          >
-            Top Up
-          </button>
-        </div>
-      </nav>
+      {/* ─── Top Bar ─── */}
+      <div className="fixed top-16 right-4 z-40">
+        <button
+          onClick={() => setShowTopup(true)}
+          className="rounded-lg bg-tc-green px-4 py-2 text-sm font-bold text-black transition-all hover:bg-tc-green-dim shadow-lg"
+        >
+          Top Up
+        </button>
+      </div>
 
       <main className="pt-24 pb-16 min-h-screen">
-        <div className="mx-auto max-w-6xl px-6">
-          {/* Header */}
-          <ScrollReveal>
-            <div className="mb-8">
-              <p className="font-mono text-sm text-tc-green mb-2 tracking-wider">// USAGE &amp; BILLING</p>
-              <h1 className="text-3xl sm:text-4xl font-bold text-white">
-                AI Usage <span className="text-tc-green glow-green">Dashboard</span>
-              </h1>
-              <p className="text-tc-text-dim mt-2">
-                Track your AI module spending and manage credits.
-                {data?.demo && (
-                  <span className="ml-2 inline-block rounded-full bg-yellow-400/10 border border-yellow-400/30 px-2 py-0.5 text-xs text-yellow-400 font-mono">
-                    DEMO DATA
-                  </span>
-                )}
-              </p>
-            </div>
-          </ScrollReveal>
+      <div className="mx-auto max-w-6xl px-6">
+        {/* Header */}
+        <ScrollReveal>
+          <div className="mb-8">
+            <p className="font-mono text-sm text-tc-green mb-2 tracking-wider">// USAGE &amp; BILLING</p>
+            <h1 className="text-3xl sm:text-4xl font-bold text-white">
+              AI Usage <span className="text-tc-green glow-green">Dashboard</span>
+            </h1>
+            <p className="text-tc-text-dim mt-2">
+              Track your AI module spending and manage credits.
+              {data?.demo && (
+                <span className="ml-2 inline-block rounded-full bg-yellow-400/10 border border-yellow-400/30 px-2 py-0.5 text-xs text-yellow-400 font-mono">
+                  DEMO DATA
+                </span>
+              )}
+            </p>
+          </div>
+        </ScrollReveal>
 
           {loading ? (
             <div className="flex items-center justify-center py-32">
@@ -343,7 +329,7 @@ export default function UsageContent() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="rounded-2xl border border-tc-green/30 bg-tc-darker p-8 max-w-md w-full mx-4 glow-box">
             <h2 className="text-xl font-bold text-white mb-2">Top Up Credits</h2>
-            <p className="text-sm text-tc-text-dim mb-6">Add AI usage credits via CoinPayPortal (crypto or card).</p>
+            <p className="text-sm text-tc-text-dim mb-6">Add AI usage credits via CoinPayPortal (crypto).</p>
 
             <div className="mb-4">
               <label className="text-xs text-tc-text-dim font-mono block mb-1">Payment currency</label>
@@ -411,8 +397,6 @@ export default function UsageContent() {
             </div>
 
             <div className="flex items-center justify-center gap-3 mt-4 text-[10px] text-tc-text-dim">
-              <span>💳 Stripe</span>
-              <span>·</span>
               <span>₿ Crypto</span>
               <span>·</span>
               <span>🔒 Secure</span>
@@ -420,24 +404,6 @@ export default function UsageContent() {
           </div>
         </div>
       )}
-
-      {/* ─── Footer ─── */}
-      <footer className="border-t border-tc-border py-12">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-            <Link href="/" className="font-mono text-tc-green font-bold">⚡ ThreatCrush</Link>
-            <div className="flex items-center gap-6 text-sm text-tc-text-dim">
-              <Link href="/#features" className="hover:text-tc-green transition-colors">Features</Link>
-              <Link href="/store" className="hover:text-tc-green transition-colors">Module Store</Link>
-              <Link href="/usage" className="hover:text-tc-green transition-colors">Usage</Link>
-              <Link href="/#pricing" className="hover:text-tc-green transition-colors">Pricing</Link>
-            </div>
-            <p className="text-xs text-tc-text-dim">
-              © {new Date().getFullYear()} <a href="https://profullstack.com" className="hover:text-tc-green transition-colors">Profullstack, Inc.</a>
-            </p>
-          </div>
-        </div>
-      </footer>
     </>
   );
 }
