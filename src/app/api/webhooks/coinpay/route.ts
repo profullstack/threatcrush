@@ -74,8 +74,10 @@ export async function POST(request: NextRequest) {
 
   if (creditRow) {
     if (!signatureValid) {
+      console.warn('[coinpay webhook] credit deposit - invalid signature, skipping');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
+    console.log('[coinpay webhook] processing credit deposit', { paymentId, eventType, status: data.status });
     return handleCreditDepositWebhook(supabase, creditRow, data, eventType, paymentId);
   }
 
@@ -171,6 +173,7 @@ async function handleCreditDepositWebhook(
       nextStatus = 'failed';
       break;
     default:
+      console.log(`[coinpay webhook] ignoring event type: ${eventType}`);
       return NextResponse.json({ received: true, ignored: eventType });
   }
 
@@ -180,7 +183,7 @@ async function handleCreditDepositWebhook(
   };
   if (nextStatus === 'confirmed' || nextStatus === 'forwarded') {
     update.confirmed_at = now;
-    console.log(`[coinpay webhook] Credited $${creditRow.amount_usd} to ${creditRow.email}`);
+    console.log(`[coinpay webhook] Crediting $${creditRow.amount_usd} to ${creditRow.email} (status: ${nextStatus})`);
   }
 
   const { error } = await supabase
@@ -189,9 +192,10 @@ async function handleCreditDepositWebhook(
     .eq('coinpay_payment_id', paymentId);
 
   if (error) {
-    console.error('[coinpay webhook] credit deposit update failed:', error);
+    console.error('[coinpay webhook] credit deposit update failed:', JSON.stringify(error));
     return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
   }
+  console.log(`[coinpay webhook] credit_deposits updated: ${paymentId} -> ${nextStatus}`);
   return NextResponse.json({ received: true });
 }
 
