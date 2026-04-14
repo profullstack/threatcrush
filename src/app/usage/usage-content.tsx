@@ -63,6 +63,7 @@ export default function UsageContent() {
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [topupAmount, setTopupAmount] = useState<number>(10);
+  const [topupCurrency, setTopupCurrency] = useState("usdc_sol");
   const [showTopup, setShowTopup] = useState(false);
 
   useEffect(() => {
@@ -87,14 +88,22 @@ export default function UsageContent() {
       const res = await fetch("/api/usage/topup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "user@example.com", amount_usd: topupAmount }),
+        body: JSON.stringify({ amount_usd: topupAmount, currency: topupCurrency }),
       });
       const result = await res.json();
-      if (result.payment_url) {
-        window.location.href = result.payment_url;
-      } else if (result.demo) {
-        alert("Demo mode: Top-up simulated! In production, this would redirect to CoinPayPortal.");
+      if (!res.ok) {
+        alert(result.error || "Failed to create top-up");
+        return;
+      }
+      // Redirect to CoinPay crypto checkout
+      if (result.checkout_url) {
+        window.location.href = result.checkout_url;
+      } else if (result.payment_address) {
+        // Show crypto payment address
         setShowTopup(false);
+        alert(`Send $${topupAmount} worth of crypto to:\n\n${result.payment_address}\n\nPayment ID: ${result.payment_id}`);
+      } else {
+        alert("Failed to create top-up. Try again.");
       }
     } catch {
       alert("Failed to create top-up. Try again.");
@@ -335,6 +344,24 @@ export default function UsageContent() {
           <div className="rounded-2xl border border-tc-green/30 bg-tc-darker p-8 max-w-md w-full mx-4 glow-box">
             <h2 className="text-xl font-bold text-white mb-2">Top Up Credits</h2>
             <p className="text-sm text-tc-text-dim mb-6">Add AI usage credits via CoinPayPortal (crypto or card).</p>
+
+            <div className="mb-4">
+              <label className="text-xs text-tc-text-dim font-mono block mb-1">Payment currency</label>
+              <select
+                value={topupCurrency}
+                onChange={(e) => setTopupCurrency(e.target.value)}
+                className="w-full rounded-lg border border-tc-border bg-black/60 px-3 py-2 font-mono text-tc-green focus:border-tc-green/50 focus:outline-none"
+              >
+                <option value="usdc_sol">USDC (Solana) — Fast, cheap</option>
+                <option value="usdc_eth">USDC (Ethereum)</option>
+                <option value="usdc_pol">USDC (Polygon)</option>
+                <option value="usdt">USDT</option>
+                <option value="btc">Bitcoin</option>
+                <option value="eth">Ethereum</option>
+                <option value="sol">Solana</option>
+                <option value="pol">Polygon</option>
+              </select>
+            </div>
 
             <div className="grid grid-cols-4 gap-2 mb-4">
               {[5, 10, 25, 50].map((amt) => (

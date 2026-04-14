@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { parseWalletPaste } from "@/lib/wallet-import";
 
-type PaymentMethod = "stripe" | "crypto" | null;
+type PaymentMethod = "crypto" | null;
 
 export default function WaitlistModal({
   open,
@@ -19,12 +20,14 @@ export default function WaitlistModal({
   const [payLoading, setPayLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [walletPasteOpen, setWalletPasteOpen] = useState(false);
+  const [walletPasteText, setWalletPasteText] = useState("");
   const [result, setResult] = useState<{
     referral_code?: string;
     price?: number;
     discount?: boolean;
     existing?: boolean;
-    payment?: { address?: string; checkout_url?: string; amount_usd?: number };
+    payment?: { address?: string; checkout_url?: string; amount_usd?: number; payment_id?: string };
   } | null>(null);
 
   // Check URL for referral code
@@ -59,7 +62,6 @@ export default function WaitlistModal({
       const data = await res.json();
 
       if (!res.ok) {
-        // If already purchased, still show referral code
         if (data.paid && data.referral_code) {
           setResult({ referral_code: data.referral_code });
           setSignedUp(true);
@@ -77,9 +79,8 @@ export default function WaitlistModal({
     }
   };
 
-  // Step 2: Initiate payment
+  // Step 2: Initiate crypto payment
   const handlePay = async () => {
-    if (!paymentMethod) return;
     setPayLoading(true);
     setError("");
 
@@ -89,7 +90,7 @@ export default function WaitlistModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email,
-          payment_method: paymentMethod,
+          payment_method: "crypto",
           referral_code: referralCode || undefined,
         }),
       });
@@ -100,24 +101,33 @@ export default function WaitlistModal({
         throw new Error(data.error || "Something went wrong");
       }
 
-      // Redirect to checkout if available
       if (data.payment?.checkout_url) {
         window.location.href = data.payment.checkout_url;
         return;
       }
 
-      // Show crypto address if available
       if (data.payment?.address) {
         setResult((prev) => ({ ...prev, payment: data.payment }));
         return;
       }
 
-      // Fallback message
-      setError(data.message || "Payment method coming soon.");
+      setError(data.message || "Crypto payments coming soon.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setPayLoading(false);
+    }
+  };
+
+  const handleWalletPaste = () => {
+    const parsed = parseWalletPaste(walletPasteText);
+    if (parsed.wallets.length > 0) {
+      // Auto-select first address
+      const wallet = parsed.wallets[0];
+      setWalletPasteOpen(false);
+      setWalletPasteText("");
+      // In the future, store this and submit with payment
+      alert(`Wallet address detected: ${wallet.coin} — ${wallet.address.slice(0, 10)}...${wallet.address.slice(-6)}`);
     }
   };
 
@@ -128,6 +138,8 @@ export default function WaitlistModal({
     setError("");
     setResult(null);
     setCopied(false);
+    setWalletPasteOpen(false);
+    setWalletPasteText("");
     onClose();
   };
 
@@ -157,7 +169,6 @@ export default function WaitlistModal({
 
         {signedUp ? (
           <div>
-            {/* Success header */}
             <div className="text-center mb-6">
               <div className="text-5xl mb-4">🔒</div>
               <h3 className="text-2xl font-bold text-tc-green glow-green mb-2">
@@ -170,7 +181,6 @@ export default function WaitlistModal({
               </p>
             </div>
 
-            {/* Referral sharing */}
             {result?.referral_code && (
               <div className="p-4 border border-tc-green/20 rounded-lg bg-tc-green/5 mb-6">
                 <p className="text-sm text-tc-green font-medium mb-2">
@@ -192,7 +202,6 @@ export default function WaitlistModal({
               </div>
             )}
 
-            {/* Crypto address if shown */}
             {result?.payment?.address && (
               <div className="mb-6 p-4 border border-tc-border rounded-lg">
                 <p className="text-tc-text-dim text-sm mb-3">
@@ -204,42 +213,28 @@ export default function WaitlistModal({
               </div>
             )}
 
-            {/* Payment section (Step 2) */}
+            {/* Payment section */}
             {!result?.payment?.address && (
               <div className="border-t border-tc-border pt-6">
                 <h4 className="text-sm font-medium text-tc-text-dim mb-1">
-                  Ready to pay? Choose payment method below
+                  Ready to pay? Choose crypto below
                 </h4>
                 <p className="text-xs text-tc-text-dim/60 mb-4">
                   Optional — your spot and referral code are saved. You can pay later.
                 </p>
 
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <button
-                    onClick={() => setPaymentMethod("stripe")}
-                    className={`rounded-lg border p-3 text-center transition-all ${
-                      paymentMethod === "stripe"
-                        ? "border-tc-green bg-tc-green/5 text-tc-green"
-                        : "border-tc-border text-tc-text-dim hover:border-tc-green/30 hover:text-tc-text"
-                    }`}
-                  >
-                    <div className="text-lg mb-0.5">💳</div>
-                    <div className="text-sm font-medium">Card</div>
-                    <div className="text-xs opacity-60">Stripe</div>
-                  </button>
-                  <button
-                    onClick={() => setPaymentMethod("crypto")}
-                    className={`rounded-lg border p-3 text-center transition-all ${
-                      paymentMethod === "crypto"
-                        ? "border-tc-green bg-tc-green/5 text-tc-green"
-                        : "border-tc-border text-tc-text-dim hover:border-tc-green/30 hover:text-tc-text"
-                    }`}
-                  >
-                    <div className="text-lg mb-0.5">₿</div>
-                    <div className="text-sm font-medium">Crypto</div>
-                    <div className="text-xs opacity-60">CoinPayPortal</div>
-                  </button>
-                </div>
+                <button
+                  onClick={() => setPaymentMethod("crypto")}
+                  className={`w-full rounded-lg border p-3 text-center transition-all mb-4 ${
+                    paymentMethod === "crypto"
+                      ? "border-tc-green bg-tc-green/5 text-tc-green"
+                      : "border-tc-border text-tc-text-dim hover:border-tc-green/30 hover:text-tc-text"
+                  }`}
+                >
+                  <div className="text-lg mb-0.5">₿</div>
+                  <div className="text-sm font-medium">Crypto</div>
+                  <div className="text-xs opacity-60">BTC, ETH, SOL, USDC, USDT & more</div>
+                </button>
 
                 {error && (
                   <p className="text-red-400 text-sm mb-4">{error}</p>
@@ -280,7 +275,7 @@ export default function WaitlistModal({
                 </div>
               ) : (
                 <p className="text-tc-text-dim text-sm">
-                  Secure your spot. Pay later when you&apos;re ready.
+                  $499 lifetime access. Secure your spot, pay when ready.
                 </p>
               )}
             </div>
@@ -300,11 +295,11 @@ export default function WaitlistModal({
               />
             </div>
 
-            {/* Referral Code Input (if not from URL) */}
+            {/* Referral Code Input */}
             {!referralCode && (
               <div className="mb-6">
                 <label className="block text-sm font-medium text-tc-text-dim mb-1.5">
-                  Referral Code <span className="text-tc-text-dim/50">(optional — saves $250)</span>
+                  Referral Code <span className="text-tc-text-dim/50">(optional — $100 off)</span>
                 </label>
                 <input
                   type="text"
@@ -315,6 +310,35 @@ export default function WaitlistModal({
                 />
               </div>
             )}
+
+            {/* Wallet Paste Button */}
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => setWalletPasteOpen(!walletPasteOpen)}
+                className="text-sm text-tc-green hover:underline"
+              >
+                {walletPasteOpen ? "Hide wallet paste ▲" : "📋 Paste wallet address from CoinPay ▼"}
+              </button>
+              {walletPasteOpen && (
+                <div className="mt-2">
+                  <textarea
+                    value={walletPasteText}
+                    onChange={(e) => setWalletPasteText(e.target.value)}
+                    placeholder={`Paste from CoinPay "Copy All Addresses":\nBTC: bc1q...\nUSDC_SOL: FX8Q...`}
+                    rows={4}
+                    className="w-full rounded-lg border border-tc-border bg-tc-darker px-4 py-3 text-tc-text placeholder:text-tc-text-dim/50 focus:border-tc-green/50 focus:outline-none focus:ring-1 focus:ring-tc-green/30 transition-all font-mono text-xs"
+                  />
+                  <button
+                    onClick={handleWalletPaste}
+                    disabled={!walletPasteText.trim()}
+                    className="mt-2 w-full rounded-lg bg-tc-green/10 border border-tc-green/30 px-4 py-2 text-sm font-medium text-tc-green hover:bg-tc-green/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Parse Wallet Address
+                  </button>
+                </div>
+              )}
+            </div>
 
             {error && (
               <p className="text-red-400 text-sm mb-4">{error}</p>

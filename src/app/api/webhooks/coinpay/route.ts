@@ -12,12 +12,8 @@ function getSupabase() {
 /**
  * Unified CoinPay webhook handler.
  *
- * - HMAC-signed funding payments (from /api/funding/create-invoice) are
- *   verified and update funding_payments.
- * - Legacy/unsigned waitlist payments fall through and update waitlist.
- *
- * CoinPay only allows one webhook URL per business, so this single
- * route dispatches based on which table contains the payment id.
+ * Dispatches to the appropriate handler based on which table contains
+ * the payment_id: funding_payments, license_purchases, or waitlist.
  */
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
@@ -55,7 +51,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true, persisted: false });
   }
 
-  // Check funding first.
+  // Check funding payments first.
   const { data: fundingRow } = await supabase
     .from('funding_payments')
     .select('id')
@@ -66,52 +62,136 @@ export async function POST(request: NextRequest) {
     if (!signatureValid) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
+    return handleFundingWebhook(supabase, data, eventType, paymentId);
+  }
 
-    const now = new Date().toISOString();
-    const amountCrypto =
-      typeof data.amount_crypto === 'string'
-        ? parseFloat(data.amount_crypto)
-        : (data.amount_crypto ?? null);
+  // Check license purchases.
+  const { data: licenseRow } = await supabase
+    .from('license_purchases')
+    .select('id, user_id, email')
+    .eq('coinpay_payment_id', paymentId)
+    .maybeSingle();
 
-    let nextStatus: string | null = null;
-    switch (eventType) {
-      case 'payment.confirmed':
-        nextStatus = 'confirmed';
-        break;
-      case 'payment.forwarded':
-        nextStatus = 'forwarded';
-        break;
-      case 'payment.expired':
-        nextStatus = 'expired';
-        break;
-      case 'payment.failed':
-        nextStatus = 'failed';
-        break;
-      default:
-        return NextResponse.json({ received: true, ignored: eventType });
+  if (licenseRow) {
+    if (!signatureValid) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
-
-    const update: Record<string, unknown> = {
-      status: nextStatus,
-      updated_at: now,
-      tx_hash: data.tx_hash ?? null,
-    };
-    if (amountCrypto !== null) update.amount_crypto = amountCrypto;
-    if (nextStatus === 'confirmed' || nextStatus === 'forwarded') update.paid_at = now;
-
-    const { error } = await supabase
-      .from('funding_payments')
-      .update(update)
-      .eq('coinpay_payment_id', paymentId);
-
-    if (error) {
-      console.error('[coinpay webhook] funding update failed:', error);
-      return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
-    }
-    return NextResponse.json({ received: true });
+    return handleLicenseWebhook(supabase, licenseRow, data, eventType, paymentId);
   }
 
   // Fall back to waitlist (legacy unsigned path).
+  return handleWaitlistWebhook(supabase, data, eventType, paymentId, signatureValid);
+}
+
+async function handleFundingWebhook(
+  supabase: ReturnType<typeof getSupabase>,
+  data: CoinpayWebhookPayload['data'],
+  eventType: string,
+  paymentId: string,
+) {
+  const now = new Date().toISOString();
+  const amountCrypto =
+    typeof data.amount_crypto === 'string'
+      ? parseFloat(data.amount_crypto)
+      : (data.amount_crypto ?? null);
+
+  let nextStatus: string | null = null;
+  switch (eventType) {
+    case 'payment.confirmed':
+      nextStatus = 'confirmed';
+      break;
+    case 'payment.forwarded':
+      nextStatus = 'forwarded';
+      break;
+    case 'payment.expired':
+      nextStatus = 'expired';
+      break;
+    case 'payment.failed':
+      nextStatus = 'failed';
+      break;
+    default:
+      return NextResponse.json({ received: true, ignored: eventType });
+  }
+
+  const update: Record<string, unknown> = {
+    status: nextStatus,
+    updated_at: now,
+    tx_hash: data.tx_hash ?? null,
+  };
+  if (amountCrypto !== null) update.amount_crypto = amountCrypto;
+  if (nextStatus === 'confirmed' || nextStatus === 'forwarded') update.paid_at = now;
+
+  const { error } = await supabase
+    .from('funding_payments')
+    .update(update)
+    .eq('coinpay_payment_id', paymentId);
+
+  if (error) {
+    console.error('[coinpay webhook] funding update failed:', error);
+    return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+  }
+  return NextResponse.json({ received: true });
+}
+
+async function handleLicenseWebhook(
+  supabase: ReturnType<typeof getSupabase>,
+  licenseRow: { id: string; user_id: string; email: string },
+  data: CoinpayWebhookPayload['data'],
+  eventType: string,
+  paymentId: string,
+) {
+  const now = new Date().toISOString();
+
+  let status: string;
+  switch (eventType) {
+    case 'payment.confirmed':
+    case 'payment.forwarded':
+      status = 'confirmed';
+      break;
+    case 'payment.expired':
+      status = 'expired';
+      break;
+    case 'payment.failed':
+      status = 'failed';
+      break;
+    default:
+      return NextResponse.json({ received: true, ignored: eventType });
+  }
+
+  // Update license_purchases row
+  await supabase
+    .from('license_purchases')
+    .update({ status, updated_at: now })
+    .eq('coinpay_payment_id', paymentId);
+
+  // If confirmed, activate the license
+  if (status === 'confirmed' || status === 'forwarded') {
+    const { error: profileErr } = await supabase
+      .from('user_profiles')
+      .update({
+        license_status: 'active',
+        updated_at: now,
+      })
+      .eq('id', licenseRow.user_id);
+
+    if (profileErr) {
+      console.error('[coinpay webhook] license activation failed:', profileErr);
+      return NextResponse.json({ error: 'License activation failed' }, { status: 500 });
+    }
+
+    console.log(`[coinpay webhook] License activated for ${licenseRow.email}`);
+  }
+
+  return NextResponse.json({ received: true, status });
+}
+
+async function handleWaitlistWebhook(
+  supabase: ReturnType<typeof getSupabase>,
+  data: CoinpayWebhookPayload['data'],
+  eventType: string,
+  paymentId: string,
+  signatureValid: boolean,
+) {
   const status = data.status;
   if (
     !['payment.confirmed', 'payment.forwarded'].includes(eventType) &&

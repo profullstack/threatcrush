@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { authHeaders } from "@/lib/auth-client";
+import { parseWalletPaste, formatWalletCopyText } from "@/lib/wallet-import";
 
 export default function AccountContent() {
   const { signedIn, profile, loading, signOut, refreshProfile } = useAuth();
@@ -16,6 +17,9 @@ export default function AccountContent() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [walletPasteOpen, setWalletPasteOpen] = useState(false);
+  const [walletPasteText, setWalletPasteText] = useState("");
+  const [walletImportResult, setWalletImportResult] = useState<{ imported: number; errors: string[] } | null>(null);
 
   useEffect(() => {
     if (profile) {
@@ -89,6 +93,30 @@ export default function AccountContent() {
   const handleLogout = async () => {
     await signOut();
     window.location.href = "/";
+  };
+
+  const handleWalletImport = async () => {
+    const parsed = parseWalletPaste(walletPasteText);
+    if (parsed.wallets.length === 0) {
+      setWalletImportResult({ imported: 0, errors: ["No valid wallet addresses found. Use CoinPay 'Copy All Addresses' format."] });
+      return;
+    }
+
+    // Auto-select: use the first parsed wallet
+    const wallet = parsed.wallets[0];
+    setWalletAddress(wallet.address);
+
+    // Map coin to payout_crypto
+    const payoutMap: Record<string, string> = {
+      "BTC": "BTC", "ETH": "ETH", "SOL": "SOL", "USDT": "USDT", "USDC": "USDC",
+      "USDC_ETH": "USDC", "USDC_SOL": "USDC", "USDC_POL": "USDC",
+      "USDT_ETH": "USDT", "USDT_SOL": "USDT", "USDT_POL": "USDT",
+      "BNB": "BNB", "XRP": "XRP", "ADA": "ADA", "DOGE": "DOGE", "POL": "POL", "BCH": "BCH",
+    };
+    setPayoutCrypto(payoutMap[wallet.coin] || wallet.coin);
+
+    setWalletPasteText("");
+    setWalletImportResult({ imported: parsed.wallets.length, errors: [] });
   };
 
   return (
@@ -235,17 +263,64 @@ export default function AccountContent() {
                         <option value="BTC">BTC</option>
                         <option value="ETH">ETH</option>
                         <option value="SOL">SOL</option>
+                        <option value="USDC">USDC</option>
                       </select>
-                      <input
-                        value={walletAddress}
-                        onChange={(e) => setWalletAddress(e.target.value)}
-                        placeholder="Wallet address"
-                        className="w-full bg-tc-darker border border-tc-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-tc-green/50"
-                      />
+                      <div className="flex gap-2">
+                        <input
+                          value={walletAddress}
+                          onChange={(e) => setWalletAddress(e.target.value)}
+                          placeholder="Wallet address"
+                          className="flex-1 bg-tc-darker border border-tc-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-tc-green/50"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setWalletPasteOpen(!walletPasteOpen)}
+                          className="shrink-0 bg-tc-green/10 border border-tc-green/30 text-tc-green px-3 py-2 rounded-lg text-sm hover:bg-tc-green/20 transition-colors"
+                          title="Paste from CoinPay"
+                        >
+                          📋
+                        </button>
+                      </div>
+                      {walletPasteOpen && (
+                        <div className="mt-2">
+                          <textarea
+                            value={walletPasteText}
+                            onChange={(e) => setWalletPasteText(e.target.value)}
+                            placeholder={`Paste from CoinPay "Copy All Addresses":\nBTC: bc1q...\nUSDC_SOL: FX8Q...`}
+                            rows={3}
+                            className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-white placeholder:text-tc-text-dim/50 focus:outline-none focus:border-tc-green/50 font-mono text-xs"
+                          />
+                          <div className="flex gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={handleWalletImport}
+                              disabled={!walletPasteText.trim()}
+                              className="bg-tc-green text-black px-3 py-1.5 rounded-lg text-sm font-semibold hover:bg-tc-green-dim disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                              Import Wallet
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => { setWalletPasteOpen(false); setWalletPasteText(""); }}
+                              className="text-tc-text-dim text-sm hover:text-white"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          {walletImportResult && (
+                            <p className={`text-xs mt-2 ${walletImportResult.errors.length > 0 ? "text-red-400" : "text-tc-green"}`}>
+                              {walletImportResult.errors.length > 0
+                                ? walletImportResult.errors[0]
+                                : `✅ Wallet imported: ${walletAddress.slice(0, 8)}...${walletAddress.slice(-6)}`
+                              }
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="text-white text-sm truncate">
-                      {profile?.wallet_address ? `${profile.payout_crypto}: ${profile.wallet_address}` : "Not set"}
+                      {profile?.wallet_address ? `${profile.payout_crypto}: ${profile.wallet_address}` : "Not set — click Edit to add"}
                     </p>
                   )}
                 </div>
