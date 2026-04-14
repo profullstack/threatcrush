@@ -79,10 +79,29 @@ export default function UsageContent() {
       fetch(`/api/usage?email=${encodeURIComponent(email)}`, { headers: authHeaders() })
         .then((r) => r.json())
         .then((d) => {
-          setData(d);
+          if (d.error) {
+            console.error("Usage API error:", d.error);
+            setData({
+              balance_usd: 0, today_usd: 0, today_requests: 0,
+              week_usd: 0, week_requests: 0, month_usd: 0, month_requests: 0,
+              burn_rate_daily: 0, estimated_days_remaining: 0, projected_monthly_usd: 0,
+              daily_spend: [], module_breakdown: [], history: [], demo: true,
+            });
+          } else {
+            setData(d);
+          }
           setLoading(false);
         })
-        .catch(() => setLoading(false));
+        .catch(() => {
+          // On network error, show empty state with demo flag
+          setData({
+            balance_usd: 0, today_usd: 0, today_requests: 0,
+            week_usd: 0, week_requests: 0, month_usd: 0, month_requests: 0,
+            burn_rate_daily: 0, estimated_days_remaining: 0, projected_monthly_usd: 0,
+            daily_spend: [], module_breakdown: [], history: [], demo: true,
+          });
+          setLoading(false);
+        });
     }
   }, [signedIn, authLoading]);
 
