@@ -58,7 +58,7 @@ function formatTime(iso: string): string {
 }
 
 export default function UsageContent() {
-  const { signedIn, loading: authLoading } = useAuth();
+  const { signedIn, loading: authLoading, profile } = useAuth();
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [topupAmount, setTopupAmount] = useState<number>(10);
@@ -71,7 +71,12 @@ export default function UsageContent() {
       return;
     }
     if (!authLoading && signedIn) {
-      fetch("/api/usage", { headers: authHeaders() })
+      const email = profile?.email;
+      if (!email) {
+        setLoading(false);
+        return;
+      }
+      fetch(`/api/usage?email=${encodeURIComponent(email)}`, { headers: authHeaders() })
         .then((r) => r.json())
         .then((d) => {
           setData(d);
