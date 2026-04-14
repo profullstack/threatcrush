@@ -71,6 +71,7 @@ export default function UsageContent() {
     checkoutUrl: string | null;
     paymentAddress: string | null;
     amountUsd: number;
+    amountCrypto: number | null;
     currency: string;
     status: "pending" | "confirming" | "confirmed" | "forwarded" | "expired" | "failed";
   } | null>(null);
@@ -109,7 +110,7 @@ export default function UsageContent() {
   }, [signedIn, authLoading]);
 
   const handleTopup = async () => {
-    if (!topupAmount || topupAmount < 5) return;
+    if (!topupAmount || topupAmount < 1) return;
     setPayLoading(true);
     setPaymentError("");
     try {
@@ -129,6 +130,7 @@ export default function UsageContent() {
         checkoutUrl: result.checkout_url,
         paymentAddress: result.payment_address,
         amountUsd: topupAmount,
+        amountCrypto: result.amount_crypto ?? null,
         currency: topupCurrency,
         status: "pending",
       });
@@ -441,8 +443,8 @@ export default function UsageContent() {
               </select>
             </div>
 
-            <div className="grid grid-cols-4 gap-2 mb-4">
-              {[5, 10, 25, 50].map((amt) => (
+            <div className="grid grid-cols-5 gap-2 mb-4">
+              {[1, 5, 10, 25, 50].map((amt) => (
                 <button
                   key={amt}
                   onClick={() => setTopupAmount(amt)}
@@ -463,21 +465,21 @@ export default function UsageContent() {
                 <span className="text-tc-text-dim font-mono">$</span>
                 <input
                   type="number"
-                  min={5}
+                  min={1}
                   max={10000}
                   value={topupAmount}
                   onChange={(e) => setTopupAmount(Number(e.target.value))}
                   className="flex-1 rounded-lg border border-tc-border bg-black/60 px-3 py-2 font-mono text-tc-green focus:border-tc-green/50 focus:outline-none"
                 />
               </div>
-              <p className="text-[10px] text-tc-text-dim mt-1">Min $5 · Max $10,000</p>
+              <p className="text-[10px] text-tc-text-dim mt-1">Min $1 · Max $10,000</p>
             </div>
 
             <div className="flex gap-3">
               <button onClick={() => setShowTopup(false)} className="flex-1 rounded-lg border border-tc-border px-4 py-3 text-sm text-tc-text-dim hover:border-tc-green/30 transition-all">Cancel</button>
               <button
                 onClick={handleTopup}
-                disabled={payLoading || topupAmount < 5}
+                disabled={payLoading || topupAmount < 1}
                 className="flex-1 rounded-lg bg-tc-green px-4 py-3 text-sm font-bold text-black hover:bg-tc-green-dim transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {payLoading ? "Creating payment..." : `Pay $${topupAmount}`}
@@ -537,6 +539,12 @@ export default function UsageContent() {
                 <span className="text-tc-text-dim">Amount</span>
                 <span className="text-white font-mono font-bold">${paymentStatus.amountUsd.toFixed(2)}</span>
               </div>
+              {paymentStatus.amountCrypto && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-tc-text-dim">Send exactly</span>
+                  <span className="text-tc-green font-mono font-bold">{paymentStatus.amountCrypto} {paymentStatus.currency.split("_")[0].toUpperCase()}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
                 <span className="text-tc-text-dim">Currency</span>
                 <span className="text-white font-mono">{paymentStatus.currency}</span>

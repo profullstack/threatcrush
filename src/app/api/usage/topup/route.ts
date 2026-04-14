@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "amount_usd required" }, { status: 400 });
     }
 
-    if (amount_usd < 5 || amount_usd > 10000) {
-      return NextResponse.json({ error: "Amount must be between $5 and $10,000" }, { status: 400 });
+    if (amount_usd < 1 || amount_usd > 10000) {
+      return NextResponse.json({ error: "Amount must be between $1 and $10,000" }, { status: 400 });
     }
 
     const coinpayCurrency: CoinpayCurrency = currency || "usdc_sol";
@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
     const checkoutUrl = payment.stripe_checkout_url || cp.checkout_url || payment.checkout_url;
     const paymentAddress = payment.payment_address || payment.address || cp.address;
     const paymentId = payment.id || cp.payment_id;
+    const amountCrypto = payment.amount_crypto ?? payment.crypto_amount ?? cp.amount_crypto ?? null;
 
     if (!paymentId) {
       return NextResponse.json({ error: "CoinPay did not return a payment id" }, { status: 502 });
@@ -70,6 +71,7 @@ export async function POST(request: NextRequest) {
       checkout_url: checkoutUrl,
       payment_address: paymentAddress,
       amount_usd,
+      amount_crypto: amountCrypto,
       currency: coinpayCurrency,
     });
   } catch (error) {
