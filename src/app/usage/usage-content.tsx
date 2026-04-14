@@ -115,7 +115,7 @@ export default function UsageContent() {
     try {
       const res = await fetch("/api/usage/topup", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ amount_usd: topupAmount, currency: topupCurrency }),
       });
       const result = await res.json();

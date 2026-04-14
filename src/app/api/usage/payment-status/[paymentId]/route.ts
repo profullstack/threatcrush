@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const COINPAY_BASE_URL = (process.env.COINPAYPORTAL_API_URL || "https://coinpayportal.com").replace(/\/$/, '') + '/api';
-const COINPAY_API_KEY = process.env.COINPAYPORTAL_API_KEY;
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET(
   _req: NextRequest,
@@ -14,32 +12,29 @@ export async function GET(
       return NextResponse.json({ error: "paymentId required" }, { status: 400 });
     }
 
-    if (!COINPAY_API_KEY) {
-      return NextResponse.json({ error: "Not configured" }, { status: 503 });
-    }
+    const admin = getSupabaseAdmin();
 
-    const res = await fetch(`${COINPAY_BASE_URL}/payments/${paymentId}`, {
-      headers: {
-        Authorization: `Bearer ${COINPAY_API_KEY}`,
-      },
-      cache: "no-store",
-    });
+    // Check the credit_deposits table for this payment
+    const { data: deposit, error } = await admin
+      .from("credit_deposits")
+      .select("*")
+      .eq("coinpay_payment_id", paymentId)
+      .single();
 
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("[payment-status] CoinPay error:", res.status, text);
+    if (error && error.code !== "PGRST116") {
+      console.error("[payment-status] DB error:", error);
       return NextResponse.json({ error: "Failed to fetch payment status" }, { status: 502 });
     }
 
-    const data = await res.json();
-    const payment = data.payment || data;
+    if (!deposit) {
+      return NextResponse.json({ status: "pending", payment_id: paymentId });
+    }
 
     return NextResponse.json({
-      status: payment.status || "pending",
-      amount_usd: payment.amount_usd,
-      currency: payment.currency,
-      payment_address: payment.payment_address,
-      tx_hash: payment.tx_hash,
+      status: deposit.status,
+      amount_usd: deposit.amount_usd,
+      currency: "usdc_sol",
+      payment_id: deposit.coinpay_payment_id,
     });
   } catch (error) {
     console.error("[payment-status] Error:", error);
