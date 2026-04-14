@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Fall back to waitlist (legacy unsigned path).
-  return handleWaitlistWebhook(supabase, data, eventType, paymentId, signatureValid);
+  return handleWaitlistWebhook(supabase, data, eventType, paymentId);
 }
 
 async function handleFundingWebhook(
@@ -190,7 +190,6 @@ async function handleWaitlistWebhook(
   data: CoinpayWebhookPayload['data'],
   eventType: string,
   paymentId: string,
-  signatureValid: boolean,
 ) {
   const status = data.status;
   if (

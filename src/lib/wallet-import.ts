@@ -57,7 +57,7 @@ export function parseWalletPaste(text: string): WalletImportResult {
   const unsupportedCoins: string[] = [];
   const duplicateCoins: string[] = [];
   const seen = new Set<string>();
-  const wallets: ParsedWalletLine[] = [];
+  const walletMap = new Map<string, ParsedWalletLine>();
 
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
@@ -69,15 +69,17 @@ export function parseWalletPaste(text: string): WalletImportResult {
       continue;
     }
 
-    let coinPart = line.slice(0, colonIdx).trim().toUpperCase();
+    let coinPart = line.slice(0, colonIdx).trim();
     const address = line.slice(colonIdx + 1).trim();
 
     // Strip label if present: "USDC_POL (Label)" -> "USDC_POL"
     let label: string | undefined;
-    const labelMatch = coinPart.match(/^([A-Z_]+)\s*\(([^)]+)\)$/);
+    const labelMatch = coinPart.match(/^([A-Za-z0-9_]+)\s*\(([^)]+)\)$/);
     if (labelMatch) {
-      coinPart = labelMatch[1];
       label = labelMatch[2];
+      coinPart = labelMatch[1].toUpperCase();
+    } else {
+      coinPart = coinPart.toUpperCase();
     }
 
     if (!supportedSet.has(coinPart as PayoutCoin)) {
@@ -95,11 +97,11 @@ export function parseWalletPaste(text: string): WalletImportResult {
     }
 
     seen.add(coinPart);
-    wallets.push({ coin: coinPart, address, label, rawLine: line });
+    walletMap.set(coinPart, { coin: coinPart, address, label, rawLine: line });
   }
 
   return {
-    wallets,
+    wallets: Array.from(walletMap.values()),
     invalidLines,
     unsupportedCoins: [...new Set(unsupportedCoins)],
     duplicateCoins: [...new Set(duplicateCoins)],
