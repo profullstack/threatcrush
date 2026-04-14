@@ -65,6 +65,20 @@ export async function POST(request: NextRequest) {
     return handleFundingWebhook(supabase, data, eventType, paymentId);
   }
 
+  // Check credit deposits (usage top-ups).
+  const { data: creditRow } = await supabase
+    .from('credit_deposits')
+    .select('id, user_id, email, amount_usd')
+    .eq('coinpay_payment_id', paymentId)
+    .maybeSingle();
+
+  if (creditRow) {
+    if (!signatureValid) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
+    return handleCreditDepositWebhook(supabase, creditRow, data, eventType, paymentId);
+  }
+
   // Check license purchases.
   const { data: licenseRow } = await supabase
     .from('license_purchases')
@@ -128,6 +142,54 @@ async function handleFundingWebhook(
 
   if (error) {
     console.error('[coinpay webhook] funding update failed:', error);
+    return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+  }
+  return NextResponse.json({ received: true });
+}
+
+async function handleCreditDepositWebhook(
+  supabase: ReturnType<typeof getSupabase>,
+  creditRow: { id: string; user_id: string; email: string; amount_usd: unknown },
+  data: CoinpayWebhookPayload['data'],
+  eventType: string,
+  paymentId: string,
+) {
+  const now = new Date().toISOString();
+
+  let nextStatus: string | null = null;
+  switch (eventType) {
+    case 'payment.confirmed':
+      nextStatus = 'confirmed';
+      break;
+    case 'payment.forwarded':
+      nextStatus = 'forwarded';
+      break;
+    case 'payment.expired':
+      nextStatus = 'expired';
+      break;
+    case 'payment.failed':
+      nextStatus = 'failed';
+      break;
+    default:
+      return NextResponse.json({ received: true, ignored: eventType });
+  }
+
+  const update: Record<string, unknown> = {
+    status: nextStatus,
+    updated_at: now,
+  };
+  if (nextStatus === 'confirmed' || nextStatus === 'forwarded') {
+    update.confirmed_at = now;
+    console.log(`[coinpay webhook] Credited $${creditRow.amount_usd} to ${creditRow.email}`);
+  }
+
+  const { error } = await supabase
+    .from('credit_deposits')
+    .update(update)
+    .eq('coinpay_payment_id', paymentId);
+
+  if (error) {
+    console.error('[coinpay webhook] credit deposit update failed:', error);
     return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
   }
   return NextResponse.json({ received: true });

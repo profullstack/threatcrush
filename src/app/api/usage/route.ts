@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const COINPAY_BASE_URL = (process.env.COINPAYPORTAL_API_URL || "https://coinpayportal.com").replace(/\/$/, '') + '/api';
-const COINPAY_API_KEY = process.env.COINPAYPORTAL_API_KEY;
-const COINPAY_BUSINESS_ID = process.env.COINPAYPORTAL_BUSINESS_ID;
+import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
 
 interface UsageEvent {
   timestamp: string;
@@ -13,7 +10,7 @@ interface UsageEvent {
   id?: string;
 }
 
-/** Compute daily_spend and module_breakdown from real API history */
+/** Compute daily_spend and module_breakdown from real usage history */
 function computeBreakdowns(history: UsageEvent[], now: Date) {
   const monthAgo = new Date(now);
   monthAgo.setDate(monthAgo.getDate() - 30);
@@ -56,43 +53,65 @@ function computeBreakdowns(history: UsageEvent[], now: Date) {
 
 export async function GET(request: NextRequest) {
   try {
-    const email = request.nextUrl.searchParams.get("email");
+    // Authenticate via Bearer token
+    const authHeader = request.headers.get("authorization");
+    const token = authHeader?.replace("Bearer ", "");
 
-    if (!email) {
-      return NextResponse.json({ error: "email required" }, { status: 400 });
+    if (!token) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
-    if (!COINPAY_API_KEY || !COINPAY_BUSINESS_ID) {
-      return NextResponse.json({
-        error: "Usage API not configured. Set COINPAYPORTAL_API_KEY and COINPAYPORTAL_BUSINESS_ID.",
-      }, { status: 503 });
+    const supabase = getSupabaseClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user?.email) {
+      return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
     }
 
-    const headers = {
-      Authorization: `Bearer ${COINPAY_API_KEY}`,
-      "Content-Type": "application/json",
-    };
+    const admin = getSupabaseAdmin();
 
+    // Compute balance = confirmed credits - usage costs
+    const { data: deposits, error: depositErr } = await admin
+      .from("credit_deposits")
+      .select("amount_usd, status")
+      .eq("user_id", user.id)
+      .in("status", ["confirmed", "forwarded"]);
+
+    if (depositErr) {
+      console.error("[usage] deposit query error:", depositErr);
+    }
+
+    const totalCredits = (deposits || []).reduce((sum, d) => sum + Number(d.amount_usd || 0), 0);
+
+    // Fetch usage events (last 30 days)
     const now = new Date();
     const monthAgo = new Date(now);
     monthAgo.setDate(monthAgo.getDate() - 30);
 
-    // Fetch balance and history in parallel
-    const [creditsRes, historyRes] = await Promise.all([
-      fetch(`${COINPAY_BASE_URL}/businesses/${COINPAY_BUSINESS_ID}/usage/credits?email=${encodeURIComponent(email)}`, { headers }),
-      fetch(`${COINPAY_BASE_URL}/businesses/${COINPAY_BUSINESS_ID}/usage/history?email=${encodeURIComponent(email)}&from=${monthAgo.toISOString()}&to=${now.toISOString()}`, { headers }),
-    ]);
+    const { data: events, error: eventsErr } = await admin
+      .from("usage_events")
+      .select("id, module, action, cost_usd, created_at")
+      .eq("user_id", user.id)
+      .gte("created_at", monthAgo.toISOString())
+      .order("created_at", { ascending: false })
+      .limit(1000);
 
-    if (!creditsRes.ok || !historyRes.ok) {
-      console.error("[usage] API error", creditsRes.status, historyRes.status);
-      return NextResponse.json({ error: "Failed to fetch usage data from billing provider" }, { status: 502 });
+    if (eventsErr) {
+      console.error("[usage] events query error:", eventsErr);
     }
 
-    const credits = await creditsRes.json();
-    const historyData = await historyRes.json();
+    const totalUsage = (events || []).reduce((sum, e) => sum + Number(e.cost_usd || 0), 0);
+    const balanceUsd = +(totalCredits - totalUsage).toFixed(2);
 
-    const balanceUsd = credits.balance_usd || 0;
-    const history: UsageEvent[] = historyData.events || historyData.history || [];
+    // Transform events to the expected format
+    const history: UsageEvent[] = (events || []).map((e) => ({
+      id: e.id,
+      timestamp: e.created_at,
+      module: e.module,
+      action: e.action,
+      cost_usd: Number(e.cost_usd || 0),
+      status: "completed",
+    }));
 
     const todayStr = now.toISOString().slice(0, 10);
     const weekAgo = new Date(now);
@@ -101,7 +120,7 @@ export async function GET(request: NextRequest) {
     const todayEvents = history.filter((h) => h.timestamp?.startsWith(todayStr));
     const weekEvents = history.filter((h) => new Date(h.timestamp) >= weekAgo);
 
-    const sum = (events: UsageEvent[]) => +events.reduce((s, e) => s + (e.cost_usd || 0), 0).toFixed(2);
+    const sum = (evts: UsageEvent[]) => +evts.reduce((s, e) => s + (e.cost_usd || 0), 0).toFixed(2);
 
     const todayUsd = sum(todayEvents);
     const weekUsd = sum(weekEvents);
