@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
+import { authHeaders } from "@/lib/auth-client";
 import ScrollReveal from "@/components/ScrollReveal";
 
 interface UsageData {
@@ -31,7 +33,6 @@ interface UsageData {
     cost_usd: number;
     status: string;
   }>;
-  demo: boolean;
 }
 
 function costTierColor(cost: number): string {
@@ -56,39 +57,114 @@ function formatTime(iso: string): string {
 }
 
 export default function UsageContent() {
+  const { signedIn, loading: authLoading, profile } = useAuth();
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [topupAmount, setTopupAmount] = useState<number>(10);
+  const [topupCurrency, setTopupCurrency] = useState("usdc_sol");
   const [showTopup, setShowTopup] = useState(false);
+  const [payLoading, setPayLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<{
+    paymentId: string;
+    checkoutUrl: string | null;
+    paymentAddress: string | null;
+    amountUsd: number;
+    currency: string;
+    status: "pending" | "confirming" | "confirmed" | "forwarded" | "expired" | "failed";
+  } | null>(null);
 
   useEffect(() => {
-    fetch("/api/usage")
-      .then((r) => r.json())
-      .then((d) => {
-        setData(d);
+    if (!authLoading && !signedIn) {
+      window.location.href = "/auth/login?next=/usage";
+      return;
+    }
+    if (!authLoading && signedIn) {
+      const email = profile?.email;
+      if (!email) {
         setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
+        return;
+      }
+      fetch(`/api/usage?email=${encodeURIComponent(email)}`, { headers: authHeaders() })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.error) {
+            console.error("Usage API error:", d.error);
+            setLoading(false);
+            return;
+          }
+          setData(d);
+          setLoading(false);
+        })
+        .catch(() => {
+          setLoading(false);
+        });
+    }
+  }, [signedIn, authLoading]);
 
   const handleTopup = async () => {
     if (!topupAmount || topupAmount < 5) return;
+    setPayLoading(true);
+    setError("");
     try {
       const res = await fetch("/api/usage/topup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "user@example.com", amount_usd: topupAmount }),
+        body: JSON.stringify({ amount_usd: topupAmount, currency: topupCurrency }),
       });
       const result = await res.json();
-      if (result.payment_url) {
-        window.location.href = result.payment_url;
-      } else if (result.demo) {
-        alert("Demo mode: Top-up simulated! In production, this would redirect to CoinPayPortal.");
-        setShowTopup(false);
+      if (!res.ok) {
+        setError(result.error || "Failed to create top-up");
+        return;
       }
+      // Open payment tracking modal
+      setPaymentStatus({
+        paymentId: result.payment_id,
+        checkoutUrl: result.checkout_url,
+        paymentAddress: result.payment_address,
+        amountUsd: topupAmount,
+        currency: topupCurrency,
+        status: "pending",
+      });
+      setShowTopup(false);
+      // Poll for payment status
+      pollPaymentStatus(result.payment_id);
     } catch {
-      alert("Failed to create top-up. Try again.");
+      setError("Failed to create top-up. Try again.");
+    } finally {
+      setPayLoading(false);
     }
+  };
+
+  const pollPaymentStatus = async (paymentId: string) => {
+    let attempts = 0;
+    const maxAttempts = 60; // 5 minutes at 5s intervals
+    const interval = setInterval(async () => {
+      if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        setPaymentStatus((prev) => prev ? { ...prev, status: "expired" } : null);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/usage/payment-status/${paymentId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setPaymentStatus((prev) => prev ? { ...prev, status: data.status } : null);
+          if (data.status === "confirmed" || data.status === "forwarded") {
+            clearInterval(interval);
+            // Refresh usage data
+            fetch(`/api/usage?email=${encodeURIComponent(profile?.email || "")}`, { headers: authHeaders() })
+              .then((r) => r.json())
+              .then((d) => { if (!d.error) setData(d); setLoading(false); });
+          }
+        }
+      } catch {
+        // retry
+      }
+      attempts++;
+    }, 5000);
+
+    return () => clearInterval(interval);
   };
 
   const maxDailySpend = data?.daily_spend
@@ -97,48 +173,30 @@ export default function UsageContent() {
 
   return (
     <>
-      {/* ─── NAV ─── */}
-      <nav className="fixed top-0 left-0 right-0 z-40 border-b border-tc-border/50 bg-tc-darker/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="text-xl font-bold text-tc-green glow-green font-mono">
-              ⚡ ThreatCrush
-            </span>
-          </Link>
-          <div className="hidden sm:flex items-center gap-6 text-sm text-tc-text-dim">
-            <Link href="/#features" className="hover:text-tc-green transition-colors">Features</Link>
-            <Link href="/store" className="hover:text-tc-green transition-colors">Module Store</Link>
-            <Link href="/usage" className="text-tc-green transition-colors">Usage</Link>
-            <Link href="/#pricing" className="hover:text-tc-green transition-colors">Pricing</Link>
-          </div>
-          <button
-            onClick={() => setShowTopup(true)}
-            className="rounded-lg bg-tc-green px-4 py-2 text-sm font-bold text-black transition-all hover:bg-tc-green-dim"
-          >
-            Top Up
-          </button>
-        </div>
-      </nav>
+      {/* ─── Top Bar ─── */}
+      <div className="fixed top-16 right-4 z-40">
+        <button
+          onClick={() => setShowTopup(true)}
+          className="rounded-lg bg-tc-green px-4 py-2 text-sm font-bold text-black transition-all hover:bg-tc-green-dim shadow-lg"
+        >
+          Top Up
+        </button>
+      </div>
 
       <main className="pt-24 pb-16 min-h-screen">
-        <div className="mx-auto max-w-6xl px-6">
-          {/* Header */}
-          <ScrollReveal>
-            <div className="mb-8">
-              <p className="font-mono text-sm text-tc-green mb-2 tracking-wider">// USAGE &amp; BILLING</p>
-              <h1 className="text-3xl sm:text-4xl font-bold text-white">
-                AI Usage <span className="text-tc-green glow-green">Dashboard</span>
-              </h1>
-              <p className="text-tc-text-dim mt-2">
-                Track your AI module spending and manage credits.
-                {data?.demo && (
-                  <span className="ml-2 inline-block rounded-full bg-yellow-400/10 border border-yellow-400/30 px-2 py-0.5 text-xs text-yellow-400 font-mono">
-                    DEMO DATA
-                  </span>
-                )}
-              </p>
-            </div>
-          </ScrollReveal>
+      <div className="mx-auto max-w-6xl px-6">
+        {/* Header */}
+        <ScrollReveal>
+          <div className="mb-8">
+            <p className="font-mono text-sm text-tc-green mb-2 tracking-wider">// USAGE &amp; BILLING</p>
+            <h1 className="text-3xl sm:text-4xl font-bold text-white">
+              AI Usage <span className="text-tc-green glow-green">Dashboard</span>
+            </h1>
+            <p className="text-tc-text-dim mt-2">
+              Track your AI module spending and manage credits.
+            </p>
+          </div>
+        </ScrollReveal>
 
           {loading ? (
             <div className="flex items-center justify-center py-32">
@@ -321,10 +379,31 @@ export default function UsageContent() {
 
       {/* ─── Top Up Modal ─── */}
       {showTopup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="rounded-2xl border border-tc-green/30 bg-tc-darker p-8 max-w-md w-full mx-4 glow-box">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowTopup(false)}>
+          <div className="relative rounded-2xl border border-tc-green/30 bg-tc-darker p-8 max-w-md w-full mx-4 glow-box" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowTopup(false)} className="absolute top-4 right-4 text-tc-text-dim hover:text-tc-text">✕</button>
             <h2 className="text-xl font-bold text-white mb-2">Top Up Credits</h2>
-            <p className="text-sm text-tc-text-dim mb-6">Add AI usage credits via CoinPayPortal (crypto or card).</p>
+            <p className="text-sm text-tc-text-dim mb-6">Add AI usage credits via crypto.</p>
+
+            {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+
+            <div className="mb-4">
+              <label className="text-xs text-tc-text-dim font-mono block mb-1">Payment currency</label>
+              <select
+                value={topupCurrency}
+                onChange={(e) => setTopupCurrency(e.target.value)}
+                className="w-full rounded-lg border border-tc-border bg-black/60 px-3 py-2 font-mono text-tc-green focus:border-tc-green/50 focus:outline-none"
+              >
+                <option value="usdc_sol">USDC (Solana) — Fast, cheap</option>
+                <option value="usdc_eth">USDC (Ethereum)</option>
+                <option value="usdc_pol">USDC (Polygon)</option>
+                <option value="usdt">USDT</option>
+                <option value="btc">Bitcoin</option>
+                <option value="eth">Ethereum</option>
+                <option value="sol">Solana</option>
+                <option value="pol">Polygon</option>
+              </select>
+            </div>
 
             <div className="grid grid-cols-4 gap-2 mb-4">
               {[5, 10, 25, 50].map((amt) => (
@@ -349,58 +428,141 @@ export default function UsageContent() {
                 <input
                   type="number"
                   min={5}
-                  max={1000}
+                  max={10000}
                   value={topupAmount}
                   onChange={(e) => setTopupAmount(Number(e.target.value))}
                   className="flex-1 rounded-lg border border-tc-border bg-black/60 px-3 py-2 font-mono text-tc-green focus:border-tc-green/50 focus:outline-none"
                 />
               </div>
-              <p className="text-[10px] text-tc-text-dim mt-1">Min $5 · Max $1,000</p>
+              <p className="text-[10px] text-tc-text-dim mt-1">Min $5 · Max $10,000</p>
             </div>
 
             <div className="flex gap-3">
-              <button
-                onClick={() => setShowTopup(false)}
-                className="flex-1 rounded-lg border border-tc-border px-4 py-3 text-sm text-tc-text-dim hover:border-tc-green/30 transition-all"
-              >
-                Cancel
-              </button>
+              <button onClick={() => setShowTopup(false)} className="flex-1 rounded-lg border border-tc-border px-4 py-3 text-sm text-tc-text-dim hover:border-tc-green/30 transition-all">Cancel</button>
               <button
                 onClick={handleTopup}
-                className="flex-1 rounded-lg bg-tc-green px-4 py-3 text-sm font-bold text-black hover:bg-tc-green-dim transition-all"
+                disabled={payLoading || topupAmount < 5}
+                className="flex-1 rounded-lg bg-tc-green px-4 py-3 text-sm font-bold text-black hover:bg-tc-green-dim transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Pay ${topupAmount}
+                {payLoading ? "Creating payment..." : `Pay $${topupAmount}`}
               </button>
-            </div>
-
-            <div className="flex items-center justify-center gap-3 mt-4 text-[10px] text-tc-text-dim">
-              <span>💳 Stripe</span>
-              <span>·</span>
-              <span>₿ Crypto</span>
-              <span>·</span>
-              <span>🔒 Secure</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* ─── Footer ─── */}
-      <footer className="border-t border-tc-border py-12">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-            <Link href="/" className="font-mono text-tc-green font-bold">⚡ ThreatCrush</Link>
-            <div className="flex items-center gap-6 text-sm text-tc-text-dim">
-              <Link href="/#features" className="hover:text-tc-green transition-colors">Features</Link>
-              <Link href="/store" className="hover:text-tc-green transition-colors">Module Store</Link>
-              <Link href="/usage" className="hover:text-tc-green transition-colors">Usage</Link>
-              <Link href="/#pricing" className="hover:text-tc-green transition-colors">Pricing</Link>
+      {/* ─── Payment Tracking Modal ─── */}
+      {paymentStatus && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setPaymentStatus(null)}>
+          <div className="relative rounded-2xl border border-tc-green/30 bg-tc-darker p-8 max-w-lg w-full mx-4 glow-box" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setPaymentStatus(null)} className="absolute top-4 right-4 text-tc-text-dim hover:text-tc-text">✕</button>
+
+            <div className="text-center mb-6">
+              <div className={`text-4xl mb-3 ${paymentStatus.status === "confirmed" || paymentStatus.status === "forwarded" ? "text-tc-green" : paymentStatus.status === "expired" ? "text-red-400" : "text-yellow-400 animate-pulse"}`}>
+                {paymentStatus.status === "confirmed" || paymentStatus.status === "forwarded" ? "✅" : paymentStatus.status === "expired" ? "❌" : "⏳"}
+              </div>
+              <h2 className="text-xl font-bold text-white mb-1">
+                {paymentStatus.status === "confirmed" || paymentStatus.status === "forwarded"
+                  ? "Payment Confirmed!"
+                  : paymentStatus.status === "expired"
+                  ? "Payment Expired"
+                  : "Awaiting Payment"}
+              </h2>
+              <p className="text-sm text-tc-text-dim">
+                {paymentStatus.status === "pending" && "Send the exact amount below to complete your top-up."}
+                {paymentStatus.status === "confirming" && "Payment detected — waiting for blockchain confirmations..."}
+                {paymentStatus.status === "confirmed" && "Your credits have been added!"}
+                {paymentStatus.status === "forwarded" && "Payment settled — credits updated!"}
+                {paymentStatus.status === "expired" && "The payment window closed. Try again."}
+              </p>
             </div>
-            <p className="text-xs text-tc-text-dim">
-              © {new Date().getFullYear()} <a href="https://profullstack.com" className="hover:text-tc-green transition-colors">Profullstack, Inc.</a>
-            </p>
+
+            {/* Status indicator */}
+            <div className="flex items-center justify-center gap-2 mb-6">
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-mono font-bold ${
+                paymentStatus.status === "pending" ? "bg-yellow-400/10 text-yellow-400 border border-yellow-400/30" :
+                paymentStatus.status === "confirming" ? "bg-blue-400/10 text-blue-400 border border-blue-400/30" :
+                paymentStatus.status === "confirmed" || paymentStatus.status === "forwarded" ? "bg-tc-green/10 text-tc-green border border-tc-green/30" :
+                "bg-red-400/10 text-red-400 border border-red-400/30"
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  paymentStatus.status === "pending" ? "bg-yellow-400 animate-pulse" :
+                  paymentStatus.status === "confirming" ? "bg-blue-400 animate-pulse" :
+                  paymentStatus.status === "confirmed" || paymentStatus.status === "forwarded" ? "bg-tc-green" :
+                  "bg-red-400"
+                }`} />
+                {paymentStatus.status.toUpperCase()}
+              </span>
+            </div>
+
+            {/* Payment details */}
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between text-sm">
+                <span className="text-tc-text-dim">Amount</span>
+                <span className="text-white font-mono font-bold">${paymentStatus.amountUsd.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-tc-text-dim">Currency</span>
+                <span className="text-white font-mono">{paymentStatus.currency}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-tc-text-dim">Payment ID</span>
+                <span className="text-white font-mono text-xs truncate ml-4 max-w-[200px]">{paymentStatus.paymentId}</span>
+              </div>
+            </div>
+
+            {/* Payment address */}
+            {(paymentStatus.status === "pending" || paymentStatus.status === "confirming") && paymentStatus.paymentAddress && (
+              <div className="mb-6 p-4 border border-tc-border rounded-xl bg-tc-darker">
+                <p className="text-xs text-tc-text-dim mb-2">Send payment to:</p>
+                <code className="block bg-black/40 border border-tc-border rounded-lg p-3 text-xs text-tc-green font-mono break-all select-all cursor-pointer"
+                  onClick={() => { navigator.clipboard.writeText(paymentStatus.paymentAddress || ""); }}
+                  title="Click to copy"
+                >
+                  {paymentStatus.paymentAddress}
+                </code>
+                <p className="text-[10px] text-tc-text-dim mt-1.5">Click address to copy</p>
+              </div>
+            )}
+
+            {/* Stripe checkout link */}
+            {paymentStatus.checkoutUrl && paymentStatus.status === "pending" && (
+              <a
+                href={paymentStatus.checkoutUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center bg-tc-green text-black font-bold py-3 rounded-lg hover:bg-tc-green-dim transition-all mb-3"
+              >
+                Open Checkout →
+              </a>
+            )}
+
+            <div className="flex gap-3">
+              {paymentStatus.status === "expired" && (
+                <button
+                  onClick={() => { setPaymentStatus(null); setShowTopup(true); }}
+                  className="flex-1 rounded-lg bg-tc-green px-4 py-3 text-sm font-bold text-black hover:bg-tc-green-dim transition-all"
+                >
+                  Try Again
+                </button>
+              )}
+              {(paymentStatus.status === "confirmed" || paymentStatus.status === "forwarded") && (
+                <button
+                  onClick={() => setPaymentStatus(null)}
+                  className="flex-1 rounded-lg bg-tc-green px-4 py-3 text-sm font-bold text-black hover:bg-tc-green-dim transition-all"
+                >
+                  Done
+                </button>
+              )}
+              {paymentStatus.status === "pending" && (
+                <div className="flex-1 text-center">
+                  <span className="text-sm text-tc-text-dim font-mono animate-pulse">Monitoring payment...</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </footer>
+      )}
     </>
   );
 }

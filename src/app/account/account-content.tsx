@@ -1,9 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { authHeaders } from "@/lib/auth-client";
+import { parseWalletPaste, formatWalletCopyText } from "@/lib/wallet-import";
+
+interface ReferralWallet {
+  id: string;
+  cryptocurrency: string;
+  wallet_address: string;
+  label: string | null;
+  is_primary: boolean;
+  created_at: string;
+}
 
 export default function AccountContent() {
   const { signedIn, profile, loading, signOut, refreshProfile } = useAuth();
@@ -16,6 +26,38 @@ export default function AccountContent() {
   const [webhookUrl, setWebhookUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [walletPasteOpen, setWalletPasteOpen] = useState(false);
+  const [walletPasteText, setWalletPasteText] = useState("");
+  const [walletImportResult, setWalletImportResult] = useState<{
+    imported: Array<{ coin: string; address: string; action: string }>;
+    errors: string[];
+  } | null>(null);
+  const [referralWallets, setReferralWallets] = useState<ReferralWallet[]>([]);
+  const [loadingWallets, setLoadingWallets] = useState(false);
+  const [showAllWallets, setShowAllWallets] = useState(false);
+
+  const fetchReferralWallets = useCallback(async () => {
+    const token = localStorage.getItem("tc_access_token");
+    if (!token) return;
+    setLoadingWallets(true);
+    try {
+      const res = await fetch("/api/referrals/import-wallets", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setReferralWallets(data.wallets || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingWallets(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchReferralWallets();
+  }, [fetchReferralWallets]);
 
   useEffect(() => {
     if (profile) {
@@ -89,6 +131,47 @@ export default function AccountContent() {
   const handleLogout = async () => {
     await signOut();
     window.location.href = "/";
+  };
+
+  const handleWalletImport = async () => {
+    const parsed = parseWalletPaste(walletPasteText);
+    if (parsed.wallets.length === 0) {
+      setWalletImportResult({ imported: [], errors: ["No valid wallet addresses found. Use CoinPay 'Copy All Addresses' format."] });
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("tc_access_token");
+      const res = await fetch("/api/referrals/import-wallets", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ paste_text: walletPasteText }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setWalletImportResult({
+          imported: [],
+          errors: [data.error || "Import failed"],
+        });
+        return;
+      }
+
+      setWalletImportResult({
+        imported: data.imported || [],
+        errors: data.errors?.map((e: { coin: string; error: string }) => `${e.coin}: ${e.error}`) || [],
+      });
+
+      setWalletPasteText("");
+      setWalletPasteOpen(false);
+      await fetchReferralWallets();
+    } catch {
+      setWalletImportResult({ imported: [], errors: ["Network error during import"] });
+    }
   };
 
   return (
@@ -223,32 +306,103 @@ export default function AccountContent() {
                   <p className="text-white text-xl font-bold">${profile?.total_referral_earnings_usd?.toFixed(2) || "0.00"}</p>
                 </div>
                 <div>
-                  <span className="text-sm text-tc-text-dim">Payout Wallet</span>
-                  {editing ? (
-                    <div className="space-y-2 mt-1">
-                      <select
-                        value={payoutCrypto}
-                        onChange={(e) => setPayoutCrypto(e.target.value)}
-                        className="w-full bg-tc-darker border border-tc-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-tc-green/50"
-                      >
-                        <option value="USDT">USDT</option>
-                        <option value="BTC">BTC</option>
-                        <option value="ETH">ETH</option>
-                        <option value="SOL">SOL</option>
-                      </select>
-                      <input
-                        value={walletAddress}
-                        onChange={(e) => setWalletAddress(e.target.value)}
-                        placeholder="Wallet address"
-                        className="w-full bg-tc-darker border border-tc-border rounded-lg px-3 py-2 text-white focus:outline-none focus:border-tc-green/50"
-                      />
+                  <span className="text-sm text-tc-text-dim">Payout Wallets</span>
+                  {loadingWallets ? (
+                    <p className="text-tc-text-dim text-xs mt-1">Loading...</p>
+                  ) : referralWallets.length > 0 ? (
+                    <div className="space-y-1 mt-1">
+                      {(showAllWallets ? referralWallets : referralWallets.slice(0, 3)).map((w) => (
+                        <p key={w.cryptocurrency} className="text-white text-xs font-mono flex items-center gap-1">
+                          <span className="text-tc-green font-bold w-20 shrink-0">{w.cryptocurrency}</span>
+                          <span className="truncate">{w.wallet_address}</span>
+                          {w.is_primary && <span className="text-[10px] bg-tc-green/10 text-tc-green px-1 rounded">★</span>}
+                        </p>
+                      ))}
+                      {!showAllWallets && referralWallets.length > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllWallets(true)}
+                          className="text-tc-green text-xs hover:underline cursor-pointer"
+                        >
+                          +{referralWallets.length - 3} more
+                        </button>
+                      )}
+                      {showAllWallets && referralWallets.length > 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAllWallets(false)}
+                          className="text-tc-text-dim text-xs hover:underline cursor-pointer"
+                        >
+                          ▲ Collapse
+                        </button>
+                      )}
                     </div>
                   ) : (
-                    <p className="text-white text-sm truncate">
-                      {profile?.wallet_address ? `${profile.payout_crypto}: ${profile.wallet_address}` : "Not set"}
-                    </p>
+                    <p className="text-white text-xs mt-1">None — import below</p>
                   )}
                 </div>
+              </div>
+
+              {/* Bulk Wallet Import */}
+              <div className="mt-4 border-t border-tc-border pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-white">Wallet Addresses</h3>
+                  <button
+                    type="button"
+                    onClick={() => setWalletPasteOpen(!walletPasteOpen)}
+                    className="text-xs text-tc-green hover:underline"
+                  >
+                    {walletPasteOpen ? "▲ Close" : "📋 Import from CoinPay"}
+                  </button>
+                </div>
+
+                {walletPasteOpen && (
+                  <div>
+                    <textarea
+                      value={walletPasteText}
+                      onChange={(e) => setWalletPasteText(e.target.value)}
+                      placeholder={`Paste from CoinPay "Copy All Addresses":\nBTC: bc1q...\nETH: 0x...\nUSDC_SOL: FX8Q...\nUSDC_POL: 0x...`}
+                      rows={5}
+                      className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-white placeholder:text-tc-text-dim/50 focus:outline-none focus:border-tc-green/50 font-mono text-xs"
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={handleWalletImport}
+                        disabled={!walletPasteText.trim()}
+                        className="bg-tc-green text-black px-4 py-1.5 rounded-lg text-sm font-semibold hover:bg-tc-green-dim disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        Import All Wallets
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setWalletPasteOpen(false); setWalletPasteText(""); setWalletImportResult(null); }}
+                        className="text-tc-text-dim text-sm hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {walletImportResult && (
+                      <div className="mt-2 text-xs">
+                        {walletImportResult.imported.length > 0 && (
+                          <div className="text-tc-green">
+                            ✅ Imported {walletImportResult.imported.length} wallet(s):
+                            {walletImportResult.imported.map((w, i) => (
+                              <span key={i} className="inline-block mr-2 mt-1 px-2 py-0.5 bg-tc-green/10 rounded font-mono">
+                                {w.coin}: {w.address.slice(0, 8)}…{w.address.slice(-6)}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {walletImportResult.errors.length > 0 && (
+                          <div className="text-red-400 mt-1">
+                            ❌ {walletImportResult.errors.join(", ")}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

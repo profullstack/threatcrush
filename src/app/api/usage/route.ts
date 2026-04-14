@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const COINPAY_API_URL = process.env.COINPAYPORTAL_API_URL || "https://api.coinpayportal.com";
+const COINPAY_BASE_URL = (process.env.COINPAYPORTAL_API_URL || "https://coinpayportal.com").replace(/\/$/, '') + '/api';
 const COINPAY_API_KEY = process.env.COINPAYPORTAL_API_KEY;
 const COINPAY_BUSINESS_ID = process.env.COINPAYPORTAL_BUSINESS_ID;
 
@@ -79,8 +79,8 @@ export async function GET(request: NextRequest) {
 
     // Fetch balance and history in parallel
     const [creditsRes, historyRes] = await Promise.all([
-      fetch(`${COINPAY_API_URL}/api/businesses/${COINPAY_BUSINESS_ID}/usage/credits?email=${encodeURIComponent(email)}`, { headers }),
-      fetch(`${COINPAY_API_URL}/api/businesses/${COINPAY_BUSINESS_ID}/usage/history?email=${encodeURIComponent(email)}&from=${monthAgo.toISOString()}&to=${now.toISOString()}`, { headers }),
+      fetch(`${COINPAY_BASE_URL}/businesses/${COINPAY_BUSINESS_ID}/usage/credits?email=${encodeURIComponent(email)}`, { headers }),
+      fetch(`${COINPAY_BASE_URL}/businesses/${COINPAY_BUSINESS_ID}/usage/history?email=${encodeURIComponent(email)}&from=${monthAgo.toISOString()}&to=${now.toISOString()}`, { headers }),
     ]);
 
     if (!creditsRes.ok || !historyRes.ok) {

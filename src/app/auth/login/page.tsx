@@ -42,7 +42,10 @@ export default function LoginPage() {
 
       const verified = data.verified || {};
       if (!verified.email || !verified.phone) {
-        window.location.href = `/auth/verify?next=${encodeURIComponent(nextPath)}`;
+        const params = new URLSearchParams({ next: nextPath });
+        if (data.user?.email) params.set("email", data.user.email);
+        if (data.phone) params.set("phone", data.phone);
+        window.location.href = `/auth/verify?${params.toString()}`;
       } else {
         window.location.href = nextPath;
       }

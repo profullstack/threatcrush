@@ -16,11 +16,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
 
-    // Fetch profile for verification status
+    // Fetch profile for verification status and phone number
     const admin = getSupabaseAdmin();
     const { data: profile } = await admin
       .from("user_profiles")
-      .select("email_verified, phone_verified")
+      .select("email_verified, phone_verified, phone")
       .eq("id", data.user.id)
       .single();
 
@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
         email: profile?.email_verified ?? false,
         phone: profile?.phone_verified ?? false,
       },
+      phone: profile?.phone ?? null,
     });
   } catch (err) {
     console.error("Login error:", err);

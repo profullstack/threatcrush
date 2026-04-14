@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 
 const COINPAY_API_URL =
-  (process.env.COINPAY_API_URL || 'https://coinpayportal.com').replace(/\/$/, '') + '/api';
+  (process.env.COINPAYPORTAL_API_URL || 'https://coinpayportal.com').replace(/\/$/, '') + '/api';
 
 export type CoinpayCurrency =
   | 'card'
@@ -72,8 +72,8 @@ export interface CoinpayWebhookPayload {
 }
 
 function getCreds(): { apiKey: string; merchantId: string } {
-  const apiKey = process.env.COINPAY_API_KEY;
-  const merchantId = process.env.COINPAY_BUSINESS_ID;
+  const apiKey = process.env.COINPAYPORTAL_API_KEY;
+  const merchantId = process.env.COINPAYPORTAL_BUSINESS_ID;
   if (!apiKey || !merchantId) {
     throw new Error('CoinPay credentials not configured');
   }
