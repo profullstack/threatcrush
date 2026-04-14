@@ -66,6 +66,7 @@ export default function UsageContent() {
   const [showTopup, setShowTopup] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<{
     paymentId: string;
     checkoutUrl: string | null;
@@ -113,6 +114,7 @@ export default function UsageContent() {
     if (!topupAmount || topupAmount < 1) return;
     setPayLoading(true);
     setPaymentError("");
+    setCopiedField(null);
     try {
       const res = await fetch("/api/usage/topup", {
         method: "POST",
@@ -546,11 +548,15 @@ export default function UsageContent() {
                     <span className="text-tc-green font-mono font-bold">{paymentStatus.amountCrypto} {paymentStatus.currency.split("_")[0].toUpperCase()}</span>
                     <span className="text-tc-text-dim font-mono text-xs">(${paymentStatus.amountUsd.toFixed(2)})</span>
                     <button
-                      onClick={() => { navigator.clipboard.writeText(`${paymentStatus.amountCrypto}`); }}
-                      className="text-xs text-tc-text-dim hover:text-tc-green transition-colors"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${paymentStatus.amountCrypto}`);
+                        setCopiedField("crypto");
+                        setTimeout(() => setCopiedField(null), 1500);
+                      }}
+                      className={`text-xs transition-colors ${copiedField === "crypto" ? "text-tc-green font-bold" : "text-tc-text-dim hover:text-tc-green"}`}
                       title="Click to copy"
                     >
-                      📋
+                      {copiedField === "crypto" ? "✓ Copied!" : "📋"}
                     </button>
                   </div>
                 </div>
@@ -570,12 +576,18 @@ export default function UsageContent() {
               <div className="mb-6 p-4 border border-tc-border rounded-xl bg-tc-darker">
                 <p className="text-xs text-tc-text-dim mb-2">Send payment to:</p>
                 <code className="block bg-black/40 border border-tc-border rounded-lg p-3 text-xs text-tc-green font-mono break-all select-all cursor-pointer"
-                  onClick={() => { navigator.clipboard.writeText(paymentStatus.paymentAddress || ""); }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(paymentStatus.paymentAddress || "");
+                    setCopiedField("address");
+                    setTimeout(() => setCopiedField(null), 1500);
+                  }}
                   title="Click to copy"
                 >
                   {paymentStatus.paymentAddress}
                 </code>
-                <p className="text-[10px] text-tc-text-dim mt-1.5">Click address to copy</p>
+                <p className="text-[10px] text-tc-text-dim mt-1.5">
+                  {copiedField === "address" ? "✓ Copied to clipboard!" : "Click address to copy"}
+                </p>
               </div>
             )}
 
