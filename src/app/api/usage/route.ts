@@ -129,6 +129,26 @@ export async function GET(request: NextRequest) {
 
     const breakdowns = computeBreakdowns(history, now);
 
+    // Fetch payment/deposit history
+    const { data: payments, error: paymentsErr } = await admin
+      .from("credit_deposits")
+      .select("id, coinpay_payment_id, amount_usd, status, created_at")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (paymentsErr) {
+      console.error("[usage] payments query error:", paymentsErr);
+    }
+
+    const paymentHistory = (payments || []).map((p) => ({
+      id: p.id,
+      coinpay_payment_id: p.coinpay_payment_id,
+      amount_usd: Number(p.amount_usd || 0),
+      status: p.status,
+      created_at: p.created_at,
+    }));
+
     return NextResponse.json({
       balance_usd: balanceUsd,
       today_usd: todayUsd,
@@ -140,6 +160,7 @@ export async function GET(request: NextRequest) {
       burn_rate_daily: burnRateDaily,
       estimated_days_remaining: burnRateDaily > 0 ? Math.floor(balanceUsd / burnRateDaily) : 999,
       projected_monthly_usd: +(burnRateDaily * 30).toFixed(2),
+      payment_history: paymentHistory,
       ...breakdowns,
       history: history.slice(0, 20),
       demo: false,

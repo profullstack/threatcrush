@@ -33,6 +33,13 @@ interface UsageData {
     cost_usd: number;
     status: string;
   }>;
+  payment_history: Array<{
+    id: string;
+    coinpay_payment_id: string | null;
+    amount_usd: number;
+    status: string;
+    created_at: string;
+  }>;
 }
 
 function costTierColor(cost: number): string {
@@ -371,6 +378,49 @@ export default function UsageContent() {
                           <span className="text-tc-text-dim flex-1 truncate">{evt.action}</span>
                           <span className={`font-bold flex-shrink-0 ${costTierColor(evt.cost_usd)}`}>
                             ${evt.cost_usd.toFixed(4)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </ScrollReveal>
+              )}
+
+              {/* ─── Payment History ─── */}
+              {data.payment_history && data.payment_history.length > 0 && (
+                <ScrollReveal delay={600}>
+                  <div className="rounded-xl border border-tc-border bg-tc-card p-6">
+                    <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                      <span className="text-tc-green">💳</span> Payment History
+                    </h2>
+                    <div className="space-y-1">
+                      {data.payment_history.map((payment) => (
+                        <div
+                          key={payment.id}
+                          className="flex items-center justify-between px-4 py-3 rounded-lg border border-transparent hover:border-tc-border/50 hover:bg-tc-green/5 transition-all"
+                        >
+                          <div className="flex items-center gap-4">
+                            <span className={`inline-block w-2 h-2 rounded-full ${
+                              payment.status === "confirmed" || payment.status === "forwarded" ? "bg-tc-green" :
+                              payment.status === "expired" ? "bg-red-400" :
+                              payment.status === "failed" ? "bg-red-500" :
+                              "bg-yellow-400 animate-pulse"
+                            }`} />
+                            <div>
+                              <p className="text-tc-text font-mono text-sm">
+                                ${payment.amount_usd.toFixed(2)}
+                              </p>
+                              <p className="text-[10px] text-tc-text-dim font-mono">
+                                {new Date(payment.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                            </div>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
+                            payment.status === "confirmed" || payment.status === "forwarded" ? "bg-tc-green/10 text-tc-green border border-tc-green/30" :
+                            payment.status === "pending" ? "bg-yellow-400/10 text-yellow-400 border border-yellow-400/30" :
+                            "bg-red-400/10 text-red-400 border border-red-400/30"
+                          }`}>
+                            {payment.status}
                           </span>
                         </div>
                       ))}
