@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 import ScrollReveal from "@/components/ScrollReveal";
 
 interface UsageData {
@@ -56,20 +58,28 @@ function formatTime(iso: string): string {
 }
 
 export default function UsageContent() {
+  const { signedIn, loading: authLoading } = useAuth();
+  const router = useRouter();
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [topupAmount, setTopupAmount] = useState<number>(10);
   const [showTopup, setShowTopup] = useState(false);
 
   useEffect(() => {
-    fetch("/api/usage")
-      .then((r) => r.json())
-      .then((d) => {
-        setData(d);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
+    if (!authLoading && !signedIn) {
+      window.location.href = "/auth/login?next=/usage";
+      return;
+    }
+    if (!authLoading && signedIn) {
+      fetch("/api/usage")
+        .then((r) => r.json())
+        .then((d) => {
+          setData(d);
+          setLoading(false);
+        })
+        .catch(() => setLoading(false));
+    }
+  }, [signedIn, authLoading]);
 
   const handleTopup = async () => {
     if (!topupAmount || topupAmount < 5) return;
