@@ -60,11 +60,12 @@ export default function UsageContent() {
   const { signedIn, loading: authLoading, profile } = useAuth();
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [topupAmount, setTopupAmount] = useState<number>(10);
   const [topupCurrency, setTopupCurrency] = useState("usdc_sol");
   const [showTopup, setShowTopup] = useState(false);
   const [payLoading, setPayLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [paymentError, setPaymentError] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<{
     paymentId: string;
     checkoutUrl: string | null;
@@ -80,32 +81,37 @@ export default function UsageContent() {
       return;
     }
     if (!authLoading && signedIn) {
-      const email = profile?.email;
-      if (!email) {
-        setLoading(false);
-        return;
-      }
-      fetch(`/api/usage?email=${encodeURIComponent(email)}`, { headers: authHeaders() })
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.error) {
-            console.error("Usage API error:", d.error);
-            setLoading(false);
-            return;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+      fetch(`/api/usage`, { headers: authHeaders(), signal: controller.signal })
+        .then(async (r) => {
+          const d = await r.json();
+          if (!r.ok || d.error) {
+            throw new Error(d.error || `HTTP ${r.status}`);
           }
+          return d;
+        })
+        .then((d) => {
+          clearTimeout(timeout);
           setData(d);
           setLoading(false);
         })
-        .catch(() => {
+        .catch((err) => {
+          clearTimeout(timeout);
+          console.error("Usage API error:", err);
+          setError(err.name === "AbortError" ? "Request timed out. Check your connection or try again later." : err.message || "Failed to fetch usage data");
           setLoading(false);
         });
+
+      return () => clearTimeout(timeout);
     }
   }, [signedIn, authLoading]);
 
   const handleTopup = async () => {
     if (!topupAmount || topupAmount < 5) return;
     setPayLoading(true);
-    setError("");
+    setPaymentError("");
     try {
       const res = await fetch("/api/usage/topup", {
         method: "POST",
@@ -114,7 +120,7 @@ export default function UsageContent() {
       });
       const result = await res.json();
       if (!res.ok) {
-        setError(result.error || "Failed to create top-up");
+        setPaymentError(result.error || "Failed to create top-up");
         return;
       }
       // Open payment tracking modal
@@ -130,7 +136,7 @@ export default function UsageContent() {
       // Poll for payment status
       pollPaymentStatus(result.payment_id);
     } catch {
-      setError("Failed to create top-up. Try again.");
+      setPaymentError("Failed to create top-up. Try again.");
     } finally {
       setPayLoading(false);
     }
@@ -153,7 +159,7 @@ export default function UsageContent() {
           if (data.status === "confirmed" || data.status === "forwarded") {
             clearInterval(interval);
             // Refresh usage data
-            fetch(`/api/usage?email=${encodeURIComponent(profile?.email || "")}`, { headers: authHeaders() })
+            fetch(`/api/usage`, { headers: authHeaders() })
               .then((r) => r.json())
               .then((d) => { if (!d.error) setData(d); setLoading(false); });
           }
@@ -369,6 +375,36 @@ export default function UsageContent() {
                 </ScrollReveal>
               )}
             </>
+          ) : error ? (
+            <div className="text-center py-32">
+              <p className="text-red-400 font-mono mb-4">Error: {error}</p>
+              <button
+                onClick={() => {
+                  setError(null);
+                  setLoading(true);
+                  fetch(`/api/usage`, { headers: authHeaders() })
+                    .then(async (r) => {
+                      const d = await r.json();
+                      if (!r.ok || d.error) {
+                        throw new Error(d.error || `HTTP ${r.status}`);
+                      }
+                      return d;
+                    })
+                    .then((d) => {
+                      setData(d);
+                      setLoading(false);
+                    })
+                    .catch((err) => {
+                      console.error("Usage API error:", err);
+                      setError(err.message || "Failed to fetch usage data");
+                      setLoading(false);
+                    });
+                }}
+                className="rounded-lg bg-tc-green px-6 py-2.5 text-sm font-bold text-black transition-all hover:bg-tc-green-dim"
+              >
+                Retry
+              </button>
+            </div>
           ) : (
             <div className="text-center py-32">
               <p className="text-tc-text-dim">Failed to load usage data.</p>
@@ -385,7 +421,7 @@ export default function UsageContent() {
             <h2 className="text-xl font-bold text-white mb-2">Top Up Credits</h2>
             <p className="text-sm text-tc-text-dim mb-6">Add AI usage credits via crypto.</p>
 
-            {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+            {paymentError && <p className="text-red-400 text-sm mb-4">{paymentError}</p>}
 
             <div className="mb-4">
               <label className="text-xs text-tc-text-dim font-mono block mb-1">Payment currency</label>

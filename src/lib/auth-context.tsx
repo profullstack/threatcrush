@@ -55,6 +55,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
   const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(null);
+  const [hashTokenExtracted, setHashTokenExtracted] = useState(false);
+
+  // Extract OAuth tokens from URL hash (GitHub/email confirmation redirects)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!window.location.hash) {
+      setHashTokenExtracted(true);
+      return;
+    }
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const accessToken = hash.get("access_token");
+    if (accessToken) {
+      setAccessToken(accessToken);
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    }
+    setHashTokenExtracted(true);
+  }, []);
 
   const fetchProfile = useCallback(async () => {
     const token = getAccessToken();
@@ -113,11 +130,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!hashTokenExtracted) return;
     (async () => {
       await fetchProfile();
       setLoading(false);
     })();
-  }, [fetchProfile]);
+  }, [fetchProfile, hashTokenExtracted]);
 
   const signOut = async () => {
     try {
