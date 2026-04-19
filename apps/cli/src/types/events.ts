@@ -16,7 +16,7 @@ export interface ParsedLogLine {
   timestamp: Date;
   raw: string;
   source: string;
-  fields: Record<string, string>;
+  fields: Record<string, string | undefined>;
 }
 
 export interface NginxLogEntry extends ParsedLogLine {
@@ -37,9 +37,9 @@ export interface AuthLogEntry extends ParsedLogLine {
   fields: {
     process: string;
     message: string;
-    ip?: string;
-    user?: string;
-    [key: string]: string;
+    ip?: string | undefined;
+    user?: string | undefined;
+    [key: string]: string | undefined;
   };
 }
 

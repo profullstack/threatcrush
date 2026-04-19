@@ -40,16 +40,5 @@ declare global {
   }
 }
 
-declare module 'react-blessed' {
-  import type { ReactElement } from 'react';
-  import type blessed from 'blessed';
-  export function render(element: ReactElement, target: blessed.Widgets.Screen): unknown;
-}
-
-declare module 'react-blessed-contrib' {
-  export const Grid: unknown;
-  export const Donut: unknown;
-  export const Sparkline: unknown;
-  export const Table: unknown;
-  export const Log: unknown;
-}
+// Ambient module declarations moved to ambient.d.ts so they work without
+// the `import 'react'` above turning this file into a module.

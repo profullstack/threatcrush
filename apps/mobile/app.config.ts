@@ -8,7 +8,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: 'ThreatCrush',
   slug: 'threatcrush-mobile',
   scheme: 'threatcrush',
-  version: '0.1.14',
+  version: '0.2.0',
   owner: expoOwner || undefined,
   orientation: 'portrait',
   icon: './assets/icon.png',
