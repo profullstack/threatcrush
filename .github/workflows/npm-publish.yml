@@ -68,9 +68,10 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          VERSION=$(node -p "require('./cli/package.json').version")
+          VERSION=$(node -p "require('./apps/cli/package.json').version")
           echo "## npm Publish Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Package**: @profullstack/threatcrush" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- **Already published**: ${{ steps.check.outputs.exists }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Dry Run**: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
