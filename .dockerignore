@@ -1,5 +1,7 @@
 node_modules
+**/node_modules
 .next
+**/.next
 .git
 .github
 .vscode
@@ -9,12 +11,9 @@ node_modules
 .env.local
 .env.*.local
 *.tsbuildinfo
-cli/dist
-cli/node_modules
-desktop/dist
-desktop/node_modules
-mobile/node_modules
-mobile/.expo
-extension/dist
-extension/node_modules
+apps/cli/dist
+apps/desktop/out
+apps/desktop/release
+apps/extension/dist
+apps/mobile/.expo
 .qwen

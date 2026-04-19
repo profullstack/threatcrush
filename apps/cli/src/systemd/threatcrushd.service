@@ -1,0 +1,32 @@
+[Unit]
+Description=ThreatCrush Security Agent Daemon
+Documentation=https://threatcrush.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The path to the CLI binary is filled in by `threatcrush install-service`.
+ExecStart={{BIN_PATH}} daemon
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+# Security hardening — adjust as needed
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/etc/threatcrush /var/log/threatcrush /var/lib/threatcrush /var/run/threatcrush
+PrivateTmp=true
+
+# Log directly to journald
+StandardOutput=journal
+StandardError=journal
+
+# Allow raw packet capture for network-monitor module
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

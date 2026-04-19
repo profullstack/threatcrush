@@ -1,8 +1,5 @@
 packages:
-  - desktop
-  - mobile
-  - extension
-  - sdk
+  - apps/*
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

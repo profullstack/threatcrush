@@ -8,6 +8,6 @@
     "numReplicas": 1,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10,
-    "startCommand": "node .next/standalone/server.js"
+    "startCommand": "node apps/web/.next/standalone/apps/web/server.js"
   }
 }

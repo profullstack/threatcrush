@@ -1,0 +1,45 @@
+appId: com.threatcrush.desktop
+productName: ThreatCrush
+publish: []
+# Desktop has no native modules — skip rebuild to avoid pnpm symlink issues.
+npmRebuild: false
+buildDependenciesFromSource: false
+directories:
+  buildResources: resources
+  output: release
+files:
+  - 'out/**/*'
+  - 'package.json'
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!test/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,vitest.config.ts}'
+asarUnpack:
+  - resources/**
+linux:
+  executableName: threatcrush-desktop
+  artifactName: threatcrush-desktop-${version}-${arch}.${ext}
+  target:
+    - AppImage
+    - deb
+  maintainer: profullstack
+  category: Utility
+  desktop:
+    Name: ThreatCrush
+    StartupWMClass: ThreatCrush
+mac:
+  target:
+    - dmg
+    - zip
+  notarize: false
+  artifactName: threatcrush-desktop-${version}-${arch}.${ext}
+win:
+  target:
+    - nsis
+  artifactName: threatcrush-desktop-${version}-${arch}-setup.${ext}
+nsis:
+  shortcutName: ThreatCrush
+  uninstallDisplayName: ThreatCrush
+  createDesktopShortcut: always

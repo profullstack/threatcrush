@@ -1,0 +1,38 @@
+{
+  "name": "@threatcrush/sdk",
+  "version": "0.2.0",
+  "description": "ThreatCrush Module SDK — build security modules for the ThreatCrush platform",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "license": "MIT",
+  "author": "Profullstack, Inc. <hello@profullstack.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/profullstack/threatcrush.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://threatcrush.com",
+  "bugs": {
+    "url": "https://github.com/profullstack/threatcrush/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

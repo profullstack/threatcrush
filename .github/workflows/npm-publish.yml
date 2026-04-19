@@ -39,7 +39,7 @@ jobs:
 
       - name: Check if version exists
         id: check
-        working-directory: cli
+        working-directory: apps/cli
         run: |
           VERSION=$(node -p "require('./package.json').version")
           if npm view "@profullstack/threatcrush@$VERSION" version 2>/dev/null; then
@@ -53,14 +53,14 @@ jobs:
 
       - name: Publish CLI
         if: ${{ !github.event.inputs.dry_run && steps.check.outputs.exists != 'true' }}
-        working-directory: cli
+        working-directory: apps/cli
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Dry run
         if: ${{ github.event.inputs.dry_run }}
-        working-directory: cli
+        working-directory: apps/cli
         run: npm publish --access public --dry-run
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

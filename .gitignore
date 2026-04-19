@@ -1,7 +1,50 @@
-node_modules
-.next
-data/
-.env.local
+# Dependencies
+node_modules/
+**/node_modules/
+.pnpm-debug.log*
+.npm/
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Build outputs (per-app)
+**/dist/
+**/out/
+**/release/
+**/.next/
+**/.turbo/
+**/build/
+**/.vite/
+**/.expo/
+**/.expo-shared/
+
+# TS incremental
+**/*.tsbuildinfo
+
+# Test artifacts
+**/coverage/
+**/.nyc_output/
+
+# Env + secrets
 .env
-supabase/supabase/.temp
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Project-specific
+data/
+supabase/supabase/.temp/
 .qwen/
+.claude/
+
+# Runtime (local daemon state)
+~/.threatcrush/

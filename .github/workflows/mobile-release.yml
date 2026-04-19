@@ -96,7 +96,7 @@ jobs:
           echo "auto_submit=$AUTO_SUBMIT" >> "$GITHUB_OUTPUT"
 
       - name: Run EAS build
-        working-directory: mobile
+        working-directory: apps/mobile
         env:
           THREATCRUSH_API_URL: https://threatcrush.com
         run: |

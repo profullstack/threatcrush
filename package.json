@@ -1,46 +1,31 @@
 {
   "name": "threatcrush",
   "packageManager": "pnpm@10.33.0",
-  "version": "0.1.16",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "pnpm --filter @profullstack/threatcrush-web dev",
+    "build": "pnpm --filter @profullstack/threatcrush-web build",
+    "start": "pnpm --filter @profullstack/threatcrush-web start",
+    "build:web": "pnpm --filter @profullstack/threatcrush-web build",
     "build:cli": "pnpm --filter @profullstack/threatcrush build",
     "build:desktop": "pnpm --filter @profullstack/threatcrush-desktop build",
+    "build:all": "pnpm --recursive --workspace-concurrency=4 run build",
+    "test": "pnpm --recursive --workspace-concurrency=4 run test",
     "version:bump": "node scripts/version-bump.mjs",
     "version:patch": "node scripts/version-bump.mjs patch",
     "version:minor": "node scripts/version-bump.mjs minor",
     "version:major": "node scripts/version-bump.mjs major",
-    "publish:cli": "cd cli && npm publish",
+    "publish:cli": "pnpm --filter @profullstack/threatcrush publish",
     "setup:hooks": "git config core.hooksPath .githooks && git config push.followTags true && echo '✅ Git hooks and push.followTags configured'",
     "setup": "pnpm setup:hooks",
     "postinstall": "git config core.hooksPath .githooks && git config push.followTags true 2>/dev/null || true",
     "release": "node scripts/release.mjs",
-    "submit-packages": "npx tsx scripts/submit-packages.ts",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@iarna/toml": "^2.2.5",
-    "@supabase/supabase-js": "^2.101.1",
-    "chalk": "^5.6.2",
-    "commander": "^14.0.3",
-    "next": "16.2.2",
-    "ora": "^9.3.0",
-    "qrcode.react": "^4.2.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "submit-packages": "npx tsx scripts/submit-packages.ts"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "tailwindcss": "^4",
     "tsup": "^8.5.1",
-    "typescript": "^5",
-    "vitest": "^2.1.9"
+    "typescript": "^5"
   },
   "pnpm": {
     "overrides": {
@@ -49,7 +34,8 @@
     },
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "better-sqlite3"
     ]
   },
   "engines": {

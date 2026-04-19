@@ -103,10 +103,12 @@ function main() {
 
   const packagesToUpdate = [
     'package.json',
-    'cli/package.json',
-    'desktop/package.json',
-    'mobile/package.json',
-    'extension/package.json',
+    'apps/web/package.json',
+    'apps/cli/package.json',
+    'apps/desktop/package.json',
+    'apps/mobile/package.json',
+    'apps/extension/package.json',
+    'apps/sdk/package.json',
   ];
 
   console.log('📝 Updating package.json files:');
