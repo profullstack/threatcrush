@@ -26,7 +26,7 @@ Status values:
 | **TUI** | `shipping` | `apps/cli/src/tui/` | Bundled with CLI | react-blessed dashboard. `threatcrush tui`. |
 | **API** | `shipping` | `apps/web/src/app/api/` | Same origin as web | REST, bearer-token auth. Used by CLI, desktop, extension. |
 | **Webhooks (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/` | Slack, generic webhook | Threat alerts emit when severity ≥ high. |
-| **Email (outbound)** | `alpha` | Planned in `alerts/` | SMTP via module | Wire real SMTP before promoting. |
+| **Email (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/smtp.ts` | SMTP via `nodemailer` | Configure `[alerts.email]` in `threatcrushd.conf`. |
 | **Desktop** | `preview` | `apps/desktop/` | GitHub Releases (unsigned) | Electron. IPC bridge to local `threatcrushd` via Unix socket. macOS/Windows CI still untested. |
 | **Browser extension** | `preview` | `apps/extension/` | Sideload from source | Vite + React 19 + MV3. Store submissions post-v0.1.0. |
 | **SDK** | `alpha` | `apps/sdk/` | npm (`@threatcrush/sdk`) — not yet published | Types for module authors. Publish ties to marketplace readiness. |

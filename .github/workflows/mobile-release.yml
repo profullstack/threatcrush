@@ -77,12 +77,12 @@ jobs:
             PROFILE="production"
           fi
 
+          # Default to Android on tag pushes so releases don't stall on
+          # iOS credentials setup. Override with workflow_dispatch.
           if [ -n "${{ github.event.inputs.platform }}" ]; then
             PLATFORM="${{ github.event.inputs.platform }}"
-          elif [ "$PROFILE" = "preview" ]; then
-            PLATFORM="android"
           else
-            PLATFORM="all"
+            PLATFORM="android"
           fi
 
           if [ "${{ github.event.inputs.auto_submit }}" = "true" ] && [ "$PROFILE" = "production" ]; then
