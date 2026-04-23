@@ -9,10 +9,9 @@ export default function SiteFooter() {
             <a href="/store" className="hover:text-tc-green transition-colors">Module Store</a>
             <a href="/docs" className="hover:text-tc-green transition-colors">Docs</a>
             <a href="/usage" className="hover:text-tc-green transition-colors">Usage</a>
-            <a href="/#pricing" className="hover:text-tc-green transition-colors">Pricing</a>
+            <a href="/pricing" className="hover:text-tc-green transition-colors">Pricing</a>
             <a href="/investors" className="hover:text-tc-green transition-colors">Investors</a>
             <a href="/#faq" className="hover:text-tc-green transition-colors">FAQ</a>
-            <a href="/affiliates" className="hover:text-tc-green transition-colors">Affiliates</a>
             <a href="/terms" className="hover:text-tc-green transition-colors">Terms</a>
             <a href="/privacy" className="hover:text-tc-green transition-colors">Privacy</a>
             <a

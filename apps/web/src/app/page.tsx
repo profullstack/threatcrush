@@ -76,10 +76,6 @@ const faqs = [
     q: "Do you work with government agencies?",
     a: "Yes. ThreatCrush supports air-gapped deployment, on-prem hardware appliances, and is designed for FedRAMP, FIPS 140-2, and ITAR compliance. Contact gov@threatcrush.com for GSA Schedule pricing and custom deployment.",
   },
-  {
-    q: "How does the referral program work?",
-    a: "After signing up, you get a unique referral link. Your friend pays $399 ($100 off), and you earn $100 per referral, paid out in crypto via <a href='https://coinpayportal.com' target='_blank' rel='noopener noreferrer' class='text-tc-green hover:underline'>CoinPayPortal</a> (BTC, ETH, USDT, SOL). No limits — refer 5 friends and you've paid for your own license. Must be a paying member to earn.",
-  },
 ];
 
 const included = [
@@ -640,15 +636,11 @@ export default function Home() {
               <div className="rounded-2xl border border-tc-green/30 bg-tc-card p-8 sm:p-10 glow-box">
                 <div className="text-center mb-8">
                   <div className="inline-block rounded-full bg-tc-green/10 px-3 py-1 text-xs font-mono text-tc-green mb-4">
-                    LIFETIME ACCESS
+                    CONTACT FOR PRICING
                   </div>
-                  <div className="flex items-baseline justify-center gap-1">
-                    <span className="text-5xl sm:text-6xl font-black text-white">$499</span>
-                    <span className="text-tc-text-dim text-lg">/once</span>
-                  </div>
-                  <p className="text-tc-text-dim mt-2">Full platform: CLI, daemon, scanner, pentest engine, API. Pay once.</p>
+                  <h3 className="text-3xl sm:text-4xl font-black text-white">Talk to Sales</h3>
+                  <p className="text-tc-text-dim mt-3">Full platform: CLI, daemon, scanner, pentest engine, API. Tell us about your environment and we&apos;ll send you a quote.</p>
                   <p className="text-tc-text-dim text-xs mt-1">AI-enhanced modules billed on usage — <span className="text-tc-green">pay only for what you use</span></p>
-                  <p className="text-tc-green text-sm mt-1 font-medium">🎁 Refer a friend → they save $100, you earn $100</p>
                 </div>
 
                 <ul className="space-y-3 mb-8">
@@ -660,20 +652,16 @@ export default function Home() {
                   ))}
                 </ul>
 
-                <button
-                  onClick={openModal}
-                  className="w-full rounded-xl bg-tc-green py-4 text-lg font-bold text-black transition-all hover:bg-tc-green-dim pulse-glow"
+                <a
+                  href="/pricing"
+                  className="block w-full text-center rounded-xl bg-tc-green py-4 text-lg font-bold text-black transition-all hover:bg-tc-green-dim pulse-glow"
                 >
-                  Join the Waitlist
-                </button>
+                  Contact Us for Pricing
+                </a>
 
-                <div className="flex items-center justify-center gap-4 mt-4 text-xs text-tc-text-dim">
-                  <span>💳 Stripe</span>
-                  <span>·</span>
-                  <a href="https://coinpayportal.com" target="_blank" rel="noopener noreferrer" className="hover:text-tc-green transition-colors">₿ CoinPayPortal</a>
-                  <span>·</span>
-                  <span>🔒 30-day refund</span>
-                </div>
+                <p className="text-center text-xs text-tc-text-dim mt-4">
+                  Quotes typically returned within 1 business day.
+                </p>
               </div>
             </ScrollReveal>
 
@@ -696,54 +684,6 @@ export default function Home() {
                     📅 Schedule a Call
                   </a>
                 </div>
-              </div>
-            </ScrollReveal>
-          </div>
-        </section>
-
-        {/* ─── Referral Program ─── */}
-        <section className="py-24 sm:py-32 border-t border-tc-border">
-          <div className="mx-auto max-w-3xl px-6">
-            <ScrollReveal>
-              <div className="text-center mb-12">
-                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// REFER &amp; SAVE</p>
-                <h2 className="text-3xl sm:text-4xl font-bold text-white">
-                  Bring a Friend. <span className="text-tc-green glow-green">Both Save $250.</span>
-                </h2>
-                <p className="text-tc-text-dim mt-4 max-w-xl mx-auto">
-                  Share your referral link after signing up. When your friend joins, your friend gets lifetime access for <strong className="text-tc-green">$399</strong> and you earn <strong className="text-tc-green">$100 in crypto</strong> per referral via CoinPayPortal. Refer 5 friends = free license.
-                </p>
-              </div>
-            </ScrollReveal>
-
-            <ScrollReveal delay={100}>
-              <div className="grid sm:grid-cols-3 gap-6">
-                <div className="rounded-xl border border-tc-border bg-tc-card p-6 text-center">
-                  <div className="text-3xl mb-3">🔗</div>
-                  <h3 className="font-bold text-white mb-2">1. Sign Up</h3>
-                  <p className="text-sm text-tc-text-dim">Join the waitlist and get your unique referral link.</p>
-                </div>
-                <div className="rounded-xl border border-tc-border bg-tc-card p-6 text-center">
-                  <div className="text-3xl mb-3">📤</div>
-                  <h3 className="font-bold text-white mb-2">2. Share</h3>
-                  <p className="text-sm text-tc-text-dim">Send your link to a friend who needs server security.</p>
-                </div>
-                <div className="rounded-xl border border-tc-border bg-tc-card p-6 text-center">
-                  <div className="text-3xl mb-3">💰</div>
-                  <h3 className="font-bold text-white mb-2">3. Both Save</h3>
-                  <p className="text-sm text-tc-text-dim">They pay $399, you earn $100 in crypto (BTC/ETH/USDT/SOL). No limits.</p>
-                </div>
-              </div>
-            </ScrollReveal>
-
-            <ScrollReveal delay={200}>
-              <div className="text-center mt-10">
-                <button
-                  onClick={openModal}
-                  className="inline-block rounded-xl border border-tc-green/30 bg-tc-green/5 px-8 py-4 font-bold text-tc-green transition-all hover:bg-tc-green/10 hover:border-tc-green/50"
-                >
-                  Get Your Referral Link →
-                </button>
               </div>
             </ScrollReveal>
           </div>
@@ -795,7 +735,7 @@ export default function Home() {
               </h2>
               <p className="text-tc-text-dim mb-8 max-w-xl mx-auto">
                 Join the waitlist now. Your server deserves real-time protection.
-                Limited lifetime spots at $499 — price increases after launch.
+                Early waitlist locks our lowest launch pricing.
               </p>
               <button
                 onClick={openModal}

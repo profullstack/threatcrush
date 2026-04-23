@@ -268,7 +268,7 @@ export default function AccountContent() {
             {profile?.license_status !== "active" && (
               <p className="text-tc-text-dim text-sm mt-2">
                 {profile?.email_verified && profile?.phone_verified ? (
-                  <Link href="/#pricing" className="text-tc-green hover:underline">Get lifetime access →</Link>
+                  <Link href="/pricing" className="text-tc-green hover:underline">Contact us for pricing →</Link>
                 ) : (
                   <Link href="/auth/verify" className="text-yellow-500 hover:underline">Complete verification to purchase →</Link>
                 )}
@@ -276,8 +276,8 @@ export default function AccountContent() {
             )}
           </div>
 
-          {/* Referral Section */}
-          <div className="bg-tc-card border border-tc-border rounded-xl p-6">
+          {/* Referral Section — hidden for now */}
+          <div className="hidden bg-tc-card border border-tc-border rounded-xl p-6">
             <h2 className="text-lg font-semibold text-white mb-4">Referrals</h2>
             <div className="space-y-3">
               <div>

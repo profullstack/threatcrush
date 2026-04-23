@@ -264,9 +264,6 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     message: "ThreatCrush Waitlist API",
-    pricing: {
-      full: `$${PRICE_FULL} lifetime access`,
-      referral: `$${PRICE_REFERRAL} with referral code (both you and your friend)`,
-    },
+    pricing: "Contact sales for pricing",
   });
 }

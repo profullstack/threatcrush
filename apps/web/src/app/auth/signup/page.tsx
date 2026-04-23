@@ -134,20 +134,6 @@ export default function SignupPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-tc-text mb-1">Referral Code</label>
-            <input
-              type="text"
-              value={referralCode}
-              onChange={(e) => setReferralCode(e.target.value)}
-              placeholder="Optional"
-              className="w-full bg-tc-darker border border-tc-border rounded-lg px-4 py-2.5 text-white placeholder:text-tc-text-dim focus:outline-none focus:border-tc-green/50 transition-colors"
-            />
-            {referralCode && (
-              <p className="text-xs text-tc-green mt-1">🎉 $100 off with referral code!</p>
-            )}
-          </div>
-
           <button
             type="submit"
             disabled={loading || success}
