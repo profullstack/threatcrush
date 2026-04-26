@@ -41,6 +41,45 @@ const supportedContributorPaths = [
   },
 ];
 
+const apiEndpoints: Array<{
+  method: "GET" | "POST" | "PATCH" | "DELETE";
+  path: string;
+  auth: "none" | "bearer" | "email";
+  purpose: string;
+}> = [
+  { method: "GET",    path: "/api/modules",                       auth: "none",   purpose: "List / search / paginate published modules" },
+  { method: "POST",   path: "/api/modules",                       auth: "bearer", purpose: "Publish a new module" },
+  { method: "GET",    path: "/api/modules/{slug}",                auth: "none",   purpose: "Module detail + versions + recent reviews" },
+  { method: "PATCH",  path: "/api/modules/{slug}",                auth: "email",  purpose: "Edit your module" },
+  { method: "DELETE", path: "/api/modules/{slug}",                auth: "email",  purpose: "Remove your module" },
+  { method: "GET",    path: "/api/modules/{slug}/install",        auth: "none",   purpose: "Read-only install info (does not count)" },
+  { method: "POST",   path: "/api/modules/{slug}/install",        auth: "none",   purpose: "Install info + increment download count" },
+  { method: "GET",    path: "/api/modules/{slug}/review",         auth: "none",   purpose: "List reviews (paginated)" },
+  { method: "POST",   path: "/api/modules/{slug}/review",         auth: "email",  purpose: "Create / update your review (one per email)" },
+  { method: "POST",   path: "/api/modules/fetch-meta",            auth: "none",   purpose: "Probe URL or GitHub repo for prefilled meta" },
+];
+
+const boilerplates = [
+  {
+    name: "module-example",
+    description: "Minimal hello-world module that subscribes to daemon events.",
+    href: "https://github.com/profullstack/threatcrush/tree/master/boilerplates/module-example",
+  },
+  {
+    name: "free-module",
+    description: "MIT-licensed fetch-loop API integration (URLhaus public feed) → emits ThreatEvents.",
+    href: "https://github.com/profullstack/threatcrush/tree/master/boilerplates/free-module",
+  },
+  {
+    name: "paid-module",
+    description: "Paid template with login / logout / status CLI commands and a license-gated init.",
+    href: "https://github.com/profullstack/threatcrush/tree/master/boilerplates/paid-module",
+  },
+];
+
+const API_REFERENCE_URL =
+  "https://github.com/profullstack/threatcrush/blob/master/docs/MODULE_STORE_API.md";
+
 const plannedModuleFeatures = [
   "Fully documented SDK package with starter templates and stronger versioning guarantees",
   "Formal manifest spec for installable runtime modules",
@@ -90,6 +129,71 @@ export default function DocsModulesPage() {
                   {item.cta} →
                 </Link>
               </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mb-12">
+          <p className="font-mono text-sm text-tc-green tracking-wider">// API REFERENCE</p>
+          <h2 className="mt-2 text-2xl font-bold text-white">Module Store HTTP API</h2>
+          <p className="mt-3 max-w-3xl text-sm text-tc-text-dim">
+            The full reference — request/response shapes, auth modes, error codes, and worked
+            examples — lives in <a href={API_REFERENCE_URL} className="text-tc-green hover:underline" target="_blank" rel="noopener noreferrer">docs/MODULE_STORE_API.md</a>.
+            Endpoints at a glance:
+          </p>
+          <div className="mt-6 overflow-x-auto rounded-xl border border-tc-border bg-tc-card">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-tc-border bg-tc-darker/40">
+                <tr className="text-tc-text-dim">
+                  <th className="px-4 py-3 font-mono text-xs uppercase tracking-wider">Method</th>
+                  <th className="px-4 py-3 font-mono text-xs uppercase tracking-wider">Path</th>
+                  <th className="px-4 py-3 font-mono text-xs uppercase tracking-wider">Auth</th>
+                  <th className="px-4 py-3 font-mono text-xs uppercase tracking-wider">Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                {apiEndpoints.map((ep) => (
+                  <tr key={`${ep.method} ${ep.path}`} className="border-b border-tc-border/40 last:border-0">
+                    <td className="px-4 py-3 font-mono text-xs">
+                      <span className={
+                        ep.method === "GET" ? "text-tc-green" :
+                        ep.method === "POST" ? "text-yellow-400" :
+                        ep.method === "PATCH" ? "text-blue-400" :
+                        "text-red-400"
+                      }>{ep.method}</span>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-white">{ep.path}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-tc-text-dim">
+                      {ep.auth === "none" ? "—" : ep.auth === "bearer" ? "Bearer" : "email"}
+                    </td>
+                    <td className="px-4 py-3 text-tc-text-dim">{ep.purpose}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <a href={API_REFERENCE_URL} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-tc-green/30 px-4 py-2 text-sm font-bold text-tc-green hover:bg-tc-green/10">
+              Read the full API reference →
+            </a>
+          </div>
+        </section>
+
+        <section className="mb-12 rounded-2xl border border-tc-border bg-tc-card p-8">
+          <p className="font-mono text-sm text-tc-green tracking-wider">// BOILERPLATES</p>
+          <h2 className="mt-2 text-2xl font-bold text-white">Starter templates</h2>
+          <p className="mt-3 max-w-3xl text-sm text-tc-text-dim">
+            Three working starters in the repo. Clone the one closest to what you&apos;re shipping
+            and rename it. Each ships with <code className="text-tc-green">mod.toml</code>,
+            a <code className="text-tc-green">src/</code> layout, and a README.
+          </p>
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            {boilerplates.map((b) => (
+              <a key={b.name} href={b.href} target="_blank" rel="noopener noreferrer" className="rounded-xl border border-tc-border bg-tc-darker/40 p-5 transition-colors hover:border-tc-green/40">
+                <p className="font-mono text-sm text-tc-green">{b.name}</p>
+                <p className="mt-3 text-sm text-tc-text-dim">{b.description}</p>
+                <p className="mt-4 text-xs font-semibold text-tc-green">View on GitHub →</p>
+              </a>
             ))}
           </div>
         </section>
