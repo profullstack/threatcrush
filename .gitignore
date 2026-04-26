@@ -48,3 +48,4 @@ supabase/supabase/.temp/
 
 # Runtime (local daemon state)
 ~/.threatcrush/
+supabase/.temp
