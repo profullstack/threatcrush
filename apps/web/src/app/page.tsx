@@ -109,7 +109,7 @@ export default function Home() {
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-tc-green/5 rounded-full blur-3xl" />
           <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-tc-green/3 rounded-full blur-3xl" />
 
-          <div className="relative z-10 mx-auto max-w-4xl px-6 text-center pt-20">
+          <div className="relative z-10 mx-auto max-w-4xl px-6 text-center pt-28 sm:pt-24">
             <ScrollReveal>
               <div className="inline-block rounded-full border border-tc-green/20 bg-tc-green/5 px-4 py-1.5 text-sm font-mono text-tc-green mb-8">
                 <span className="mr-2">●</span> PRIVATE BETA — LIMITED SPOTS
