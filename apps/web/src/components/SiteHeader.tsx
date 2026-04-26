@@ -9,15 +9,19 @@ export default function SiteHeader() {
   const [modalOpen, setModalOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [moreDropdownOpen, setMoreDropdownOpen] = useState(false);
   const openModal = () => setModalOpen(true);
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
-    if (!userDropdownOpen) return;
-    const handler = () => setUserDropdownOpen(false);
+    if (!userDropdownOpen && !moreDropdownOpen) return;
+    const handler = () => {
+      setUserDropdownOpen(false);
+      setMoreDropdownOpen(false);
+    };
     document.addEventListener("click", handler);
     return () => document.removeEventListener("click", handler);
-  }, [userDropdownOpen]);
+  }, [userDropdownOpen, moreDropdownOpen]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -33,25 +37,75 @@ export default function SiteHeader() {
           <a href="/" className="flex items-center gap-2">
             <img src="/logo.svg" alt="ThreatCrush" className="w-[120px] h-auto" />
           </a>
-          <div className="hidden lg:flex items-center gap-6 text-sm text-tc-text-dim">
+          <div className="hidden md:flex items-center gap-5 text-sm text-tc-text-dim">
             <a href="/store" className="text-tc-green transition-colors">Module Store</a>
             <a href="/docs" className="hover:text-tc-green transition-colors">Docs</a>
-            <a href="/#features" className="hover:text-tc-green transition-colors">Features</a>
-            <a href="/usage" className="hover:text-tc-green transition-colors">Usage</a>
             <a href="/pricing" className="hover:text-tc-green transition-colors">Pricing</a>
-            <a href="/investors" className="hover:text-tc-green transition-colors">Investors</a>
-            <a href="/#faq" className="hover:text-tc-green transition-colors">FAQ</a>
-            <a
-              href="https://github.com/profullstack/threatcrush"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-tc-green transition-colors flex items-center gap-1"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-              </svg>
-              GitHub
-            </a>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMoreDropdownOpen((v) => !v);
+                  setUserDropdownOpen(false);
+                }}
+                className="hover:text-tc-green transition-colors flex items-center gap-1"
+                aria-haspopup="true"
+                aria-expanded={moreDropdownOpen}
+              >
+                More
+                <span className="text-xs">{moreDropdownOpen ? "▲" : "▼"}</span>
+              </button>
+              {moreDropdownOpen && (
+                <div
+                  className="absolute left-0 top-full mt-2 w-48 bg-tc-card border border-tc-border rounded-xl shadow-xl overflow-hidden z-50"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="py-1">
+                    <a
+                      href="/#features"
+                      className="block px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors"
+                      onClick={() => setMoreDropdownOpen(false)}
+                    >
+                      Features
+                    </a>
+                    <a
+                      href="/usage"
+                      className="block px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors"
+                      onClick={() => setMoreDropdownOpen(false)}
+                    >
+                      Usage
+                    </a>
+                    <a
+                      href="/investors"
+                      className="block px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors"
+                      onClick={() => setMoreDropdownOpen(false)}
+                    >
+                      Investors
+                    </a>
+                    <a
+                      href="/#faq"
+                      className="block px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors"
+                      onClick={() => setMoreDropdownOpen(false)}
+                    >
+                      FAQ
+                    </a>
+                    <a
+                      href="https://github.com/profullstack/threatcrush"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors border-t border-tc-border"
+                      onClick={() => setMoreDropdownOpen(false)}
+                    >
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+                      </svg>
+                      GitHub
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             {!loading && (
@@ -108,7 +162,7 @@ export default function SiteHeader() {
                 <>
                   <a
                     href="/auth/login"
-                    className="hidden lg:inline text-sm text-tc-text-dim hover:text-tc-green transition-colors"
+                    className="hidden md:inline text-sm text-tc-text-dim hover:text-tc-green transition-colors"
                   >
                     Log In
                   </a>
@@ -124,13 +178,13 @@ export default function SiteHeader() {
             <button
               type="button"
               onClick={() => setMobileNavOpen((open) => !open)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-tc-border text-tc-text-dim transition-all hover:border-tc-green/30 hover:text-tc-green lg:hidden"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-tc-border text-tc-text-dim transition-all hover:border-tc-green/30 hover:text-tc-green md:hidden"
               aria-label="Toggle navigation menu"
               aria-expanded={mobileNavOpen}
             >
               <span className="text-lg">{mobileNavOpen ? "✕" : "☰"}</span>
             </button>
-            <div className="hidden lg:flex items-center gap-3">
+            <div className="hidden md:flex items-center gap-3">
               {!signedIn && !loading && (
                 <button
                   onClick={openModal}
@@ -143,7 +197,7 @@ export default function SiteHeader() {
           </div>
         </div>
         {mobileNavOpen && (
-          <div className="border-t border-tc-border/50 bg-tc-darker/95 px-4 py-4 lg:hidden">
+          <div className="border-t border-tc-border/50 bg-tc-darker/95 px-4 py-4 md:hidden">
             <div className="flex flex-col gap-3 text-sm text-tc-text-dim">
               <a href="/store" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Module Store</a>
               <a href="/docs" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Docs</a>
