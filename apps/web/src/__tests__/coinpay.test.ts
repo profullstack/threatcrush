@@ -18,8 +18,8 @@ describe('lib/coinpay-client', () => {
 
   beforeEach(() => {
     originalEnv = { ...process.env };
-    process.env.COINPAY_API_KEY = 'cp_test_key';
-    process.env.COINPAY_BUSINESS_ID = 'biz-uuid';
+    process.env.COINPAYPORTAL_API_KEY = 'cp_test_key';
+    process.env.COINPAYPORTAL_BUSINESS_ID = 'biz-uuid';
     process.env.NEXT_PUBLIC_APP_URL = 'https://threatcrush.com';
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
@@ -150,8 +150,8 @@ describe('contract: POST /api/funding/create-invoice', () => {
 
   beforeEach(() => {
     originalEnv = { ...process.env };
-    process.env.COINPAY_API_KEY = 'cp_test_key';
-    process.env.COINPAY_BUSINESS_ID = 'biz-uuid';
+    process.env.COINPAYPORTAL_API_KEY = 'cp_test_key';
+    process.env.COINPAYPORTAL_BUSINESS_ID = 'biz-uuid';
     process.env.NEXT_PUBLIC_APP_URL = 'https://threatcrush.com';
     process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';

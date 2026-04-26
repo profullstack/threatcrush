@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-const boilerplateDir = path.resolve(process.cwd(), "boilerplates/module-example");
+// __dirname is apps/web/src/__tests__ — go up four levels for the monorepo root.
+const repoRoot = path.resolve(__dirname, "..", "..", "..", "..");
+const boilerplateDir = path.join(repoRoot, "boilerplates/module-example");
 const read = (relativePath: string) =>
   fs.readFileSync(path.join(boilerplateDir, relativePath), "utf8");
 

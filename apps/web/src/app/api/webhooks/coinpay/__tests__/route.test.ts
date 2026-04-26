@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockFundingMaybeSingle = vi.fn();
 const mockLicenseMaybeSingle = vi.fn();
+const mockCreditMaybeSingle = vi.fn();
 const mockWaitlistMaybeSingle = vi.fn();
 const mockWaitlistSingle = vi.fn();
 
@@ -32,6 +33,17 @@ function buildTableMock(table: string) {
     const chainableEq = () => ({
       eq: vi.fn().mockImplementation(() => chainableEq()),
       maybeSingle: mockLicenseMaybeSingle,
+      then: (resolve: (v: unknown) => void) => resolve({ error: null }),
+    });
+    return {
+      select: vi.fn().mockImplementation(() => chainableEq()),
+      update: vi.fn().mockImplementation(() => chainableEq()),
+    };
+  }
+  if (table === "credit_deposits") {
+    const chainableEq = () => ({
+      eq: vi.fn().mockImplementation(() => chainableEq()),
+      maybeSingle: mockCreditMaybeSingle,
       then: (resolve: (v: unknown) => void) => resolve({ error: null }),
     });
     return {
@@ -67,6 +79,7 @@ function resetMocks(overrides: {
 
   mockFundingMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockLicenseMaybeSingle.mockResolvedValue({ data: null, error: null });
+  mockCreditMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockWaitlistMaybeSingle.mockResolvedValue(findEntryResult);
   mockWaitlistSingle.mockResolvedValue(referralResult);
 }

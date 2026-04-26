@@ -12,7 +12,7 @@
     "build:vite": "vite build",
     "preview": "vite preview",
     "lint": "eslint src --ext .js,.jsx",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "package": "node scripts/build.js all"
   },

@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const repoRoot = join(__dirname, "..", "..");
+// __dirname is apps/web/src/__tests__ — go up four levels for the monorepo root.
+const repoRoot = join(__dirname, "..", "..", "..", "..");
 
 function read(relPath: string) {
   return readFileSync(join(repoRoot, relPath), "utf8");
@@ -23,7 +24,7 @@ describe("install/update docs messaging", () => {
   });
 
   it("CLI README promotes curl pipe sh and correct platform messaging", () => {
-    const readme = read("cli/README.md");
+    const readme = read("apps/cli/README.md");
 
     expect(readme).toContain("**Preferred install:**");
     expect(readme).toContain("curl -fsSL https://threatcrush.com/install.sh | sh");
@@ -36,7 +37,7 @@ describe("install/update docs messaging", () => {
   });
 
   it("homepage copy reflects server-hosted Linux and desktop-client Windows", () => {
-    const homePage = read("src/app/page.tsx");
+    const homePage = read("apps/web/src/app/page.tsx");
 
     expect(homePage).toContain("curl -fsSL https://threatcrush.com/install.sh | sh");
     expect(homePage).toContain("threatcrush update");

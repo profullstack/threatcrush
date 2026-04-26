@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
 
 describe('POST /api/auth/purchase', () => {
   beforeEach(() => {
@@ -10,7 +11,7 @@ describe('POST /api/auth/purchase', () => {
 
   it('returns 401 without auth token', async () => {
     const { POST } = await import('@/app/api/auth/purchase/route');
-    const req = new Request('http://localhost/api/auth/purchase', {
+    const req = new NextRequest('http://localhost/api/auth/purchase', {
       method: 'POST',
       body: JSON.stringify({ currency: 'usdc_sol' }),
     });
@@ -21,7 +22,7 @@ describe('POST /api/auth/purchase', () => {
 
   it('returns 401 with empty bearer token', async () => {
     const { POST } = await import('@/app/api/auth/purchase/route');
-    const req = new Request('http://localhost/api/auth/purchase', {
+    const req = new NextRequest('http://localhost/api/auth/purchase', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' },
       body: JSON.stringify({ currency: 'usdc_sol' }),
@@ -43,7 +44,7 @@ describe('POST /api/webhooks/coinpay', () => {
 
   it('returns 400 for invalid JSON', async () => {
     const { POST } = await import('@/app/api/webhooks/coinpay/route');
-    const req = new Request('http://localhost/api/webhooks/coinpay', {
+    const req = new NextRequest('http://localhost/api/webhooks/coinpay', {
       method: 'POST',
       body: 'not-json!!!',
     });
@@ -54,7 +55,7 @@ describe('POST /api/webhooks/coinpay', () => {
 
   it('returns 400 for missing payment_id', async () => {
     const { POST } = await import('@/app/api/webhooks/coinpay/route');
-    const req = new Request('http://localhost/api/webhooks/coinpay', {
+    const req = new NextRequest('http://localhost/api/webhooks/coinpay', {
       method: 'POST',
       body: JSON.stringify({ type: 'payment.confirmed', data: {} }),
     });

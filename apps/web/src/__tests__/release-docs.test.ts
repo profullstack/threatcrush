@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const repoRoot = join(__dirname, "..", "..");
+// __dirname is apps/web/src/__tests__ — go up four levels for the monorepo root.
+const repoRoot = join(__dirname, "..", "..", "..", "..");
 
 describe("release docs and mobile workflow", () => {
   it("adds an Expo/EAS mobile release workflow", () => {
@@ -24,7 +25,7 @@ describe("release docs and mobile workflow", () => {
   });
 
   it("documents release automation in /docs/releases", () => {
-    const page = readFileSync(join(repoRoot, "src/app/docs/releases/page.tsx"), "utf8");
+    const page = readFileSync(join(repoRoot, "apps/web/src/app/docs/releases/page.tsx"), "utf8");
 
     expect(page).toContain("Release Automation");
     expect(page).toContain("Mobile Release");
