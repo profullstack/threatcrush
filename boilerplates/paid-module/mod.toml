@@ -1,0 +1,26 @@
+[module]
+name = "paid-feed-example"
+version = "0.1.0"
+description = "Paid ThreatCrush module — authenticates against an upstream API and ingests its feed"
+author = "Your Name"
+license = "Commercial"
+homepage = "https://example.com/modules/paid-feed-example"
+
+[module.pricing]
+type = "paid" # free | paid | freemium
+price_usd = 49.0
+billing = "monthly" # one_time | monthly | usage
+
+[module.requirements]
+threatcrush = ">=0.2.0"
+os = ["linux", "darwin"]
+capabilities = ["network:outbound"]
+
+[module.config.defaults]
+enabled = true
+poll_interval_seconds = 300
+api_base = "https://api.example.com"
+# License is read from ~/.config/threatcrush/<module-name>/license.json
+# (created by `paid-feed-example-login`). You can also override here for
+# development:
+# license_key = "test-key-xxxx"

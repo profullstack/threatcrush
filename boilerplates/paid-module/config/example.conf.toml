@@ -1,0 +1,6 @@
+# Drop into /etc/threatcrush/threatcrushd.conf.d/ to override module defaults.
+[paid-feed-example]
+enabled = true
+poll_interval_seconds = 300
+api_base = "https://api.example.com"
+# license_key = "..."   # optional override; normally written by `*-login`

@@ -1,0 +1,29 @@
+{
+  "name": "threatcrush-module-paid-feed-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Paid ThreatCrush module boilerplate with login/logout/status commands",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "paid-feed-example-login": "./dist/bin/login.js",
+    "paid-feed-example-logout": "./dist/bin/logout.js",
+    "paid-feed-example-status": "./dist/bin/status.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "login": "tsx bin/login.ts",
+    "logout": "tsx bin/logout.ts",
+    "status": "tsx bin/status.ts"
+  },
+  "dependencies": {
+    "@threatcrush/sdk": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}

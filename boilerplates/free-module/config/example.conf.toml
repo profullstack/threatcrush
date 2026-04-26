@@ -1,0 +1,8 @@
+# Drop this file into /etc/threatcrush/threatcrushd.conf.d/ (or your local
+# equivalent) to override the defaults shipped in mod.toml.
+
+[urlhaus-feed]
+enabled = true
+poll_interval_seconds = 300
+feed_url = "https://urlhaus.abuse.ch/downloads/csv_recent/"
+severity_threshold = "medium"

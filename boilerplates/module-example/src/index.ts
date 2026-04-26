@@ -2,11 +2,9 @@
  * Example ThreatCrush Module
  *
  * Demonstrates the interface for building ThreatCrush security modules.
- * Once @threatcrush/sdk is published, replace these local types with:
- *   import type { ThreatCrushModule, ModuleContext, ThreatEvent, Alert } from '@threatcrush/sdk';
  */
 
-import type { ThreatEvent, EventCategory, EventSeverity, ModuleContext, Alert, ThreatCrushModule } from '../../sdk/src/index.js';
+import type { ThreatEvent, ModuleContext, Alert, ThreatCrushModule } from '@threatcrush/sdk';
 
 export default class ExampleAlertModule implements ThreatCrushModule {
   name = 'example-alert-module';

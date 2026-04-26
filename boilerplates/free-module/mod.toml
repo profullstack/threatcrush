@@ -1,0 +1,24 @@
+[module]
+name = "urlhaus-feed"
+version = "0.1.0"
+description = "Polls the abuse.ch URLhaus public feed and emits ThreatEvents for newly seen malicious URLs"
+author = "Your Name"
+license = "MIT"
+homepage = "https://example.com/modules/urlhaus-feed"
+
+[module.pricing]
+type = "free"
+
+[module.requirements]
+threatcrush = ">=0.2.0"
+os = ["linux", "darwin"]
+capabilities = ["network:outbound"]
+
+[module.config.defaults]
+enabled = true
+# How often to poll the upstream feed (seconds).
+poll_interval_seconds = 300
+# Public CSV feed — no API key required.
+feed_url = "https://urlhaus.abuse.ch/downloads/csv_recent/"
+# Drop events whose severity is below this.
+severity_threshold = "medium"
