@@ -6,6 +6,7 @@ export default function SiteFooter() {
           <div className="font-mono text-tc-green font-bold">⚡ ThreatCrush</div>
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-tc-text-dim">
             <a href="/#features" className="hover:text-tc-green transition-colors">Features</a>
+            <a href="/get-whitepaper" className="hover:text-tc-green transition-colors">CTEM Guide</a>
             <a href="/store" className="hover:text-tc-green transition-colors">Module Store</a>
             <a href="/docs" className="hover:text-tc-green transition-colors">Docs</a>
             <a href="/usage" className="hover:text-tc-green transition-colors">Usage</a>

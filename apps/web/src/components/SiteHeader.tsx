@@ -63,6 +63,13 @@ export default function SiteHeader() {
                 >
                   <div className="py-1">
                     <a
+                      href="/get-whitepaper"
+                      className="block px-4 py-2 text-sm font-semibold text-tc-green hover:bg-tc-darker transition-colors"
+                      onClick={() => setMoreDropdownOpen(false)}
+                    >
+                      📄 Free CTEM Guide
+                    </a>
+                    <a
                       href="/#features"
                       className="block px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors"
                       onClick={() => setMoreDropdownOpen(false)}
@@ -200,6 +207,7 @@ export default function SiteHeader() {
           <div className="border-t border-tc-border/50 bg-tc-darker/95 px-4 py-4 md:hidden">
             <div className="flex flex-col gap-3 text-sm text-tc-text-dim">
               <a href="/store" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Module Store</a>
+              <a href="/get-whitepaper" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>📄 Free CTEM Guide</a>
               <a href="/docs" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Docs</a>
               <a href="/#features" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Features</a>
               <a href="/usage" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Usage</a>

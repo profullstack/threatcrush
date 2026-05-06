@@ -9,9 +9,12 @@ export const metadata: Metadata = {
   description:
     "Crush every threat before it crushes you. Real-time threat feeds, vulnerability tracking, attack surface monitoring, and threat actor intelligence.",
   keywords: [
+    "CTEM",
+    "continuous threat exposure management",
+    "exposure management",
+    "vulnerability management",
     "threat intelligence",
     "cybersecurity",
-    "vulnerability tracking",
     "attack surface monitoring",
     "threat feeds",
   ],

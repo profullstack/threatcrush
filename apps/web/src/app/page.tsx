@@ -126,11 +126,17 @@ export default function Home() {
 
             <ScrollReveal delay={200}>
               <p className="mx-auto max-w-3xl text-lg sm:text-xl text-tc-text-dim mb-6 leading-relaxed">
-                ThreatCrush starts with a module marketplace: discover, publish, and grow security modules first — while the broader platform, daemon, and operator workflows continue to mature.
+                One agent, one marketplace, two layers — <span className="text-tc-green">CTEM</span> to find and reduce exposures <em>before</em> incidents, and <span className="text-tc-green">SIEM / EDR / SOC</span> capabilities to detect and respond <em>during</em> them.
               </p>
-              <p className="mx-auto max-w-2xl text-base sm:text-lg text-tc-text-dim mb-10 leading-relaxed">
-                The long-term product is an all-in-one security agent for Linux servers, with desktop clients for operators. Right now, the module store is the clearest place to start.
+              <p className="mx-auto max-w-2xl text-base sm:text-lg text-tc-text-dim mb-6 leading-relaxed">
+                Built on the open standards your SOC already speaks: MITRE ATT&amp;CK, D3FEND, Sigma, OCSF, NIST CSF. Today the module store is the clearest place to start — the rest of the loop fills in module by module.
               </p>
+              <a
+                href="/get-whitepaper"
+                className="inline-flex items-center gap-2 text-sm font-mono text-tc-green hover:underline mb-10"
+              >
+                <span>📄</span> Free guide: Evolving from VM to CTEM →
+              </a>
             </ScrollReveal>
 
             <ScrollReveal delay={300}>
@@ -287,6 +293,235 @@ export default function Home() {
                 </ScrollReveal>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ─── CTEM LOOP ─── */}
+        <section id="ctem" className="py-24 sm:py-32 border-t border-tc-border">
+          <div className="mx-auto max-w-6xl px-6">
+            <ScrollReveal>
+              <div className="text-center mb-16">
+                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// THE CTEM LOOP</p>
+                <h2 className="text-3xl sm:text-4xl font-bold text-white">
+                  Built for <span className="text-tc-green glow-green">Continuous Threat Exposure Management</span>
+                </h2>
+                <p className="mt-4 max-w-3xl mx-auto text-tc-text-dim leading-relaxed">
+                  CTEM is a five-stage loop — scope, discover, prioritize, validate, mobilize — that replaces the periodic-scan-and-ticket cycle. Most teams need nine tools to run it. ThreatCrush gives you one agent and a marketplace of modules instead.
+                </p>
+              </div>
+            </ScrollReveal>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-12">
+              {[
+                { n: "01", t: "Scope", d: "Protect business outcomes — not tool inventories." },
+                { n: "02", t: "Discover", d: "Network monitor on every port, code scanner, pentest engine, plus marketplace ASM." },
+                { n: "03", t: "Prioritize", d: "Exploitability × reachability × blast radius — beyond raw CVSS." },
+                { n: "04", t: "Validate", d: "Re-run the exploit. Re-test the control. Don’t trust dashboards." },
+                { n: "05", t: "Mobilize", d: "Real-time alerts, automated active defense, API for SOAR/ticketing." },
+              ].map((s, i) => (
+                <ScrollReveal key={s.n} delay={i * 80}>
+                  <div className="rounded-xl border border-tc-border bg-tc-card p-5 h-full">
+                    <div className="font-mono text-xs text-tc-green mb-2">{s.n}</div>
+                    <h3 className="text-lg font-bold text-white mb-2">{s.t}</h3>
+                    <p className="text-sm text-tc-text-dim leading-relaxed">{s.d}</p>
+                  </div>
+                </ScrollReveal>
+              ))}
+            </div>
+
+          </div>
+        </section>
+
+        {/* ─── DETECT & RESPOND LAYER ─── */}
+        <section id="detect-respond" className="py-24 sm:py-32 border-t border-tc-border">
+          <div className="mx-auto max-w-6xl px-6">
+            <ScrollReveal>
+              <div className="text-center mb-16">
+                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// THE DETECT-AND-RESPOND LAYER</p>
+                <h2 className="text-3xl sm:text-4xl font-bold text-white">
+                  CTEM finds the gaps. <span className="text-tc-green glow-green">SIEM, EDR, and SOC</span> catch what slips through.
+                </h2>
+                <p className="mt-4 max-w-3xl mx-auto text-tc-text-dim leading-relaxed">
+                  CTEM is preventive — it reduces exposures before incidents. SIEM, EDR, and SOC are reactive — they detect and respond when attackers act. ThreatCrush ships capabilities for both layers from the same agent.
+                </p>
+              </div>
+            </ScrollReveal>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+              {[
+                {
+                  tag: "SIEM",
+                  title: "Central log brain",
+                  desc: "Inbound monitoring on every port and protocol. Correlates suspicious patterns — failed logins, traffic to known-bad domains, lateral movement signatures.",
+                  capabilities: [
+                    "All-port network monitor",
+                    "Event correlation modules",
+                    "OCSF / ECS-shaped events",
+                  ],
+                },
+                {
+                  tag: "EDR",
+                  title: "Per-host security camera + kill switch",
+                  desc: "The systemd daemon watches processes, files, and network connections on each server. Active-defense modules can kill, isolate, tar-pit, or rotate credentials in real time.",
+                  capabilities: [
+                    "On-host daemon agent",
+                    "Active defense (tar pits, deception, kill)",
+                    "ATT&CK-tagged detections",
+                  ],
+                },
+                {
+                  tag: "SOC",
+                  title: "Alerts and playbooks operators read",
+                  desc: "Real-time alerts to email, SMS, Slack, Discord, and webhooks. Playbooks reference D3FEND defensive techniques. API surface for SOAR / ticketing integrations.",
+                  capabilities: [
+                    "Multi-channel alerting",
+                    "D3FEND-mapped runbooks",
+                    "SOAR / ticketing webhooks",
+                  ],
+                },
+              ].map((c, i) => (
+                <ScrollReveal key={c.tag} delay={i * 120}>
+                  <div className="rounded-xl border border-tc-border bg-tc-card p-6 h-full transition-all hover:border-tc-green/30 glow-box-hover">
+                    <div className="inline-block rounded-md border border-tc-green/30 bg-tc-green/10 px-2.5 py-0.5 text-xs font-mono text-tc-green tracking-wider mb-3">
+                      {c.tag}
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">{c.title}</h3>
+                    <p className="text-sm text-tc-text-dim leading-relaxed mb-4">{c.desc}</p>
+                    <ul className="space-y-1.5">
+                      {c.capabilities.map((cap) => (
+                        <li key={cap} className="flex items-start gap-2 text-xs text-tc-text">
+                          <span className="text-tc-green flex-shrink-0">▸</span>
+                          <span>{cap}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </ScrollReveal>
+              ))}
+            </div>
+
+            <ScrollReveal delay={400}>
+              <div className="rounded-xl border border-tc-border bg-tc-card/40 p-5 text-center">
+                <p className="text-sm text-tc-text-dim">
+                  <span className="text-tc-green font-semibold">Plays nicely with what you already have.</span>{" "}
+                  ThreatCrush coexists with enterprise SIEM (Splunk, Sentinel, Elastic), EDR (CrowdStrike, SentinelOne, Defender), and SOAR — feeding telemetry up and pulling exposure context down.
+                </p>
+              </div>
+            </ScrollReveal>
+          </div>
+        </section>
+
+        {/* ─── OPEN STANDARDS ─── */}
+        <section id="standards" className="py-24 sm:py-32 border-t border-tc-border">
+          <div className="mx-auto max-w-6xl px-6">
+            <ScrollReveal>
+              <div className="text-center mb-12">
+                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// BUILT ON OPEN STANDARDS</p>
+                <h2 className="text-3xl sm:text-4xl font-bold text-white">
+                  Speaks the language your <span className="text-tc-green glow-green">SOC already uses</span>
+                </h2>
+                <p className="mt-4 max-w-3xl mx-auto text-tc-text-dim leading-relaxed">
+                  Every detection, every action, every event carries a stable identifier from a public taxonomy. Your team reads <code className="rounded bg-tc-darker px-1.5 py-0.5 text-tc-green text-sm">T1003.001 — LSASS Memory</code>, not <code className="rounded bg-tc-darker px-1.5 py-0.5 text-tc-green text-sm">Module 47 alert</code>.
+                </p>
+              </div>
+            </ScrollReveal>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
+              {[
+                {
+                  name: "MITRE ATT&CK",
+                  role: "Adversary tactics + techniques",
+                  what: "Universal language for SIEM/EDR/SOC alerts. Every detection carries a technique ID.",
+                  href: "https://attack.mitre.org",
+                },
+                {
+                  name: "MITRE D3FEND",
+                  role: "Defensive countermeasures",
+                  what: "The other half of ATT&CK — what defenders do. Response modules map here.",
+                  href: "https://d3fend.mitre.org",
+                },
+                {
+                  name: "Sigma",
+                  role: "Portable SIEM detection rules",
+                  what: "Detection logic that travels between SIEMs. Modules ship Sigma rules where applicable.",
+                  href: "https://sigmahq.io",
+                },
+                {
+                  name: "YARA",
+                  role: "Malware + payload patterns",
+                  what: "File and binary signatures for content detection across scanners and EDRs.",
+                  href: "https://virustotal.github.io/yara/",
+                },
+                {
+                  name: "osquery",
+                  role: "Open endpoint telemetry",
+                  what: "SQL-style queries against host state — processes, sockets, packages, users.",
+                  href: "https://osquery.io",
+                },
+                {
+                  name: "OCSF / ECS",
+                  role: "Event schema normalization",
+                  what: "Events emit in OCSF-compatible shape with ECS aliases. No bespoke parsers downstream.",
+                  href: "https://schema.ocsf.io",
+                },
+                {
+                  name: "CTEM (ctem.org)",
+                  role: "Exposure taxonomy",
+                  what: "Vendor-neutral identifiers for exposures (CTEM-EXP-* series), tagged on findings.",
+                  href: "https://ctem.org",
+                },
+                {
+                  name: "NIST CSF",
+                  role: "Governance framework",
+                  what: "Identify · Protect · Detect · Respond · Recover. Maps to executive + audit reporting.",
+                  href: "https://www.nist.gov/cyberframework",
+                },
+                {
+                  name: "CIS Controls",
+                  role: "Practical control checklist",
+                  what: "Concrete prioritized controls. Pairs with CTEM — exposures plus what to actually do.",
+                  href: "https://www.cisecurity.org/controls",
+                },
+              ].map((s, i) => (
+                <ScrollReveal key={s.name} delay={i * 60}>
+                  <a
+                    href={s.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block rounded-xl border border-tc-border bg-tc-card p-5 h-full transition-all hover:border-tc-green/30 glow-box-hover"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-base font-bold text-white">{s.name}</h3>
+                      <span className="text-tc-text-dim text-xs">↗</span>
+                    </div>
+                    <p className="font-mono text-[10px] text-tc-green tracking-wider mb-2 uppercase">{s.role}</p>
+                    <p className="text-sm text-tc-text-dim leading-relaxed">{s.what}</p>
+                  </a>
+                </ScrollReveal>
+              ))}
+            </div>
+
+            <ScrollReveal delay={500}>
+              <div className="rounded-2xl border border-tc-green/30 bg-tc-card/60 backdrop-blur-md px-6 py-6 sm:px-8 sm:py-8">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <p className="font-mono text-xs text-tc-green tracking-wider mb-1">// FREE GUIDE</p>
+                    <h3 className="text-xl sm:text-2xl font-bold text-white">
+                      Get the operator&apos;s playbook — CTEM, SIEM/EDR/SOC, and the standards that tie them together
+                    </h3>
+                    <p className="text-sm text-tc-text-dim mt-1">
+                      14-page PDF · the 5 CTEM stages · how it maps to ATT&amp;CK, D3FEND, Sigma, OCSF · a 90-day implementation plan.
+                    </p>
+                  </div>
+                  <a
+                    href="/get-whitepaper"
+                    className="rounded-xl bg-tc-green px-6 py-3 font-bold text-black transition-all hover:bg-tc-green-dim pulse-glow whitespace-nowrap"
+                  >
+                    Download the guide →
+                  </a>
+                </div>
+              </div>
+            </ScrollReveal>
           </div>
         </section>
 
