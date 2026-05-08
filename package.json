@@ -12,6 +12,7 @@
     "build:desktop": "pnpm --filter @profullstack/threatcrush-desktop build",
     "build:all": "pnpm --recursive --workspace-concurrency=4 run build",
     "build:whitepaper": "node scripts/build-whitepaper.mjs",
+    "build:deck": "node scripts/build-deck.mjs",
     "test": "pnpm --recursive --workspace-concurrency=4 run test",
     "version:bump": "node scripts/version-bump.mjs",
     "version:patch": "node scripts/version-bump.mjs patch",

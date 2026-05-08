@@ -23,6 +23,20 @@ export default function InvestorsPage() {
             Back the team building open-source threat intelligence tooling. Contribute with a
             credit card or crypto — both rails are processed by CoinPay.
           </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <a
+              href="/deck"
+              className="inline-flex items-center gap-2 rounded-lg border border-tc-green/40 bg-tc-green/10 px-4 py-2 font-mono-green text-sm hover:bg-tc-green/20 hover:glow-green"
+            >
+              ▶ Read the deck
+            </a>
+            <a
+              href="/threatcrush-deck.pdf"
+              className="inline-flex items-center gap-2 rounded-lg border border-tc-border bg-tc-card px-4 py-2 font-mono text-sm text-tc-text hover:border-tc-green/40"
+            >
+              ↓ Download PDF
+            </a>
+          </div>
         </header>
 
         <div className="space-y-6">
