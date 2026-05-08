@@ -92,6 +92,9 @@ async function main() {
 
   try {
     console.log(`• rendering deck PDF via ${chromium}…`);
+    // window-size matches @page width (13.333in @ 96dpi = 1280 CSS px) so
+    // media queries / vw values inside the deck see the same viewport
+    // width as the printed page.
     await exec(
       chromium,
       [
@@ -100,7 +103,9 @@ async function main() {
         "--disable-gpu",
         "--no-pdf-header-footer",
         "--hide-scrollbars",
-        "--virtual-time-budget=10000",
+        "--virtual-time-budget=15000",
+        "--window-size=1280,720",
+        "--force-device-scale-factor=1",
         `--print-to-pdf=${outPdf}`,
         url,
       ],

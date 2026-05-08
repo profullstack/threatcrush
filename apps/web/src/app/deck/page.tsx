@@ -160,24 +160,15 @@ const slides: Slide[] = [
               'Threat intel',
               'SAST',
               'DAST',
-              'IAST',
-              'SCA',
               'Secrets scanners',
               'Container scanners',
-              'K8s admission',
               'Cloud audit',
               'Pentest tooling',
-              'Bug bounty triage',
               'Phishing sims',
               'Email security',
-              'MDM',
-              'PAM',
-              'IAM',
-              'Compliance · SOC2 · PCI',
+              'IAM · PAM',
+              'Compliance · SOC2',
               'Log shippers',
-              'Ticketing · Jira',
-              'PagerDuty',
-              'Audit trails',
             ].map((t) => (
               <div key={t} className="chip-cell">
                 <span className="bullet" />
@@ -186,7 +177,7 @@ const slides: Slide[] = [
             ))}
             <div className="chip-cell is-dashed">
               <span className="bullet" />
-              …and 12 more
+              …and 20 more
             </div>
           </div>
           <div className="problem-footer">
