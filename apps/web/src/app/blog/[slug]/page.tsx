@@ -5,7 +5,7 @@ import { getPostBySlug, sanitizeHtml, formatDate, SITE_URL } from "@/lib/blog";
 
 type RouteParams = { params: Promise<{ slug: string }> };
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: RouteParams): Promise<Metadata> {
   const { slug } = await params;

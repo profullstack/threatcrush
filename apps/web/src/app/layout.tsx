@@ -5,6 +5,9 @@ import SiteFooter from "@/components/SiteFooter";
 import { AuthProvider } from "@/lib/auth-context";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com",
+  ),
   title: "ThreatCrush — Real-Time Threat Intelligence Platform",
   description:
     "Crush every threat before it crushes you. Real-time threat feeds, vulnerability tracking, attack surface monitoring, and threat actor intelligence.",

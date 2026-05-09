@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { listPosts, SITE_URL } from "@/lib/blog";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const posts = await listPosts(500);

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { listPosts, SITE_URL } from "@/lib/blog";
 
-export const revalidate = 300;
+export const dynamic = "force-dynamic";
 
 function escapeXml(input: string): string {
   return input
