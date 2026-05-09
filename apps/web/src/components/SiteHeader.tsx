@@ -39,6 +39,7 @@ export default function SiteHeader() {
           </a>
           <div className="hidden md:flex items-center gap-5 text-sm text-tc-text-dim">
             <a href="/store" className="text-tc-green transition-colors">Module Store</a>
+            <a href="/blog" className="hover:text-tc-green transition-colors">Blog</a>
             <a href="/docs" className="hover:text-tc-green transition-colors">Docs</a>
             <a href="/pricing" className="hover:text-tc-green transition-colors">Pricing</a>
             <div className="relative">
@@ -153,6 +154,15 @@ export default function SiteHeader() {
                         >
                           Usage & Billing
                         </a>
+                        {profile?.is_admin && (
+                          <a
+                            href="/admin"
+                            className="block px-4 py-2 text-sm font-semibold text-tc-green hover:bg-tc-darker transition-colors"
+                            onClick={() => setUserDropdownOpen(false)}
+                          >
+                            Admin
+                          </a>
+                        )}
                       </div>
                       <div className="border-t border-tc-border">
                         <button
@@ -207,6 +217,7 @@ export default function SiteHeader() {
           <div className="border-t border-tc-border/50 bg-tc-darker/95 px-4 py-4 md:hidden">
             <div className="flex flex-col gap-3 text-sm text-tc-text-dim">
               <a href="/store" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Module Store</a>
+              <a href="/blog" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Blog</a>
               <a href="/get-whitepaper" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>📄 Free CTEM Guide</a>
               <a href="/docs" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Docs</a>
               <a href="/#features" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Features</a>
@@ -217,6 +228,9 @@ export default function SiteHeader() {
               {signedIn ? (
                 <>
                   <a href="/account" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Account</a>
+                  {profile?.is_admin && (
+                    <a href="/admin" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Admin</a>
+                  )}
                   <button
                     onClick={async () => {
                       setMobileNavOpen(false);

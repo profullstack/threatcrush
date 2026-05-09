@@ -18,6 +18,7 @@ export default function SiteFooter() {
             <ul className="space-y-2">
               <li><a href="/#features" className={linkClass}>Features</a></li>
               <li><a href="/store" className={linkClass}>Module Store</a></li>
+              <li><a href="/blog" className={linkClass}>Blog</a></li>
               <li><a href="/docs" className={linkClass}>Docs</a></li>
               <li><a href="/usage" className={linkClass}>Usage</a></li>
               <li><a href="/pricing" className={linkClass}>Pricing</a></li>

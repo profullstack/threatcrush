@@ -127,3 +127,109 @@ body {
   color: var(--tc-green);
   animation: blink 1s step-end infinite;
 }
+
+/* Blog post content (Outrank-published HTML) */
+.blog-content {
+  color: rgb(229 229 234);
+  line-height: 1.75;
+  font-size: 1rem;
+}
+.blog-content h1,
+.blog-content h2,
+.blog-content h3,
+.blog-content h4 {
+  color: rgb(255 255 255);
+  font-weight: 700;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.25;
+}
+.blog-content h1 { font-size: 2rem; }
+.blog-content h2 { font-size: 1.5rem; }
+.blog-content h3 { font-size: 1.25rem; }
+.blog-content h4 { font-size: 1.1rem; }
+.blog-content p {
+  margin: 1rem 0;
+}
+.blog-content a {
+  color: var(--tc-green);
+  text-decoration: underline;
+  text-decoration-color: rgb(34 197 94 / 0.4);
+  text-underline-offset: 3px;
+}
+.blog-content a:hover {
+  text-decoration-color: var(--tc-green);
+}
+.blog-content ul,
+.blog-content ol {
+  margin: 1rem 0;
+  padding-left: 1.5rem;
+}
+.blog-content ul { list-style: disc; }
+.blog-content ol { list-style: decimal; }
+.blog-content li { margin: 0.4rem 0; }
+.blog-content blockquote {
+  border-left: 3px solid var(--tc-green);
+  padding-left: 1rem;
+  margin: 1.25rem 0;
+  color: rgb(180 180 190);
+  font-style: italic;
+}
+.blog-content code {
+  background: rgba(34, 197, 94, 0.08);
+  color: var(--tc-green);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+}
+.blog-content pre {
+  background: rgb(15 15 18);
+  border: 1px solid rgb(38 38 48);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1.25rem 0;
+}
+.blog-content pre code {
+  background: transparent;
+  color: rgb(229 229 234);
+  padding: 0;
+}
+.blog-content img {
+  border-radius: 8px;
+  border: 1px solid rgb(38 38 48);
+  margin: 1.5rem 0;
+  max-width: 100%;
+  height: auto;
+}
+.blog-content hr {
+  border: 0;
+  border-top: 1px solid rgb(38 38 48);
+  margin: 2rem 0;
+}
+.blog-content table {
+  border-collapse: collapse;
+  margin: 1.25rem 0;
+  width: 100%;
+  font-size: 0.95rem;
+}
+.blog-content th,
+.blog-content td {
+  border: 1px solid rgb(38 38 48);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.blog-content th {
+  background: rgba(34, 197, 94, 0.05);
+  color: rgb(255 255 255);
+}
+.blog-content figure {
+  margin: 1.5rem 0;
+}
+.blog-content figcaption {
+  text-align: center;
+  color: rgb(160 160 170);
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}

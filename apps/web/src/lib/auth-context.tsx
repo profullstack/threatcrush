@@ -22,6 +22,7 @@ interface UserProfile {
   notification_sms: boolean;
   notification_webhook_url: string | null;
   current_org_id: string | null;
+  is_admin: boolean;
   created_at: string;
   updated_at: string;
 }
