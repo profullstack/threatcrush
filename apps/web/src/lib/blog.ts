@@ -27,8 +27,21 @@ export type BlogListItem = Pick<
 export const SITE_URL =
   process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || "https://threatcrush.com";
 
+function tryGetAdmin() {
+  try {
+    return getSupabaseAdmin();
+  } catch (err) {
+    // Supabase env vars may be absent during `next build` (e.g. Railway build
+    // image). Returning null lets prerender succeed with empty data; the route
+    // will fetch real data on first request once runtime env is loaded.
+    console.warn("[blog] supabase unavailable:", (err as Error).message);
+    return null;
+  }
+}
+
 export async function listPosts(limit = 50): Promise<BlogListItem[]> {
-  const supabase = getSupabaseAdmin();
+  const supabase = tryGetAdmin();
+  if (!supabase) return [];
   const { data, error } = await supabase
     .from("blog_posts")
     .select("id, slug, title, meta_description, image_url, tags, published_at")
@@ -42,7 +55,8 @@ export async function listPosts(limit = 50): Promise<BlogListItem[]> {
 }
 
 export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
-  const supabase = getSupabaseAdmin();
+  const supabase = tryGetAdmin();
+  if (!supabase) return null;
   const { data, error } = await supabase
     .from("blog_posts")
     .select("*")
