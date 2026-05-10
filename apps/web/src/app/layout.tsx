@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import "./globals.css";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import RobautoPixel from "@/components/RobautoPixel";
 import { AuthProvider } from "@/lib/auth-context";
 
 export const metadata: Metadata = {
@@ -91,6 +93,9 @@ export default function RootLayout({
           {children}
           <SiteFooter />
         </AuthProvider>
+        <Suspense fallback={null}>
+          <RobautoPixel />
+        </Suspense>
       </body>
     </html>
   );
