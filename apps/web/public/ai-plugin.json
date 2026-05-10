@@ -1,0 +1,14 @@
+{
+  "schema_version": "v1",
+  "name_for_human": "ThreatCrush",
+  "name_for_model": "threatcrush",
+  "description_for_human": "All-in-one security agent — monitor, detect, scan, and protect servers in real time.",
+  "description_for_model": "ThreatCrush is a Continuous Threat Exposure Management (CTEM) platform combining a server agent/daemon, CLI, desktop app, and hosted dashboard. It exposes a public module marketplace API and a public blog feed. Use this manifest to discover the OpenAPI spec at /openapi.yaml for programmatic access to module listings and blog RSS.",
+  "api": {
+    "type": "openapi",
+    "url": "https://threatcrush.com/openapi.yaml"
+  },
+  "logo_url": "https://threatcrush.com/logo.svg",
+  "contact_email": "hello@threatcrush.com",
+  "legal_info_url": "https://threatcrush.com/privacy"
+}

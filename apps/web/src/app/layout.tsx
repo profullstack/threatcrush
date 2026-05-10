@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
+import Script from "next/script";
 import "./globals.css";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
-import RobautoPixel from "@/components/RobautoPixel";
 import { AuthProvider } from "@/lib/auth-context";
 
+const SITE_URL =
+  process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+  "https://threatcrush.com";
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com",
-  ),
+  metadataBase: new URL(SITE_URL),
   title: "ThreatCrush — Real-Time Threat Intelligence Platform",
   description:
     "Crush every threat before it crushes you. Real-time threat feeds, vulnerability tracking, attack surface monitoring, and threat actor intelligence.",
@@ -23,6 +24,7 @@ export const metadata: Metadata = {
     "attack surface monitoring",
     "threat feeds",
   ],
+  alternates: { canonical: "/" },
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -55,9 +57,11 @@ export const metadata: Metadata = {
     "msapplication-TileImage": "/icons/apple-touch-icon-144x144.png",
   },
   openGraph: {
+    siteName: "ThreatCrush",
     title: "ThreatCrush — Real-Time Threat Intelligence Platform",
     description:
       "Crush every threat before it crushes you. Lifetime access to real-time threat intelligence.",
+    url: SITE_URL,
     type: "website",
     images: ["/banner.png"],
   },
@@ -74,6 +78,23 @@ export const viewport = {
   themeColor: "#0a0a0a",
 };
 
+const organizationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "ThreatCrush",
+  alternateName: "Profullstack ThreatCrush",
+  url: SITE_URL,
+  logo: `${SITE_URL}/logo.svg`,
+  description:
+    "All-in-one security agent — monitor, detect, scan, and protect servers in real time. Continuous Threat Exposure Management (CTEM) platform with CLI, daemon, desktop app, and hosted dashboard.",
+  email: "hello@threatcrush.com",
+  foundingDate: "2025",
+  sameAs: [
+    "https://github.com/profullstack/threatcrush",
+    "https://www.npmjs.com/package/@profullstack/threatcrush",
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -86,6 +107,11 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap"
           rel="stylesheet"
         />
+        <link rel="alternate" type="application/rss+xml" title="ThreatCrush Blog" href="/blog/rss.xml" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
       </head>
       <body className="antialiased">
         <AuthProvider>
@@ -93,9 +119,12 @@ export default function RootLayout({
           {children}
           <SiteFooter />
         </AuthProvider>
-        <Suspense fallback={null}>
-          <RobautoPixel />
-        </Suspense>
+        <Script
+          id="robauto-pixel"
+          src="https://robauto.ai/pixel.js"
+          data-site="dc9ed120-6cdb-4ded-8202-089d1f270e5e"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );

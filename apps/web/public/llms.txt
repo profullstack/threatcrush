@@ -1,0 +1,38 @@
+# ThreatCrush
+
+> All-in-one security agent for builders. ThreatCrush is a Continuous Threat
+> Exposure Management (CTEM) platform that monitors, detects, scans, and
+> protects servers in real time — open-source CLI, daemon, desktop app, and
+> hosted dashboard.
+
+## What We Do
+- Real-time threat intelligence and exposure monitoring (CTEM)
+- Server agent + daemon: live syslog, auth, firewall, and process telemetry
+- Vulnerability and attack-surface scanning across owned properties
+- Module marketplace for community-published security checks
+- SIEM/EDR/SOC-friendly: open standards, webhook-driven, no vendor lock-in
+
+## Key Pages
+- [Home](https://threatcrush.com/)
+- [Blog](https://threatcrush.com/blog)
+- [Module Store](https://threatcrush.com/store)
+- [Pricing](https://threatcrush.com/pricing)
+- [Docs](https://threatcrush.com/docs)
+- [CTEM Whitepaper](https://threatcrush.com/get-whitepaper)
+- [Investors / Pitch Deck](https://threatcrush.com/deck)
+- [Privacy](https://threatcrush.com/privacy)
+- [Terms](https://threatcrush.com/terms)
+
+## Open Source
+- npm: https://www.npmjs.com/package/@profullstack/threatcrush
+- GitHub: https://github.com/profullstack/threatcrush
+- License: MIT
+
+## Feeds
+- Blog RSS: https://threatcrush.com/blog/rss.xml
+- Sitemap: https://threatcrush.com/sitemap.xml
+
+## Contact
+- Website: https://threatcrush.com
+- Email: hello@threatcrush.com
+- Security: security@threatcrush.com
