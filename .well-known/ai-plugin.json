@@ -1,0 +1,18 @@
+{
+  "schema_version": "v1",
+  "name_for_model": "threatcrush_plugin",
+  "name_for_human": "ThreatCrush Plugin",
+  "description_for_model": "Uses ThreatCrush.com api for security ",
+  "description_for_human": "Uses ThreatCrush.com api for security",
+  "auth": {
+    "type": "user_http"
+  },
+  "api": {
+    "type": "openapi",
+    "url": "https://threatcrush.com/.well-known/openapi.yaml",
+    "has_user_authentication": true
+  },
+  "logo_url": "https://threatcrush.com/logo.svg",
+  "contact_email": "support@threacrush.com",
+  "legal_info_url": "https://threatcrush.com/privacy"
+}
