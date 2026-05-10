@@ -125,6 +125,16 @@ export default function RootLayout({
           data-site="dc9ed120-6cdb-4ded-8202-089d1f270e5e"
           strategy="afterInteractive"
         />
+        <Script id="robauto-track" strategy="afterInteractive">
+          {`(function(){var pid="dc9ed120-6cdb-4ded-8202-089d1f270e5e";var ep="https://hkeytqaukllckucnhzey.supabase.co/functions/v1/track";var d=JSON.stringify({path:location.pathname,url:location.href,referer:document.referrer});if(navigator.sendBeacon){navigator.sendBeacon(ep+"?pid="+pid,d)}else{var x=new XMLHttpRequest();x.open("POST",ep+"?pid="+pid);x.setRequestHeader("Content-Type","application/json");x.send(d)}})();`}
+        </Script>
+        <Script
+          id="datafast"
+          src="https://datafa.st/js/script.js"
+          data-website-id="dfid_IxljOSv8TFXS4OlSBNIRK"
+          data-domain="threatcrush.com"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
