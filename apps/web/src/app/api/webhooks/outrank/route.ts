@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdmin, slugify } from "@/lib/supabase";
+import { SITE_URL } from "@/lib/blog";
+import { pingWebSubHub } from "@/lib/websub";
 
 type OutrankArticle = {
   id?: string;
@@ -35,9 +37,12 @@ export async function POST(req: NextRequest) {
   }
 
   const supabase = getSupabaseAdmin();
+  // Scope to outrank tokens so a Crawlproof bearer can't be used on
+  // this endpoint (and vice versa for /api/webhooks/crawlproof).
   const { data: integrations, error: lookupErr } = await supabase
     .from("outrank_integrations")
-    .select("id, access_token");
+    .select("id, access_token")
+    .eq("kind", "outrank");
 
   if (lookupErr) {
     return NextResponse.json({ error: "Lookup failed" }, { status: 500 });
@@ -108,6 +113,10 @@ export async function POST(req: NextRequest) {
   } catch {
     // best-effort counter; ingestion already succeeded
   }
+
+  // WebSub publish notification — fire-and-forget; failures don't
+  // block the response or the upsert that just succeeded.
+  void pingWebSubHub(`${SITE_URL}/blog/rss.xml`);
 
   return NextResponse.json({ message: "Webhook processed successfully", count: rows.length });
 }

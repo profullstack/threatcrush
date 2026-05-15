@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { listPosts, SITE_URL } from "@/lib/blog";
+import { webSubHubUrl } from "@/lib/websub";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,7 @@ export async function GET() {
     <language>en-us</language>
     <lastBuildDate>${lastBuildDate}</lastBuildDate>
     <atom:link href="${SITE_URL}/blog/rss.xml" rel="self" type="application/rss+xml" />
+    <atom:link href="${webSubHubUrl()}" rel="hub" />
 ${items}
   </channel>
 </rss>`;
