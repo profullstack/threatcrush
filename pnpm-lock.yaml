@@ -335,8 +335,8 @@ importers:
         specifier: ^2.2.5
         version: 2.2.5
       '@profullstack/autoblog':
-        specifier: github:profullstack/autoblog#b28d289
-        version: https://codeload.github.com/profullstack/autoblog/tar.gz/b28d289d6f539542e726f9c4693879929d2a5bfb
+        specifier: github:profullstack/autoblog#4008755
+        version: https://codeload.github.com/profullstack/autoblog/tar.gz/400875581b2cba4dc6449e19ac481847b8c496b0
       '@supabase/supabase-js':
         specifier: ^2.101.1
         version: 2.101.1
@@ -2478,9 +2478,9 @@ packages:
   '@prisma/instrumentation@5.22.0':
     resolution: {integrity: sha512-LxccF392NN37ISGxIurUljZSh1YWnphO34V5a0+T7FVQG2u9bhAXRTJpgmQ3483woVhkraQZFF7cbRrpbw/F4Q==}
 
-  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/b28d289d6f539542e726f9c4693879929d2a5bfb':
-    resolution: {tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/b28d289d6f539542e726f9c4693879929d2a5bfb}
-    version: 0.1.0
+  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/400875581b2cba4dc6449e19ac481847b8c496b0':
+    resolution: {tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/400875581b2cba4dc6449e19ac481847b8c496b0}
+    version: 0.2.0
     engines: {node: '>=18'}
 
   '@radix-ui/react-compose-refs@1.0.0':
@@ -10617,7 +10617,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/b28d289d6f539542e726f9c4693879929d2a5bfb': {}
+  '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/400875581b2cba4dc6449e19ac481847b8c496b0': {}
 
   '@radix-ui/react-compose-refs@1.0.0(react@18.3.1)':
     dependencies:

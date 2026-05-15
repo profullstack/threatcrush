@@ -69,22 +69,26 @@ jobs:
 
       - name: Determine version
         id: version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [ -n "${{ github.event.release.tag_name }}" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          elif [ -n "$RELEASE_TAG" ]; then
+            VERSION="$RELEASE_TAG"
           else
             VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           fi
           VERSION="${VERSION#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Submitting version: $VERSION"
 
       - name: Determine package managers
         id: pms
+        env:
+          INPUT_PMS: ${{ github.event.inputs.package_managers }}
         run: |
-          INPUT_PMS="${{ github.event.inputs.package_managers }}"
           if [ -z "$INPUT_PMS" ]; then
             INPUT_PMS="all"
           fi
@@ -94,14 +98,14 @@ jobs:
           else
             PMS=$(echo "$INPUT_PMS" | sed 's/chocolatey,//g' | sed 's/,chocolatey//g' | sed 's/^chocolatey$//g')
           fi
-          echo "package_managers=$PMS" >> $GITHUB_OUTPUT
+          echo "package_managers=$PMS" >> "$GITHUB_OUTPUT"
 
       - name: Submit to package managers
         if: steps.pms.outputs.package_managers != ''
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          PMS="${{ steps.pms.outputs.package_managers }}"
-          DRY_RUN="${{ github.event.inputs.dry_run }}"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PMS: ${{ steps.pms.outputs.package_managers }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
 
           ARGS="-v $VERSION"
 
@@ -123,12 +127,18 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PACKAGE_MANAGERS: ${{ steps.pms.outputs.package_managers }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
-          echo "## Package Submission Summary (Linux)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Package Managers**: ${{ steps.pms.outputs.package_managers }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Dry Run**: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Package Submission Summary (Linux)"
+            echo ""
+            echo "- **Version**: ${VERSION}"
+            echo "- **Package Managers**: ${PACKAGE_MANAGERS}"
+            echo "- **Dry Run**: ${DRY_RUN}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   submit-chocolatey:
     runs-on: windows-latest
@@ -157,16 +167,19 @@ jobs:
       - name: Determine version
         id: version
         shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [ -n "${{ github.event.release.tag_name }}" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+          elif [ -n "$RELEASE_TAG" ]; then
+            VERSION="$RELEASE_TAG"
           else
             VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
           fi
           VERSION="${VERSION#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check Chocolatey API key
         id: check-key
@@ -184,10 +197,10 @@ jobs:
       - name: Submit to Chocolatey
         if: steps.check-key.outputs.has_key == 'true'
         shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          DRY_RUN="${{ github.event.inputs.dry_run }}"
-
           ARGS="-v $VERSION -p chocolatey"
 
           if [ "$DRY_RUN" = "true" ]; then
@@ -202,8 +215,13 @@ jobs:
       - name: Summary
         if: always()
         shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         run: |
-          echo "## Package Submission Summary (Chocolatey)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Dry Run**: ${{ github.event.inputs.dry_run || 'false' }}" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Package Submission Summary (Chocolatey)"
+            echo ""
+            echo "- **Version**: ${VERSION}"
+            echo "- **Dry Run**: ${DRY_RUN}"
+          } >> "$GITHUB_STEP_SUMMARY"

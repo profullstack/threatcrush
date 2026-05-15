@@ -32,6 +32,12 @@ ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
 
+# Run as a non-root user. node:22-slim ships a `node` user (uid 1000)
+# already; reuse it rather than creating one. Chown the app dir so the
+# runtime can read its own files.
+RUN chown -R node:node /app
+USER node
+
 EXPOSE 3000
 
 CMD ["node", "apps/web/.next/standalone/apps/web/server.js"]
