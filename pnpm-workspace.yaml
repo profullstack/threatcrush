@@ -1,5 +1,10 @@
 packages:
   - apps/*
+onlyBuiltDependencies:
+  # @profullstack/autoblog ships TypeScript sources and builds via tsc
+  # in its `prepare` script on install. Allowlisting it here is
+  # required since pnpm v10 blocks git-dep build scripts by default.
+  - "@profullstack/autoblog"
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
