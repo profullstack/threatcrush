@@ -199,6 +199,8 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          GITHUB_TOKEN: ${{ secrets.PKG_SUBMIT_TOKEN || secrets.GITHUB_TOKEN }}
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
         run: |
           ARGS="-v $VERSION -p chocolatey"
 
@@ -207,9 +209,6 @@ jobs:
           fi
 
           npx tsx scripts/submit-packages.ts $ARGS
-        env:
-          GITHUB_TOKEN: ${{ secrets.PKG_SUBMIT_TOKEN || secrets.GITHUB_TOKEN }}
-          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
 
       - name: Summary
         if: always()
