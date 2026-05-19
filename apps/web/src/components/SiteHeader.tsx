@@ -33,9 +33,9 @@ export default function SiteHeader() {
       <WaitlistModal open={modalOpen} onClose={() => setModalOpen(false)} />
 
       <nav className="fixed top-0 left-0 right-0 z-40 border-b border-tc-border/50 bg-tc-darker/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-1.5 sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-2.5 sm:px-6 sm:py-3">
           <a href="/" className="flex items-center gap-2">
-            <img src="/logo.svg" alt="ThreatCrush" className="h-8 w-auto sm:h-9" />
+            <img src="/logo.svg" alt="ThreatCrush" className="h-12 w-auto sm:h-14" />
           </a>
           <div className="hidden md:flex items-center gap-5 text-sm text-tc-text-dim">
             <a href="/store" className="text-tc-green transition-colors">Module Store</a>
