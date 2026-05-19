@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import { syncEmailVerifiedIfConfirmed } from "@/lib/auth-sync";
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
     // no Bearer token (signUp() returned no session). Look up by email.
     let query = admin
       .from("user_profiles")
-      .select("email, phone, email_verified, phone_verified, license_status");
+      .select("id, email, phone, email_verified, phone_verified, license_status");
     if (userId) {
       query = query.eq("id", userId);
     } else if (emailParam) {
@@ -39,12 +40,20 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
-    const canPay = profile.email_verified && profile.phone_verified;
+    // Self-heal: if the auth user is email-confirmed but our profile flag
+    // never synced, fix it now so the caller sees the truth on this response.
+    let emailVerified = profile.email_verified;
+    if (!emailVerified && profile.id) {
+      const synced = await syncEmailVerifiedIfConfirmed(profile.id);
+      if (synced) emailVerified = true;
+    }
+
+    const canPay = emailVerified && profile.phone_verified;
 
     return NextResponse.json({
       email: profile.email,
       phone: profile.phone,
-      email_verified: profile.email_verified,
+      email_verified: emailVerified,
       phone_verified: profile.phone_verified,
       license_status: profile.license_status,
       can_proceed_to_payment: canPay,

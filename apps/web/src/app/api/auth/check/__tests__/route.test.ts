@@ -20,16 +20,23 @@ function resetMocks(overrides: {
     data: { session: null },
   };
   const profileResult = overrides.profileResult ?? {
-    data: { email_verified: true, phone_verified: true, license_status: "active" },
+    data: {
+      id: "user-123",
+      email_verified: true,
+      phone_verified: true,
+      license_status: "active",
+    },
     error: null,
   };
 
   mockGetUser.mockResolvedValue(getUserResult);
   mockGetSession.mockResolvedValue(getSessionResult);
   mockAdminSingle.mockResolvedValue(profileResult);
-  mockAdminEq.mockReturnValue({ single: mockAdminSingle });
+  mockAdminEq.mockReturnValue({ single: mockAdminSingle, eq: mockAdminEq });
   mockAdminSelect.mockReturnValue({ eq: mockAdminEq });
 }
+
+const mockSyncEmailVerified = vi.fn();
 
 vi.mock("@/lib/supabase", () => ({
   getSupabaseClient: () => ({
@@ -43,6 +50,10 @@ vi.mock("@/lib/supabase", () => ({
       select: mockAdminSelect,
     }),
   }),
+}));
+
+vi.mock("@/lib/auth-sync", () => ({
+  syncEmailVerifiedIfConfirmed: (...args: unknown[]) => mockSyncEmailVerified(...args),
 }));
 
 import { GET } from "@/app/api/auth/check/route";
@@ -63,6 +74,8 @@ function makeRequest(token?: string, searchParams?: Record<string, string>) {
 describe("GET /api/auth/check", () => {
   beforeEach(() => {
     resetMocks();
+    mockSyncEmailVerified.mockReset();
+    mockSyncEmailVerified.mockResolvedValue(false);
   });
 
   it("returns verification status", async () => {
@@ -94,7 +107,12 @@ describe("GET /api/auth/check", () => {
   it("returns can_proceed_to_payment = false when email not verified", async () => {
     resetMocks({
       profileResult: {
-        data: { email_verified: false, phone_verified: true, license_status: null },
+        data: {
+          id: "user-123",
+          email_verified: false,
+          phone_verified: true,
+          license_status: null,
+        },
         error: null,
       },
     });
@@ -105,6 +123,35 @@ describe("GET /api/auth/check", () => {
 
     expect(body.can_proceed_to_payment).toBe(false);
     expect(body.email_verified).toBe(false);
+  });
+
+  it("self-heals email_verified when auth.users is confirmed but profile lags", async () => {
+    resetMocks({
+      profileResult: {
+        data: {
+          id: "user-123",
+          email_verified: false,
+          phone_verified: true,
+          license_status: null,
+        },
+        error: null,
+      },
+    });
+    mockSyncEmailVerified.mockResolvedValueOnce(true);
+
+    const req = makeRequest("valid-token");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(mockSyncEmailVerified).toHaveBeenCalledWith("user-123");
+    expect(body.email_verified).toBe(true);
+    expect(body.can_proceed_to_payment).toBe(true);
+  });
+
+  it("does not call self-heal when email_verified is already true", async () => {
+    const req = makeRequest("valid-token");
+    await GET(req);
+    expect(mockSyncEmailVerified).not.toHaveBeenCalled();
   });
 
   it("returns can_proceed_to_payment = false when phone not verified", async () => {

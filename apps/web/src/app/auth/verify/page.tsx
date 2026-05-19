@@ -26,7 +26,8 @@ function VerifyContent() {
 
   // Supabase email-confirm redirects back with tokens in the URL hash.
   // Capture them so this page has a session even when the user arrived
-  // directly from the confirmation email.
+  // directly from the confirmation email, then sync the verified flag
+  // back into user_profiles (Supabase only flips auth.users on its end).
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!window.location.hash) return;
@@ -34,8 +35,13 @@ function VerifyContent() {
     const accessToken = hash.get("access_token");
     if (accessToken) {
       setAccessToken(accessToken);
-      // Clean the hash so tokens aren't left in the URL bar.
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      fetch("/api/auth/sync-verified", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => {
+        // Non-fatal: /api/auth/check has its own self-heal as a backstop.
+      });
     }
   }, []);
 
