@@ -106,7 +106,11 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           PMS: ${{ steps.pms.outputs.package_managers }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
-
+          GITHUB_TOKEN: ${{ secrets.PKG_SUBMIT_TOKEN || secrets.GITHUB_TOKEN }}
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
           ARGS="-v $VERSION"
 
           for PM in $(echo "$PMS" | tr ',' ' '); do
@@ -119,11 +123,6 @@ jobs:
 
           echo "Running: npx tsx scripts/submit-packages.ts $ARGS"
           npx tsx scripts/submit-packages.ts $ARGS
-        env:
-          GITHUB_TOKEN: ${{ secrets.PKG_SUBMIT_TOKEN || secrets.GITHUB_TOKEN }}
-          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Summary
         if: always()
