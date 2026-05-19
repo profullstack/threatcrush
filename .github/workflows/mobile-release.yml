@@ -70,22 +70,26 @@ jobs:
       - name: Determine build parameters
         id: params
         shell: bash
+        env:
+          INPUT_PROFILE: ${{ github.event.inputs.profile }}
+          INPUT_PLATFORM: ${{ github.event.inputs.platform }}
+          INPUT_AUTO_SUBMIT: ${{ github.event.inputs.auto_submit }}
         run: |
-          if [ -n "${{ github.event.inputs.profile }}" ]; then
-            PROFILE="${{ github.event.inputs.profile }}"
+          if [ -n "$INPUT_PROFILE" ]; then
+            PROFILE="$INPUT_PROFILE"
           else
             PROFILE="production"
           fi
 
           # Default to Android on tag pushes so releases don't stall on
           # iOS credentials setup. Override with workflow_dispatch.
-          if [ -n "${{ github.event.inputs.platform }}" ]; then
-            PLATFORM="${{ github.event.inputs.platform }}"
+          if [ -n "$INPUT_PLATFORM" ]; then
+            PLATFORM="$INPUT_PLATFORM"
           else
             PLATFORM="android"
           fi
 
-          if [ "${{ github.event.inputs.auto_submit }}" = "true" ] && [ "$PROFILE" = "production" ]; then
+          if [ "$INPUT_AUTO_SUBMIT" = "true" ] && [ "$PROFILE" = "production" ]; then
             AUTO_SUBMIT="--auto-submit"
           else
             AUTO_SUBMIT=""
@@ -109,10 +113,14 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          PROFILE: ${{ steps.params.outputs.profile }}
+          PLATFORM: ${{ steps.params.outputs.platform }}
+          AUTO_SUBMIT: ${{ github.event.inputs.auto_submit || 'false' }}
         run: |
-          echo "## Mobile Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **Profile**: ${{ steps.params.outputs.profile }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Platform**: ${{ steps.params.outputs.platform }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Auto Submit**: ${{ github.event.inputs.auto_submit || 'false' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Requires**: EXPO_TOKEN + configured EAS project credentials" >> $GITHUB_STEP_SUMMARY
+          echo "## Mobile Release Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Profile**: $PROFILE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Platform**: $PLATFORM" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Auto Submit**: $AUTO_SUBMIT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Requires**: EXPO_TOKEN + configured EAS project credentials" >> "$GITHUB_STEP_SUMMARY"
