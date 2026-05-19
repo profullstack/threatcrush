@@ -14,6 +14,7 @@
 
 ## Key Pages
 - [Home](https://threatcrush.com/)
+- [About](https://threatcrush.com/about)
 - [Blog](https://threatcrush.com/blog)
 - [Module Store](https://threatcrush.com/store)
 - [Pricing](https://threatcrush.com/pricing)
@@ -22,6 +23,12 @@
 - [Investors / Pitch Deck](https://threatcrush.com/deck)
 - [Privacy](https://threatcrush.com/privacy)
 - [Terms](https://threatcrush.com/terms)
+
+## Agent Manifests
+- [skill.md (agent capabilities)](https://threatcrush.com/skill.md)
+- [ai.txt (AI training/usage policy)](https://threatcrush.com/ai.txt)
+- [openapi.yaml (public API)](https://threatcrush.com/openapi.yaml)
+- [ai-plugin.json (plugin manifest)](https://threatcrush.com/ai-plugin.json)
 
 ## Open Source
 - npm: https://www.npmjs.com/package/@profullstack/threatcrush

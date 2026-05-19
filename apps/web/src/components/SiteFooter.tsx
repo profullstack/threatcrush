@@ -28,6 +28,7 @@ export default function SiteFooter() {
           <div>
             <h3 className={headingClass}>Company</h3>
             <ul className="space-y-2">
+              <li><a href="/about" className={linkClass}>About</a></li>
               <li><a href="/get-whitepaper" className={linkClass}>CTEM Guide</a></li>
               <li><a href="/investors" className={linkClass}>Investors</a></li>
               <li><a href="/affiliates" className={linkClass}>Affiliates</a></li>

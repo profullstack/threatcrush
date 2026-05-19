@@ -89,10 +89,106 @@ const organizationJsonLd = {
     "All-in-one security agent — monitor, detect, scan, and protect servers in real time. Continuous Threat Exposure Management (CTEM) platform with CLI, daemon, desktop app, and hosted dashboard.",
   email: "hello@threatcrush.com",
   foundingDate: "2025",
+  parentOrganization: {
+    "@type": "Organization",
+    name: "Profullstack, Inc.",
+    url: "https://profullstack.com",
+  },
+  contactPoint: [
+    {
+      "@type": "ContactPoint",
+      contactType: "customer support",
+      email: "hello@threatcrush.com",
+      url: `${SITE_URL}/pricing`,
+      availableLanguage: ["English"],
+    },
+    {
+      "@type": "ContactPoint",
+      contactType: "security",
+      email: "security@threatcrush.com",
+    },
+    {
+      "@type": "ContactPoint",
+      contactType: "investor relations",
+      email: "invest@threatcrush.com",
+      url: `${SITE_URL}/investors`,
+    },
+    {
+      "@type": "ContactPoint",
+      contactType: "sales",
+      email: "gov@threatcrush.com",
+      areaServed: "US",
+      description: "Government & defense sales",
+    },
+  ],
   sameAs: [
     "https://github.com/profullstack/threatcrush",
     "https://www.npmjs.com/package/@profullstack/threatcrush",
+    "https://www.linkedin.com/company/profullstackinc",
   ],
+};
+
+const websiteJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "ThreatCrush",
+  url: SITE_URL,
+  description:
+    "Continuous Threat Exposure Management (CTEM) platform with SIEM/EDR/SOC capabilities.",
+  publisher: { "@type": "Organization", name: "ThreatCrush", url: SITE_URL },
+  inLanguage: "en",
+  potentialAction: {
+    "@type": "SearchAction",
+    target: {
+      "@type": "EntryPoint",
+      urlTemplate: `${SITE_URL}/blog?q={search_term_string}`,
+    },
+    "query-input": "required name=search_term_string",
+  },
+};
+
+const softwareApplicationJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "ThreatCrush",
+  alternateName: "@profullstack/threatcrush",
+  applicationCategory: "SecurityApplication",
+  applicationSubCategory: "Continuous Threat Exposure Management (CTEM)",
+  operatingSystem: "Linux, macOS, Windows",
+  url: SITE_URL,
+  downloadUrl: "https://www.npmjs.com/package/@profullstack/threatcrush",
+  installUrl: `${SITE_URL}/install.sh`,
+  softwareVersion: "0.2.0",
+  description:
+    "Open-source security agent: live attack detection, vulnerability scanner, pentest engine, network monitor, active defense, and a module marketplace. Ships CLI, systemd daemon, desktop app, mobile app, and browser extension.",
+  publisher: { "@type": "Organization", name: "ThreatCrush", url: SITE_URL },
+  license: "https://opensource.org/license/mit",
+  image: `${SITE_URL}/banner.png`,
+  screenshot: [
+    `${SITE_URL}/images/gallery-cli.png`,
+    `${SITE_URL}/images/gallery-tui.png`,
+    `${SITE_URL}/images/gallery-desktop.png`,
+    `${SITE_URL}/images/gallery-mobile.png`,
+  ],
+  featureList: [
+    "Live attack detection (SQLi, XSS, brute force, port scans, DNS tunneling)",
+    "Code vulnerability scanner",
+    "Automated pentest engine",
+    "All-port TCP/UDP network monitor",
+    "Real-time email, SMS, Slack, Discord, and webhook alerts",
+    "Active defense — tar pits, honeypots, deception",
+    "systemd daemon — runs 24/7",
+    "MITRE ATT&CK, D3FEND, Sigma, OCSF, NIST CSF tagging",
+  ],
+  offers: {
+    "@type": "Offer",
+    availability: "https://schema.org/PreOrder",
+    priceCurrency: "USD",
+    price: "0",
+    description:
+      "Private beta — contact sales for lifetime licensing. AI-enhanced modules billed by usage.",
+    url: `${SITE_URL}/pricing`,
+  },
 };
 
 export default function RootLayout({
@@ -111,6 +207,14 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationJsonLd) }}
         />
       </head>
       <body className="antialiased">

@@ -92,6 +92,21 @@ const included = [
   "Priority support",
 ];
 
+const stripHtml = (s: string) => s.replace(/<[^>]*>/g, "");
+
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((f) => ({
+    "@type": "Question",
+    name: f.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: stripHtml(f.a),
+    },
+  })),
+};
+
 export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -100,6 +115,10 @@ export default function Home() {
 
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
       <WaitlistModal open={modalOpen} onClose={() => setModalOpen(false)} />
 
       <main>
