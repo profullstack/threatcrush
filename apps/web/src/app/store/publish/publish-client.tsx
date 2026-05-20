@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import ScrollReveal from "@/components/ScrollReveal";
+import { useAuth } from "@/lib/auth-context";
 
 interface ModuleMeta {
   name: string;
@@ -23,6 +24,14 @@ interface ModuleMeta {
 const CATEGORIES = ["security", "monitoring", "scanning", "network", "compliance", "other"];
 
 export default function PublishClient() {
+  const { signedIn, loading: authLoading } = useAuth();
+
+  useEffect(() => {
+    if (!authLoading && !signedIn) {
+      window.location.href = "/auth/login?next=/store/publish";
+    }
+  }, [authLoading, signedIn]);
+
   const [gitUrl, setGitUrl] = useState("");
   const [webUrl, setWebUrl] = useState("");
   const [fetching, setFetching] = useState(false);
@@ -130,6 +139,14 @@ export default function PublishClient() {
       setPublishing(false);
     }
   };
+
+  if (authLoading || !signedIn) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <p className="text-tc-text-dim font-mono text-sm">Loading…</p>
+      </main>
+    );
+  }
 
   if (published) {
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
