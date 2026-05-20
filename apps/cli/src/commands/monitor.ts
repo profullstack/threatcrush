@@ -1,4 +1,4 @@
-import { existsSync, createReadStream, statSync } from 'node:fs';
+import { existsSync, createReadStream, statSync, accessSync, constants } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { watch } from 'node:fs';
 import chalk from 'chalk';
@@ -38,18 +38,41 @@ export async function monitorCommand(options: MonitorOptions): Promise<void> {
 
   const moduleFilter = options.module?.split(',').map((m) => m.trim());
 
-  // Find available log files
-  const availableSources = LOG_SOURCES.filter((s) => {
-    if (moduleFilter && !moduleFilter.includes(s.name)) return false;
-    return existsSync(s.path);
-  });
+  // Find log files that exist AND are readable by the current user.
+  // Unreadable files would crash the tail stream with EACCES, so skip them
+  // up-front instead of dying mid-monitor.
+  const availableSources: LogWatcher[] = [];
+  const unreadable: LogWatcher[] = [];
+  for (const s of LOG_SOURCES) {
+    if (moduleFilter && !moduleFilter.includes(s.name)) continue;
+    if (!existsSync(s.path)) continue;
+    try {
+      accessSync(s.path, constants.R_OK);
+      availableSources.push(s);
+    } catch {
+      unreadable.push(s);
+    }
+  }
+
+  if (unreadable.length > 0) {
+    logger.warn(`Skipping ${unreadable.length} unreadable log source(s):`);
+    for (const s of unreadable) {
+      console.log(`  ${chalk.yellow('!')} ${chalk.gray(s.path)} (permission denied — add yourself to the 'adm' group or run as root)`);
+    }
+    console.log();
+  }
 
   if (availableSources.length === 0) {
-    logger.warn('No log files found to monitor.');
+    logger.warn('No readable log files found to monitor.');
     logger.info('Available log paths checked:');
     for (const s of LOG_SOURCES) {
       const exists = existsSync(s.path);
-      console.log(`  ${exists ? chalk.green('✓') : chalk.red('✗')} ${s.path}`);
+      let readable = false;
+      if (exists) {
+        try { accessSync(s.path, constants.R_OK); readable = true; } catch { readable = false; }
+      }
+      const glyph = !exists ? chalk.red('✗ missing') : (readable ? chalk.green('✓ readable') : chalk.yellow('! no read perm'));
+      console.log(`  ${glyph}  ${s.path}`);
     }
     console.log();
     logger.info('Starting demo mode with synthetic events...\n');
@@ -95,7 +118,13 @@ function tailLog(source: LogWatcher): void {
       }
 
       const stream = createReadStream(path, { start: position, encoding: 'utf-8' });
+      stream.on('error', (err) => {
+        // Permission or IO error mid-read; log once and stop polling this source.
+        logger.warn(`stopped tailing ${path}: ${(err as NodeJS.ErrnoException).code || err.message}`);
+        position = currentStat.size;
+      });
       const rl = createInterface({ input: stream });
+      rl.on('error', () => { /* surfaced via stream 'error' above */ });
 
       rl.on('line', (line) => {
         if (!line.trim()) return;

@@ -65,7 +65,7 @@ export class ModuleHost {
       const mod = this.modules.get('user-journal');
       if (mod) {
         mod.status = 'running';
-        mod.detail = 'tailing journalctl --user';
+        mod.detail = `tailing ${JournalWatcher.scopeArgs().includes('--user') ? 'user journal' : 'system journal'}`;
         this.bus.announceModule('user-journal', 'running', mod.detail);
       }
     }

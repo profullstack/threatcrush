@@ -53,7 +53,25 @@ export class IpcServer {
       this.server = createServer((sock) => this.handleClient(sock));
       this.server.on('error', reject);
       this.server.listen(PATHS.socket, () => {
-        try { require('node:fs').chmodSync(PATHS.socket, 0o660); } catch {}
+        const nodeFs = require('node:fs') as typeof import('node:fs');
+        try { nodeFs.chmodSync(PATHS.socket, 0o660); } catch {}
+        // When the daemon runs as root (system mode under systemd), regroup
+        // the socket to `adm` so users in that group can talk to the daemon
+        // without sudo. We use this group because it's the same one that
+        // already governs read access to /var/log/{auth,syslog,nginx} — the
+        // intent is "people who can already inspect logs can talk to the
+        // agent that watches them."
+        const isRoot = process.platform === 'linux'
+          && typeof process.getuid === 'function'
+          && process.getuid() === 0;
+        if (isRoot) {
+          try {
+            const { gid } = nodeFs.statSync('/var/log/auth.log');
+            nodeFs.chownSync(PATHS.socket, 0, gid);
+          } catch {
+            // adm group not present, or /var/log/auth.log missing — leave as root:root
+          }
+        }
         resolve();
       });
     });

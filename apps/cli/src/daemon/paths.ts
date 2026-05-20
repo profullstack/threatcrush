@@ -14,7 +14,17 @@ function canWriteSystemPaths(): boolean {
   }
 }
 
-const systemMode = canWriteSystemPaths();
+// A non-root client should still talk to a system-mode daemon if one is
+// running (socket present at /var/run/threatcrush/threatcrushd.sock). This
+// avoids the failure mode where `sudo threatcrush start` runs the daemon in
+// system mode but `threatcrush status` (as a normal user) looks in user mode
+// and reports "not running".
+function systemDaemonRunning(): boolean {
+  if (process.platform !== 'linux') return false;
+  return existsSync('/var/run/threatcrush/threatcrushd.sock');
+}
+
+const systemMode = canWriteSystemPaths() || systemDaemonRunning();
 const userBase = join(homedir(), '.threatcrush');
 
 export const PATHS = systemMode

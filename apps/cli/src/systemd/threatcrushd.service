@@ -24,9 +24,16 @@ PrivateTmp=true
 StandardOutput=journal
 StandardError=journal
 
-# Allow raw packet capture for network-monitor module
-AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+# Capabilities the daemon actually needs:
+#   CAP_NET_RAW / CAP_NET_ADMIN — raw packet capture for network-monitor module
+#   CAP_DAC_READ_SEARCH         — read mode-640 logs (auth.log, syslog, nginx) the
+#                                 daemon doesn't own without falling back to mode 666
+#   CAP_DAC_OVERRIDE            — same idea for the rare write that needs it
+#   CAP_CHOWN                   — chgrp the IPC socket to `adm` so non-root
+#                                 users in that group can talk to the daemon
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN
+
 
 [Install]
 WantedBy=multi-user.target

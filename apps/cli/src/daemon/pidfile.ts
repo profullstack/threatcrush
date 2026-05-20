@@ -25,8 +25,12 @@ export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    // EPERM means the process exists but the current user can't signal it
+    // (common: a non-root client checking on a system-mode daemon running as
+    // root). Only ESRCH means the process is actually gone.
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'EPERM';
   }
 }
 

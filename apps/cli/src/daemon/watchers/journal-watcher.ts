@@ -14,8 +14,19 @@ export class JournalWatcher {
 
   constructor(private bus: EventBus) {}
 
+  // When the daemon runs as root (system mode), tail the SYSTEM journal so
+  // we pick up sshd / sudo / kernel / UFW events. Falling back to --user
+  // would give us root's mostly-empty per-user journal. Otherwise we use
+  // --user so the daemon can run unprivileged on a workstation.
+  static scopeArgs(): string[] {
+    const isRoot = process.platform === 'linux'
+      && typeof process.getuid === 'function'
+      && process.getuid() === 0;
+    return isRoot ? [] : ['--user'];
+  }
+
   static isAvailable(): boolean {
-    const probe = spawnSync('journalctl', ['--user', '-n', '0', '--no-pager'], {
+    const probe = spawnSync('journalctl', [...this.scopeArgs(), '-n', '0', '--no-pager'], {
       stdio: ['ignore', 'ignore', 'ignore'],
     });
     return probe.status === 0;
@@ -26,7 +37,7 @@ export class JournalWatcher {
 
     const child = spawn(
       'journalctl',
-      ['--user', '-o', 'json', '-f', '--since', 'now'],
+      [...JournalWatcher.scopeArgs(), '-o', 'json', '-f', '--since', 'now'],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     if (!child.stdout) return false;
