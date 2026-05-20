@@ -171,7 +171,7 @@ export default function Home() {
                   >
                     <span className="text-tc-text-dim">$ </span>
                     <span className="text-tc-green">curl -fsSL https://threatcrush.com/install.sh | sh</span>
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity">📋 click to copy</span>
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 border border-tc-border/60 rounded px-2 py-0.5 shadow">📋 click to copy</span>
                   </div>
                   <div className="mt-3 text-left">
                     <a href="/docs" className="text-xs font-semibold text-tc-green hover:underline">
@@ -199,14 +199,14 @@ export default function Home() {
                           onClick={() => { navigator.clipboard?.writeText('threatcrush update'); }}
                         >
                           <span className="text-tc-green">threatcrush update</span>
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity">📋 click to copy</span>
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 border border-tc-border/60 rounded px-2 py-0.5 shadow">📋 click to copy</span>
                         </div>
                         <div
                           className="group relative rounded-lg bg-black/60 border border-tc-border px-4 py-3 font-mono text-sm cursor-pointer transition-all hover:border-tc-green/40"
                           onClick={() => { navigator.clipboard?.writeText('threatcrush remove'); }}
                         >
                           <span className="text-tc-green">threatcrush remove</span>
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity">📋 click to copy</span>
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 border border-tc-border/60 rounded px-2 py-0.5 shadow">📋 click to copy</span>
                         </div>
                       </div>
                     </div>
