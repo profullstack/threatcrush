@@ -6,7 +6,17 @@ import { TEST_MODULE } from "@/__tests__/helpers/supabase-mock";
 const mockUpdate = vi.fn();
 const mockInsert = vi.fn();
 let moduleLookupResult: { data: unknown; error: unknown } = {
-  data: { id: "mod-001", downloads: 42, version: "1.0.0" },
+  data: {
+    id: "mod-001",
+    name: "Test Scanner",
+    slug: "test-scanner",
+    downloads: 42,
+    version: "1.0.0",
+    git_url: "https://github.com/test/scanner",
+    license: "MIT",
+    min_threatcrush_version: ">=0.2.0",
+    os_support: ["linux"],
+  },
   error: null,
 };
 
@@ -55,7 +65,17 @@ describe("POST /api/modules/:slug/install", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     moduleLookupResult = {
-      data: { id: "mod-001", downloads: 42, version: "1.0.0" },
+      data: {
+        id: "mod-001",
+        name: "Test Scanner",
+        slug: "test-scanner",
+        downloads: 42,
+        version: "1.0.0",
+        git_url: "https://github.com/test/scanner",
+        license: "MIT",
+        min_threatcrush_version: ">=0.2.0",
+        os_support: ["linux"],
+      },
       error: null,
     };
   });
@@ -68,6 +88,17 @@ describe("POST /api/modules/:slug/install", () => {
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.downloads).toBe(43);
+  });
+
+  it("returns git install info from the marketplace module record", async () => {
+    const req = makeRequest({ platform: "linux" });
+    const res = await POST(req, makeContext("test-scanner"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.module.install.git_url).toBe("https://github.com/test/scanner");
+    expect(body.module.install.npm_package).toBeNull();
+    expect(body.module.install.tarball_url).toBeNull();
   });
 
   it("logs install with platform info", async () => {
