@@ -205,9 +205,7 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
       <nav className="fixed top-0 left-0 right-0 z-40 border-b border-tc-border/50 bg-tc-darker/80 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
-            <span className="text-xl font-bold text-tc-green glow-green font-mono">
-              ⚡ ThreatCrush
-            </span>
+            <img src="/logo.svg" alt="ThreatCrush" className="h-12 w-auto sm:h-14" />
           </Link>
           <div className="hidden sm:flex items-center gap-6 text-sm text-tc-text-dim">
             <Link href="/" className="hover:text-tc-green transition-colors">Home</Link>
