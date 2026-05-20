@@ -4,6 +4,7 @@ import TOML from '@iarna/toml';
 import type { EventBus } from './event-bus.js';
 import { PATHS } from './paths.js';
 import { LogWatcher } from './watchers/log-watcher.js';
+import { JournalWatcher } from './watchers/journal-watcher.js';
 import type { ModuleManifest } from '../types/config.js';
 
 interface HostedModule {
@@ -18,6 +19,7 @@ interface HostedModule {
 export class ModuleHost {
   private modules = new Map<string, HostedModule>();
   private logWatcher: LogWatcher | null = null;
+  private journalWatcher: JournalWatcher | null = null;
 
   constructor(private bus: EventBus) {
     bus.on('event', (event) => {
@@ -41,10 +43,21 @@ export class ModuleHost {
         this.bus.announceModule(modName, 'running', mod.detail);
       }
     }
+
+    this.journalWatcher = new JournalWatcher(this.bus);
+    if (this.journalWatcher.start()) {
+      const mod = this.modules.get('user-journal');
+      if (mod) {
+        mod.status = 'running';
+        mod.detail = 'tailing journalctl --user';
+        this.bus.announceModule('user-journal', 'running', mod.detail);
+      }
+    }
   }
 
   async stop(): Promise<void> {
     this.logWatcher?.stop();
+    this.journalWatcher?.stop();
     for (const mod of this.modules.values()) {
       mod.status = 'loaded';
       this.bus.announceModule(mod.name, 'stopped');
@@ -64,6 +77,7 @@ export class ModuleHost {
     const builtins: HostedModule[] = [
       { name: 'log-watcher', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
       { name: 'ssh-guard', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
+      { name: 'user-journal', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
     ];
     for (const m of builtins) this.modules.set(m.name, m);
   }

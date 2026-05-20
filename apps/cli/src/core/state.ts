@@ -2,15 +2,30 @@ import Database from 'better-sqlite3';
 import type { ThreatEvent } from '../types/events.js';
 
 let db: Database.Database | null = null;
+let dbUnavailable = false;
+
+export function isStateDbAvailable(): boolean {
+  return db !== null;
+}
 
 export function initStateDB(dbPath: string = '/var/lib/threatcrush/state.db'): Database.Database {
   if (db) return db;
+  if (dbUnavailable) {
+    throw new Error('state db unavailable (previous init failed)');
+  }
 
   try {
-    db = new Database(dbPath);
-  } catch {
-    // Fall back to in-memory if we can't write to the path
-    db = new Database(':memory:');
+    try {
+      db = new Database(dbPath);
+    } catch {
+      // Fall back to in-memory if we can't write to the path
+      db = new Database(':memory:');
+    }
+  } catch (err) {
+    // Native binding missing or unloadable — mark DB unavailable so callers
+    // can degrade gracefully instead of throwing on every IPC request.
+    dbUnavailable = true;
+    throw err;
   }
 
   db.pragma('journal_mode = WAL');
@@ -50,7 +65,8 @@ export function initStateDB(dbPath: string = '/var/lib/threatcrush/state.db'): D
 }
 
 export function insertEvent(event: ThreatEvent): number {
-  const database = db || initStateDB();
+  const database = tryDb();
+  if (!database) return -1;
   const stmt = database.prepare(`
     INSERT INTO events (timestamp, module, category, severity, message, source_ip, details)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -67,8 +83,19 @@ export function insertEvent(event: ThreatEvent): number {
   return result.lastInsertRowid as number;
 }
 
+function tryDb(): Database.Database | null {
+  if (db) return db;
+  if (dbUnavailable) return null;
+  try {
+    return initStateDB();
+  } catch {
+    return null;
+  }
+}
+
 export function getRecentEvents(limit: number = 50): ThreatEvent[] {
-  const database = db || initStateDB();
+  const database = tryDb();
+  if (!database) return [];
   const rows = database.prepare(`
     SELECT * FROM events ORDER BY timestamp DESC LIMIT ?
   `).all(limit) as any[];
@@ -76,7 +103,8 @@ export function getRecentEvents(limit: number = 50): ThreatEvent[] {
 }
 
 export function getEventCount(since?: Date): number {
-  const database = db || initStateDB();
+  const database = tryDb();
+  if (!database) return 0;
   if (since) {
     return (database.prepare(`SELECT COUNT(*) as count FROM events WHERE timestamp >= ?`)
       .get(since.toISOString()) as any).count;
@@ -85,7 +113,8 @@ export function getEventCount(since?: Date): number {
 }
 
 export function getThreatCount(since?: Date): number {
-  const database = db || initStateDB();
+  const database = tryDb();
+  if (!database) return 0;
   const severities = "('medium','high','critical')";
   if (since) {
     return (database.prepare(
@@ -98,7 +127,8 @@ export function getThreatCount(since?: Date): number {
 }
 
 export function getTopSources(limit: number = 10): Array<{ ip: string; count: number }> {
-  const database = db || initStateDB();
+  const database = tryDb();
+  if (!database) return [];
   return database.prepare(`
     SELECT source_ip as ip, COUNT(*) as count FROM events
     WHERE source_ip IS NOT NULL
