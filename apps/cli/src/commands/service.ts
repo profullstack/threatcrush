@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
@@ -46,6 +46,8 @@ export async function installServiceCommand(): Promise<void> {
   writeFileSync(UNIT_PATH, unit, { mode: 0o644 });
   console.log(chalk.green(`  ✓ Installed unit file: ${UNIT_PATH}`));
 
+  ensureSystemDirs();
+
   try {
     execSync('systemctl daemon-reload', { stdio: 'inherit' });
     execSync('systemctl enable threatcrushd.service', { stdio: 'inherit' });
@@ -55,6 +57,39 @@ export async function installServiceCommand(): Promise<void> {
   } catch (err) {
     console.log(chalk.yellow(`  ! systemctl error: ${(err as Error).message}`));
   }
+}
+
+// systemd `ReadWritePaths=` requires these to exist before the unit starts,
+// and we want module installs / config edits to be writable by `adm` group
+// members (same boundary used for log read access and IPC socket access).
+function ensureSystemDirs(): void {
+  const dirs: Array<{ path: string; sticky?: boolean }> = [
+    { path: '/etc/threatcrush' },
+    { path: '/etc/threatcrush/modules', sticky: true },
+    { path: '/etc/threatcrush/threatcrushd.conf.d' },
+    { path: '/var/log/threatcrush' },
+    { path: '/var/lib/threatcrush' },
+    { path: '/var/run/threatcrush' },
+  ];
+  let admGid: number | null = null;
+  try {
+    admGid = statSync('/var/log/auth.log').gid;
+  } catch {
+    // adm group not present — leave permissions as root-only
+  }
+
+  for (const { path, sticky } of dirs) {
+    try { mkdirSync(path, { recursive: true }); } catch {}
+    if (admGid !== null) {
+      try {
+        // 2775 = setgid + group writable; setgid makes new files inherit `adm`.
+        // 0775 for the non-module dirs.
+        chmodSync(path, sticky ? 0o2775 : 0o775);
+        execSync(`chgrp adm ${path}`, { stdio: 'ignore' });
+      } catch { /* best-effort */ }
+    }
+  }
+  console.log(chalk.green('  ✓ Runtime dirs prepared (group `adm` may install modules / edit config without sudo).'));
 }
 
 export async function uninstallServiceCommand(): Promise<void> {
