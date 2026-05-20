@@ -3,6 +3,35 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 type RouteContext = { params: Promise<{ slug: string }> };
 
+const MODULE_INSTALL_COLUMNS =
+  "id, name, slug, version, downloads, git_url, min_threatcrush_version, os_support, license";
+
+function installPayload(mod: {
+  name: string;
+  slug: string;
+  version: string;
+  downloads?: number | null;
+  git_url?: string | null;
+  min_threatcrush_version?: string | null;
+  os_support?: string[] | null;
+  license?: string | null;
+}) {
+  return {
+    name: mod.name,
+    slug: mod.slug,
+    version: mod.version,
+    downloads: mod.downloads || 0,
+    license: mod.license,
+    min_threatcrush_version: mod.min_threatcrush_version,
+    os_support: mod.os_support,
+    install: {
+      npm_package: null,
+      git_url: mod.git_url || null,
+      tarball_url: null,
+    },
+  };
+}
+
 /**
  * GET /api/modules/[slug]/install
  * Query module install info without incrementing download count.
@@ -16,7 +45,7 @@ export async function GET(
 
   const { data: mod, error: modError } = await sb
     .from("modules")
-    .select("id, name, slug, version, downloads, git_url, npm_package, tarball_url, min_threatcrush_version, os_support, license")
+    .select(MODULE_INSTALL_COLUMNS)
     .eq("slug", slug)
     .eq("published", true)
     .single();
@@ -26,20 +55,7 @@ export async function GET(
   }
 
   return NextResponse.json({
-    module: {
-      name: mod.name,
-      slug: mod.slug,
-      version: mod.version,
-      downloads: mod.downloads || 0,
-      license: mod.license,
-      min_threatcrush_version: mod.min_threatcrush_version,
-      os_support: mod.os_support,
-      install: {
-        npm_package: mod.npm_package || null,
-        git_url: mod.git_url || null,
-        tarball_url: mod.tarball_url || null,
-      },
-    },
+    module: installPayload(mod),
   });
 }
 
@@ -63,7 +79,7 @@ export async function POST(
   // Get module with full install info
   const { data: mod, error: modError } = await sb
     .from("modules")
-    .select("id, name, slug, version, downloads, git_url, npm_package, tarball_url, min_threatcrush_version, os_support, license")
+    .select(MODULE_INSTALL_COLUMNS)
     .eq("slug", slug)
     .eq("published", true)
     .single();
@@ -90,18 +106,6 @@ export async function POST(
   return NextResponse.json({
     success: true,
     downloads: newCount,
-    module: {
-      name: mod.name,
-      slug: mod.slug,
-      version: mod.version,
-      license: mod.license,
-      min_threatcrush_version: mod.min_threatcrush_version,
-      os_support: mod.os_support,
-      install: {
-        npm_package: mod.npm_package || null,
-        git_url: mod.git_url || null,
-        tarball_url: mod.tarball_url || null,
-      },
-    },
+    module: installPayload({ ...mod, downloads: newCount }),
   });
 }
