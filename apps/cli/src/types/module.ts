@@ -1,10 +1,19 @@
 import type { ThreatEvent } from './events.js';
 import type { ModuleConfig } from './config.js';
 
+export interface ModuleAlert {
+  title: string;
+  severity: ThreatEvent['severity'];
+  body?: string;
+  event?: ThreatEvent;
+}
+
 export interface ModuleContext {
   config: ModuleConfig;
   logger: ModuleLogger;
   emit: (event: ThreatEvent) => void;
+  subscribe: (eventType: string, handler: (event: ThreatEvent) => void) => void;
+  alert: (alert: ModuleAlert) => void;
   getState: (key: string) => unknown;
   setState: (key: string, value: unknown) => void;
 }
