@@ -1,0 +1,24 @@
+[module]
+name = "ssh-login-monitor"
+version = "0.1.0"
+description = "Monitors auth logs for SSH login attempts and emits ThreatEvents for failed/suspicious logins"
+author = "pxivory-max"
+license = "MIT"
+homepage = "https://github.com/pxivory-max/threatcrush-ssh-monitor"
+
+[module.pricing]
+type = "free"
+
+[module.requirements]
+threatcrush = ">=0.1.0"
+os = ["linux"]
+capabilities = ["fs:read"]
+
+[module.config.defaults]
+enabled = true
+# Path to auth log file
+auth_log_path = "/var/log/auth.log"
+# Number of failed attempts before escalating severity
+failed_threshold = 5
+# Poll interval in seconds
+poll_interval_seconds = 30
