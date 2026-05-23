@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { authHeaders } from "@/lib/auth-client";
+import { decryptClientSecret, encryptClientSecret, isE2ESecret } from "@/lib/client-secret-crypto";
 import { parseWalletPaste, formatWalletCopyText } from "@/lib/wallet-import";
 
 interface ReferralWallet {
@@ -37,6 +38,10 @@ export default function AccountContent() {
   const [showAllWallets, setShowAllWallets] = useState(false);
   const [aiGatewayKeyDraft, setAiGatewayKeyDraft] = useState("");
   const [aiGatewayKeySet, setAiGatewayKeySet] = useState(false);
+  const [aiGatewayKeyE2E, setAiGatewayKeyE2E] = useState(false);
+  const [revealedAiGatewayKey, setRevealedAiGatewayKey] = useState("");
+  const [revealingAiGatewayKey, setRevealingAiGatewayKey] = useState(false);
+  const [copiedAiGatewayKey, setCopiedAiGatewayKey] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -72,6 +77,7 @@ export default function AccountContent() {
         if (!res.ok) return;
         const data = await res.json();
         setAiGatewayKeySet(!!data.secrets?.AI_GATEWAY_API_KEY?.isSet);
+        setAiGatewayKeyE2E(!!data.secrets?.AI_GATEWAY_API_KEY?.e2eEncrypted);
       } catch {
         // ignore
       }
@@ -199,21 +205,72 @@ export default function AccountContent() {
     setSettingsStatus(null);
     setSettingsError(null);
     try {
+      if (!profile?.id) throw new Error("Account profile is still loading");
+      const secretValue = value === null ? null : await encryptClientSecret(profile.id, value.trim());
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ secrets: { AI_GATEWAY_API_KEY: value } }),
+        body: JSON.stringify({ secrets: { AI_GATEWAY_API_KEY: secretValue } }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save settings");
       setAiGatewayKeySet(!!data.secrets?.AI_GATEWAY_API_KEY?.isSet);
+      setAiGatewayKeyE2E(!!data.secrets?.AI_GATEWAY_API_KEY?.e2eEncrypted);
       setAiGatewayKeyDraft("");
+      setRevealedAiGatewayKey("");
       setSettingsStatus(value === null ? "Cleared" : "Saved");
     } catch (error) {
       setSettingsError((error as Error).message);
     } finally {
       setSettingsSaving(false);
     }
+  };
+
+  const revealAiGatewayKey = async () => {
+    setSettingsStatus(null);
+    setSettingsError(null);
+    setRevealingAiGatewayKey(true);
+    try {
+      if (!profile?.id) throw new Error("Account profile is still loading");
+      const res = await fetch("/api/settings?includeSecretValues=1", {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load settings");
+
+      const stored = data.secretValues?.AI_GATEWAY_API_KEY;
+      if (typeof stored !== "string" || !stored) throw new Error("No saved Vercel key found");
+
+      const value = await decryptClientSecret(profile.id, stored);
+      setRevealedAiGatewayKey(value);
+
+      if (!isE2ESecret(stored)) {
+        const encrypted = await encryptClientSecret(profile.id, value);
+        const upgradeRes = await fetch("/api/settings", {
+          method: "PUT",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ secrets: { AI_GATEWAY_API_KEY: encrypted } }),
+        });
+        if (upgradeRes.ok) {
+          const upgraded = await upgradeRes.json();
+          setAiGatewayKeySet(!!upgraded.secrets?.AI_GATEWAY_API_KEY?.isSet);
+          setAiGatewayKeyE2E(!!upgraded.secrets?.AI_GATEWAY_API_KEY?.e2eEncrypted);
+          setSettingsStatus("Revealed and upgraded to E2E encryption");
+        }
+      }
+    } catch (error) {
+      setSettingsError((error as Error).message);
+    } finally {
+      setRevealingAiGatewayKey(false);
+    }
+  };
+
+  const copyAiGatewayKey = async () => {
+    if (!revealedAiGatewayKey) return;
+    await navigator.clipboard?.writeText(revealedAiGatewayKey);
+    setCopiedAiGatewayKey(true);
+    setTimeout(() => setCopiedAiGatewayKey(false), 2000);
   };
 
   return (
@@ -342,18 +399,49 @@ export default function AccountContent() {
                   {settingsSaving ? "Saving..." : "Save"}
                 </button>
                 {aiGatewayKeySet && (
-                  <button
-                    onClick={() => saveAiGatewayKey(null)}
-                    disabled={settingsSaving}
-                    className="border border-tc-border text-tc-text-dim px-4 py-2 rounded-lg text-sm hover:border-red-400/40 hover:text-red-400 disabled:opacity-50"
-                  >
-                    Clear
-                  </button>
+                  <>
+                    <button
+                      onClick={revealAiGatewayKey}
+                      disabled={settingsSaving || revealingAiGatewayKey}
+                      className="border border-tc-border text-tc-text-dim px-4 py-2 rounded-lg text-sm hover:border-tc-green/40 hover:text-tc-green disabled:opacity-50"
+                    >
+                      {revealingAiGatewayKey ? "Decrypting..." : "Reveal"}
+                    </button>
+                    <button
+                      onClick={() => saveAiGatewayKey(null)}
+                      disabled={settingsSaving}
+                      className="border border-tc-border text-tc-text-dim px-4 py-2 rounded-lg text-sm hover:border-red-400/40 hover:text-red-400 disabled:opacity-50"
+                    >
+                      Clear
+                    </button>
+                  </>
                 )}
               </div>
+              {revealedAiGatewayKey && (
+                <div className="mt-2 flex flex-col gap-2 rounded-lg border border-tc-border bg-black/40 p-2 sm:flex-row">
+                  <input
+                    readOnly
+                    type="text"
+                    value={revealedAiGatewayKey}
+                    className="flex-1 rounded border border-tc-border bg-tc-darker px-2 py-1.5 font-mono text-xs text-tc-text focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={copyAiGatewayKey}
+                    className="rounded border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim hover:border-tc-green/40 hover:text-tc-green"
+                  >
+                    {copiedAiGatewayKey ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              )}
               <p className="text-xs text-tc-text-dim mt-2">
                 Used by AI-powered modules such as DeepSec. The key is stored in your account settings, not in the public plugin store.
               </p>
+              {aiGatewayKeySet && (
+                <p className="text-xs text-tc-text-dim mt-1">
+                  {aiGatewayKeyE2E ? "E2E encrypted in this browser." : "Legacy secret; reveal once to upgrade it to E2E encryption."}
+                </p>
+              )}
               {settingsStatus && <p className="text-xs text-tc-green mt-2">{settingsStatus}</p>}
               {settingsError && <p className="text-xs text-red-400 mt-2">{settingsError}</p>}
             </div>

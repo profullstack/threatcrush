@@ -16,6 +16,7 @@ type SettingsRow = {
 };
 
 const KEY_RE = /^[A-Z][A-Z0-9_]{1,100}$/;
+const E2E_SECRET_PREFIX = "tc_e2e_secret_v1:";
 
 function rowToCipher(row: SettingsRow | null): CipherBlob | null {
   if (!row?.payload_secret_ciphertext || !row.payload_secret_iv || !row.payload_secret_tag) return null;
@@ -28,7 +29,14 @@ function rowToCipher(row: SettingsRow | null): CipherBlob | null {
 
 function secretStatus(secrets: Record<string, string>) {
   return Object.fromEntries(
-    Object.entries(secrets).map(([key, value]) => [key, { isSet: true, length: value.length }]),
+    Object.entries(secrets).map(([key, value]) => [
+      key,
+      {
+        isSet: true,
+        length: value.startsWith(E2E_SECRET_PREFIX) ? undefined : value.length,
+        e2eEncrypted: value.startsWith(E2E_SECRET_PREFIX),
+      },
+    ]),
   );
 }
 
@@ -84,12 +92,23 @@ export async function GET(request: NextRequest) {
     secrets = {};
   }
 
-  return NextResponse.json({
+  const includeSecretValues = new URL(request.url).searchParams.get("includeSecretValues") === "1";
+  const response: {
+    plain: Record<string, unknown>;
+    secrets: ReturnType<typeof secretStatus>;
+    cryptoConfigured: boolean;
+    lastUpdatedAt: string | null;
+    secretValues?: Record<string, string>;
+  } = {
     plain: row?.payload_plain || {},
     secrets: secretStatus(secrets),
     cryptoConfigured: settingsCryptoConfigured(),
     lastUpdatedAt: row?.updated_at || null,
-  });
+  };
+
+  if (includeSecretValues) response.secretValues = secrets;
+
+  return NextResponse.json(response);
 }
 
 export async function PUT(request: NextRequest) {

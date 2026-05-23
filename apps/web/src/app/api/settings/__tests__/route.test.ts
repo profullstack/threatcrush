@@ -32,8 +32,8 @@ vi.mock("@/lib/settings-crypto", () => ({
 
 import { GET, PUT } from "@/app/api/settings/route";
 
-function request(body?: unknown) {
-  return new Request("http://localhost/api/settings", {
+function request(body?: unknown, url = "http://localhost/api/settings") {
+  return new Request(url, {
     method: body === undefined ? "GET" : "PUT",
     headers: { "Content-Type": "application/json", Authorization: "Bearer token" },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -67,9 +67,18 @@ describe("/api/settings", () => {
     expect(res.status).toBe(200);
     expect(body.plain).toEqual({ DEEPSEC_AGENT: "codex" });
     expect(body.secrets).toEqual({
-      AI_GATEWAY_API_KEY: { isSet: true, length: "vck_test_secret".length },
+      AI_GATEWAY_API_KEY: { isSet: true, length: "vck_test_secret".length, e2eEncrypted: false },
     });
+    expect(body.secretValues).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("vck_test_secret");
+  });
+
+  it("returns secret values only for an explicit reveal request", async () => {
+    const res = await GET(request(undefined, "http://localhost/api/settings?includeSecretValues=1"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.secretValues).toEqual({ AI_GATEWAY_API_KEY: "vck_test_secret" });
   });
 
   it("merges plain settings and encrypts updated secrets", async () => {
@@ -91,7 +100,7 @@ describe("/api/settings", () => {
       }),
       { onConflict: "user_id" },
     );
-    expect(body.secrets.AI_GATEWAY_API_KEY).toEqual({ isSet: true, length: 7 });
+    expect(body.secrets.AI_GATEWAY_API_KEY).toEqual({ isSet: true, length: 7, e2eEncrypted: false });
   });
 
   it("clears a secret when the value is null", async () => {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import ScrollReveal from "@/components/ScrollReveal";
 import { authHeaders } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
+import { decryptClientSecret, encryptClientSecret, isE2ESecret } from "@/lib/client-secret-crypto";
 import type { PluginConfigField } from "@profullstack/pluginstore";
 
 interface Module {
@@ -110,7 +111,7 @@ function SimpleMarkdown({ content }: { content: string }) {
 
 export default function ModuleDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const { signedIn } = useAuth();
+  const { signedIn, profile } = useAuth();
   const [mod, setMod] = useState<Module | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
@@ -120,11 +121,14 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
   const [installed, setInstalled] = useState(false);
   const [settings, setSettings] = useState<{
     plain: Record<string, string | number | boolean | null>;
-    secrets: Record<string, { isSet: boolean; length?: number }>;
+    secrets: Record<string, { isSet: boolean; length?: number; e2eEncrypted?: boolean }>;
     cryptoConfigured: boolean;
   } | null>(null);
   const [plainDrafts, setPlainDrafts] = useState<Record<string, string | boolean>>({});
   const [secretDrafts, setSecretDrafts] = useState<Record<string, string | null>>({});
+  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({});
+  const [revealingSecrets, setRevealingSecrets] = useState<Record<string, boolean>>({});
+  const [copiedSecret, setCopiedSecret] = useState<string | null>(null);
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSaved, setConfigSaved] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -214,13 +218,24 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
     setConfigSaved(false);
     setConfigError(null);
 
+    if (!profile?.id) {
+      setConfigError("Account profile is still loading");
+      setSavingConfig(false);
+      return;
+    }
+
     const plain: Record<string, string | number | boolean | null> = {};
     const secrets: Record<string, string | null> = {};
 
     for (const field of mod.config_schema || []) {
       if (field.type === "secret") {
         if (secretDrafts[field.key] !== undefined) {
-          secrets[field.key] = secretDrafts[field.key];
+          const draft = secretDrafts[field.key];
+          secrets[field.key] = draft === null
+            ? null
+            : draft.trim()
+              ? await encryptClientSecret(profile.id, draft.trim())
+              : "";
         }
         continue;
       }
@@ -253,6 +268,52 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
     } finally {
       setSavingConfig(false);
     }
+  };
+
+  const revealSecret = async (key: string) => {
+    if (!profile?.id) {
+      setConfigError("Account profile is still loading");
+      return;
+    }
+
+    setConfigError(null);
+    setRevealingSecrets((state) => ({ ...state, [key]: true }));
+    try {
+      const res = await fetch("/api/settings?includeSecretValues=1", {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load secret");
+
+      const stored = data.secretValues?.[key];
+      if (typeof stored !== "string" || !stored) throw new Error("No saved secret found");
+
+      const value = await decryptClientSecret(profile.id, stored);
+      setRevealedSecrets((state) => ({ ...state, [key]: value }));
+
+      if (!isE2ESecret(stored)) {
+        const encrypted = await encryptClientSecret(profile.id, value);
+        const upgradeRes = await fetch("/api/settings", {
+          method: "PUT",
+          headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ secrets: { [key]: encrypted } }),
+        });
+        if (upgradeRes.ok) setSettings(await upgradeRes.json());
+      }
+    } catch (error) {
+      setConfigError((error as Error).message);
+    } finally {
+      setRevealingSecrets((state) => ({ ...state, [key]: false }));
+    }
+  };
+
+  const copyRevealedSecret = async (key: string) => {
+    const value = revealedSecrets[key];
+    if (!value) return;
+    await navigator.clipboard?.writeText(value);
+    setCopiedSecret(key);
+    setTimeout(() => setCopiedSecret(null), 2000);
   };
 
   const handleReviewSubmit = async (e: React.FormEvent) => {
@@ -450,7 +511,7 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
                                     {field.label}
                                     <span className="ml-2 font-mono text-[10px] text-tc-text-dim">{field.key}</span>
                                   </label>
-                                  <div className="flex gap-2">
+                                  <div className="flex flex-col gap-2 sm:flex-row">
                                     <input
                                       type="password"
                                       value={secretDrafts[field.key] || ""}
@@ -459,15 +520,47 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
                                       className="flex-1 rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text placeholder-tc-text-dim focus:border-tc-green/50 focus:outline-none"
                                     />
                                     {savedSecret?.isSet && (
-                                      <button
-                                        type="button"
-                                        onClick={() => setSecretDrafts((drafts) => ({ ...drafts, [field.key]: null }))}
-                                        className="rounded-lg border border-tc-border px-3 py-2 text-xs text-tc-text-dim hover:border-red-400/40 hover:text-red-400"
-                                      >
-                                        Clear
-                                      </button>
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => revealSecret(field.key)}
+                                          disabled={!!revealingSecrets[field.key]}
+                                          className="rounded-lg border border-tc-border px-3 py-2 text-xs text-tc-text-dim hover:border-tc-green/40 hover:text-tc-green disabled:opacity-50"
+                                        >
+                                          {revealingSecrets[field.key] ? "Decrypting..." : "Reveal"}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setSecretDrafts((drafts) => ({ ...drafts, [field.key]: null }))}
+                                          className="rounded-lg border border-tc-border px-3 py-2 text-xs text-tc-text-dim hover:border-red-400/40 hover:text-red-400"
+                                        >
+                                          Clear
+                                        </button>
+                                      </>
                                     )}
                                   </div>
+                                  {revealedSecrets[field.key] && (
+                                    <div className="mt-2 flex flex-col gap-2 rounded-lg border border-tc-border bg-black/40 p-2 sm:flex-row">
+                                      <input
+                                        readOnly
+                                        type="text"
+                                        value={revealedSecrets[field.key]}
+                                        className="flex-1 rounded border border-tc-border bg-tc-darker px-2 py-1.5 font-mono text-xs text-tc-text focus:outline-none"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => copyRevealedSecret(field.key)}
+                                        className="rounded border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim hover:border-tc-green/40 hover:text-tc-green"
+                                      >
+                                        {copiedSecret === field.key ? "Copied" : "Copy"}
+                                      </button>
+                                    </div>
+                                  )}
+                                  {savedSecret?.isSet && (
+                                    <p className="mt-1 text-[11px] text-tc-text-dim">
+                                      {savedSecret.e2eEncrypted ? "E2E encrypted in this browser." : "Legacy secret; reveal once to upgrade it to E2E encryption."}
+                                    </p>
+                                  )}
                                   {field.help && <p className="mt-1 text-[11px] text-tc-text-dim">{field.help}</p>}
                                 </div>
                               );
