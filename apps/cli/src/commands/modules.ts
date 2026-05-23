@@ -207,7 +207,16 @@ export async function modulesInstallCommand(source: string): Promise<void> {
     return;
   }
 
-  if (install.git_url) {
+  if (install.npm_package) {
+    const npmSpinner = ora({ text: `Installing ${install.npm_package}...`, color: 'green' }).start();
+    try {
+      execSync(`npm install -g ${install.npm_package}`, { stdio: 'pipe' });
+      npmSpinner.succeed(`Package ${install.npm_package} installed globally`);
+    } catch (err) {
+      npmSpinner.fail(`npm install failed: ${(err as Error).message}`);
+      return;
+    }
+  } else if (install.git_url) {
     const cloneSpinner = ora({ text: 'Cloning module repository...', color: 'green' }).start();
     try {
       execSync(`git clone --depth 1 ${install.git_url} ${dest}`, { stdio: 'pipe' });
@@ -222,15 +231,6 @@ export async function modulesInstallCommand(source: string): Promise<void> {
       return;
     }
     cloneSpinner.succeed(`Installed ${mod.name} v${mod.version} → ${dest}`);
-  } else if (install.npm_package) {
-    const npmSpinner = ora({ text: `Installing ${install.npm_package}...`, color: 'green' }).start();
-    try {
-      execSync(`npm install -g ${install.npm_package}`, { stdio: 'pipe' });
-      npmSpinner.succeed(`Package ${install.npm_package} installed globally`);
-    } catch (err) {
-      npmSpinner.fail(`npm install failed: ${(err as Error).message}`);
-      return;
-    }
   } else if (install.tarball_url) {
     const dlSpinner = ora({ text: 'Downloading module tarball...', color: 'green' }).start();
     try {

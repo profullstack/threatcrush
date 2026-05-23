@@ -3,6 +3,9 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import ScrollReveal from "@/components/ScrollReveal";
+import { authHeaders } from "@/lib/auth-client";
+import { useAuth } from "@/lib/auth-context";
+import type { PluginConfigField } from "@profullstack/pluginstore";
 
 interface Module {
   id: string;
@@ -31,6 +34,8 @@ interface Module {
   author_email: string;
   os_support: string[];
   capabilities: string[];
+  config_schema: PluginConfigField[];
+  config_notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -105,12 +110,24 @@ function SimpleMarkdown({ content }: { content: string }) {
 
 export default function ModuleDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
+  const { signedIn } = useAuth();
   const [mod, setMod] = useState<Module | null>(null);
   const [versions, setVersions] = useState<Version[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [installed, setInstalled] = useState(false);
+  const [settings, setSettings] = useState<{
+    plain: Record<string, string | number | boolean | null>;
+    secrets: Record<string, { isSet: boolean; length?: number }>;
+    cryptoConfigured: boolean;
+  } | null>(null);
+  const [plainDrafts, setPlainDrafts] = useState<Record<string, string | boolean>>({});
+  const [secretDrafts, setSecretDrafts] = useState<Record<string, string | null>>({});
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configSaved, setConfigSaved] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   // Review form
   const [reviewEmail, setReviewEmail] = useState("");
@@ -136,24 +153,106 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
     load();
   }, [slug]);
 
+  useEffect(() => {
+    if (!signedIn) return;
+    async function loadUserModuleState() {
+      try {
+        const [installedRes, settingsRes] = await Promise.all([
+          fetch("/api/modules/installed", { headers: authHeaders(), cache: "no-store" }),
+          fetch("/api/settings", { headers: authHeaders(), cache: "no-store" }),
+        ]);
+
+        if (installedRes.ok) {
+          const data = await installedRes.json();
+          setInstalled((data.installed || []).some((row: { module_slug: string; status: string }) =>
+            row.module_slug === slug && row.status !== "removed"
+          ));
+        }
+
+        if (settingsRes.ok) {
+          setSettings(await settingsRes.json());
+        }
+      } catch {
+        // keep the public module page usable even if account state fails
+      }
+    }
+    loadUserModuleState();
+  }, [signedIn, slug]);
+
   const handleInstall = async () => {
     if (!mod) return;
     setInstalling(true);
     try {
       await fetch(`/api/modules/${mod.slug}/install`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ platform: "web" }),
       });
+      setInstalled(signedIn);
     } catch { /* ignore */ }
     setInstalling(false);
   };
 
   const handleCopy = () => {
     if (!mod) return;
-    navigator.clipboard?.writeText(`threatcrush install ${mod.name}`);
+    navigator.clipboard?.writeText(`threatcrush modules install ${mod.slug}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const fieldValue = (field: PluginConfigField) => {
+    const existing = settings?.plain?.[field.key];
+    if (plainDrafts[field.key] !== undefined) return plainDrafts[field.key];
+    if (existing !== undefined && existing !== null) return existing;
+    if (field.default !== undefined && field.default !== null) return field.default;
+    return field.type === "boolean" ? false : "";
+  };
+
+  const saveConfig = async () => {
+    if (!mod) return;
+    setSavingConfig(true);
+    setConfigSaved(false);
+    setConfigError(null);
+
+    const plain: Record<string, string | number | boolean | null> = {};
+    const secrets: Record<string, string | null> = {};
+
+    for (const field of mod.config_schema || []) {
+      if (field.type === "secret") {
+        if (secretDrafts[field.key] !== undefined) {
+          secrets[field.key] = secretDrafts[field.key];
+        }
+        continue;
+      }
+
+      const value = fieldValue(field);
+      if (field.type === "number") {
+        const n = Number(value);
+        plain[field.key] = Number.isFinite(n) ? n : null;
+      } else if (field.type === "boolean") {
+        plain[field.key] = value === true || value === "true";
+      } else {
+        const text = String(value || "").trim();
+        plain[field.key] = text || null;
+      }
+    }
+
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ plain, secrets }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save settings");
+      setSettings(data);
+      setSecretDrafts({});
+      setConfigSaved(true);
+    } catch (error) {
+      setConfigError((error as Error).message);
+    } finally {
+      setSavingConfig(false);
+    }
   };
 
   const handleReviewSubmit = async (e: React.FormEvent) => {
@@ -271,7 +370,7 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
                     onClick={handleCopy}
                   >
                     <span className="text-tc-text-dim">$ </span>
-                    <span className="text-tc-green">threatcrush install {mod.name}</span>
+                    <span className="text-tc-green">threatcrush modules install {mod.slug}</span>
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs">
                       {copied ? "✓ copied" : "📋"}
                     </span>
@@ -282,7 +381,7 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
                     disabled={installing}
                     className="rounded-lg bg-tc-green px-6 py-3 text-sm font-bold text-black transition-all hover:bg-tc-green-dim disabled:opacity-50"
                   >
-                    {installing ? "Installing..." : "Install"}
+                    {installing ? "Installing..." : installed ? "Installed" : "Install"}
                   </button>
                 </div>
 
@@ -318,6 +417,114 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Main: README / Description */}
             <div className="lg:col-span-2 space-y-8">
+              {mod.config_schema && mod.config_schema.length > 0 && (
+                <ScrollReveal delay={75}>
+                  <div className="rounded-xl border border-tc-border bg-tc-card p-6">
+                    <h2 className="text-lg font-bold text-white mb-4">Configuration</h2>
+                    {!signedIn ? (
+                      <p className="text-sm text-tc-text-dim">
+                        <Link href="/auth/login" className="text-tc-green hover:underline">Log in</Link>{" "}
+                        to install and configure this module.
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        {!installed && (
+                          <button
+                            onClick={handleInstall}
+                            disabled={installing}
+                            className="rounded-lg bg-tc-green px-4 py-2 text-xs font-bold text-black hover:bg-tc-green-dim disabled:opacity-50"
+                          >
+                            {installing ? "Installing..." : "Install for my account"}
+                          </button>
+                        )}
+                        {mod.config_notes && (
+                          <p className="text-xs text-tc-text-dim leading-relaxed">{mod.config_notes}</p>
+                        )}
+                        <div className="space-y-3">
+                          {mod.config_schema.map((field) => {
+                            const savedSecret = settings?.secrets?.[field.key];
+                            if (field.type === "secret") {
+                              return (
+                                <div key={field.key}>
+                                  <label className="block text-xs font-semibold text-tc-text mb-1">
+                                    {field.label}
+                                    <span className="ml-2 font-mono text-[10px] text-tc-text-dim">{field.key}</span>
+                                  </label>
+                                  <div className="flex gap-2">
+                                    <input
+                                      type="password"
+                                      value={secretDrafts[field.key] || ""}
+                                      placeholder={savedSecret?.isSet ? "Saved secret set" : field.placeholder || ""}
+                                      onChange={(e) => setSecretDrafts((drafts) => ({ ...drafts, [field.key]: e.target.value }))}
+                                      className="flex-1 rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text placeholder-tc-text-dim focus:border-tc-green/50 focus:outline-none"
+                                    />
+                                    {savedSecret?.isSet && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setSecretDrafts((drafts) => ({ ...drafts, [field.key]: null }))}
+                                        className="rounded-lg border border-tc-border px-3 py-2 text-xs text-tc-text-dim hover:border-red-400/40 hover:text-red-400"
+                                      >
+                                        Clear
+                                      </button>
+                                    )}
+                                  </div>
+                                  {field.help && <p className="mt-1 text-[11px] text-tc-text-dim">{field.help}</p>}
+                                </div>
+                              );
+                            }
+
+                            if (field.type === "boolean") {
+                              return (
+                                <label key={field.key} className="flex items-center justify-between gap-3 rounded-lg border border-tc-border bg-tc-darker px-3 py-2">
+                                  <span className="text-sm text-tc-text">
+                                    {field.label}
+                                    <span className="ml-2 font-mono text-[10px] text-tc-text-dim">{field.key}</span>
+                                  </span>
+                                  <input
+                                    type="checkbox"
+                                    checked={!!fieldValue(field)}
+                                    onChange={(e) => setPlainDrafts((drafts) => ({ ...drafts, [field.key]: e.target.checked }))}
+                                    className="h-4 w-4 accent-tc-green"
+                                  />
+                                </label>
+                              );
+                            }
+
+                            return (
+                              <div key={field.key}>
+                                <label className="block text-xs font-semibold text-tc-text mb-1">
+                                  {field.label}
+                                  <span className="ml-2 font-mono text-[10px] text-tc-text-dim">{field.key}</span>
+                                </label>
+                                <input
+                                  type={field.type === "number" ? "number" : field.type === "url" ? "url" : "text"}
+                                  value={String(fieldValue(field))}
+                                  placeholder={field.placeholder || ""}
+                                  onChange={(e) => setPlainDrafts((drafts) => ({ ...drafts, [field.key]: e.target.value }))}
+                                  className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text placeholder-tc-text-dim focus:border-tc-green/50 focus:outline-none"
+                                />
+                                {field.help && <p className="mt-1 text-[11px] text-tc-text-dim">{field.help}</p>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={saveConfig}
+                            disabled={savingConfig || !installed}
+                            className="rounded-lg bg-tc-green px-4 py-2 text-xs font-bold text-black hover:bg-tc-green-dim disabled:opacity-50"
+                          >
+                            {savingConfig ? "Saving..." : "Save configuration"}
+                          </button>
+                          {configSaved && <span className="text-xs text-tc-green">Saved</span>}
+                          {configError && <span className="text-xs text-red-400">{configError}</span>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </ScrollReveal>
+              )}
+
               {/* Long Description / README */}
               {mod.long_description && (
                 <ScrollReveal delay={100}>

@@ -309,6 +309,9 @@ The CLI picks `install.npm_package` first if present, then `git_url`, then
 
 Same response shape as `GET /api/modules/{slug}/install`, **plus** it
 increments `modules.downloads` and writes a row to `module_installs`.
+When the request includes a valid Bearer token, the module is also upserted
+into the caller's `user_installed_modules` row so the web store can expose
+per-user configuration.
 
 **Request body** *(all optional)*
 
@@ -326,6 +329,7 @@ increments `modules.downloads` and writes a row to `module_installs`.
 {
   "success": true,
   "downloads": 143,
+  "installed": true,
   "module": { /* same shape as GET /install */ }
 }
 ```
@@ -333,6 +337,45 @@ increments `modules.downloads` and writes a row to `module_installs`.
 > **When to use which.** CLI / daemon: call **POST** so we get accurate
 > install counts. UIs that just want to render the install snippet: call
 > **GET**.
+
+### `GET /api/modules/installed` — installed modules
+
+**Auth:** Bearer token required.
+
+Returns modules installed for the signed-in user. These rows are user-owned
+state; they are separate from public module catalog metadata.
+
+```json
+{
+  "installed": [
+    {
+      "module_id": "uuid",
+      "module_slug": "deepsec",
+      "version": "2.0.10",
+      "status": "active",
+      "installed_at": "2026-05-23T00:00:00Z",
+      "updated_at": "2026-05-23T00:00:00Z"
+    }
+  ]
+}
+```
+
+### `PUT /api/settings` — user/global module settings
+
+**Auth:** Bearer token required.
+
+Stores user-owned configuration for installed modules. Plain values are kept
+in JSONB. Secrets are encrypted with `SETTINGS_ENCRYPTION_KEY`; never put a
+real API key in a public module row.
+
+```json
+{
+  "plain": { "DEEPSEC_AGENT": "codex" },
+  "secrets": { "AI_GATEWAY_API_KEY": "vck_..." }
+}
+```
+
+Set a secret value to `null` to remove it.
 
 ---
 
@@ -477,6 +520,18 @@ type Module = {
   capabilities: string[];         // default []
   npm_package: string | null;
   tarball_url: string | null;
+  config_schema: Array<{
+    key: string;
+    label: string;
+    type: 'string' | 'number' | 'boolean' | 'secret' | 'url';
+    scope?: 'global' | 'module';
+    required?: boolean;
+    default?: string | number | boolean | null;
+    placeholder?: string;
+    help?: string;
+    multiline?: boolean;
+  }>;
+  config_notes: string | null;
   downloads: number;              // default 0
   rating_avg: number;             // default 0  (numeric(3,2))
   rating_count: number;           // default 0

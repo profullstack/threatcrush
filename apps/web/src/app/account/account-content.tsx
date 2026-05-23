@@ -35,6 +35,11 @@ export default function AccountContent() {
   const [referralWallets, setReferralWallets] = useState<ReferralWallet[]>([]);
   const [loadingWallets, setLoadingWallets] = useState(false);
   const [showAllWallets, setShowAllWallets] = useState(false);
+  const [aiGatewayKeyDraft, setAiGatewayKeyDraft] = useState("");
+  const [aiGatewayKeySet, setAiGatewayKeySet] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const fetchReferralWallets = useCallback(async () => {
     const token = localStorage.getItem("tc_access_token");
@@ -58,6 +63,21 @@ export default function AccountContent() {
   useEffect(() => {
     fetchReferralWallets();
   }, [fetchReferralWallets]);
+
+  useEffect(() => {
+    if (!signedIn) return;
+    async function loadSettings() {
+      try {
+        const res = await fetch("/api/settings", { headers: authHeaders(), cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        setAiGatewayKeySet(!!data.secrets?.AI_GATEWAY_API_KEY?.isSet);
+      } catch {
+        // ignore
+      }
+    }
+    loadSettings();
+  }, [signedIn]);
 
   useEffect(() => {
     if (profile) {
@@ -174,6 +194,28 @@ export default function AccountContent() {
     }
   };
 
+  const saveAiGatewayKey = async (value: string | null) => {
+    setSettingsSaving(true);
+    setSettingsStatus(null);
+    setSettingsError(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ secrets: { AI_GATEWAY_API_KEY: value } }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save settings");
+      setAiGatewayKeySet(!!data.secrets?.AI_GATEWAY_API_KEY?.isSet);
+      setAiGatewayKeyDraft("");
+      setSettingsStatus(value === null ? "Cleared" : "Saved");
+    } catch (error) {
+      setSettingsError((error as Error).message);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-tc-darker">
       {/* Nav */}
@@ -274,6 +316,47 @@ export default function AccountContent() {
                 )}
               </p>
             )}
+          </div>
+
+          {/* Global Module Settings */}
+          <div className="bg-tc-card border border-tc-border rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-4">Global Module Settings</h2>
+            <div>
+              <label className="block text-sm text-tc-text-dim mb-1">
+                Vercel AI Gateway API key
+                <span className="ml-2 font-mono text-[10px] text-tc-text-dim">AI_GATEWAY_API_KEY</span>
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="password"
+                  value={aiGatewayKeyDraft}
+                  placeholder={aiGatewayKeySet ? "Saved secret set" : "vck_..."}
+                  onChange={(e) => setAiGatewayKeyDraft(e.target.value)}
+                  className="flex-1 bg-tc-darker border border-tc-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-tc-green/50"
+                />
+                <button
+                  onClick={() => saveAiGatewayKey(aiGatewayKeyDraft)}
+                  disabled={settingsSaving || !aiGatewayKeyDraft.trim()}
+                  className="bg-tc-green text-black px-4 py-2 rounded-lg text-sm font-semibold hover:bg-tc-green-dim disabled:opacity-50"
+                >
+                  {settingsSaving ? "Saving..." : "Save"}
+                </button>
+                {aiGatewayKeySet && (
+                  <button
+                    onClick={() => saveAiGatewayKey(null)}
+                    disabled={settingsSaving}
+                    className="border border-tc-border text-tc-text-dim px-4 py-2 rounded-lg text-sm hover:border-red-400/40 hover:text-red-400 disabled:opacity-50"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-tc-text-dim mt-2">
+                Used by AI-powered modules such as DeepSec. The key is stored in your account settings, not in the public plugin store.
+              </p>
+              {settingsStatus && <p className="text-xs text-tc-green mt-2">{settingsStatus}</p>}
+              {settingsError && <p className="text-xs text-red-400 mt-2">{settingsError}</p>}
+            </div>
           </div>
 
           {/* Referral Section — hidden for now */}

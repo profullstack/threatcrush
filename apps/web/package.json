@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
+    "@profullstack/pluginstore": "workspace:*",
     "@profullstack/autoblog": "github:profullstack/autoblog#f76b7d3",
     "@supabase/supabase-js": "^2.101.1",
     "isomorphic-dompurify": "^3.12.0",
