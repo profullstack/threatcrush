@@ -1,46 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getAuthenticatedRequestUser } from "@/lib/api-auth";
-import { normalizeConfigSchema } from "@profullstack/pluginstore";
+import { createPluginInstallPayload } from "@profullstack/pluginstore";
 
 type RouteContext = { params: Promise<{ slug: string }> };
 
 const MODULE_INSTALL_COLUMNS =
   "id, name, slug, version, downloads, git_url, npm_package, tarball_url, min_threatcrush_version, os_support, license, config_schema, config_notes";
-
-function installPayload(mod: {
-  id?: string;
-  name: string;
-  slug: string;
-  version: string;
-  downloads?: number | null;
-  git_url?: string | null;
-  npm_package?: string | null;
-  tarball_url?: string | null;
-  min_threatcrush_version?: string | null;
-  os_support?: string[] | null;
-  license?: string | null;
-  config_schema?: unknown;
-  config_notes?: string | null;
-}) {
-  return {
-    name: mod.name,
-    slug: mod.slug,
-    version: mod.version,
-    downloads: mod.downloads || 0,
-    license: mod.license,
-    min_threatcrush_version: mod.min_threatcrush_version,
-    min_version: mod.min_threatcrush_version,
-    os_support: mod.os_support,
-    config_schema: normalizeConfigSchema(mod.config_schema),
-    config_notes: mod.config_notes || null,
-    install: {
-      npm_package: mod.npm_package || null,
-      git_url: mod.git_url || null,
-      tarball_url: mod.tarball_url || null,
-    },
-  };
-}
 
 /**
  * GET /api/modules/[slug]/install
@@ -65,7 +31,7 @@ export async function GET(
   }
 
   return NextResponse.json({
-    module: installPayload(mod),
+    module: createPluginInstallPayload(mod),
   });
 }
 
@@ -133,6 +99,6 @@ export async function POST(
     success: true,
     downloads: newCount,
     installed: !!user,
-    module: installPayload({ ...mod, downloads: newCount }),
+    module: createPluginInstallPayload({ ...mod, downloads: newCount }),
   });
 }
