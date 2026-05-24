@@ -341,8 +341,8 @@ importers:
         specifier: github:profullstack/autoblog#f76b7d3
         version: https://codeload.github.com/profullstack/autoblog/tar.gz/f76b7d3f1b1e6f6c598da12ab640960e83a1e01c
       '@profullstack/pluginstore':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.1.1
+        version: 0.1.1
       '@supabase/supabase-js':
         specifier: ^2.101.1
         version: 2.101.1
@@ -2499,8 +2499,8 @@ packages:
     version: 0.3.0
     engines: {node: '>=18'}
 
-  '@profullstack/pluginstore@0.1.0':
-    resolution: {integrity: sha512-7AoaATTlZ2q+4TLRESvfn78r59O28rvOQ+B1mRdErriM85ttW8wgjWa5q1JMB9YVwAt2luB0si/JVsheFm2esQ==}
+  '@profullstack/pluginstore@0.1.1':
+    resolution: {integrity: sha512-7mIyjXpYYxvwebsy7sYg17uROZSG9DJFrmnMN98rTiXODqbhPFdkLwYLIx0HYgRaLBA6PKXkFRzhwQGo16xpUg==}
 
   '@radix-ui/react-compose-refs@1.0.0':
     resolution: {integrity: sha512-0KaSv6sx787/hK3eF53iOkiSLwAGlFMx5lotrqD2pTjB18KbybKoEIgkNZTKC60YECDQTKGTRcDBILwZVqVKvA==}
@@ -10653,7 +10653,7 @@ snapshots:
 
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/f76b7d3f1b1e6f6c598da12ab640960e83a1e01c': {}
 
-  '@profullstack/pluginstore@0.1.0': {}
+  '@profullstack/pluginstore@0.1.1': {}
 
   '@radix-ui/react-compose-refs@1.0.0(react@18.3.1)':
     dependencies:
