@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     allowedNiches: (integration as any).allowed_niches ?? [],
     heuristics: {
       minWordCount: (integration as any).min_word_count ?? 500,
-      maxLinkDensity: (integration as any).max_link_density ?? 1.0,
+      maxLinkDensity: Number.POSITIVE_INFINITY,
       bannedTerms: (integration as any).banned_terms ?? [],
     },
     minQualityScore: (integration as any).min_quality_score ?? undefined,
