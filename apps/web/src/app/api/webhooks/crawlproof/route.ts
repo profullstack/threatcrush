@@ -29,6 +29,13 @@ function tokensMatch(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb);
 }
 
+function htmlForQualityGate(html: string): string {
+  return html.replace(
+    /<a\b[^>]*\bhref\s*=\s*(?:"#[^"]*"|'#[^']*'|#[^\s>]+)[^>]*>([\s\S]*?)<\/a>/gi,
+    "$1",
+  );
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text();
 
@@ -70,7 +77,7 @@ export async function POST(req: NextRequest) {
 
   // Network gate: niche allowlist + heuristic + (optional) LLM
   // quality. Per-integration config; defaults err generous.
-  const gate = await gatePost(parsed.post, {
+  const gate = await gatePost({ ...parsed.post, html: htmlForQualityGate(parsed.post.html) }, {
     allowedNiches: (integration as any).allowed_niches ?? [],
     heuristics: {
       minWordCount: (integration as any).min_word_count ?? 500,
