@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { buildSitemapBlogEntries } from "@profullstack/autoblog/feeds";
 import { listPosts, SITE_URL } from "@/lib/blog";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +24,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: path === "" ? 1 : 0.7,
   }));
 
-  const blogRoutes: MetadataRoute.Sitemap = posts.map((post) => ({
-    url: `${SITE_URL}/blog/${post.slug}`,
-    lastModified: new Date(post.published_at),
+  const blogRoutes = buildSitemapBlogEntries({
+    posts: posts.map((p) => ({
+      slug: p.slug,
+      title: p.title,
+      publishedAt: p.published_at,
+    })),
+    baseUrl: SITE_URL,
     changeFrequency: "weekly",
-    priority: 0.6,
-  }));
+  });
 
   return [...staticRoutes, ...blogRoutes];
 }
