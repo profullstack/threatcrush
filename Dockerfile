@@ -1,4 +1,4 @@
-FROM node:22-slim
+FROM node:22-slim AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
@@ -24,20 +24,22 @@ COPY . .
 # Build the web app only for the container image.
 RUN pnpm --filter @profullstack/threatcrush-web build
 
-# Next.js standalone output doesn't include static assets — copy them in.
-RUN cp -r apps/web/public apps/web/.next/standalone/apps/web/public
-RUN cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static
+FROM node:22-slim AS runner
 
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
+ENV NODE_OPTIONS=--max-old-space-size=384
 
-# Run as a non-root user. node:22-slim ships a `node` user (uid 1000)
-# already; reuse it rather than creating one. Chown the app dir so the
-# runtime can read its own files.
-RUN chown -R node:node /app
+WORKDIR /app
+
+COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=node:node /app/apps/web/public ./apps/web/public
+COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+
 USER node
 
 EXPOSE 3000
 
-CMD ["node", "apps/web/.next/standalone/apps/web/server.js"]
+CMD ["node", "apps/web/server.js"]
