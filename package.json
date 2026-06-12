@@ -4,6 +4,8 @@
   "version": "0.2.1",
   "private": true,
   "scripts": {
+    "lint:oxlint": "oxlint",
+    "lint:oxlint:fix": "oxlint --fix",
     "dev": "pnpm --filter @profullstack/threatcrush-web dev",
     "build": "pnpm --filter @profullstack/threatcrush-web build",
     "start": "pnpm --filter @profullstack/threatcrush-web start",
@@ -26,6 +28,7 @@
     "submit-packages": "npx tsx scripts/submit-packages.ts"
   },
   "devDependencies": {
+    "oxlint": "^1.69.0",
     "tsup": "^8.5.1",
     "typescript": "^5"
   },
