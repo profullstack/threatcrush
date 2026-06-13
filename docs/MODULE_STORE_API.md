@@ -562,9 +562,15 @@ type ModuleVersion = {
 };
 ```
 
-There is no public `POST /api/modules/{slug}/versions` yet — bumping the
-top-level `version` via `PATCH` is how authors signal a new release today.
-A dedicated versions endpoint is on the roadmap.
+Published module versions have a dedicated endpoint:
+
+- `GET /api/modules/{slug}/versions` lists releases newest first.
+- `POST /api/modules/{slug}/versions` publishes a release for the
+  authenticated module author.
+
+The publish body requires a semantic `version` and accepts `changelog`,
+`package_url`, `git_tag`, and `min_threatcrush_version`. Publishing a release
+also updates the module's top-level version used by install clients.
 
 ### Review *(row in `module_reviews`)*
 
@@ -667,14 +673,17 @@ curl -sS https://threatcrush.com/api/modules \
   -d "$(jq '. + {author_email:"you@example.com",pricing_type:"free"}' meta.json)"
 ```
 
-### Update the version after a release
+### Publish a module version
 
 ```bash
-curl -sS -X PATCH https://threatcrush.com/api/modules/urlhaus-feed \
+curl -sS -X POST https://threatcrush.com/api/modules/urlhaus-feed/versions \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
-    "author_email": "you@example.com",
     "version": "0.2.0",
+    "changelog": "Add incremental feed polling",
+    "git_tag": "v0.2.0",
+    "package_url": "https://github.com/you/urlhaus-feed/releases/download/v0.2.0/module.tgz",
     "min_threatcrush_version": ">=0.2.0"
   }'
 ```
@@ -723,13 +732,10 @@ into your client.
    accept `author_email` as a soft proof of ownership. Future versions will
    require the same `Authorization: Bearer …` header as `POST /api/modules`,
    and `author_email` will become advisory-only.
-2. **A `POST /api/modules/{slug}/versions` endpoint** will land for
-   first-class version management (changelog, tarball uploads, signed
-   releases). Today, version bumps go through `PATCH /api/modules/{slug}`.
-3. **Module signing.** Verified publishers will be able to sign release
+2. **Module signing.** Verified publishers will be able to sign release
    tarballs; the install API will return `signature_url` + `pubkey` so the
    CLI can verify before running.
-4. **`pricing_type = "paid"` will require Stripe / CoinPay metadata.**
+3. **`pricing_type = "paid"` will require Stripe / CoinPay metadata.**
    Currently the price is stored but no checkout flow is wired into the
    install path. This will change once the paid-module experience ships.
 
