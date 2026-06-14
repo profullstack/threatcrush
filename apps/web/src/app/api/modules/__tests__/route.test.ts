@@ -103,9 +103,35 @@ describe("GET /api/modules", () => {
 
   it("supports pagination", async () => {
     const req = makeRequest("http://localhost/api/modules?page=2&limit=10");
-    await GET(req);
+    const res = await GET(req);
+    const body = await res.json();
 
     expect(mockRange).toHaveBeenCalledWith(10, 19);
+    expect(body).toMatchObject({ page: 2, limit: 10 });
+  });
+
+  it.each([
+    "page=nope&limit=bad",
+    "page=0&limit=0",
+    "page=-1&limit=-1",
+    "page=1.5&limit=2.5",
+    "page=Infinity&limit=NaN",
+  ])("uses defaults for invalid pagination: %s", async (query) => {
+    const req = makeRequest(`http://localhost/api/modules?${query}`);
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(mockRange).toHaveBeenCalledWith(0, 19);
+    expect(body).toMatchObject({ page: 1, limit: 20 });
+  });
+
+  it("caps the page size at 50", async () => {
+    const req = makeRequest("http://localhost/api/modules?page=2&limit=500");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(mockRange).toHaveBeenCalledWith(50, 99);
+    expect(body).toMatchObject({ page: 2, limit: 50 });
   });
 
   it("handles database errors", async () => {
