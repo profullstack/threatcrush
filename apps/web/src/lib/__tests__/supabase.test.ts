@@ -55,8 +55,15 @@ describe("getSupabaseClient", () => {
     expect(client).toBeDefined();
     expect(createClient).toHaveBeenCalledWith(
       expect.any(String),
-      expect.any(String)
+      expect.any(String),
+      expect.objectContaining({ auth: expect.any(Object) })
     );
+  });
+
+  it("memoizes the client across calls", () => {
+    const a = getSupabaseClient();
+    const b = getSupabaseClient();
+    expect(a).toBe(b);
   });
 });
 

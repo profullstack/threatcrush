@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -12,18 +12,35 @@ function requireEnv(name: string): string {
   return value;
 }
 
+// Memoized singletons. Creating a Supabase client per call leaks memory: each
+// client spins up a GoTrue auth client (with an autoRefreshToken setInterval)
+// and a realtime client. With hundreds of calls per request across the app,
+// these accumulate until the Node heap OOMs. Reuse one client per role instead.
+let adminClient: SupabaseClient | undefined;
+let anonClient: SupabaseClient | undefined;
+
 /** Browser/client-side Supabase client (anon key) */
-export function getSupabaseClient() {
-  const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
-  const anonKey = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  return createClient(url, anonKey);
+export function getSupabaseClient(): SupabaseClient {
+  if (!anonClient) {
+    const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
+    const anonKey = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+    anonClient = createClient(url, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return anonClient;
 }
 
 /** Server-side Supabase client (service role key — full access) */
-export function getSupabaseAdmin() {
-  const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
-  const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
-  return createClient(url, serviceKey);
+export function getSupabaseAdmin(): SupabaseClient {
+  if (!adminClient) {
+    const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
+    const serviceKey = requireEnv("SUPABASE_SERVICE_ROLE_KEY");
+    adminClient = createClient(url, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+  }
+  return adminClient;
 }
 
 /** Helper to slugify a module name */
