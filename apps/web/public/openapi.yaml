@@ -79,6 +79,67 @@ paths:
         '404':
           description: Not found
 
+  /api/modules/{slug}/versions:
+    get:
+      summary: List module release records
+      operationId: listModuleVersions
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Module versions newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items: { $ref: '#/components/schemas/ModuleVersion' }
+        '404':
+          description: Not found
+    post:
+      summary: Publish a module release record
+      operationId: publishModuleVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: string, example: 1.2.0 }
+                changelog: { type: string, nullable: true }
+                package_url: { type: string, nullable: true }
+                git_tag: { type: string, nullable: true }
+                min_threatcrush_version: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Version published
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { $ref: '#/components/schemas/ModuleVersion' }
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not the module author
+        '409':
+          description: Version already exists
+
   /blog/rss.xml:
     get:
       summary: Blog RSS feed
@@ -100,6 +161,10 @@ paths:
             application/xml: {}
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
   schemas:
     Module:
       type: object
@@ -126,3 +191,14 @@ components:
         featured: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ModuleVersion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        module_id: { type: string, format: uuid }
+        version: { type: string }
+        changelog: { type: string, nullable: true }
+        package_url: { type: string, nullable: true }
+        git_tag: { type: string, nullable: true }
+        min_threatcrush_version: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }

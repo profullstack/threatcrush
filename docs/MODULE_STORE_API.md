@@ -28,6 +28,8 @@ an issue.
 | `DELETE` | `/api/modules/{slug}?author_email=…`  | email     | Remove your module                            |
 | `GET`    | `/api/modules/{slug}/install`         | none      | Read-only install info (does **not** count)   |
 | `POST`   | `/api/modules/{slug}/install`         | none      | Install info **and** increment download count |
+| `GET`    | `/api/modules/{slug}/versions`        | none      | List published release records                |
+| `POST`   | `/api/modules/{slug}/versions`        | required  | Publish a new release as the module author    |
 | `GET`    | `/api/modules/{slug}/review`          | none      | List reviews (paginated, 20 / page)           |
 | `POST`   | `/api/modules/{slug}/review`          | email     | Create / update your review (one per email)   |
 | `POST`   | `/api/modules/fetch-meta`             | none      | Probe a URL or GitHub repo for prefilled meta |
@@ -562,9 +564,23 @@ type ModuleVersion = {
 };
 ```
 
-There is no public `POST /api/modules/{slug}/versions` yet — bumping the
-top-level `version` via `PATCH` is how authors signal a new release today.
-A dedicated versions endpoint is on the roadmap.
+Use `GET /api/modules/{slug}/versions` to list releases newest first. Authenticated
+module authors can publish a release with `POST /api/modules/{slug}/versions`:
+
+```json
+{
+  "version": "1.2.0",
+  "changelog": "Patch release",
+  "package_url": "https://example.com/threatcrush-module.tgz",
+  "git_tag": "v1.2.0",
+  "min_threatcrush_version": ">=0.2.0"
+}
+```
+
+`version` must be semantic version shaped. Duplicate `(module_id, version)`
+records return `409`. A successful publish also updates the module's top-level
+`version`, plus `min_threatcrush_version` when supplied, so install clients see
+the newest release metadata.
 
 ### Review *(row in `module_reviews`)*
 

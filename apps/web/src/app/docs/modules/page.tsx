@@ -54,6 +54,8 @@ const apiEndpoints: Array<{
   { method: "DELETE", path: "/api/modules/{slug}",                auth: "email",  purpose: "Remove your module" },
   { method: "GET",    path: "/api/modules/{slug}/install",        auth: "none",   purpose: "Read-only install info (does not count)" },
   { method: "POST",   path: "/api/modules/{slug}/install",        auth: "none",   purpose: "Install info + increment download count" },
+  { method: "GET",    path: "/api/modules/{slug}/versions",       auth: "none",   purpose: "List published release records" },
+  { method: "POST",   path: "/api/modules/{slug}/versions",       auth: "bearer", purpose: "Publish a new release as the module author" },
   { method: "GET",    path: "/api/modules/{slug}/review",         auth: "none",   purpose: "List reviews (paginated)" },
   { method: "POST",   path: "/api/modules/{slug}/review",         auth: "email",  purpose: "Create / update your review (one per email)" },
   { method: "POST",   path: "/api/modules/fetch-meta",            auth: "none",   purpose: "Probe URL or GitHub repo for prefilled meta" },
