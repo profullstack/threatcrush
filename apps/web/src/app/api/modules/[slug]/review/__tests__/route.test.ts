@@ -22,6 +22,7 @@ let allReviewsResult: { data: unknown } = {
 const mockUpdateRating = vi.fn().mockReturnValue({
   eq: vi.fn().mockResolvedValue({ error: null }),
 });
+const mockReviewRange = vi.fn().mockResolvedValue(reviewsResult);
 
 vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
@@ -44,7 +45,7 @@ vi.mock("@/lib/supabase", () => ({
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
               order: vi.fn().mockReturnValue({
-                range: vi.fn().mockResolvedValue(reviewsResult),
+                range: mockReviewRange,
                 limit: vi.fn().mockResolvedValue({ data: [TEST_REVIEW] }),
               }),
               eq: vi.fn().mockResolvedValue(allReviewsResult),
@@ -73,7 +74,7 @@ vi.mock("@/lib/supabase", () => ({
 
 import { GET, POST } from "@/app/api/modules/[slug]/review/route";
 
-function makeGetRequest(slug: string, page = 1) {
+function makeGetRequest(slug: string, page: string | number = 1) {
   const url = `http://localhost/api/modules/${slug}/review?page=${page}`;
   return new Request(url) as unknown as import("next/server").NextRequest;
 }
@@ -95,6 +96,7 @@ describe("GET /api/modules/:slug/review", () => {
     vi.clearAllMocks();
     moduleResult = { data: { id: "mod-001" }, error: null };
     reviewsResult = { data: [TEST_REVIEW], error: null, count: 1 };
+    mockReviewRange.mockResolvedValue(reviewsResult);
   });
 
   it("returns reviews for a module", async () => {
@@ -106,6 +108,16 @@ describe("GET /api/modules/:slug/review", () => {
     expect(body.reviews).toBeDefined();
     expect(body.total).toBeDefined();
     expect(body.page).toBe(1);
+  });
+
+  it("falls back to page 1 for non-numeric page values", async () => {
+    const req = makeGetRequest("test-scanner", "not-a-number");
+    const res = await GET(req, makeContext("test-scanner"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.page).toBe(1);
+    expect(mockReviewRange).toHaveBeenCalledWith(0, 19);
   });
 
   it("returns 404 for unknown module", async () => {
