@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin, slugify } from "@/lib/supabase";
 
+function parsePositiveInteger(value: string | null, fallback: number, max?: number) {
+  if (value === null) return fallback;
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) return fallback;
+
+  return max === undefined ? parsed : Math.min(max, parsed);
+}
+
 async function getAuthenticatedUser(request: NextRequest) {
   const sb = getSupabaseAdmin();
   const authHeader = request.headers.get("authorization");
@@ -26,8 +35,8 @@ export async function GET(request: NextRequest) {
   const search = searchParams.get("search") || "";
   const category = searchParams.get("category") || "";
   const sort = searchParams.get("sort") || "newest"; // newest | popular | top-rated
-  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-  const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)));
+  const page = parsePositiveInteger(searchParams.get("page"), 1);
+  const limit = parsePositiveInteger(searchParams.get("limit"), 20, 50);
   const offset = (page - 1) * limit;
 
   const sb = getSupabaseAdmin();

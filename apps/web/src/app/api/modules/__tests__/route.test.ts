@@ -108,6 +108,39 @@ describe("GET /api/modules", () => {
     expect(mockRange).toHaveBeenCalledWith(10, 19);
   });
 
+  it("falls back to defaults for invalid pagination values", async () => {
+    const req = makeRequest("http://localhost/api/modules?page=nope&limit=Infinity");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.page).toBe(1);
+    expect(body.limit).toBe(20);
+    expect(mockRange).toHaveBeenCalledWith(0, 19);
+  });
+
+  it("does not truncate fractional pagination values", async () => {
+    const req = makeRequest("http://localhost/api/modules?page=2.5&limit=10.9");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.page).toBe(1);
+    expect(body.limit).toBe(20);
+    expect(mockRange).toHaveBeenCalledWith(0, 19);
+  });
+
+  it("caps valid limit values at 50", async () => {
+    const req = makeRequest("http://localhost/api/modules?page=2&limit=99");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.page).toBe(2);
+    expect(body.limit).toBe(50);
+    expect(mockRange).toHaveBeenCalledWith(50, 99);
+  });
+
   it("handles database errors", async () => {
     resetChain({
       rangeResult: { data: null, error: { message: "DB error" }, count: null },
