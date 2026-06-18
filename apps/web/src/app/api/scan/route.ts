@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isIP } from "net";
+import dns from "dns/promises";
 
 const SECURITY_HEADERS = [
   {
@@ -35,6 +37,16 @@ function computeGrade(score: number): string {
   return "F";
 }
 
+async function isPrivateIP(hostname: string): Promise<boolean> {
+  try {
+    const ip = isIP(hostname) ? hostname : (await dns.lookup(hostname)).address;
+    return /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1|fd[0-9a-f]{2}:)/i.test(ip);
+  } catch {
+    // If DNS resolution fails, fail closed (treat as non-resolvable / potentially malicious)
+    return true; 
+  }
+}
+
 /**
  * POST /api/scan
  * Free security header scanner — no auth required.
@@ -61,6 +73,10 @@ export async function POST(request: NextRequest) {
 
   if (!["http:", "https:"].includes(parsedUrl.protocol)) {
     return NextResponse.json({ error: "URL must be http or https" }, { status: 400 });
+  }
+
+  if (await isPrivateIP(parsedUrl.hostname)) {
+    return NextResponse.json({ error: "Scanning internal addresses is not allowed" }, { status: 400 });
   }
 
   try {
