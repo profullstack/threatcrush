@@ -54,4 +54,3 @@ contract to build against.
 ## Open questions
 
 - Does publishing the SDK gate on marketplace readiness, or ship standalone first? (Recommend standalone; marketplace can follow.)
-</content>

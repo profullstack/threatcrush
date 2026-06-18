@@ -31,4 +31,3 @@ back to the daemon (PRD-02).
 - History renders with live status; unblock round-trips and removes the ban on
   the host; allowlist add prevents future blocks; manual block reaches the daemon.
 - PR with green CI.
-</content>

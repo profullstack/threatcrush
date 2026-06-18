@@ -30,4 +30,3 @@ hardening scanner's results (PRD-03) from `hardening_findings` (PRD-00).
   overview.
 - Acknowledge/resolve persists and survives a re-scan correctly.
 - PR with green CI.
-</content>

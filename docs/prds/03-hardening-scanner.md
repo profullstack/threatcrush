@@ -67,4 +67,3 @@ Each check: key, severity, status (pass/warn/fail), explanation, recommended fix
 ## Open questions
 
 - Scoring formula (weighted by severity?) — define before dashboard work.
-</content>

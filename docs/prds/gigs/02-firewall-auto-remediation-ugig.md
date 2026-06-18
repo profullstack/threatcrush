@@ -35,4 +35,3 @@ trail synced to `remediation_actions`.
 - Dry-run writes an audit entry but makes no firewall change.
 - Allowlisted IP is never blocked; expired bans auto-clear; manual unblock works.
 - Actions surface in the dashboard via `remediation_actions`. PR with green CI.
-</content>

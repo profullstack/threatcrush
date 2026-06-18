@@ -56,4 +56,3 @@ action in `docs/PRE_LAUNCH.md`).
 
 - Advisory data source for dependency CVEs (OSV, GitHub Advisory DB)?
 - Is `scan.deep` launch-blocking or a fast-follow?
-</content>

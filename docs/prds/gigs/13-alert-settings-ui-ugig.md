@@ -31,4 +31,3 @@ with the alerting engine (PRD-08).
 - Operator adds a Slack/Discord/PagerDuty destination and sends a test.
 - A rule routes only matching detections to the chosen destination.
 - Secrets stored encrypted. PR with green CI.
-</content>

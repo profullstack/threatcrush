@@ -36,4 +36,3 @@ community-editable instead of buried in code.
 - Suppression demonstrably collapses repeat events.
 - CI validates all rules + fixtures; rule schema published from `apps/sdk`.
 - PR with green CI and docs for authoring a rule.
-</content>

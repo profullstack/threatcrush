@@ -54,4 +54,3 @@ installability, offline-friendly cached views, and richer notifications.
 ## Open questions
 
 - `next-pwa`/Serwist vs hand-rolled SW with Next 16 App Router + `output: standalone`? Validate compatibility.
-</content>

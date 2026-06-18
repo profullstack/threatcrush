@@ -32,4 +32,3 @@ contract, publish it, and document authoring.
 - A starter module built only against the published SDK loads in `module-host`.
 - Web API and CLI both import the shared schemas from the SDK (no duplication).
 - PR with green CI and published docs.
-</content>

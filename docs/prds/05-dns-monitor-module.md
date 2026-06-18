@@ -48,4 +48,3 @@ exfiltration and DGA beaconing are real threats the product claims to catch.
 ## Open questions
 
 - Which DNS visibility is realistically available on a typical VPS without a local resolver? May need to require systemd-resolved/dnsmasq logging.
-</content>

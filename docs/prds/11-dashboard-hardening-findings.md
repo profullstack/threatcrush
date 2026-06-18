@@ -56,4 +56,3 @@ scanner ([[03-hardening-scanner]]) has nowhere to surface its results in the web
 ## Open questions
 
 - Should resolving in the UI suppress until next scan, or require the scanner to confirm? (Recommend scanner confirms.)
-</content>

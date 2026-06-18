@@ -33,4 +33,3 @@ CVEs) plus the usage-billed `scan.deep` AI tier.
 - Secrets + dependency-CVE detection verified against a seeded fixture repo.
 - `scan.deep` gated behind opt-in + billing; gracefully degrades without keys.
 - PR with green CI.
-</content>

@@ -31,4 +31,3 @@ real PWA on Next.js 16 (App Router, `output: standalone`).
 - Lighthouse "Installable" passes; app opens offline showing last-cached data.
 - Opt-in web push delivers a critical alert to an installed PWA.
 - No stale data leaks across orgs/users after switch/logout. PR with green CI.
-</content>

@@ -45,4 +45,3 @@ CLI commands, flags, screens, or component changes.
 ## Open questions
 
 - …
-</content>
