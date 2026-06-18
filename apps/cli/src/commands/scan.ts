@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, relative, extname } from 'node:path';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -63,6 +63,9 @@ export async function runScan(targetPath: string): Promise<RunResult> {
   const findings: ScanFinding[] = [];
   try {
     scanDirectory(targetPath, targetPath, findings, () => {});
+    // Dependency CVE scan (PRD 06)
+    const depFindings = await scanDependencies(targetPath);
+    findings.push(...depFindings);
   } catch (err) {
     return {
       type: 'scan',
@@ -275,5 +278,107 @@ function scanDirectory(
         }
       }
     }
+  }
+}
+
+// ─── Dependency CVE Scanner (PRD 06) ───
+
+interface OsvVulnerability {
+  id: string;
+  summary: string;
+  details?: string;
+  severity?: Array<{ type: string; score: string }>;
+  affected?: Array<{ package: { name: string; ecosystem: string }; ranges?: Array<{ events: Array<{ introduced?: string; fixed?: string }> }> }>;
+}
+
+async function scanDependencies(targetPath: string): Promise<ScanFinding[]> {
+  const findings: ScanFinding[] = [];
+
+  // Check for package-lock.json or package.json
+  const lockfiles = [
+    { file: 'package-lock.json', ecosystem: 'npm' },
+    { file: 'pnpm-lock.yaml', ecosystem: 'npm' },
+    { file: 'yarn.lock', ecosystem: 'npm' },
+    { file: 'requirements.txt', ecosystem: 'PyPI' },
+    { file: 'Pipfile.lock', ecosystem: 'PyPI' },
+  ];
+
+  for (const { file, ecosystem } of lockfiles) {
+    const lockPath = join(targetPath, file);
+    if (!existsSync(lockPath)) continue;
+
+    try {
+      const deps = parseDependencies(lockPath, file, ecosystem);
+      for (const dep of deps.slice(0, 50)) { // Limit to 50 deps to avoid API flooding
+        try {
+          const vulns = await queryOsv(dep.name, dep.version, ecosystem);
+          for (const vuln of vulns) {
+            const cvssScore = vuln.severity?.find(s => s.type === 'CVSS_V3')?.score;
+            const severity: ScanFinding['severity'] = cvssScore
+              ? (parseFloat(cvssScore) >= 9 ? 'critical' : parseFloat(cvssScore) >= 7 ? 'high' : parseFloat(cvssScore) >= 4 ? 'medium' : 'low')
+              : 'medium';
+
+            findings.push({
+              file: file,
+              line: 0,
+              type: 'Dependency CVE',
+              severity,
+              message: `${dep.name}@${dep.version}: ${vuln.summary || vuln.id}`,
+              snippet: `${vuln.id}${cvssScore ? ` (CVSS: ${cvssScore})` : ''}`,
+            });
+          }
+        } catch {
+          // Skip individual dep query failures
+        }
+      }
+    } catch {
+      // Skip lockfile parse failures
+    }
+  }
+
+  return findings;
+}
+
+function parseDependencies(lockPath: string, filename: string, ecosystem: string): Array<{ name: string; version: string }> {
+  const deps: Array<{ name: string; version: string }> = [];
+
+  if (filename === 'package-lock.json') {
+    try {
+      const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
+      const packages = lock.packages || lock.dependencies || {};
+      for (const [key, value] of Object.entries(packages)) {
+        const name = key.replace(/^node_modules\//, '');
+        const version = (value as any).version;
+        if (name && version && !name.startsWith('.')) {
+          deps.push({ name, version });
+        }
+      }
+    } catch { /* skip */ }
+  } else if (filename === 'requirements.txt') {
+    try {
+      const content = readFileSync(lockPath, 'utf-8');
+      for (const line of content.split('\n')) {
+        const match = line.match(/^([a-zA-Z0-9_.-]+)==([0-9.]+)/);
+        if (match) deps.push({ name: match[1], version: match[2] });
+      }
+    } catch { /* skip */ }
+  }
+
+  return deps;
+}
+
+async function queryOsv(name: string, version: string, ecosystem: string): Promise<OsvVulnerability[]> {
+  try {
+    const res = await fetch('https://api.osv.dev/v1/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ package: { name, ecosystem }, version }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as { vulns?: OsvVulnerability[] };
+    return data.vulns || [];
+  } catch {
+    return [];
   }
 }

@@ -28,6 +28,9 @@ import {
   propertiesRunCommand,
   propertiesRunsCommand,
 } from "./commands/properties.js";
+import { rulesCommand } from "./commands/rules.js";
+import { hardenCommand } from "./commands/harden.js";
+import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import { PATHS } from "./daemon/paths.js";
 
 let PKG_VERSION = "0.1.8";
@@ -257,6 +260,62 @@ program
   .description("Show daemon status and loaded modules")
   .action(async () => {
     await statusCommand();
+  });
+
+// ─── Detection Rules (PRD 01) ───
+
+program
+  .command("rules")
+  .description("Manage detection rules")
+  .argument("[action]", "list | show", "list")
+  .argument("[id]", "Rule ID (for show)")
+  .action(async (action: string, id: string) => {
+    await rulesCommand({ action, id });
+  });
+
+// ─── Hardening Scanner (PRD 03) ───
+
+program
+  .command("harden")
+  .description("Run hardening security scan")
+  .option("--json", "Output results as JSON")
+  .action(async (opts: { json?: boolean }) => {
+    await hardenCommand(opts);
+  });
+
+// ─── Firewall Commands (PRD 02) ───
+
+program
+  .command("block")
+  .description("Block an IP address via the firewall")
+  .argument("<ip>", "IP address to block")
+  .option("--ttl <duration>", "Block duration (e.g. 1h, 30m, 1d)")
+  .action(async (ip: string, opts: { ttl?: string }) => {
+    await blockCommand(ip, opts);
+  });
+
+program
+  .command("unblock")
+  .description("Unblock an IP address")
+  .argument("<ip>", "IP address to unblock")
+  .action(async (ip: string) => {
+    await unblockCommand(ip);
+  });
+
+program
+  .command("blocklist")
+  .description("Show active firewall blocklist")
+  .action(async () => {
+    await blocklistCommand();
+  });
+
+program
+  .command("allowlist")
+  .description("Manage IP allowlist")
+  .argument("[action]", "list | add | remove", "list")
+  .argument("[value]", "IP/CIDR to add or remove")
+  .action(async (action: string, value: string) => {
+    await allowlistCommand({ action, value });
   });
 
 program

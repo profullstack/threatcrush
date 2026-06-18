@@ -6,6 +6,8 @@ import type { EventBus } from './event-bus.js';
 import { PATHS } from './paths.js';
 import { LogWatcher } from './watchers/log-watcher.js';
 import { JournalWatcher } from './watchers/journal-watcher.js';
+import { NetworkMonitor } from '../modules/network-monitor/index.js';
+import { DnsMonitor } from '../modules/dns-monitor/index.js';
 import { loadModuleConfigs } from '../core/config.js';
 import { getModuleState, setModuleState } from '../core/state.js';
 import type { ModuleConfig, ModuleManifest } from '../types/config.js';
@@ -28,6 +30,8 @@ export class ModuleHost {
   private modules = new Map<string, HostedModule>();
   private logWatcher: LogWatcher | null = null;
   private journalWatcher: JournalWatcher | null = null;
+  private networkMonitor: NetworkMonitor | null = null;
+  private dnsMonitor: DnsMonitor | null = null;
 
   constructor(private bus: EventBus) {
     bus.on('event', (event) => {
@@ -69,11 +73,35 @@ export class ModuleHost {
         this.bus.announceModule('user-journal', 'running', mod.detail);
       }
     }
+
+    // Network monitor (PRD 04)
+    this.networkMonitor = new NetworkMonitor(this.bus);
+    if (this.networkMonitor.start()) {
+      const nmod = this.modules.get('network-monitor');
+      if (nmod) {
+        nmod.status = 'running';
+        nmod.detail = 'monitoring connections via conntrack/ss';
+        this.bus.announceModule('network-monitor', 'running', nmod.detail);
+      }
+    }
+
+    // DNS monitor (PRD 05)
+    this.dnsMonitor = new DnsMonitor(this.bus);
+    if (this.dnsMonitor.start()) {
+      const dmod = this.modules.get('dns-monitor');
+      if (dmod) {
+        dmod.status = 'running';
+        dmod.detail = 'monitoring DNS queries';
+        this.bus.announceModule('dns-monitor', 'running', dmod.detail);
+      }
+    }
   }
 
   async stop(): Promise<void> {
     this.logWatcher?.stop();
     this.journalWatcher?.stop();
+    this.networkMonitor?.stop();
+    this.dnsMonitor?.stop();
     for (const mod of this.modules.values()) {
       try {
         if (mod.instance && mod.status === 'running') {
@@ -104,6 +132,8 @@ export class ModuleHost {
       { name: 'log-watcher', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
       { name: 'ssh-guard', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
       { name: 'user-journal', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
+      { name: 'network-monitor', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
+      { name: 'dns-monitor', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
     ];
     for (const m of builtins) this.modules.set(m.name, m);
   }

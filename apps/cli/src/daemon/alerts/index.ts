@@ -2,11 +2,14 @@ import type { ThreatCrushConfig, AlertChannelConfig } from '../../types/config.j
 import type { ThreatEvent } from '../../types/events.js';
 import type { EventBus } from '../event-bus.js';
 import { smtpChannel, type SmtpConfig } from './smtp.js';
+import { discordChannel, type DiscordConfig } from './discord.js';
+import { pagerdutyChannel, type PagerDutyConfig } from './pagerduty.js';
 
 type Channel = (event: ThreatEvent) => Promise<void>;
 
 export class AlertDispatcher {
   private channels: Channel[] = [];
+  private rateLimits = new Map<string, number[]>();
 
   constructor(private bus: EventBus, private config: ThreatCrushConfig) {
     this.bindChannels();
@@ -27,11 +30,32 @@ export class AlertDispatcher {
       if (name === 'email' && typeof cfg.host === 'string' && typeof cfg.from === 'string') {
         this.channels.push(smtpChannel(cfg as unknown as SmtpConfig));
       }
+      if (name === 'discord' && typeof cfg.webhook_url === 'string') {
+        this.channels.push(discordChannel(cfg as unknown as DiscordConfig));
+      }
+      if (name === 'pagerduty' && typeof cfg.routing_key === 'string') {
+        this.channels.push(pagerdutyChannel(cfg as unknown as PagerDutyConfig));
+      }
     }
   }
 
+  private checkRateLimit(channelIdx: number, maxPerHour: number = 60): boolean {
+    const key = String(channelIdx);
+    const now = Date.now();
+    const hour = 3600_000;
+    let timestamps = this.rateLimits.get(key) || [];
+    timestamps = timestamps.filter(t => t > now - hour);
+    if (timestamps.length >= maxPerHour) return false;
+    timestamps.push(now);
+    this.rateLimits.set(key, timestamps);
+    return true;
+  }
+
   private async dispatch(event: ThreatEvent): Promise<void> {
-    await Promise.all(this.channels.map((ch) => ch(event).catch(() => {})));
+    await Promise.all(this.channels.map((ch, idx) => {
+      if (!this.checkRateLimit(idx)) return Promise.resolve();
+      return ch(event).catch(() => {});
+    }));
   }
 }
 

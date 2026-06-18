@@ -13,8 +13,22 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "threatcrush",
+    "security",
+    "module",
+    "sdk",
+    "threat-detection",
+    "firewall",
+    "hardening"
+  ],
   "license": "MIT",
   "author": "Profullstack, Inc. <hello@profullstack.com>",
   "repository": {

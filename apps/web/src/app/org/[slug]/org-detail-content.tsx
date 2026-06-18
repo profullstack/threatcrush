@@ -131,6 +131,30 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
           </div>
         </div>
 
+        {/* Quick Navigation */}
+        <div className="grid grid-cols-2 gap-3 mb-8 sm:grid-cols-4">
+          <Link href={`/org/${org.slug}/detections`}
+            className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-red-500/30 transition-colors group">
+            <p className="text-sm text-zinc-500 group-hover:text-red-400">Detections</p>
+            <p className="text-lg font-bold text-white mt-1">View Feed</p>
+          </Link>
+          <Link href={`/org/${org.slug}/findings`}
+            className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-yellow-500/30 transition-colors group">
+            <p className="text-sm text-zinc-500 group-hover:text-yellow-400">Hardening</p>
+            <p className="text-lg font-bold text-white mt-1">Findings</p>
+          </Link>
+          <Link href={`/org/${org.slug}/remediations`}
+            className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-blue-500/30 transition-colors group">
+            <p className="text-sm text-zinc-500 group-hover:text-blue-400">Remediation</p>
+            <p className="text-lg font-bold text-white mt-1">Blocklist</p>
+          </Link>
+          <Link href={`/org/${org.slug}/settings`}
+            className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-green-500/30 transition-colors group">
+            <p className="text-sm text-zinc-500 group-hover:text-green-400">Alerts</p>
+            <p className="text-lg font-bold text-white mt-1">Settings</p>
+          </Link>
+        </div>
+
         {/* Servers */}
         <div>
           <div className="flex items-center justify-between mb-4">

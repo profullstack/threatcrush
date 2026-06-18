@@ -6,6 +6,10 @@ import { IpcServer } from './ipc-server.js';
 import { ModuleHost } from './module-host.js';
 import { AlertDispatcher } from './alerts/index.js';
 import { RunsWorker } from './workers/runs-worker.js';
+import { RuleEngine } from './rules/engine.js';
+import { loadAllRules } from './rules/loader.js';
+import { detectFirewallAdapter } from './firewall/adapters.js';
+import { RemediationManager } from './firewall/remediation.js';
 import { bus } from './event-bus.js';
 import { initStateDB, closeDB } from '../core/state.js';
 import { loadConfig } from '../core/config.js';
@@ -66,6 +70,40 @@ export async function runDaemon(): Promise<void> {
   const moduleHost = new ModuleHost(bus);
   await moduleHost.start();
 
+  // Detection rule engine (PRD 01)
+  const ruleEngine = new RuleEngine((detection) => {
+    const event: ThreatEvent = {
+      timestamp: new Date(),
+      module: 'rule-engine',
+      category: (detection.raw_metadata?.category as any) || 'system',
+      severity: detection.severity,
+      message: `[DETECTION] ${detection.title}`,
+      source_ip: detection.source_ip,
+      details: {
+        rule_id: detection.rule_id,
+        username: detection.username,
+        ...detection.raw_metadata,
+      },
+    };
+    bus.publish(event);
+  });
+  ruleEngine.loadRules(loadAllRules());
+  bus.on('event', (event) => {
+    if (event.module !== 'rule-engine') ruleEngine.evaluate(event);
+  });
+  logLine(`[daemon] rule engine loaded ${ruleEngine.getRules().length} rules`);
+  setInterval(() => ruleEngine.cleanup(), 300_000);
+
+  // Firewall auto-remediation (PRD 02)
+  const firewallAdapter = detectFirewallAdapter();
+  const remediation = new RemediationManager(firewallAdapter, bus, (config as any).remediation);
+  bus.on('event', (event) => {
+    if (event.module !== 'firewall-rules') {
+      void remediation.handleDetection(event);
+    }
+  });
+  logLine(`[daemon] firewall remediation active (backend=${firewallAdapter.name}, dry_run=${(config as any).remediation?.dry_run ?? true})`);
+
   new AlertDispatcher(bus, config);
 
   const runsWorker = new RunsWorker(bus);
@@ -81,6 +119,7 @@ export async function runDaemon(): Promise<void> {
 
   const shutdown = async (signal: string) => {
     logLine(`[daemon] received ${signal}, shutting down`);
+    try { remediation.stop(); } catch {}
     try { runsWorker.stop(); } catch {}
     try { await moduleHost.stop(); } catch {}
     try { await ipc.stop(); } catch {}
