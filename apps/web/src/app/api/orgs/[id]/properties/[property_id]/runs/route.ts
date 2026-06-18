@@ -26,6 +26,12 @@ async function requireMembership(orgId: string, userId: string, minRole?: "admin
   return data.role;
 }
 
+function parseRunsLimit(value: string | null): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) return 25;
+  return Math.min(100, parsed);
+}
+
 // GET /api/orgs/[id]/properties/[property_id]/runs
 export async function GET(
   req: NextRequest,
@@ -40,7 +46,7 @@ export async function GET(
     if (!role) return NextResponse.json({ error: "Not a member" }, { status: 403 });
 
     const url = new URL(req.url);
-    const limit = Math.min(100, parseInt(url.searchParams.get("limit") || "25", 10) || 25);
+    const limit = parseRunsLimit(url.searchParams.get("limit"));
 
     const { data: runs, error } = await getSupabaseAdmin()
       .from("property_runs")
