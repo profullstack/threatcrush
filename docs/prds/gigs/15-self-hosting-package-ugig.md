@@ -32,4 +32,3 @@ docker-compose control plane plus the docs to run and enroll against it.
 - A fresh agent enrolls against the self-hosted instance and appears in the
   dashboard; migrations reproducible from a clean DB.
 - Self-hosting guide published. PR with green CI.
-</content>

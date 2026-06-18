@@ -31,4 +31,3 @@ with recommended fixes and a per-server hardening score.
   and degrades gracefully on `EACCES`.
 - Findings persist to `hardening_findings`; score computed and shown in `status`.
 - PR with green CI and unit tests covering each check's pass/fail logic.
-</content>

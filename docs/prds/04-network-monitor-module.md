@@ -53,4 +53,3 @@ network detection engine behind the headline is missing.
 ## Open questions
 
 - conntrack vs eBPF for connection visibility — eBPF is richer but raises portability/privilege bar. Recommend conntrack for v1.
-</content>

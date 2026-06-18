@@ -76,4 +76,3 @@ All org-scoped tables get RLS mirroring existing patterns; agent writes go throu
 
 - Reuse existing `properties`/`property_runs` semantics or keep detections fully separate? (Recommend separate — different lifecycle.)
 - Is there an existing agent enrollment token mechanism to reuse for ingest auth?
-</content>

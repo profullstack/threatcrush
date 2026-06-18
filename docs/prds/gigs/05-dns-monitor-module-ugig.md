@@ -28,4 +28,3 @@ exfiltration and DGA beaconing.
 - A scripted DNS-tunneling pattern and a high-entropy DGA burst are both flagged.
 - Low false positives against a normal-traffic fixture corpus.
 - PR with green CI and the fixture corpus committed.
-</content>

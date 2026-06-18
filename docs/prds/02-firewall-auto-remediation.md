@@ -63,4 +63,3 @@ in `apps/cli/src` is a string in `index.ts`. The product's central promise
 ## Open questions
 
 - Default to dry-run at install, or auto-enable blocking after first scan? (Recommend dry-run default + prompt.)
-</content>

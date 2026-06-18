@@ -69,4 +69,3 @@ patterns where logs allow.
 
 - JSON vs YAML for authored rules? (YAML friendlier for contributors; JSON simpler to validate.)
 - Do the "1,247 signatures" claims need to be backed before launch, or is the README copy revised?
-</content>

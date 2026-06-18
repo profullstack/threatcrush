@@ -32,4 +32,3 @@ marketplace.
   validated module that then appears in search.
 - A paid module requires purchase before install; entitlement enforced.
 - Install counts + reviews render in the store UI. PR with green CI.
-</content>

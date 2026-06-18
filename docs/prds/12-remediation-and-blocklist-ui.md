@@ -57,4 +57,3 @@ manage what the daemon blocked.
 ## Open questions
 
 - Command propagation channel: does the daemon poll a server queue (like `runs-worker`) for remediation commands? Define the transport.
-</content>

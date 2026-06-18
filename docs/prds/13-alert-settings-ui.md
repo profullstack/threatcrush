@@ -56,4 +56,3 @@ cannot centrally control where alerts go or filter them. This pairs with
 ## Open questions
 
 - Reuse the existing client-side secret encryption pattern (see module secrets) for destination configs?
-</content>

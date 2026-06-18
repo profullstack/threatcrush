@@ -57,4 +57,3 @@ the primary value screen of a security dashboard and is currently absent.
 ## Open questions
 
 - Realtime at launch or polling-first? (Recommend polling-first if Realtime not already enabled, realtime fast-follow.)
-</content>

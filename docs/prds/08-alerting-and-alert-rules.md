@@ -58,4 +58,3 @@ control, which means either noise or missed alerts.
 ## Open questions
 
 - Local-only mode: rules from `threatcrushd.conf` only, or also cached from server? (Recommend: conf is source of truth when not enrolled.)
-</content>

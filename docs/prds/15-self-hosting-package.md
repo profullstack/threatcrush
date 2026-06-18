@@ -54,4 +54,3 @@ or docs. OSS users cannot stand up their own control plane.
 ## Open questions
 
 - Bundle Supabase (heavy) vs document external Supabase/Postgres? (Recommend external/BYO Postgres for v1 to keep the image lean.)
-</content>

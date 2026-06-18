@@ -30,4 +30,3 @@ Build the detections feed reading from `detections` (PRD-00).
 - List renders with working severity/rule/host/timeframe filters.
 - A new detection appears without manual refresh (realtime or ≤ poll interval).
 - Usable on mobile / installed-PWA layout. PR with green CI.
-</content>

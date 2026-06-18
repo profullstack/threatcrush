@@ -37,4 +37,3 @@ raw logs by default).
 - Daemon can POST a normalized detection and it appears in `detections`.
 - No raw log lines are stored unless explicitly opted in.
 - PR with green CI and the shared schema wired into both web + CLI.
-</content>

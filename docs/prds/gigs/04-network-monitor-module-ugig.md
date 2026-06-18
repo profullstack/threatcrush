@@ -32,4 +32,3 @@ headline detections.
   window and (if enabled) triggers a ban.
 - Idle overhead stays within the PRD perf budget.
 - PR with green CI and a fixture-based test for the scan/flood heuristics.
-</content>

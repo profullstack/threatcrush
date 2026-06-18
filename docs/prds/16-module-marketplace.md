@@ -56,4 +56,3 @@ stated revenue stream) is not yet real. Captured here so v0.2 scope is explicit;
 ## Open questions
 
 - Is any marketplace surface launch-blocking, or fully v0.2? (Default: v0.2 per `docs/TODO.md`.)
-</content>

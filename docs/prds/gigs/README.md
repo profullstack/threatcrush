@@ -27,4 +27,3 @@ Acceptance-criteria sections you can paste straight into a posting.
 
 Budgets are rough starting ranges, not quotes. Suggested sequencing: PRD-00 first
 (everything depends on it), then the P0 set (01, 02, 03, 08, 10, 11, 12).
-</content>

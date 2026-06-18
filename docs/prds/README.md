@@ -66,5 +66,3 @@ most of the detection/remediation/hardening backbone.
 
 Every PRD follows the skeleton in [`_TEMPLATE.md`](./_TEMPLATE.md). Copy it for new
 features.
-</content>
-</invoke>

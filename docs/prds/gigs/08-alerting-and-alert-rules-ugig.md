@@ -32,4 +32,3 @@ Add the missing channels and the rules engine behind them.
 - A medium-severity detection does not page a high-only rule; per-server
   subscription routes only that server's alerts; a flood is capped to the limit.
 - PR with green CI.
-</content>
