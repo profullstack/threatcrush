@@ -4,8 +4,8 @@ info:
   version: 0.2.0
   description: |
     Public, read-only endpoints for ThreatCrush — module marketplace,
-    blog feed, and health. Authenticated endpoints are not documented
-    here and require a signed-in session via the web app.
+    blog feed, and health. Authenticated module-author endpoints require
+    a signed-in session via the web app or a Supabase Bearer token.
   contact:
     name: ThreatCrush
     email: hello@threatcrush.com
@@ -79,6 +79,70 @@ paths:
         '404':
           description: Not found
 
+  /api/modules/{slug}/versions:
+    get:
+      summary: List module releases
+      operationId: listModuleVersions
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Published releases newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items: { $ref: '#/components/schemas/ModuleVersion' }
+        '404':
+          description: Not found
+    post:
+      summary: Publish a module release
+      operationId: publishModuleVersion
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: string, example: "1.2.3" }
+                changelog: { type: string, nullable: true }
+                package_url: { type: string, nullable: true }
+                git_tag: { type: string, nullable: true, example: "v1.2.3" }
+                min_threatcrush_version: { type: string, nullable: true, example: ">=0.2.0" }
+      responses:
+        '201':
+          description: Release published and module metadata synchronized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { $ref: '#/components/schemas/ModuleVersion' }
+                  module: { $ref: '#/components/schemas/Module' }
+        '400':
+          description: Invalid JSON or version
+        '401':
+          description: Login required
+        '403':
+          description: Verified module author required
+        '404':
+          description: Not found
+        '409':
+          description: Duplicate version
+
   /blog/rss.xml:
     get:
       summary: Blog RSS feed
@@ -126,3 +190,15 @@ components:
         featured: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    ModuleVersion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        module_id: { type: string, format: uuid }
+        version: { type: string }
+        changelog: { type: string, nullable: true }
+        package_url: { type: string, nullable: true }
+        git_tag: { type: string, nullable: true }
+        min_threatcrush_version: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
