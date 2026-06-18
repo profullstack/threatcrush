@@ -3,9 +3,9 @@
  * Provides offline shell caching and runtime API caching.
  */
 
-const CACHE_NAME = 'threatcrush-v1';
-const STATIC_CACHE = 'threatcrush-static-v1';
-const API_CACHE = 'threatcrush-api-v1';
+const CACHE_NAME = 'tc-v1';
+const STATIC_CACHE = 'tc-static-v1';
+const DATA_CACHE = 'tc-data-v1'; // runtime cache for API responses
 
 // App shell files to precache
 const APP_SHELL = [
@@ -27,7 +27,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys.filter((key) => key !== STATIC_CACHE && key !== API_CACHE)
+        keys.filter((key) => key !== STATIC_CACHE && key !== DATA_CACHE)
           .map((key) => caches.delete(key))
       );
     }).then(() => self.clients.claim())
@@ -47,7 +47,7 @@ self.addEventListener('fetch', (event) => {
   // API responses: stale-while-revalidate
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      caches.open(API_CACHE).then(async (cache) => {
+      caches.open(DATA_CACHE).then(async (cache) => {
         const cached = await cache.match(event.request);
         const fetchPromise = fetch(event.request).then((response) => {
           if (response.ok) {
@@ -144,10 +144,12 @@ self.addEventListener('notificationclick', (event) => {
 
 // Message handler for cache invalidation on logout/org switch
 self.addEventListener('message', (event) => {
+  // Only accept messages from same origin
+  if (event.origin && event.origin !== self.location.origin) return;
   if (event.data?.type === 'CLEAR_CACHES') {
     event.waitUntil(
       Promise.all([
-        caches.delete(API_CACHE),
+        caches.delete(DATA_CACHE),
         caches.delete(STATIC_CACHE),
       ]).then(() => {
         // Re-cache app shell

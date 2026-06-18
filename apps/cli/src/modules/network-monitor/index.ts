@@ -6,8 +6,8 @@
  * Emits detections through the event bus for the rule engine.
  */
 
-import { execSync, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import type { EventBus } from '../../daemon/event-bus.js';
 import { insertEvent } from '../../core/state.js';
 import type { ThreatEvent, EventSeverity } from '../../types/events.js';
@@ -162,7 +162,6 @@ export class NetworkMonitor {
       });
       if (ss.status !== 0 || !ss.stdout) return;
 
-      const now = Date.now();
       const perSource = new Map<string, number>();
 
       for (const line of ss.stdout.split('\n')) {

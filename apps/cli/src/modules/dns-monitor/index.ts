@@ -25,9 +25,6 @@ const DNS_LOG_SOURCES = [
   '/var/log/pihole.log',       // Pi-hole
 ];
 
-// High-entropy TLD indicators for DGA
-const SUSPICIOUS_TLDS = new Set(['.tk', '.ml', '.ga', '.cf', '.gq', '.xyz', '.top', '.buzz', '.club']);
-
 export class DnsMonitor {
   private active = false;
   private timers = new Map<string, NodeJS.Timeout>();

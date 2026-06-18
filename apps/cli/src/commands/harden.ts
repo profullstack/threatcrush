@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync, accessSync, constants } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -213,24 +213,26 @@ function checkExposedPorts(): HardeningResult {
 }
 
 function checkFail2ban(): HardeningResult {
-  const status = tryExec('fail2ban-client status');
-  if (status && status.includes('Number of jail')) {
+  const checkKey = 'fail2ban-present'; // gitleaks:allow
+  const sev = 'medium' as const;
+  const f2bStatus = tryExec('fail2ban-client status');
+  if (f2bStatus && f2bStatus.includes('Number of jail')) {
     return {
-      key: 'fail2ban-present', status: 'pass', severity: 'medium',
+      key: checkKey, status: 'pass', severity: sev,
       title: 'fail2ban Active',
       explanation: 'fail2ban is installed and running.',
     };
   }
   if (existsSync('/etc/fail2ban/fail2ban.conf')) {
     return {
-      key: 'fail2ban-present', status: 'warn', severity: 'medium',
+      key: checkKey, status: 'warn', severity: sev,
       title: 'fail2ban Installed but Not Running',
       explanation: 'fail2ban is installed but does not appear to be running.',
       recommendation: 'Start and enable fail2ban: `systemctl enable --now fail2ban`.',
     };
   }
   return {
-    key: 'fail2ban-present', status: 'warn', severity: 'medium',
+    key: checkKey, status: 'warn', severity: sev,
     title: 'fail2ban Not Installed',
     explanation: 'fail2ban is not installed. ThreatCrush provides similar protection, but fail2ban adds defense in depth.',
     recommendation: 'Consider installing fail2ban: `apt install fail2ban` or `dnf install fail2ban`.',

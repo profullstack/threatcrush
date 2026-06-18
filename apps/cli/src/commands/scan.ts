@@ -367,7 +367,19 @@ function parseDependencies(lockPath: string, filename: string, ecosystem: string
   return deps;
 }
 
+// Validate package name to prevent injection in OSV API queries
+function isValidPackageName(name: string): boolean {
+  return /^[@a-zA-Z0-9_.\-/]{1,214}$/.test(name);
+}
+
+function isValidVersion(version: string): boolean {
+  return /^[0-9a-zA-Z._\-+]{1,50}$/.test(version);
+}
+
 async function queryOsv(name: string, version: string, ecosystem: string): Promise<OsvVulnerability[]> {
+  // Sanitize inputs before sending to external API
+  if (!isValidPackageName(name) || !isValidVersion(version)) return [];
+
   try {
     const res = await fetch('https://api.osv.dev/v1/query', {
       method: 'POST',
