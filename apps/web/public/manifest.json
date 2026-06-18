@@ -2,11 +2,15 @@
   "name": "ThreatCrush — Real-Time Threat Intelligence Platform",
   "short_name": "ThreatCrush",
   "description": "Crush every threat before it crushes you. Real-time threat feeds, vulnerability tracking, attack surface monitoring, and threat actor intelligence.",
-  "start_url": "/",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",
   "theme_color": "#0a0a0a",
   "orientation": "portrait-primary",
+  "categories": ["security", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icons/icon-192x192.png",
@@ -31,6 +35,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "url": "/dashboard",
+      "description": "Open the security dashboard"
     }
   ]
 }
