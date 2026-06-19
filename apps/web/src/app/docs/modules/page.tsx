@@ -52,6 +52,8 @@ const apiEndpoints: Array<{
   { method: "GET",    path: "/api/modules/{slug}",                auth: "none",   purpose: "Module detail + versions + recent reviews" },
   { method: "PATCH",  path: "/api/modules/{slug}",                auth: "email",  purpose: "Edit your module" },
   { method: "DELETE", path: "/api/modules/{slug}",                auth: "email",  purpose: "Remove your module" },
+  { method: "GET",    path: "/api/modules/{slug}/versions",       auth: "none",   purpose: "List published releases newest first" },
+  { method: "POST",   path: "/api/modules/{slug}/versions",       auth: "bearer", purpose: "Publish a new module release" },
   { method: "GET",    path: "/api/modules/{slug}/install",        auth: "none",   purpose: "Read-only install info (does not count)" },
   { method: "POST",   path: "/api/modules/{slug}/install",        auth: "none",   purpose: "Install info + increment download count" },
   { method: "GET",    path: "/api/modules/{slug}/review",         auth: "none",   purpose: "List reviews (paginated)" },
