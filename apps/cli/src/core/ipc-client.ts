@@ -1,6 +1,6 @@
 import { createConnection, Socket } from 'node:net';
 import { existsSync } from 'node:fs';
-import { PATHS } from '../daemon/paths.js';
+import { resolveClientSocket } from '../daemon/paths.js';
 import type {
   IpcRequest,
   IpcResponse,
@@ -28,10 +28,10 @@ export class IpcClient {
   private socketPath: string;
 
   constructor(private opts: IpcClientOptions = {}) {
-    this.socketPath = opts.socketPath || PATHS.socket;
+    this.socketPath = opts.socketPath || resolveClientSocket();
   }
 
-  static isDaemonRunning(socketPath = PATHS.socket): boolean {
+  static isDaemonRunning(socketPath = resolveClientSocket()): boolean {
     return existsSync(socketPath);
   }
 

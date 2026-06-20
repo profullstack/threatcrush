@@ -29,8 +29,25 @@ export async function daemonStart(): Promise<void> {
     return;
   }
 
-  const out = openSync(PATHS.logFile, 'a');
-  const err = openSync(PATHS.logFile, 'a');
+  let out: number;
+  let err: number;
+  try {
+    out = openSync(PATHS.logFile, 'a');
+    err = openSync(PATHS.logFile, 'a');
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    console.log(chalk.red(`  ✗ Cannot write daemon log at ${PATHS.logFile} (${code ?? 'error'}).`));
+    if (code === 'EACCES') {
+      console.log(
+        chalk.dim(
+          PATHS.mode === 'system'
+            ? '  Run as root (sudo) to use system paths, or run without sudo to use ~/.threatcrush.'
+            : `  Fix permissions on ${PATHS.logDir} (it should be owned by your user).`,
+        ),
+      );
+    }
+    return;
+  }
 
   const child = spawn(process.execPath, [DAEMON_ENTRY], {
     detached: true,
