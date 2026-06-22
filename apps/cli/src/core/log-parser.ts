@@ -14,7 +14,8 @@ const SYSLOG_REGEX = /^(\w+\s+\d+\s+[\d:]+)\s+\S+\s+(\S+?)(?:\[\d+\])?:\s+(.*)/;
 
 // Extract IP from auth messages
 const IP_REGEX = /(?:from|FROM)\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/;
-const USER_REGEX = /(?:for|user)\s+(\S+?)(?:\s+from|\s*$)/;
+const INVALID_USER_REGEX = /\binvalid user\s+(\S+?)(?:\s+from|\s*$)/i;
+const USER_REGEX = /(?:for|user)\s+(?!invalid\s+user\b)(\S+?)(?:\s+from|\s*$)/i;
 
 // Attack pattern signatures
 export const ATTACK_PATTERNS = {
@@ -73,7 +74,7 @@ export function parseAuthLog(line: string): AuthLogEntry | null {
   if (!match) return null;
 
   const ipMatch = match[3].match(IP_REGEX);
-  const userMatch = match[3].match(USER_REGEX);
+  const userMatch = match[3].match(INVALID_USER_REGEX) ?? match[3].match(USER_REGEX);
 
   return {
     timestamp: parseSyslogTimestamp(match[1]),
