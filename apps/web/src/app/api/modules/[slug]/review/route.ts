@@ -13,7 +13,8 @@ export async function GET(
 ) {
   const { slug } = await context.params;
   const { searchParams } = new URL(request.url);
-  const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+  const rawPage = parseInt(searchParams.get("page") || "1", 10);
+  const page = Number.isNaN(rawPage) || rawPage < 1 ? 1 : rawPage;
   const limit = 20;
   const offset = (page - 1) * limit;
 
