@@ -13,7 +13,7 @@ const AUTH_REGEX = /^(\w+\s+\d+\s+[\d:]+)\s+\S+\s+(\S+?)(?:\[\d+\])?:\s+(.*)/;
 const SYSLOG_REGEX = /^(\w+\s+\d+\s+[\d:]+)\s+\S+\s+(\S+?)(?:\[\d+\])?:\s+(.*)/;
 
 // Extract IP from auth messages
-const IP_REGEX = /(?:from|FROM)\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/;
+const IP_REGEX = /(?:from|FROM)\s+([0-9a-fA-F.:]+?)(?:\s+port|\s*$)/;
 const USER_REGEX = /(?:for|user)\s+(\S+?)(?:\s+from|\s*$)/;
 
 // Attack pattern signatures
