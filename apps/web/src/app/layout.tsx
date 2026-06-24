@@ -240,7 +240,7 @@ export default function RootLayout({
           strategy="afterInteractive"
         />
               <Script data-site="09d382f0-1b98-4d28-b360-78eaf4e030f2" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
-      </body>
+      <script async src="https://feedback.profullstack.com/embed/profullstack-feedback.js" data-property="threatcrush.com"></script></body>
     </html>
   );
 }
