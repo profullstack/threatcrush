@@ -1,4 +1,5 @@
 import { execSync, spawnSync } from 'node:child_process';
+import { isIP } from 'node:net';
 
 export interface FirewallAdapter {
   name: string;
@@ -7,6 +8,12 @@ export interface FirewallAdapter {
   unblock(ip: string): Promise<void>;
   isBlocked(ip: string): Promise<boolean>;
   listBlocked(): Promise<string[]>;
+}
+
+function assertValidFirewallIp(ip: string): void {
+  if (isIP(ip) !== 4) {
+    throw new Error(`Invalid IPv4 address: ${ip}`);
+  }
 }
 
 export class NftablesAdapter implements FirewallAdapter {
@@ -31,17 +38,20 @@ export class NftablesAdapter implements FirewallAdapter {
   }
 
   async block(ip: string): Promise<void> {
+    assertValidFirewallIp(ip);
     this.ensureSetup();
     execSync(`nft add element inet ${this.table} ${this.set} '{ ${ip} }'`);
   }
 
   async unblock(ip: string): Promise<void> {
+    assertValidFirewallIp(ip);
     try {
       execSync(`nft delete element inet ${this.table} ${this.set} '{ ${ip} }'`);
     } catch { /* element may not exist */ }
   }
 
   async isBlocked(ip: string): Promise<boolean> {
+    assertValidFirewallIp(ip);
     try {
       const output = execSync(`nft list set inet ${this.table} ${this.set}`, { encoding: 'utf-8' });
       return output.includes(ip);
@@ -77,17 +87,20 @@ export class IptablesAdapter implements FirewallAdapter {
   }
 
   async block(ip: string): Promise<void> {
+    assertValidFirewallIp(ip);
     this.ensureChain();
     if (await this.isBlocked(ip)) return;
     execSync(`iptables -A ${this.chain} -s ${ip} -j DROP`);
   }
 
   async unblock(ip: string): Promise<void> {
+    assertValidFirewallIp(ip);
     try { execSync(`iptables -D ${this.chain} -s ${ip} -j DROP`); }
     catch { /* rule may not exist */ }
   }
 
   async isBlocked(ip: string): Promise<boolean> {
+    assertValidFirewallIp(ip);
     try {
       const output = execSync(`iptables -n -L ${this.chain}`, { encoding: 'utf-8' });
       return output.includes(ip);
@@ -112,9 +125,9 @@ export class DryRunAdapter implements FirewallAdapter {
   private blocked = new Set<string>();
 
   isAvailable(): boolean { return true; }
-  async block(ip: string): Promise<void> { this.blocked.add(ip); }
-  async unblock(ip: string): Promise<void> { this.blocked.delete(ip); }
-  async isBlocked(ip: string): Promise<boolean> { return this.blocked.has(ip); }
+  async block(ip: string): Promise<void> { assertValidFirewallIp(ip); this.blocked.add(ip); }
+  async unblock(ip: string): Promise<void> { assertValidFirewallIp(ip); this.blocked.delete(ip); }
+  async isBlocked(ip: string): Promise<boolean> { assertValidFirewallIp(ip); return this.blocked.has(ip); }
   async listBlocked(): Promise<string[]> { return [...this.blocked]; }
 }
 
