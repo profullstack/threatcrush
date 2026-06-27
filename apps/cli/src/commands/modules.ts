@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, cpSync, rmSync, readFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import chalk from 'chalk';
@@ -14,6 +14,28 @@ const API_URL = process.env.THREATCRUSH_API_URL || 'https://threatcrush.com';
 function modulesDir(): string {
   ensureRuntimeDirs();
   return PATHS.moduleDir;
+}
+
+function safeModuleDirName(name: string, label = 'module name'): string {
+  if (!/^[A-Za-z0-9._@-]+$/.test(name) || name === '.' || name === '..') {
+    throw new Error(`Unsafe ${label}: ${name}`);
+  }
+  return name;
+}
+
+function moduleDestination(dir: string, name: string, label?: string): string {
+  return join(dir, safeModuleDirName(name, label));
+}
+
+function assertSafeTarballEntries(tarPath: string): void {
+  const listing = execFileSync('tar', ['-tzf', tarPath], { encoding: 'utf-8' });
+  for (const entry of listing.split('\n').map((line) => line.trim()).filter(Boolean)) {
+    const normalized = entry.replace(/\\/g, '/');
+    const segments = normalized.split('/');
+    if (normalized.startsWith('/') || segments.includes('..')) {
+      throw new Error(`Unsafe tarball entry: ${entry}`);
+    }
+  }
 }
 
 function validateManifest(modPath: string): { ok: boolean; error?: string; name?: string; version?: string } {
@@ -105,7 +127,13 @@ export async function modulesInstallCommand(source: string): Promise<void> {
       console.log(chalk.red(`  ✗ ${check.error}\n`));
       return;
     }
-    const dest = join(dir, check.name!);
+    let dest: string;
+    try {
+      dest = moduleDestination(dir, check.name!);
+    } catch (err) {
+      console.log(chalk.red(`  x ${(err as Error).message}\n`));
+      return;
+    }
     if (existsSync(dest)) {
       console.log(chalk.yellow(`  ! ${check.name} is already installed at ${dest}`));
       console.log(chalk.dim(`    Run ${chalk.white(`threatcrush modules remove ${check.name}`)} first.\n`));
@@ -130,8 +158,15 @@ export async function modulesInstallCommand(source: string): Promise<void> {
       ? `https://github.com/${source.slice('github:'.length)}.git`
       : source;
 
-    const name = basename(gitUrl.replace(/\.git$/, ''));
-    const dest = join(dir, name);
+    let name: string;
+    let dest: string;
+    try {
+      name = safeModuleDirName(basename(gitUrl.replace(/\.git$/, '')), 'repository name');
+      dest = moduleDestination(dir, name);
+    } catch (err) {
+      console.log(chalk.red(`  x ${(err as Error).message}\n`));
+      return;
+    }
     if (existsSync(dest)) {
       console.log(chalk.yellow(`  ! ${name} is already installed at ${dest}`));
       console.log(chalk.dim(`    Run ${chalk.white(`threatcrush modules remove ${name}`)} first.\n`));
@@ -139,7 +174,7 @@ export async function modulesInstallCommand(source: string): Promise<void> {
     }
     const spinner = ora({ text: `Cloning ${gitUrl}...`, color: 'green' }).start();
     try {
-      execSync(`git clone --depth 1 ${gitUrl} ${dest}`, { stdio: 'pipe' });
+      execFileSync('git', ['clone', '--depth', '1', '--', gitUrl, dest], { stdio: 'pipe' });
     } catch (err) {
       spinner.fail(`Clone failed: ${(err as Error).message}`);
       return;
@@ -201,7 +236,13 @@ export async function modulesInstallCommand(source: string): Promise<void> {
   spinner.succeed(`Found ${mod.name} v${mod.version}`);
 
   const install = mod.install;
-  const dest = join(dir, mod.slug);
+  let dest: string;
+  try {
+    dest = moduleDestination(dir, mod.slug, 'module slug');
+  } catch (err) {
+    console.log(chalk.red(`  x ${(err as Error).message}\n`));
+    return;
+  }
   if (existsSync(dest)) {
     console.log(chalk.yellow(`  ! ${mod.slug} is already installed at ${dest}\n`));
     return;
@@ -210,7 +251,7 @@ export async function modulesInstallCommand(source: string): Promise<void> {
   if (install.npm_package) {
     const npmSpinner = ora({ text: `Installing ${install.npm_package}...`, color: 'green' }).start();
     try {
-      execSync(`npm install -g ${install.npm_package}`, { stdio: 'pipe' });
+      execFileSync('npm', ['install', '-g', '--', install.npm_package], { stdio: 'pipe' });
       npmSpinner.succeed(`Package ${install.npm_package} installed globally`);
     } catch (err) {
       npmSpinner.fail(`npm install failed: ${(err as Error).message}`);
@@ -219,7 +260,7 @@ export async function modulesInstallCommand(source: string): Promise<void> {
   } else if (install.git_url) {
     const cloneSpinner = ora({ text: 'Cloning module repository...', color: 'green' }).start();
     try {
-      execSync(`git clone --depth 1 ${install.git_url} ${dest}`, { stdio: 'pipe' });
+      execFileSync('git', ['clone', '--depth', '1', '--', install.git_url, dest], { stdio: 'pipe' });
     } catch (err) {
       cloneSpinner.fail(`Clone failed: ${(err as Error).message}`);
       return;
@@ -238,7 +279,8 @@ export async function modulesInstallCommand(source: string): Promise<void> {
       if (!res.ok) { dlSpinner.fail(`HTTP ${res.status}`); return; }
       const tar = join(dir, `${mod.slug}.tar.gz`);
       writeFileSync(tar, Buffer.from(await res.arrayBuffer()));
-      execSync(`tar -xzf ${tar} -C ${dir}`, { stdio: 'pipe' });
+      assertSafeTarballEntries(tar);
+      execFileSync('tar', ['-xzf', tar, '-C', dir], { stdio: 'pipe' });
       rmSync(tar, { force: true });
       const check = validateManifest(dest);
       if (!check.ok) {
@@ -266,7 +308,13 @@ export async function modulesRemoveCommand(name: string): Promise<void> {
   console.log(chalk.gray('  ' + '─'.repeat(50)));
 
   const dir = modulesDir();
-  const target = join(dir, name);
+  let target: string;
+  try {
+    target = moduleDestination(dir, name);
+  } catch (err) {
+    console.log(chalk.red(`  x ${(err as Error).message}\n`));
+    return;
+  }
   if (!existsSync(target)) {
     console.log(chalk.yellow(`  ! No module named "${name}" in ${dir}\n`));
     return;
