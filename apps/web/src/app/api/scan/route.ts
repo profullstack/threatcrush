@@ -39,13 +39,28 @@ function computeGrade(score: number): string {
 
 async function isPrivateIP(hostname: string): Promise<boolean> {
   try {
-    const ip = isIP(hostname) ? hostname : (await dns.lookup(hostname)).address;
-    return /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1|fd[0-9a-f]{2}:)/i.test(ip);
+    const addresses = isIP(hostname)
+      ? [{ address: hostname }]
+      : await dns.lookup(hostname, { all: true });
+    return addresses.some(({ address }) =>
+      /^(0\.|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1|fe80:|fd[0-9a-f]{2}:)/i.test(address)
+    );
   } catch {
     // If DNS resolution fails, fail closed (treat as non-resolvable / potentially malicious)
     return true; 
   }
 }
+
+async function validateExternalHttpUrl(url: URL): Promise<void> {
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("URL must be http or https");
+  }
+  if (await isPrivateIP(url.hostname)) {
+    throw new Error("Scanning internal addresses is not allowed");
+  }
+}
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 /**
  * POST /api/scan
@@ -71,12 +86,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
   }
 
-  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
-    return NextResponse.json({ error: "URL must be http or https" }, { status: 400 });
-  }
-
-  if (await isPrivateIP(parsedUrl.hostname)) {
-    return NextResponse.json({ error: "Scanning internal addresses is not allowed" }, { status: 400 });
+  try {
+    await validateExternalHttpUrl(parsedUrl);
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
   try {
@@ -89,9 +102,22 @@ export async function POST(request: NextRequest) {
         "User-Agent": "Mozilla/5.0 (compatible; ThreatCrush-Scanner/1.0; +https://threatcrush.com)",
       },
       signal: controller.signal,
-      redirect: "follow",
+      redirect: "manual",
     });
     clearTimeout(timeout);
+
+    if (REDIRECT_STATUSES.has(res.status)) {
+      const location = res.headers.get("location");
+      if (location) {
+        const redirectUrl = new URL(location, parsedUrl);
+        try {
+          await validateExternalHttpUrl(redirectUrl);
+        } catch (err) {
+          return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+        }
+      }
+      return NextResponse.json({ error: "Redirect responses are not followed by the scanner" }, { status: 400 });
+    }
 
     const ssl = parsedUrl.protocol === "https:";
 
@@ -161,10 +187,11 @@ export async function POST(request: NextRequest) {
 
 async function checkExists(url: string): Promise<boolean> {
   try {
+    await validateExternalHttpUrl(new URL(url));
     const res = await fetch(url, {
       method: "HEAD",
       signal: AbortSignal.timeout(5000),
-      redirect: "follow",
+      redirect: "manual",
     });
     return res.ok;
   } catch {
