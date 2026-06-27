@@ -26,6 +26,8 @@ an issue.
 | `GET`    | `/api/modules/{slug}`                 | none      | Module detail + versions + recent reviews     |
 | `PATCH`  | `/api/modules/{slug}`                 | email     | Edit your module                              |
 | `DELETE` | `/api/modules/{slug}?author_email=…`  | email     | Remove your module                            |
+| `GET`    | `/api/modules/{slug}/versions`        | none      | List published releases newest first          |
+| `POST`   | `/api/modules/{slug}/versions`        | required  | Publish a new module release                  |
 | `GET`    | `/api/modules/{slug}/install`         | none      | Read-only install info (does **not** count)   |
 | `POST`   | `/api/modules/{slug}/install`         | none      | Install info **and** increment download count |
 | `GET`    | `/api/modules/{slug}/review`          | none      | List reviews (paginated, 20 / page)           |
@@ -271,6 +273,63 @@ and reviews.
 ```
 
 **Errors:** same authorisation pattern as `PATCH`.
+
+---
+
+### `GET /api/modules/{slug}/versions` — list releases
+
+Public. Fails with `404` if the slug doesn't exist or `published` is `false`.
+
+**Response 200**
+
+```json
+{ "versions": [ /* ModuleVersion[], newest first */ ] }
+```
+
+---
+
+### `POST /api/modules/{slug}/versions` — publish release
+
+Publishes a new semantic-versioned release for a module. Requires a valid
+Supabase Bearer token whose `user_profiles.email` is verified and matches the
+module row's `author_email`.
+
+**Body**
+
+```json
+{
+  "version": "1.2.3",
+  "changelog": "Optional release notes",
+  "package_url": "https://example.com/module-1.2.3.tgz",
+  "git_tag": "v1.2.3",
+  "min_threatcrush_version": ">=0.2.0"
+}
+```
+
+`version` is required and must use semantic version format such as `1.2.3`.
+Duplicate versions return `409`. Successful publishes also synchronize the
+module row's top-level `version`, `min_threatcrush_version` when provided, and
+`updated_at`, so install clients see the current release metadata.
+
+**Response 201**
+
+```json
+{
+  "version": { /* ModuleVersion */ },
+  "module": { /* updated Module */ }
+}
+```
+
+**Errors**
+
+- `400 Invalid JSON`
+- `400 version is required`
+- `400 version must be semantic version format, for example 1.2.3`
+- `401 You must be logged in to publish module versions.`
+- `403 Please verify your email before publishing module versions.`
+- `403 Only the module author can publish versions.`
+- `404 Module not found`
+- `409 Version {version} already exists for this module.`
 
 ---
 
@@ -562,9 +621,8 @@ type ModuleVersion = {
 };
 ```
 
-There is no public `POST /api/modules/{slug}/versions` yet — bumping the
-top-level `version` via `PATCH` is how authors signal a new release today.
-A dedicated versions endpoint is on the roadmap.
+Use `GET /api/modules/{slug}/versions` to list release rows and
+`POST /api/modules/{slug}/versions` to publish a new author-owned release.
 
 ### Review *(row in `module_reviews`)*
 
@@ -723,9 +781,8 @@ into your client.
    accept `author_email` as a soft proof of ownership. Future versions will
    require the same `Authorization: Bearer …` header as `POST /api/modules`,
    and `author_email` will become advisory-only.
-2. **A `POST /api/modules/{slug}/versions` endpoint** will land for
-   first-class version management (changelog, tarball uploads, signed
-   releases). Today, version bumps go through `PATCH /api/modules/{slug}`.
+2. **Signed release artifacts.** First-class version metadata is available now,
+   but uploaded tarballs are still URL-based and unsigned.
 3. **Module signing.** Verified publishers will be able to sign release
    tarballs; the install API will return `signature_url` + `pubkey` so the
    CLI can verify before running.
