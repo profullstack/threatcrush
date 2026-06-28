@@ -3,6 +3,7 @@ import Script from "next/script";
 import "./globals.css";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import PwaLifecycle from "@/components/PwaLifecycle";
 import { AuthProvider } from "@/lib/auth-context";
 
 const SITE_URL =
@@ -219,6 +220,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <AuthProvider>
+          <PwaLifecycle />
           <SiteHeader />
           {children}
           <SiteFooter />
