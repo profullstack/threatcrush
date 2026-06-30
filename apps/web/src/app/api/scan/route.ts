@@ -37,14 +37,58 @@ function computeGrade(score: number): string {
   return "F";
 }
 
+function isBlockedAddress(address: string): boolean {
+  const version = isIP(address);
+  const mappedHex = address.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+  const ipv4Address =
+    version === 4
+      ? address
+      : mappedHex
+        ? [
+            parseInt(mappedHex[1], 16) >> 8,
+            parseInt(mappedHex[1], 16) & 255,
+            parseInt(mappedHex[2], 16) >> 8,
+            parseInt(mappedHex[2], 16) & 255,
+          ].join(".")
+      : address.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i)?.[1];
+
+  if (ipv4Address) {
+    const parts = ipv4Address.split(".").map((part) => Number(part));
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+      return true;
+    }
+
+    const [first, second] = parts;
+    return (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168) ||
+      first >= 224
+    );
+  }
+
+  const normalized = address.toLowerCase();
+  return (
+    normalized === "::" ||
+    normalized === "::1" ||
+    normalized.startsWith("fe80:") ||
+    /^f[cd][0-9a-f]{0,2}:/i.test(normalized) ||
+    normalized.startsWith("ff")
+  );
+}
+
 async function isPrivateIP(hostname: string): Promise<boolean> {
   try {
-    const addresses = isIP(hostname)
-      ? [{ address: hostname }]
-      : await dns.lookup(hostname, { all: true });
-    return addresses.some(({ address }) =>
-      /^(0\.|127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1|fe80:|fd[0-9a-f]{2}:)/i.test(address)
-    );
+    const lookupHost = hostname.startsWith("[") && hostname.endsWith("]")
+      ? hostname.slice(1, -1)
+      : hostname;
+    const addresses = isIP(lookupHost)
+      ? [{ address: lookupHost }]
+      : await dns.lookup(lookupHost, { all: true });
+    return addresses.some(({ address }) => isBlockedAddress(address));
   } catch {
     // If DNS resolution fails, fail closed (treat as non-resolvable / potentially malicious)
     return true; 

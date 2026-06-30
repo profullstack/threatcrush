@@ -26,6 +26,52 @@ describe("POST /api/scan", () => {
     vi.stubGlobal("fetch", vi.fn());
   });
 
+  it("rejects IPv4-mapped loopback addresses", async () => {
+    const fetchMock = vi.mocked(fetch);
+
+    const res = await POST(makeRequest({ url: "http://[::ffff:127.0.0.1]/admin" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("Scanning internal addresses is not allowed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects IPv6 multicast addresses", async () => {
+    const fetchMock = vi.mocked(fetch);
+
+    const res = await POST(makeRequest({ url: "http://[ff02::1]/" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("Scanning internal addresses is not allowed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows public IPv6 literal addresses", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 200,
+          headers: {
+            "Strict-Transport-Security": "max-age=31536000",
+          },
+        })
+      )
+      .mockResolvedValue(new Response(null, { status: 404 }));
+
+    const res = await POST(makeRequest({ url: "https://[2606:4700:4700::1111]/" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.url).toBe("https://[2606:4700:4700::1111]/");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://[2606:4700:4700::1111]/",
+      expect.objectContaining({ method: "GET", redirect: "manual" })
+    );
+  });
+
   it("rejects redirects to internal addresses", async () => {
     mockLookup.mockResolvedValue([{ address: "203.0.113.10", family: 4 }]);
     const fetchMock = vi.mocked(fetch);
