@@ -100,7 +100,23 @@ export async function GET(request: NextRequest) {
       console.error("[usage] events query error:", eventsErr);
     }
 
-    const totalUsage = (events || []).reduce((sum, e) => sum + Number(e.cost_usd || 0), 0);
+    // The balance must subtract ALL-TIME usage, not just the last-30-days
+    // window fetched above (which is also capped at 1000 rows) for the
+    // history/breakdowns. Previously balance = all-time credits − 30-day usage,
+    // so any spend older than 30 days silently "came back" and overstated the
+    // remaining credit. Prefer a DB-side aggregate; if PostgREST aggregates are
+    // unavailable, fall back to the recent-window sum (prior behavior) so this
+    // can never overstate more than before.
+    let totalUsage = (events || []).reduce((sum, e) => sum + Number(e.cost_usd || 0), 0);
+    const { data: usageAgg, error: usageAggErr } = await admin
+      .from("usage_events")
+      .select("total:cost_usd.sum()")
+      .eq("user_id", user.id)
+      .single();
+    const allTimeUsage = Number((usageAgg as { total?: number } | null)?.total);
+    if (!usageAggErr && Number.isFinite(allTimeUsage)) {
+      totalUsage = allTimeUsage;
+    }
     const balanceUsd = +(totalCredits - totalUsage).toFixed(2);
 
     // Transform events to the expected format
