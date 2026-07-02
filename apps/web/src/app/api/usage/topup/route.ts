@@ -18,13 +18,15 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { amount_usd, currency } = body;
+    const { currency } = body;
 
-    if (!amount_usd) {
-      return NextResponse.json({ error: "amount_usd required" }, { status: 400 });
-    }
-
-    if (amount_usd < 1 || amount_usd > 10000) {
+    // Coerce and validate the amount (mirrors funding/create-invoice/route.ts).
+    // Without Number()/isFinite, a non-numeric amount_usd like "abc" is truthy
+    // (so it passes the presence check) and both "abc" < 1 and "abc" > 10000 are
+    // false, so it slipped through and was sent to CoinPay / stored on the
+    // credit_deposits row as a garbage amount.
+    const amount_usd = Number(body.amount_usd);
+    if (!Number.isFinite(amount_usd) || amount_usd < 1 || amount_usd > 10000) {
       return NextResponse.json({ error: "Amount must be between $1 and $10,000" }, { status: 400 });
     }
 
