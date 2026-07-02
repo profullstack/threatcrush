@@ -106,10 +106,31 @@ export function parseSyslog(line: string): SyslogEntry | null {
 }
 
 export function detectAttackPattern(path: string): string | null {
+  // nginx logs the request URI URL-encoded, so raw signatures like `<script`
+  // or `or 1=1` never match an encoded payload (e.g. `%3Cscript%3E`,
+  // `%27%20OR%201=1`). Test the raw value AND its URL-decoded forms so that
+  // single- and double-encoded payloads are still caught. decodeURIComponent
+  // throws on a malformed `%` sequence, so guard each decode.
+  const candidates = new Set<string>([path]);
+  let current = path;
+  for (let i = 0; i < 2; i++) {
+    let decoded: string | null = null;
+    try {
+      decoded = decodeURIComponent(current);
+    } catch {
+      decoded = null;
+    }
+    if (decoded === null || decoded === current) break;
+    candidates.add(decoded);
+    current = decoded;
+  }
+
   for (const [type, patterns] of Object.entries(ATTACK_PATTERNS)) {
     for (const pattern of patterns) {
-      if (pattern.test(path)) {
-        return type;
+      for (const candidate of candidates) {
+        if (pattern.test(candidate)) {
+          return type;
+        }
       }
     }
   }
@@ -131,20 +152,24 @@ export function autoDetectParser(line: string): ParsedLogLine | null {
 
 function parseNginxTimestamp(s: string): Date {
   // "04/Apr/2026:12:00:00 +0000"
-  try {
-    const cleaned = s.replace(/(\d{2})\/(\w{3})\/(\d{4}):/, '$2 $1, $3 ');
-    return new Date(cleaned);
-  } catch {
-    return new Date();
-  }
+  // new Date(<unparseable>) returns an Invalid Date instead of throwing, so the
+  // old try/catch never triggered and an Invalid Date leaked into downstream
+  // time-window logic. Check getTime() explicitly and fall back to now.
+  const cleaned = s.replace(/(\d{2})\/(\w{3})\/(\d{4}):/, '$2 $1, $3 ');
+  const d = new Date(cleaned);
+  return Number.isNaN(d.getTime()) ? new Date() : d;
 }
 
 function parseSyslogTimestamp(s: string): Date {
-  // "Apr  4 12:00:00" — no year, assume current
-  try {
-    const withYear = `${s} ${new Date().getFullYear()}`;
-    return new Date(withYear);
-  } catch {
-    return new Date();
+  // "Apr  4 12:00:00" — no year. Assume the most recent year that is not in the
+  // future, so a December log parsed in early January is dated to the previous
+  // year rather than the current one.
+  const now = new Date();
+  let d = new Date(`${s} ${now.getFullYear()}`);
+  if (Number.isNaN(d.getTime())) return now;
+  if (d.getTime() > now.getTime()) {
+    const prev = new Date(`${s} ${now.getFullYear() - 1}`);
+    if (!Number.isNaN(prev.getTime())) d = prev;
   }
+  return d;
 }
