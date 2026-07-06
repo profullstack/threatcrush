@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parsePaginationParam } from "@/lib/pagination";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 // GET /api/orgs/[id]/detections — List detections for org
@@ -28,8 +29,8 @@ export async function GET(
     const ruleId = url.searchParams.get("rule_id");
     const since = url.searchParams.get("since");
     const until = url.searchParams.get("until");
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
-    const offset = parseInt(url.searchParams.get("offset") || "0");
+    const limit = parsePaginationParam(url.searchParams.get("limit"), 50, { min: 1, max: 200 });
+    const offset = parsePaginationParam(url.searchParams.get("offset"), 0);
 
     let query = admin.from("detections").select("*", { count: "exact" })
       .eq("organization_id", orgId)
