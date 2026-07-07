@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPostBySlug, sanitizeHtml, formatDate, SITE_URL } from "@/lib/blog";
+import { AdUnit } from "@/components/AdUnit";
 
 type RouteParams = { params: Promise<{ slug: string }> };
 
@@ -144,6 +145,8 @@ export default async function BlogPostPage({ params }: RouteParams) {
           </Link>
         </div>
       </article>
+
+      <AdUnit className="mx-auto max-w-3xl px-4 pb-16 sm:px-6" />
 
       <script
         type="application/ld+json"

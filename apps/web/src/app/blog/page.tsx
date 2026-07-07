@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { listPosts, formatDate, SITE_URL } from "@/lib/blog";
+import { AdUnit } from "@/components/AdUnit";
 
 export const metadata: Metadata = {
   title: "Blog — ThreatCrush",
@@ -93,6 +94,8 @@ export default async function BlogIndexPage() {
             ))}
           </ul>
         )}
+
+        <AdUnit className="mt-12" />
       </div>
     </div>
   );
