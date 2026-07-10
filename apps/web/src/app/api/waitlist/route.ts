@@ -23,8 +23,18 @@ function generateReferralCode(): string {
 }
 
 export async function POST(request: NextRequest) {
+  let body: { email?: unknown; payment_method?: string; referral_code?: string };
   try {
-    const body = await request.json();
+    const parsed: unknown = await request.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return NextResponse.json({ error: "JSON object is required" }, { status: 400 });
+    }
+    body = parsed as typeof body;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  try {
     const { email, payment_method, referral_code } = body;
 
     if (!email || typeof email !== "string" || !email.includes("@")) {
