@@ -113,6 +113,28 @@ describe("POST /api/waitlist", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 when JSON is not an object", async () => {
+    const res = await POST(makeRequest(null));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("JSON object is required");
+  });
+
+  it("returns 400 for malformed JSON", async () => {
+    const req = new Request("http://localhost/api/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{",
+    }) as unknown as import("next/server").NextRequest;
+
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("Invalid JSON");
+  });
+
   it("handles duplicate email gracefully — returns existing entry", async () => {
     selectResult = {
       data: {
