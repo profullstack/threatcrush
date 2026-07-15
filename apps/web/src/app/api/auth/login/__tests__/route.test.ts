@@ -52,6 +52,14 @@ function makeRequest(body: unknown) {
   }) as unknown as import("next/server").NextRequest;
 }
 
+function makeRawRequest(body: string) {
+  return new Request("http://localhost/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  }) as unknown as import("next/server").NextRequest;
+}
+
 describe("POST /api/auth/login", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -103,6 +111,24 @@ describe("POST /api/auth/login", () => {
 
     expect(res.status).toBe(400);
     expect(body.error).toContain("Email and password are required");
+  });
+
+  it("rejects malformed JSON without calling Supabase", async () => {
+    const res = await POST(makeRawRequest("{"));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("Invalid JSON body");
+    expect(mockSignIn).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-object JSON without calling Supabase", async () => {
+    const res = await POST(makeRequest(null));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("Invalid JSON body");
+    expect(mockSignIn).not.toHaveBeenCalled();
   });
 
   it("response shape matches contract", async () => {
