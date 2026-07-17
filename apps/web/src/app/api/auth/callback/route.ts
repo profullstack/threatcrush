@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -26,8 +27,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const ref = searchParams.get("ref") || "";
-  const nextParam = searchParams.get("next") || "/account";
-  const nextPath = nextParam.startsWith("/") ? nextParam : "/account";
+  const nextPath = safeRedirectPath(searchParams.get("next"));
 
   if (!code) {
     return NextResponse.redirect(`${APP_URL}/auth/login?error=no_code`);

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { setAccessToken } from "@/lib/auth-client";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -11,8 +12,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const nextPath = useMemo(() => {
     if (typeof window === "undefined") return "/account";
-    const raw = new URLSearchParams(window.location.search).get("next") || "/account";
-    return raw.startsWith("/") ? raw : "/account";
+    return safeRedirectPath(new URLSearchParams(window.location.search).get("next"));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
