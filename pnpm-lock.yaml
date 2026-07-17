@@ -343,6 +343,9 @@ importers:
       '@profullstack/pluginstore':
         specifier: ^0.1.1
         version: 0.1.1
+      '@profullstack/stack':
+        specifier: ^0.1.0
+        version: 0.1.0(next@16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
       '@supabase/supabase-js':
         specifier: ^2.101.1
         version: 2.101.1
@@ -2508,8 +2511,35 @@ packages:
     version: 0.4.0
     engines: {node: '>=18'}
 
+  '@profullstack/emailer@1.0.1':
+    resolution: {integrity: sha512-/uhHJJGH+1xSSz3mJn6X+m6aruYjMD3JOaRp/d4R/YWlzpy07H9z0/JUleIyRyBPNmaANSIwjTZ7aVjaukOEpg==}
+
   '@profullstack/pluginstore@0.1.1':
     resolution: {integrity: sha512-7mIyjXpYYxvwebsy7sYg17uROZSG9DJFrmnMN98rTiXODqbhPFdkLwYLIx0HYgRaLBA6PKXkFRzhwQGo16xpUg==}
+
+  '@profullstack/referrals@0.1.0':
+    resolution: {integrity: sha512-u66SdBVpsv3kc0N+NWISPoYD5vjCERyv5wfD07iSkZwQeC2IA+ihX5jNA4e7Xr+Y4AUvxLycG+3b4VaROqzgRg==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      react: '>=18'
+    peerDependenciesMeta:
+      react:
+        optional: true
+
+  '@profullstack/stack@0.1.0':
+    resolution: {integrity: sha512-351fCM4if1CtEU34nE/jYNEKVMfkQT5tEPfqx5DyyfafSUCf7DNvyoBdopRRP00bhnWwSjp8SkPiVUwXbHmf/Q==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@supabase/ssr': '>=0.5.0'
+      next: '>=13.0.0'
+      react: '>=18.0.0'
+    peerDependenciesMeta:
+      '@supabase/ssr':
+        optional: true
+      next:
+        optional: true
+      react:
+        optional: true
 
   '@radix-ui/react-compose-refs@1.0.0':
     resolution: {integrity: sha512-0KaSv6sx787/hK3eF53iOkiSLwAGlFMx5lotrqD2pTjB18KbybKoEIgkNZTKC60YECDQTKGTRcDBILwZVqVKvA==}
@@ -10686,7 +10716,21 @@ snapshots:
 
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/75e54af77cbcf61dbd90fb3ed529c1b2dad1ed6f': {}
 
+  '@profullstack/emailer@1.0.1': {}
+
   '@profullstack/pluginstore@0.1.1': {}
+
+  '@profullstack/referrals@0.1.0(react@19.2.4)':
+    optionalDependencies:
+      react: 19.2.4
+
+  '@profullstack/stack@0.1.0(next@16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)':
+    dependencies:
+      '@profullstack/emailer': 1.0.1
+      '@profullstack/referrals': 0.1.0(react@19.2.4)
+    optionalDependencies:
+      next: 16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      react: 19.2.4
 
   '@radix-ui/react-compose-refs@1.0.0(react@18.3.1)':
     dependencies:
