@@ -12,6 +12,7 @@
     "@iarna/toml": "^2.2.5",
     "@profullstack/autoblog": "github:profullstack/autoblog#75e54af",
     "@profullstack/pluginstore": "^0.1.1",
+    "@profullstack/stack": "^0.1.0",
     "@supabase/supabase-js": "^2.101.1",
     "isomorphic-dompurify": "^3.12.0",
     "next": "16.2.2",
