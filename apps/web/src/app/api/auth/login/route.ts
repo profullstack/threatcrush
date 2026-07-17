@@ -3,9 +3,20 @@ import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, password } = await req.json();
+    let body: { email?: unknown; password?: unknown };
+    try {
+      const parsed: unknown = await req.json();
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
+      body = parsed as { email?: unknown; password?: unknown };
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
 
-    if (!email || !password) {
+    const { email, password } = body;
+
+    if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
