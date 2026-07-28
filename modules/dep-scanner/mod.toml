@@ -1,0 +1,64 @@
+[module]
+name = "dep-scanner"
+version = "0.1.0"
+description = "Detects vulnerable and malicious dependencies on running servers — advisories, install-script behaviour, and lockfile drift"
+author = "Profullstack, Inc."
+license = "MIT"
+homepage = "https://github.com/profullstack/threatcrush/tree/master/modules/dep-scanner"
+
+[module.pricing]
+type = "free"
+
+[module.requirements]
+threatcrush = ">=0.2.0"
+os = ["linux", "darwin"]
+capabilities = ["fs:read", "network:outbound"]
+
+[module.config.defaults]
+enabled = true
+
+# Where to look for projects. Each path is walked for directories containing a
+# package.json, skipping node_modules and VCS directories.
+paths = ["/srv", "/var/www", "/opt"]
+
+# How deep to walk below each configured path when looking for project roots.
+max_depth = 4
+
+# Dependencies change on deploy, not on the minute. Six hours keeps advisory
+# data fresh without turning the scanner into background load.
+scan_interval_seconds = 21600
+
+# --- Honesty ---------------------------------------------------------------
+# Alert when a project could not be parsed at all. Leave this on: the failure
+# this module was written to prevent is a scanner reporting "nothing found"
+# when the truth is "nothing was read". An unexamined root is not a clean one.
+fail_on_unparseable = true
+
+# --- Advisories ------------------------------------------------------------
+# Look up installed versions against OSV.dev (aggregates GHSA, PyPA, RustSec,
+# Go vulndb). Set false for a fully offline host; install-script and drift
+# detection continue to work without network access.
+advisories_enabled = true
+
+# Alerting floor. Findings below this are still counted and logged.
+min_severity = "medium"
+
+# How to treat findings reachable only through devDependencies:
+#   rank_down  demote one severity level (default)
+#   equal      treat identically to runtime dependencies
+# There is deliberately no "ignore": a finding an operator never sees is
+# indistinguishable from one that was missed.
+dev_dependencies = "rank_down"
+
+# --- Behavioural detection -------------------------------------------------
+# Score preinstall/install/postinstall scripts on what they do — fetching
+# remote code, decoding blobs, reading credential paths. This is what catches a
+# malicious package before an advisory exists, which is the window in which
+# event-stream, ua-parser-js and node-ipc all did their damage.
+install_scripts = true
+
+# --- Reporting -------------------------------------------------------------
+# Cap alerts per scan so a first run on a neglected host summarizes instead of
+# flooding the alert channel. Findings beyond the cap are logged and carried to
+# the next scan.
+max_alerts = 25

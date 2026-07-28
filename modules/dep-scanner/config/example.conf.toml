@@ -1,0 +1,58 @@
+# Example: /etc/threatcrush/threatcrushd.conf.d/dep-scanner.conf
+#
+# Values here override [module.config.defaults] in mod.toml.
+
+enabled = true
+
+# Where your code actually lives. Each path is walked for project roots,
+# skipping node_modules, .git and build output.
+paths = ["/srv", "/var/www", "/opt/app"]
+
+# Dependencies change on deploy, not by the minute.
+scan_interval_seconds = 21600
+
+# --- Honesty ---------------------------------------------------------------
+# Alert when a project could not be read at all.
+#
+# Leave this on. The failure this module was written to prevent is a scanner
+# reporting "nothing found" when the truth is "nothing was read" — a clean bill
+# of health issued without an examination. Turning this off restores exactly
+# that behaviour.
+fail_on_unparseable = true
+
+# --- Advisories ------------------------------------------------------------
+# Match installed versions against OSV.dev, which aggregates GHSA, PyPA,
+# RustSec and the Go vulnerability database. No API key required.
+#
+# Set false on an air-gapped host: install-script scoring and lockfile drift
+# detection both keep working without network access, and they are the two
+# detectors that catch a malicious package before an advisory exists.
+advisories_enabled = true
+
+# Alerting floor. Findings below this are still counted and logged, just not
+# alerted on.
+min_severity = "medium"
+
+# Findings reachable only through devDependencies:
+#   rank_down  demote one severity level (default)
+#   equal      treat identically to runtime dependencies
+#
+# There is deliberately no "ignore" — a finding nobody ever sees is
+# indistinguishable from one that was missed. Build tooling still executes on
+# your build host, and that host usually holds deploy credentials.
+dev_dependencies = "rank_down"
+
+# --- Behavioural detection -------------------------------------------------
+# Score preinstall/install/postinstall scripts on what they do: fetching remote
+# code, decoding blobs, reading ~/.npmrc or ~/.aws, probing geolocation.
+#
+# This is the detector that does not wait for a CVE. event-stream (2018),
+# ua-parser-js (2021) and node-ipc (2022) were all advisory-clean at the moment
+# they were installed; all three executed from a lifecycle script.
+install_scripts = true
+
+# --- Reporting -------------------------------------------------------------
+# Cap alerts per scan so the first run on a long-neglected host summarizes
+# rather than flooding your alert channel. Anything over the cap is logged and
+# carried into the next scan.
+max_alerts = 25

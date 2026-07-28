@@ -1,0 +1,48 @@
+{
+  "name": "threatcrush-module-dep-scanner",
+  "version": "0.1.0",
+  "description": "Scans installed dependencies for known advisories, malicious install scripts and lockfile drift",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "author": "Profullstack, Inc.",
+  "homepage": "https://threatcrush.com/store/dep-scanner",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profullstack/threatcrush.git",
+    "directory": "modules/dep-scanner"
+  },
+  "keywords": [
+    "threatcrush",
+    "threatcrush-module",
+    "security",
+    "supply-chain",
+    "dependencies",
+    "cve",
+    "osv",
+    "sbom",
+    "vulnerability-scanner"
+  ],
+  "files": [
+    "dist",
+    "mod.toml",
+    "config",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@threatcrush/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
