@@ -3,6 +3,22 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 type RouteContext = { params: Promise<{ slug: string }> };
 
+async function getAuthenticatedUser(request: NextRequest) {
+  const sb = getSupabaseAdmin();
+  const authHeader = request.headers.get("authorization");
+  const tokenFromHeader = authHeader?.replace("Bearer ", "");
+  const tokenFromCookie = request.cookies?.get?.("sb-access-token")?.value
+    || request.cookies?.get?.("supabase-auth-token")?.value;
+
+  for (const token of [tokenFromHeader, tokenFromCookie]) {
+    if (!token) continue;
+    const { data } = await sb.auth.getUser(token);
+    if (data?.user) return data.user;
+  }
+
+  return null;
+}
+
 /**
  * GET /api/modules/[slug]/review
  * List reviews for a module.
@@ -56,31 +72,32 @@ export async function POST(
   request: NextRequest,
   context: RouteContext
 ) {
+  const user = await getAuthenticatedUser(request);
+  if (!user) {
+    return NextResponse.json({ error: "You must be logged in to leave reviews." }, { status: 401 });
+  }
+
   const { slug } = await context.params;
-  let body: { user_email?: string; rating?: number; title?: string; body?: string };
+  let body: { rating?: number; title?: string; body?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (!body.user_email) {
-    return NextResponse.json({ error: "user_email is required" }, { status: 400 });
-  }
   if (!body.rating || body.rating < 1 || body.rating > 5) {
     return NextResponse.json({ error: "rating must be 1-5" }, { status: 400 });
   }
 
   const sb = getSupabaseAdmin();
 
-  // Verify user is registered
   const { data: profile } = await sb
     .from("user_profiles")
-    .select("id")
-    .eq("email", body.user_email)
+    .select("id, email")
+    .eq("id", user.id)
     .single();
 
-  if (!profile) {
+  if (!profile?.email) {
     return NextResponse.json(
       { error: "You must create an account to leave reviews." },
       { status: 401 }
@@ -104,7 +121,7 @@ export async function POST(
     .upsert(
       {
         module_id: mod.id,
-        user_email: body.user_email,
+        user_email: profile.email,
         rating: body.rating,
         title: body.title || null,
         body: body.body || null,
