@@ -8,7 +8,7 @@
  *
  *   deps/      dependency and supply-chain scanning — PRD 0002, implemented
  *   secrets/   hardcoded credential detection — PRD 0003, implemented
- *   sast/      source-level vulnerability analysis — not yet built
+ *   sast/      source-level vulnerability analysis — PRD 0004, implemented
  *   config/    misconfiguration checks — not yet built
  *
  * PRD 0002 originally proposed dependency scanning as a standalone
@@ -39,6 +39,12 @@ import {
   type Finding,
 } from './deps/index.js';
 import {
+  SAST_DEFAULTS,
+  scanSast,
+  type SastOptions,
+  type SastResult,
+} from './sast/index.js';
+import {
   SECRETS_DEFAULTS,
   scanSecrets,
   type SecretsOptions,
@@ -56,6 +62,7 @@ const DEFAULTS = {
 export interface ScanResult {
   deps: DepsResult | null;
   secrets: SecretsResult | null;
+  sast: SastResult | null;
   /** True when any subsystem could not complete — never report "clean". */
   incomplete: boolean;
 }
@@ -122,7 +129,8 @@ export default class CodeScannerModule implements ThreatCrushModule {
   async scan(): Promise<ScanResult> {
     const deps = this.depsEnabled() ? await scanDependencies(this.depsOptions()) : null;
     const secrets = this.secretsEnabled() ? await scanSecrets(this.secretsOptions()) : null;
-    return { deps, secrets, incomplete: Boolean(deps?.incomplete) };
+    const sast = this.sastEnabled() ? await scanSast(this.sastOptions()) : null;
+    return { deps, secrets, sast, incomplete: Boolean(deps?.incomplete) };
   }
 
   private depsEnabled(): boolean {
@@ -131,6 +139,23 @@ export default class CodeScannerModule implements ThreatCrushModule {
 
   private secretsEnabled(): boolean {
     return this.ctx.config.secrets_enabled !== false;
+  }
+
+  private sastEnabled(): boolean {
+    return this.ctx.config.sast_enabled !== false;
+  }
+
+  private sastOptions(): SastOptions {
+    const cfg = this.ctx.config;
+    return {
+      paths: this.paths(),
+      maxDepth: (cfg.max_depth as number | undefined) ?? SAST_DEFAULTS.maxDepth,
+      maxFileBytes: (cfg.sast_max_file_bytes as number | undefined) ?? SAST_DEFAULTS.maxFileBytes,
+      vendored: (cfg.sast_vendored as SastOptions['vendored'] | undefined) ?? SAST_DEFAULTS.vendored,
+      minConfidence:
+        (cfg.sast_min_confidence as SastOptions['minConfidence'] | undefined) ??
+        SAST_DEFAULTS.minConfidence,
+    };
   }
 
   private secretsOptions(): SecretsOptions {
@@ -174,6 +199,7 @@ export default class CodeScannerModule implements ThreatCrushModule {
     const reported = new Set(this.readState<string[]>(STATE_REPORTED, []));
 
     if (result.secrets) this.reportSecrets(result.secrets, floor, maxAlerts, reported);
+    if (result.sast) this.reportSast(result.sast, floor, maxAlerts, reported);
 
     const deps = result.deps;
     if (!deps) {
@@ -330,6 +356,59 @@ export default class CodeScannerModule implements ThreatCrushModule {
     );
   }
 
+  /**
+   * Alert on dangerous constructs.
+   *
+   * The confidence is in the alert body, not implied by tone: a `pattern`
+   * finding says the construct exists, and the word "vulnerability" is
+   * reserved for `contextual` (PRD 0004 R13).
+   */
+  private reportSast(
+    sast: SastResult,
+    floor: number,
+    maxAlerts: number,
+    reported: Set<string>,
+  ): void {
+    const notable = sast.findings.filter((f) => severityRank(f.severity) >= floor);
+
+    for (const finding of notable
+      .filter((f) => !reported.has(`sast:${f.file}:${f.ruleId}:${f.line}`))
+      .slice(0, maxAlerts)) {
+      const headline = `code-scanner: ${finding.title} in ${finding.file}:${finding.line}`;
+      this.ctx.emit(
+        this.event('scan', finding.severity, headline, {
+          rule: finding.ruleId,
+          cwe: finding.cwe,
+          file: finding.file,
+          line: finding.line,
+          confidence: finding.confidence,
+          vendored: finding.vendored,
+        }),
+      );
+      this.ctx.alert({
+        title: headline,
+        severity: finding.severity,
+        body: [
+          `${finding.file}:${finding.line}  ${finding.ruleId} (${finding.cwe})`,
+          finding.excerpt,
+          '',
+          `confidence: ${finding.confidence}`,
+          finding.consequence,
+        ].join('\n'),
+      } satisfies Alert);
+      reported.add(`sast:${finding.file}:${finding.ruleId}:${finding.line}`);
+    }
+
+    // A quiet scan full of suppressions is not a clean one.
+    this.ctx.logger.info(
+      '[%s] sast: %d file(s) scanned, %d finding(s), %d suppression(s)',
+      this.name,
+      sast.filesScanned,
+      sast.findings.length,
+      sast.suppressions.length,
+    );
+  }
+
   private paths(): string[] {
     const configured = this.ctx.config.paths;
     if (Array.isArray(configured) && configured.length > 0) return configured as string[];
@@ -385,4 +464,5 @@ export function summarize(result: ScanResult): string {
 }
 
 export * from './deps/index.js';
+export * from './sast/index.js';
 export * from './secrets/index.js';

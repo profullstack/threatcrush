@@ -42,6 +42,26 @@ max_alerts = 25
 # truth is "nothing was read". An unexamined project is not a clean one.
 fail_on_unparseable = true
 
+# --- sast subsystem: dangerous source patterns (PRD 0004) -----------------
+sast_enabled = true
+
+# Third-party, generated and minified code:
+#   rank_down  demote one severity level (default)
+#   equal      treat identically to first-party source
+# Never hidden — a vulnerability in vendor/ still executes.
+sast_vendored = "rank_down"
+
+# Minimum confidence to report:
+#   pattern     the dangerous construct exists (capped at medium severity)
+#   contextual  the construct sits alongside apparent untrusted input
+# This subsystem is line-oriented pattern matching, not data-flow analysis, and
+# will not present a bare pattern match as a proven vulnerability. CodeQL and
+# Semgrep do the real analysis in CI; this covers source on a running server
+# that never passed through the repository.
+sast_min_confidence = "pattern"
+
+sast_max_file_bytes = 2000000
+
 # --- secrets subsystem: hardcoded credential detection (PRD 0003) ---------
 secrets_enabled = true
 
