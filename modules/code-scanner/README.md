@@ -1,15 +1,31 @@
-# dep-scanner
+# code-scanner
 
-Detects vulnerable and malicious dependencies on **running servers**.
+Static analysis on codebases. `PRD.md` scopes this module to "vulnerabilities,
+secrets, misconfigs, dependency CVEs" — four different detection models over the
+same directories, so the module is a thin host and each one is a **subsystem**:
 
-Implements [PRD 0002](../../prd/0002-detect-vulnerable-and-malicious-dependencies-on-running-servers.md).
+| Subsystem | Covers | Status |
+| --- | --- | --- |
+| `deps/` | Dependency advisories, malicious install scripts, lockfile drift | **implemented** ([PRD 0002](../../prd/0002-detect-vulnerable-and-malicious-dependencies-on-running-servers.md)) |
+| `secrets/` | Hardcoded credentials | not yet built |
+| `sast/` | Source-level vulnerability analysis | not yet built |
+| `config/` | Misconfiguration checks | not yet built |
 
 ```bash
-threatcrush modules install dep-scanner
+threatcrush modules install code-scanner
 threatcrush scan --deps /srv/app
 ```
 
-## Why another dependency scanner
+PRD 0002 originally proposed the dependency work as a standalone `dep-scanner`
+module and left the boundary open. It is resolved in favour of folding in: two
+modules would have walked the same trees, held two inventories of the same
+packages, and given the operator two path lists to keep in sync — for a
+user-visible surface (`threatcrush scan --deps`) that was always meant to be one
+command. What survives the fold is the *internal* separation, because `deps/`
+owns an external advisory database and a per-ecosystem parser surface that has
+nothing in common with a secrets regex pass.
+
+## Why the deps subsystem exists
 
 Two failures motivated this module, and both are things the existing tools do
 badly or cannot do at all.
@@ -27,7 +43,7 @@ Every number was wrong. It read the root `package.json`, never resolved
 `pnpm-workspace.yaml`, found nothing, and called the nothing *good*. For a
 productivity tool that wastes an afternoon; for a security tool it is a clean
 bill of health issued without an examination. Run against the same workspace,
-this module reports **21 manifests, 59 packages**, and marks the root `partial`
+this subsystem reports **21 project roots and 101 packages**, and marks the root `partial`
 with the reason — because a pnpm lockfile is not parsed yet, and saying so is
 the entire point.
 

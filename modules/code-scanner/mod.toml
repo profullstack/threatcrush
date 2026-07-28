@@ -1,0 +1,63 @@
+[module]
+name = "code-scanner"
+version = "0.1.0"
+description = "Static analysis on codebases — dependency advisories, malicious install scripts, and lockfile drift"
+author = "Profullstack, Inc."
+license = "MIT"
+homepage = "https://github.com/profullstack/threatcrush/tree/master/modules/code-scanner"
+
+[module.pricing]
+type = "free"
+
+[module.requirements]
+threatcrush = ">=0.2.0"
+os = ["linux", "darwin"]
+capabilities = ["fs:read", "network:outbound"]
+
+[module.config.defaults]
+enabled = true
+
+# Where to look for code. Each path is walked for project roots, skipping
+# node_modules, VCS and build directories. Shared by every subsystem.
+paths = ["/srv", "/var/www", "/opt"]
+
+# How deep to walk below each configured path when looking for project roots.
+max_depth = 4
+
+# Dependencies change on deploy, not by the minute. Six hours keeps advisory
+# data fresh without turning the scanner into background load.
+scan_interval_seconds = 21600
+
+# Alerting floor, shared by every subsystem. Findings below this are still
+# counted and logged, just not alerted on.
+min_severity = "medium"
+
+# Cap alerts per scan so a first run on a neglected host summarizes instead of
+# flooding the alert channel. Findings over the cap carry to the next scan.
+max_alerts = 25
+
+# --- Honesty ---------------------------------------------------------------
+# Alert when a project could not be parsed at all. Leave this on: the failure
+# this scanner was written to prevent is reporting "nothing found" when the
+# truth is "nothing was read". An unexamined project is not a clean one.
+fail_on_unparseable = true
+
+# --- deps subsystem: dependency and supply-chain scanning (PRD 0002) -------
+deps_enabled = true
+
+# Look up installed versions against OSV.dev (aggregates GHSA, PyPA, RustSec,
+# Go vulndb). Set false for a fully offline host; install-script scoring and
+# drift detection continue to work without network access.
+deps_advisories = true
+
+# Score preinstall/install/postinstall scripts on what they do. This is what
+# catches a malicious package before an advisory exists, which is the window in
+# which event-stream, ua-parser-js and node-ipc all did their damage.
+deps_install_scripts = true
+
+# How to treat findings reachable only through devDependencies:
+#   rank_down  demote one severity level (default)
+#   equal      treat identically to runtime dependencies
+# There is deliberately no "ignore": a finding an operator never sees is
+# indistinguishable from one that was missed.
+deps_dev_dependencies = "rank_down"

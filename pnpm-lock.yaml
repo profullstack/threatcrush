@@ -393,6 +393,22 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@20.19.39)(jsdom@29.1.1)(lightningcss@1.32.0)(terser@5.46.1)
 
+  modules/code-scanner:
+    dependencies:
+      '@threatcrush/sdk':
+        specifier: workspace:*
+        version: link:../../apps/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@2.6.1)(jsdom@29.1.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
+
   modules/dep-scanner:
     dependencies:
       '@threatcrush/sdk':
