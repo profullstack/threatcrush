@@ -1,0 +1,28 @@
+{
+  "name": "spend-guard",
+  "display_name": "Spend Guard",
+  "description": "Detects balance-drain attacks on metered third-party services — SMS pumping, toll fraud, and runaway API spend.",
+  "long_description": "Attackers can turn any public form that triggers a paid third-party call into a payment terminal. SMS pumping (IRSF) is the common case: an attacker enumerates phone numbers in ranges they control, triggers verification messages, and collects the carrier revenue share. Nothing in a conventional security stack sees it — no port scan, no failed login, no CVE — because the attacker uses the form exactly as designed and the loss lands at a provider your server never talks to.\n\nspend-guard polls provider billing APIs, learns a baseline, and scores independent detectors: unit cost, daily volume, previously unseen destinations, and balance burn rate. Containment requires two signals to agree, because the hard problem is not spotting expensive traffic — it is telling expensive-and-fraudulent from expensive-and-legitimate. Real users dialling international numbers look expensive too; what distinguishes fraud is shape, arriving as a volume spike into destinations with no history rather than spread across weeks.\n\nThe burn-rate detector escalates to critical when auto-recharge is enabled, since that removes the only natural ceiling on the attack.\n\nDetection logic is pure and I/O-free, and the test suite replays a real incident: it must fire on the fraud waves and stay quiet on a genuinely expensive month of legitimate international signups.",
+  "author_name": "Profullstack, Inc.",
+  "author_url": "https://profullstack.com",
+  "homepage_url": "https://github.com/profullstack/threatcrush/tree/master/modules/spend-guard",
+  "git_url": "https://github.com/profullstack/threatcrush",
+  "license": "MIT",
+  "pricing_type": "free",
+  "category": "security",
+  "tags": [
+    "billing",
+    "fraud",
+    "sms-pumping",
+    "irsf",
+    "toll-fraud",
+    "anomaly-detection",
+    "twilio",
+    "cost-control"
+  ],
+  "keywords": "sms pumping, IRSF, toll fraud, balance drain, auto-recharge, billing anomaly, twilio, spend monitoring",
+  "version": "0.1.0",
+  "min_threatcrush_version": ">=0.2.0",
+  "os_support": ["linux", "darwin"],
+  "capabilities": ["network:outbound"]
+}
