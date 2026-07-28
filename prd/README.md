@@ -14,3 +14,4 @@ these numbered PRDs cover individual changes to it.
 | ID | Title | Status | Tags |
 | --- | --- | --- | --- |
 | [0001](./0001-detect-and-contain-balance-drain-attacks-on-third-party-services.md) | Detect and contain balance-drain attacks on third-party services | Draft | spend-guard, billing, fraud, sms-pumping, irsf, auto-recharge, containment, modules |
+| [0002](./0002-detect-vulnerable-and-malicious-dependencies-on-running-servers.md) | Detect vulnerable and malicious dependencies on running servers | Draft | dep-scanner, supply-chain, sbom, cve, osv, install-scripts, drift, code-scanner, modules |
