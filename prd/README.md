@@ -27,3 +27,4 @@ these numbered PRDs cover individual changes to it.
 | [0012](./0012-a-decoy-nobody-legitimate-touches.md) | A decoy nobody legitimate touches | Draft | honeypot, deception, decoy, high-precision, modules |
 | [0013](./0013-make-attacks-expensive-instead-of-blocking-them.md) | Make attacks expensive instead of blocking them | Draft | tar-pit, throttling, cost-asymmetry, containment, modules |
 | [0014](./0014-learn-about-a-breach-when-the-stolen-credential-is-used.md) | Learn about a breach when the stolen credential is used | Draft | deception, canary-tokens, breach-detection, dwell-time, modules |
+| [0015](./0015-report-abuse-without-becoming-a-source-of-it.md) | Report abuse without becoming a source of it | Draft | abuse-reporter, abuseipdb, reputation, false-positives, modules |
