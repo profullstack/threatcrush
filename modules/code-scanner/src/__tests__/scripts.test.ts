@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractScripts, rankScripts, scoreScript, type InstallScript } from '../scripts.js';
+import { extractScripts, rankScripts, scoreScript, type InstallScript } from '../deps/scripts.js';
 
 const script = (command: string, stage: InstallScript['stage'] = 'postinstall'): InstallScript => ({
   packageName: 'example',

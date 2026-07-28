@@ -4,7 +4,7 @@ import {
   fixedVersionFor,
   isVersionAffected,
   parseVersion,
-} from '../semver.js';
+} from '../deps/semver.js';
 
 /**
  * Version comparison is the load-bearing primitive: every advisory match runs

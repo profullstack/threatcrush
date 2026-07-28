@@ -8,12 +8,12 @@ import {
   inventoryRoot,
   parsePackageLock,
   readWorkspacePatterns,
-} from '../inventory.js';
+} from '../deps/inventory.js';
 
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), 'dep-scanner-'));
+  dir = await mkdtemp(join(tmpdir(), 'code-scanner-'));
 });
 
 afterEach(async () => {

@@ -9,8 +9,8 @@ created: 2026-07-28
 updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
-implementation:
-tags: dep-scanner, supply-chain, sbom, cve, osv, install-scripts, drift, code-scanner, modules
+implementation: modules/code-scanner (deps subsystem)
+tags: code-scanner, deps, supply-chain, sbom, cve, osv, install-scripts, drift, supply-chain-scanning, modules
 supersedes:
 superseded-by:
 ---
@@ -101,8 +101,9 @@ gives it three signals nobody in CI has:
   against a repository; this inspects a running host. Complementary, not
   competing — and this PRD does not propose ThreatCrush open PRs.
 - **Not a general SAST engine.** Source-level vulnerability analysis, secret
-  detection and misconfiguration scanning stay with `code-scanner`. This module
-  owns the dependency graph only (see the boundary question in Risks).
+  detection and misconfiguration scanning are `code-scanner`'s other subsystems
+  (`sast/`, `secrets/`, `config/`) and are out of scope for this PRD. This work
+  owns the dependency graph only — a package inventory, not source.
 - **Not a license-compliance tool.** SBOM output must be reusable for that, but
   license policy enforcement is out of scope.
 - **Not automatic remediation in v1.** No auto-upgrading, no auto-`npm install`,
@@ -210,47 +211,50 @@ gives it three signals nobody in CI has:
 
 ## UX Notes
 
-Ships as a core module, `dep-scanner`, following the existing module contract
-(`mod.toml`, config in `threatcrushd.conf.d/dep-scanner.conf`, alerts routed
-through `alert-system`), matching `spend-guard`.
+Ships as the `deps` subsystem of the core `code-scanner` module, following the
+existing module contract (`mod.toml`, config in
+`threatcrushd.conf.d/code-scanner.conf`, alerts routed through `alert-system`),
+matching `spend-guard`. Dependency-specific settings are namespaced `deps_*` so
+the sibling subsystems — `secrets`, `sast`, `config` — can be configured
+alongside without collision, while `paths`, `min_severity` and the scan interval
+stay shared.
 
 ```bash
 threatcrush scan --deps                      # one-shot, current directory
 threatcrush scan --deps /srv/app --json      # machine-readable
 threatcrush scan --deps --fail-on high       # CI gate (non-zero exit)
-threatcrush dep-scanner inventory            # what is installed, per root
-threatcrush dep-scanner scripts              # every install script in the tree
-threatcrush dep-scanner drift                # changes since last scan
-threatcrush dep-scanner sbom --format cyclonedx > sbom.json
-threatcrush dep-scanner sync                 # refresh the advisory database
-threatcrush dep-scanner why lodash           # who pulls this in, and is it runtime
+threatcrush code-scanner deps inventory      # what is installed, per root
+threatcrush code-scanner deps scripts        # every install script in the tree
+threatcrush code-scanner deps drift          # changes since last scan
+threatcrush code-scanner deps sbom --format cyclonedx > sbom.json
+threatcrush code-scanner deps sync           # refresh the advisory database
+threatcrush code-scanner deps why lodash     # who pulls this in, and is it runtime
 ```
 
 Config sketch:
 
 ```toml
-[dep-scanner]
+[code-scanner]
 enabled = true
 paths = ["/srv", "/var/www", "/opt/app"]
 scan_interval = "6h"
+min_severity = "medium"        # alerting floor, shared by every subsystem
 
 # Never report a pass for a root that could not be parsed.
 fail_on_unparseable = true
 
-[dep-scanner.advisories]
-source = "osv"
+[code-scanner.deps]
+enabled = true
+advisories = "osv"
 sync_interval = "12h"
-offline_ok = true          # match against last sync rather than skipping
-
-[dep-scanner.detect]
-min_severity = "medium"        # alerting floor
-dev_dependencies = "rank_down" # rank_down | ignore | equal
+offline_ok = true              # match against last sync rather than skipping
+dev_dependencies = "rank_down" # rank_down | equal — deliberately no "ignore"
 install_scripts = true
 integrity_mismatch = "critical"
 drift = "high"
 reputation_heuristics = true
 
-[dep-scanner.report]
+[code-scanner.report]
 dedupe_window = "30d"
 max_alerts_per_scan = 25       # summarize beyond this rather than flooding
 ```
@@ -259,7 +263,7 @@ An alert must lead with exposure and remediation, and must state its own
 blind spots:
 
 ```
-[HIGH] dep-scanner · /srv/qrypt-chat · 3 runtime advisories, 1 integrity mismatch
+[HIGH] code-scanner · /srv/qrypt-chat · 3 runtime advisories, 1 integrity mismatch
 
   CRITICAL  integrity mismatch  ua-parser-js@0.7.29
             on-disk hash != lockfile integrity — installed bytes are not the
@@ -309,15 +313,19 @@ Design constraints:
 
 ## Risks & Open Questions
 
-- **Module boundary with `code-scanner` is unresolved.** `PRD.md` assigns
-  "dependency CVEs" to `code-scanner`, and this PRD proposes a separate
-  `dep-scanner`. The argument for splitting: different data model (a package
-  graph, not source), different cadence (scheduled and on-change, not one-shot),
-  a large external database dependency, and a maintenance surface per ecosystem
-  that would dominate `code-scanner`. **Open:** split as proposed and amend
-  `PRD.md`, or ship as a `code-scanner` subsystem sharing the `scan` CLI? The
-  CLI (`scan --deps`) should look identical to the user either way, so this is
-  an internal boundary decision that should not leak.
+- ~~**Module boundary with `code-scanner` is unresolved.**~~ **Resolved
+  2026-07-28: folded into `code-scanner` as the `deps/` subsystem.** Two
+  modules would have walked the same trees, held two inventories of the same
+  packages, and given the operator two path lists to keep in sync — for a
+  user-visible surface (`scan --deps`) that was always meant to be one command.
+  `PRD.md` already assigned "dependency CVEs" to `code-scanner`, so folding in
+  makes the module tree match the product doc instead of contradicting it, and
+  no amendment is needed. The arguments for splitting (a package-graph data
+  model, an external advisory database, a per-ecosystem parser surface that will
+  keep growing) were real but are all *internal*, so they are preserved as a
+  subsystem boundary under `src/deps/` rather than a module boundary. Siblings
+  `secrets/`, `sast/` and `config/` are stubs for the rest of `code-scanner`'s
+  remit.
 - **Reachability analysis is where scanners lose credibility in both
   directions.** Too eager and it suppresses a real finding; too timid and the
   operator drowns. v1 uses it only to *rank* (R9), never to suppress — but that
@@ -342,7 +350,7 @@ Design constraints:
 - **Drift detection (R14) needs a deploy signal it does not own.** Without
   knowing when a legitimate deploy happened, every deploy looks like drift.
   **Open:** infer from process restart and mtime clustering, or require an
-  explicit `threatcrush dep-scanner ack-deploy` hook in the user's deploy
+  explicit `threatcrush code-scanner deps ack-deploy` hook in the user's deploy
   script? The latter is accurate and adds integration burden.
 - **This module reads dependency trees, which frequently contain credentials in
   adjacent files** (`.npmrc`, `.env`). It must never log or transmit them, and

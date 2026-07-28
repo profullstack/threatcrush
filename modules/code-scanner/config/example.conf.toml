@@ -1,4 +1,4 @@
-# Example: /etc/threatcrush/threatcrushd.conf.d/dep-scanner.conf
+# Example: /etc/threatcrush/threatcrushd.conf.d/code-scanner.conf
 #
 # Values here override [module.config.defaults] in mod.toml.
 
@@ -27,7 +27,7 @@ fail_on_unparseable = true
 # Set false on an air-gapped host: install-script scoring and lockfile drift
 # detection both keep working without network access, and they are the two
 # detectors that catch a malicious package before an advisory exists.
-advisories_enabled = true
+deps_advisories = true
 
 # Alerting floor. Findings below this are still counted and logged, just not
 # alerted on.
@@ -40,7 +40,7 @@ min_severity = "medium"
 # There is deliberately no "ignore" — a finding nobody ever sees is
 # indistinguishable from one that was missed. Build tooling still executes on
 # your build host, and that host usually holds deploy credentials.
-dev_dependencies = "rank_down"
+deps_dev_dependencies = "rank_down"
 
 # --- Behavioural detection -------------------------------------------------
 # Score preinstall/install/postinstall scripts on what they do: fetching remote
@@ -49,7 +49,7 @@ dev_dependencies = "rank_down"
 # This is the detector that does not wait for a CVE. event-stream (2018),
 # ua-parser-js (2021) and node-ipc (2022) were all advisory-clean at the moment
 # they were installed; all three executed from a lifecycle script.
-install_scripts = true
+deps_install_scripts = true
 
 # --- Reporting -------------------------------------------------------------
 # Cap alerts per scan so the first run on a long-neglected host summarizes
