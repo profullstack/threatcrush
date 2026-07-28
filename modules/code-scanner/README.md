@@ -7,7 +7,7 @@ same directories, so the module is a thin host and each one is a **subsystem**:
 | Subsystem | Covers | Status |
 | --- | --- | --- |
 | `deps/` | Dependency advisories, malicious install scripts, lockfile drift | **implemented** ([PRD 0002](../../prd/0002-detect-vulnerable-and-malicious-dependencies-on-running-servers.md)) |
-| `secrets/` | Hardcoded credentials | not yet built |
+| `secrets/` | Hardcoded credentials, redacted by construction | **implemented** ([PRD 0003](../../prd/0003-detect-hardcoded-secrets-before-they-are-committed-or-served.md)) |
 | `sast/` | Source-level vulnerability analysis | not yet built |
 | `config/` | Misconfiguration checks | not yet built |
 
