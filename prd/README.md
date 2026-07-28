@@ -20,3 +20,4 @@ these numbered PRDs cover individual changes to it.
 | [0005](./0005-catch-the-misconfigurations-that-actually-get-servers-breached.md) | Catch the misconfigurations that actually get servers breached | Draft | code-scanner, config, misconfiguration, hardening, exposure, modules |
 | [0006](./0006-route-alerts-so-they-keep-being-read.md) | Route alerts so they keep being read | Draft | alert-system, routing, deduplication, escalation, notifications, modules |
 | [0007](./0007-tell-ssh-compromise-apart-from-ssh-background-noise.md) | Tell SSH compromise apart from SSH background noise | Draft | ssh-guard, brute-force, authentication, tunneling, posture, modules |
+| [0008](./0008-notice-what-changed-on-the-network-not-everything-on-it.md) | Notice what changed on the network, not everything on it | Draft | network-monitor, listeners, egress, port-scan, baseline, modules |
