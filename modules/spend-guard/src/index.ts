@@ -32,6 +32,12 @@ import {
 } from './detectors.js';
 import { AlchemyProvider, redactRpcUrl } from './providers/alchemy.js';
 import { ElevenLabsQuota, ValueSerpQuota, type QuotaProvider } from './providers/quota-apis.js';
+import {
+  computeDrawdownPerHour,
+  DeepSeekBalance,
+  MoonshotBalance,
+  type BalanceProvider,
+} from './providers/balance-apis.js';
 import { DEFAULT_QUOTA_THRESHOLDS, evaluateQuota } from './quota.js';
 import { TwilioProvider } from './providers/twilio.js';
 import { ProviderError, type SpendProvider } from './providers/types.js';
@@ -50,12 +56,13 @@ const DEFAULTS = {
 
 export default class SpendGuardModule implements ThreatCrushModule {
   name = 'spend-guard';
-  version = '0.3.0';
+  version = '0.4.0';
   description = 'Detects balance-drain attacks (SMS pumping, toll fraud, runaway API spend) on third-party providers';
 
   private ctx!: ModuleContext;
   private providers: SpendProvider[] = [];
   private quotaProviders: QuotaProvider[] = [];
+  private balanceProviders: BalanceProvider[] = [];
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -63,6 +70,7 @@ export default class SpendGuardModule implements ThreatCrushModule {
     this.ctx = ctx;
     this.providers = buildProviders(ctx);
     this.quotaProviders = buildQuotaProviders(ctx);
+    this.balanceProviders = buildBalanceProviders(ctx);
 
     if (this.providers.length === 0) {
       ctx.logger.warn(
@@ -101,6 +109,14 @@ export default class SpendGuardModule implements ThreatCrushModule {
 
   private async tick(): Promise<void> {
     if (!this.running) return;
+
+    for (const b of this.balanceProviders) {
+      try {
+        await this.pollPrepaidBalance(b);
+      } catch (err) {
+        this.ctx.logger.error('[%s] %s balance poll failed: %s', this.name, b.name, String(err));
+      }
+    }
 
     for (const q of this.quotaProviders) {
       try {
@@ -264,6 +280,47 @@ export default class SpendGuardModule implements ThreatCrushModule {
       }),
     );
     this.ctx.alert({ title: headline, severity: verdict.severity });
+  }
+
+  /**
+   * Prepaid balances have no limit and no reset date, so pace is undefined.
+   * The signal comes from the slope between polls instead — which beats a
+   * low-balance threshold, because a threshold only fires once the money has
+   * already gone.
+   */
+  private async pollPrepaidBalance(provider: BalanceProvider): Promise<void> {
+    const sample = await provider.fetchPrepaidBalance();
+    const now = Date.now();
+    const key = `balance:${provider.name}:last`;
+    const previous = this.readState<{ balance: number; at: number } | null>(key, null);
+
+    this.writeState(key, { balance: sample.balance, at: now });
+    if (!previous) return; // first observation — nothing to compare against yet
+
+    const perHour = computeDrawdownPerHour(previous, { balance: sample.balance, at: now });
+    const hit = evaluateBurnRate(
+      sample.balance,
+      perHour,
+      (this.ctx.config.burn_rate_warn_hours as number) ?? DEFAULTS.burnRateWarnHours,
+      Boolean(this.ctx.config.auto_recharge_enabled),
+    );
+    if (!hit) return;
+
+    const stateKey = `balance:${provider.name}:severity`;
+    if (this.readState<string>(stateKey, '') === hit.severity) return;
+    this.writeState(stateKey, hit.severity);
+
+    const headline = `spend-guard: ${provider.name} ${hit.message} (${sample.currency})`;
+    this.ctx.emit(
+      this.event('system', hit.severity, headline, {
+        provider: provider.name,
+        balance: sample.balance,
+        currency: sample.currency,
+        spend_per_hour: Number(perHour.toFixed(4)),
+        ...hit.details,
+      }),
+    );
+    this.ctx.alert({ title: headline, severity: hit.severity });
   }
 
   private report(provider: SpendProvider, day: string, verdict: Verdict, baseline: Baseline): void {
@@ -453,6 +510,32 @@ export function buildQuotaProviders(ctx: ModuleContext): QuotaProvider[] {
   return out;
 }
 
+/** Build prepaid-balance providers from config. */
+export function buildBalanceProviders(ctx: ModuleContext): BalanceProvider[] {
+  const out: BalanceProvider[] = [];
+  const entries = ctx.config.balance_providers;
+  if (!Array.isArray(entries)) return out;
+
+  for (const raw of entries) {
+    const e = raw as { provider?: string; api_key?: string; label?: string; host?: string };
+    if (!e?.provider || !e?.api_key) continue;
+    const label = e.label ?? e.provider;
+
+    switch (e.provider.toLowerCase()) {
+      case 'deepseek':
+        out.push(new DeepSeekBalance(e.api_key, label));
+        break;
+      case 'moonshot':
+      case 'kimi':
+        out.push(new MoonshotBalance(e.api_key, label, e.host));
+        break;
+      default:
+        ctx.logger.warn('[spend-guard] unknown balance provider: %s', e.provider);
+    }
+  }
+  return out;
+}
+
 export function isoDaysAgo(days: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - days);
@@ -462,6 +545,7 @@ export function isoDaysAgo(days: number): string {
 export * from './detectors.js';
 export * from './providers/alchemy.js';
 export * from './providers/quota-apis.js';
+export * from './providers/balance-apis.js';
 export * from './quota.js';
 export * from './providers/twilio.js';
 export * from './providers/types.js';

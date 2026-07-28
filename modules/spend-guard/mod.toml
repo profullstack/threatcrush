@@ -1,6 +1,6 @@
 [module]
 name = "spend-guard"
-version = "0.3.0"
+version = "0.4.0"
 description = "Detects balance-drain attacks on metered third-party services — SMS pumping, toll fraud, and runaway API spend"
 author = "Profullstack, Inc."
 license = "MIT"
@@ -101,3 +101,20 @@ quota_providers = []
 
 # Flag when consumption runs this many times ahead of schedule.
 quota_pace_factor = 2.0
+
+# --- Prepaid balance providers ---------------------------------------------
+# For services that expose a bare credit balance with no limit and no reset
+# date. Pace is undefined there, so detection watches the drawdown slope
+# between polls and projects time-to-zero. Also readable with the ordinary
+# app key.
+#
+# Moonshot/Kimi: keys are region-bound. A key issued for api.moonshot.ai
+# returns 401 on api.moonshot.cn and vice versa, which looks identical to a
+# revoked credential — set `host` explicitly if you are not on .ai.
+#
+# balance_providers = [
+#   { provider = "deepseek", api_key = "${DEEPSEEK_API_KEY}", label = "deepseek" },
+#   { provider = "moonshot", api_key = "${MOONSHOT_API_KEY}", label = "moonshot",
+#     host = "https://api.moonshot.ai" },
+# ]
+balance_providers = []

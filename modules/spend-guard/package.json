@@ -1,6 +1,6 @@
 {
   "name": "threatcrush-module-spend-guard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Detects and contains balance-drain attacks on metered third-party services (SMS pumping, toll fraud, runaway API spend)",
   "type": "module",
   "main": "dist/index.js",
