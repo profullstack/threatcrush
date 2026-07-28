@@ -25,3 +25,4 @@ these numbered PRDs cover individual changes to it.
 | [0010](./0010-block-attackers-without-locking-out-the-operator.md) | Block attackers without locking out the operator | Draft | firewall-rules, blocking, nftables, iptables, containment, modules |
 | [0011](./0011-catch-the-exfiltration-channel-that-survives-egress-filtering.md) | Catch the exfiltration channel that survives egress filtering | Draft | dns-monitor, exfiltration, tunneling, dga, c2, modules |
 | [0012](./0012-a-decoy-nobody-legitimate-touches.md) | A decoy nobody legitimate touches | Draft | honeypot, deception, decoy, high-precision, modules |
+| [0013](./0013-make-attacks-expensive-instead-of-blocking-them.md) | Make attacks expensive instead of blocking them | Draft | tar-pit, throttling, cost-asymmetry, containment, modules |
