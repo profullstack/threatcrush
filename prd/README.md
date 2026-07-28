@@ -18,3 +18,4 @@ these numbered PRDs cover individual changes to it.
 | [0003](./0003-detect-hardcoded-secrets-before-they-are-committed-or-served.md) | Detect hardcoded secrets before they are committed or served | Draft | code-scanner, secrets, credentials, entropy, redaction, modules |
 | [0004](./0004-find-dangerous-code-patterns-without-pretending-to-be-a-compiler.md) | Find dangerous code patterns without pretending to be a compiler | Draft | code-scanner, sast, static-analysis, injection, taint, modules |
 | [0005](./0005-catch-the-misconfigurations-that-actually-get-servers-breached.md) | Catch the misconfigurations that actually get servers breached | Draft | code-scanner, config, misconfiguration, hardening, exposure, modules |
+| [0006](./0006-route-alerts-so-they-keep-being-read.md) | Route alerts so they keep being read | Draft | alert-system, routing, deduplication, escalation, notifications, modules |
