@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - modules/*
 onlyBuiltDependencies:
   # @profullstack/autoblog ships TypeScript sources and builds via tsc
   # in its `prepare` script on install. Allowlisting it here is

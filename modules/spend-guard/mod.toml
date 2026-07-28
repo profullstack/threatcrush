@@ -1,0 +1,69 @@
+[module]
+name = "spend-guard"
+version = "0.1.0"
+description = "Detects balance-drain attacks on metered third-party services — SMS pumping, toll fraud, and runaway API spend"
+author = "Profullstack, Inc."
+license = "MIT"
+homepage = "https://github.com/profullstack/threatcrush/tree/master/modules/spend-guard"
+
+[module.pricing]
+type = "free"
+
+[module.requirements]
+threatcrush = ">=0.2.0"
+os = ["linux", "darwin"]
+capabilities = ["network:outbound"]
+
+[module.config.defaults]
+enabled = true
+
+# How often to poll provider billing APIs (seconds). Detection latency is
+# bounded below by the provider's own reporting lag, so polling faster than
+# ~5min buys little.
+poll_interval_seconds = 900
+
+# Days of usage history to pull each poll. Also the window the baseline is
+# learned from.
+lookback_days = 14
+
+# Clean days required before any rule may fire. Prevents alerting from an
+# unlearned baseline on a fresh install.
+warmup_samples = 7
+
+# --- Detection thresholds -------------------------------------------------
+# Unit cost multiple over baseline. The economic signature of pumping: the
+# attacker's revenue share IS the price premium, so it cannot be hidden.
+unit_cost_factor = 5.0
+
+# Daily volume multiple over baseline. This is what separates a pumping run
+# from organic growth into a new, expensive market.
+volume_factor = 10.0
+
+# Ignore days below this spend — noise floor for low-volume accounts.
+min_daily_spend = 1.0
+
+# Independent detectors that must agree before containment is recommended.
+# Keep at 2 or higher: a lone elevated unit cost is a legitimate international
+# user often enough that acting on it alone would block real customers.
+contain_signals = 2
+
+# --- Balance ---------------------------------------------------------------
+# Alert when the balance would hit zero within this many hours.
+burn_rate_warn_hours = 6
+
+# Assert whether the provider will auto-top-up from a stored card. Most
+# providers do not expose this over an API. Set true and the burn-rate alert
+# escalates to critical, because with auto-recharge on there is no spend
+# ceiling — the attack becomes an open credit line rather than a bounded loss.
+auto_recharge_enabled = false
+
+# --- Containment (optional) ------------------------------------------------
+# POSTed a JSON body when enough signals agree, so your app can trip its own
+# breaker (disable OTP sends, switch providers, page someone). Left empty,
+# spend-guard only alerts.
+circuit_breaker_webhook = ""
+
+# --- Providers -------------------------------------------------------------
+# Read-only credentials. Prefer env interpolation over literals here.
+twilio_account_sid = ""
+twilio_auth_token = ""

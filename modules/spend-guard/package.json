@@ -1,0 +1,48 @@
+{
+  "name": "threatcrush-module-spend-guard",
+  "version": "0.1.0",
+  "description": "Detects and contains balance-drain attacks on metered third-party services (SMS pumping, toll fraud, runaway API spend)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "author": "Profullstack, Inc.",
+  "homepage": "https://threatcrush.com/store/spend-guard",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profullstack/threatcrush.git",
+    "directory": "modules/spend-guard"
+  },
+  "keywords": [
+    "threatcrush",
+    "threatcrush-module",
+    "security",
+    "sms-pumping",
+    "irsf",
+    "toll-fraud",
+    "billing",
+    "anomaly-detection",
+    "twilio"
+  ],
+  "files": [
+    "dist",
+    "mod.toml",
+    "config",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@threatcrush/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}

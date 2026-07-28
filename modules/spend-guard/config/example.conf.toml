@@ -1,0 +1,30 @@
+# Example: /etc/threatcrush/threatcrushd.conf.d/spend-guard.conf
+#
+# Values here override [module.config.defaults] in mod.toml.
+
+enabled = true
+poll_interval_seconds = 900
+
+# Read-only Twilio credentials. Use a scoped API key rather than the account
+# auth token where the provider supports it — spend-guard never needs write
+# access to detect, and a read-only key limits the blast radius if the host is
+# compromised.
+twilio_account_sid = "${TWILIO_ACCOUNT_SID}"
+twilio_auth_token = "${TWILIO_AUTH_TOKEN}"
+
+# Tuned against a real SMS-pumping incident: the attack ran 15-21x baseline
+# unit cost, while legitimate international traffic on the same account
+# reached ~9x. 5x flags both — deliberately, since a lone unit-cost signal
+# only ever alerts. Containment needs a second detector to agree.
+unit_cost_factor = 5.0
+volume_factor = 10.0
+contain_signals = 2
+
+# Set true if your provider tops up automatically from a stored card. This is
+# the difference between a bounded loss and an open credit line: the reference
+# incident stopped only because the balance hit zero.
+auto_recharge_enabled = false
+
+# Optional. POSTed {"source":"spend-guard","action":"halt",...} when signals
+# agree, so the app can stop sending before a human wakes up.
+# circuit_breaker_webhook = "https://example.com/api/internal/spend-breaker"
