@@ -75,8 +75,13 @@ function githubChecksum(token: string): boolean {
  * and half the world's `.env.example` files say `changeme`. Reporting these
  * trains an operator to ignore the scanner, which is worse than missing them.
  */
+// Every quantifier here is bounded. This regex runs against file content the
+// scanner does not control, and an unbounded `<[^>]+>` gives a crafted file a
+// polynomial-backtracking path — a denial of service against the security
+// agent itself, which is a worse outcome than the missed placeholder that the
+// bound might cost. Same reasoning applies to every pattern in this file.
 const PLACEHOLDER =
-  /(?:EXAMPLE|example|xxxx|XXXX|changeme|CHANGEME|your[_-]?(?:key|token|secret)|placeholder|<[^>]+>|\bfake\b|\bdummy\b|\btest[_-]?key\b|0{8,}|1234567890)/;
+  /(?:EXAMPLE|example|xxxx|XXXX|changeme|CHANGEME|your[_-]?(?:key|token|secret)|placeholder|<[^<>]{1,64}>|\bfake\b|\bdummy\b|\btest[_-]?key\b|0{8,12}|1234567890)/;
 
 export const SECRET_RULES: readonly SecretRule[] = [
   {
