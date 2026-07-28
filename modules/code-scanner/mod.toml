@@ -42,6 +42,26 @@ max_alerts = 25
 # truth is "nothing was read". An unexamined project is not a clean one.
 fail_on_unparseable = true
 
+# --- secrets subsystem: hardcoded credential detection (PRD 0003) ---------
+secrets_enabled = true
+
+# Entropy scoring for unstructured secrets. Gated behind a secret-shaped
+# variable name, so raw randomness never raises a finding on its own —
+# that is what makes every other scanner in this category unusable.
+secrets_entropy = true
+
+# Scan files git ignores. A deliberate inversion: they are simultaneously the
+# likeliest place for a real credential and the least likely to have been
+# looked at, because every repo-oriented scanner skips them.
+secrets_scan_gitignored = true
+
+secrets_max_file_bytes = 5000000
+
+# Reviewed false positives, by fingerprint (sha256:...), directory ("tests/")
+# or path fragment. Prefer fingerprints: a path glob eventually hides a real
+# credential.
+secrets_allow = []
+
 # --- deps subsystem: dependency and supply-chain scanning (PRD 0002) -------
 deps_enabled = true
 

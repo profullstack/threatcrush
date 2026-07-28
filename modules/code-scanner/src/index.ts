@@ -7,7 +7,7 @@
  * under `src/`:
  *
  *   deps/      dependency and supply-chain scanning — PRD 0002, implemented
- *   secrets/   hardcoded credential detection — not yet built
+ *   secrets/   hardcoded credential detection — PRD 0003, implemented
  *   sast/      source-level vulnerability analysis — not yet built
  *   config/    misconfiguration checks — not yet built
  *
@@ -38,6 +38,12 @@ import {
   type DepsResult,
   type Finding,
 } from './deps/index.js';
+import {
+  SECRETS_DEFAULTS,
+  scanSecrets,
+  type SecretsOptions,
+  type SecretsResult,
+} from './secrets/index.js';
 
 const STATE_REPORTED = 'reported_keys';
 
@@ -49,6 +55,7 @@ const DEFAULTS = {
 
 export interface ScanResult {
   deps: DepsResult | null;
+  secrets: SecretsResult | null;
   /** True when any subsystem could not complete — never report "clean". */
   incomplete: boolean;
 }
@@ -114,11 +121,30 @@ export default class CodeScannerModule implements ThreatCrushModule {
   /** Run every enabled subsystem. */
   async scan(): Promise<ScanResult> {
     const deps = this.depsEnabled() ? await scanDependencies(this.depsOptions()) : null;
-    return { deps, incomplete: Boolean(deps?.incomplete) };
+    const secrets = this.secretsEnabled() ? await scanSecrets(this.secretsOptions()) : null;
+    return { deps, secrets, incomplete: Boolean(deps?.incomplete) };
   }
 
   private depsEnabled(): boolean {
     return this.ctx.config.deps_enabled !== false;
+  }
+
+  private secretsEnabled(): boolean {
+    return this.ctx.config.secrets_enabled !== false;
+  }
+
+  private secretsOptions(): SecretsOptions {
+    const cfg = this.ctx.config;
+    const allow = Array.isArray(cfg.secrets_allow) ? (cfg.secrets_allow as string[]) : [];
+    return {
+      paths: this.paths(),
+      maxDepth: (cfg.max_depth as number | undefined) ?? SECRETS_DEFAULTS.maxDepth,
+      maxFileBytes:
+        (cfg.secrets_max_file_bytes as number | undefined) ?? SECRETS_DEFAULTS.maxFileBytes,
+      entropyEnabled: cfg.secrets_entropy !== false,
+      scanGitignored: cfg.secrets_scan_gitignored !== false,
+      allow,
+    };
   }
 
   private depsOptions(): DepsOptions {
@@ -141,14 +167,19 @@ export default class CodeScannerModule implements ThreatCrushModule {
   }
 
   private report(result: ScanResult): void {
-    const deps = result.deps;
-    if (!deps) return;
-
     const floor = severityRank(
       (this.ctx.config.min_severity as Finding['severity'] | undefined) ?? DEFAULTS.minSeverity,
     );
     const maxAlerts = (this.ctx.config.max_alerts as number | undefined) ?? DEFAULTS.maxAlerts;
     const reported = new Set(this.readState<string[]>(STATE_REPORTED, []));
+
+    if (result.secrets) this.reportSecrets(result.secrets, floor, maxAlerts, reported);
+
+    const deps = result.deps;
+    if (!deps) {
+      this.writeState(STATE_REPORTED, [...reported].slice(-2000));
+      return;
+    }
 
     const notable = deps.findings.filter((f) => severityRank(f.severity) >= floor);
     const failed = deps.inventory.roots.filter((r) => r.status === 'failed');
@@ -242,6 +273,63 @@ export default class CodeScannerModule implements ThreatCrushModule {
     );
   }
 
+  /**
+   * Alert on credentials.
+   *
+   * Note what is *not* here: the secret. `SecretFinding` carries only a masked
+   * preview and a fingerprint, so there is no path by which a raw value reaches
+   * an event, an alert body or the log — enforced by a test rather than by
+   * care (PRD 0003 R10).
+   */
+  private reportSecrets(
+    secrets: SecretsResult,
+    floor: number,
+    maxAlerts: number,
+    reported: Set<string>,
+  ): void {
+    const notable = secrets.findings.filter((f) => severityRank(f.severity) >= floor);
+
+    for (const finding of notable
+      .filter((f) => !reported.has(`secret:${f.fingerprint}:${f.file}`))
+      .slice(0, maxAlerts)) {
+      const headline = `code-scanner: ${finding.description} in ${finding.file}`;
+      this.ctx.emit(
+        this.event('scan', finding.severity, headline, {
+          rule: finding.ruleId,
+          file: finding.file,
+          line: finding.line,
+          preview: finding.preview,
+          fingerprint: finding.fingerprint,
+          verified: finding.verified,
+          gitignored: finding.gitignored,
+        }),
+      );
+      this.ctx.alert({
+        title: headline,
+        severity: finding.severity,
+        body: [
+          `${finding.file}:${finding.line}  ${finding.ruleId}`,
+          `${finding.preview}   ${finding.fingerprint}`,
+          finding.verified ? 'checksum: valid' : null,
+          finding.gitignored ? 'not in version control' : null,
+          '',
+          'Rotate the credential. Deleting the file alone is not remediation.',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      } satisfies Alert);
+      reported.add(`secret:${finding.fingerprint}:${finding.file}`);
+    }
+
+    this.ctx.logger.info(
+      '[%s] secrets: %d file(s) scanned, %d finding(s), %d skipped',
+      this.name,
+      secrets.filesScanned,
+      secrets.findings.length,
+      secrets.skipped.length,
+    );
+  }
+
   private paths(): string[] {
     const configured = this.ctx.config.paths;
     if (Array.isArray(configured) && configured.length > 0) return configured as string[];
@@ -279,7 +367,7 @@ export function summarize(result: ScanResult): string {
     bySeverity.set(finding.severity, (bySeverity.get(finding.severity) ?? 0) + 1);
   }
 
-  const lines = [
+  const lines: string[] = [
     `${deps.inventory.packages.length} packages across ${deps.inventory.roots.length} root(s)`,
     `advisories: ${[...bySeverity.entries()].map(([s, n]) => `${n} ${s}`).join(', ') || 'none'}`,
     `risky install scripts: ${deps.scripts.length}`,
@@ -297,3 +385,4 @@ export function summarize(result: ScanResult): string {
 }
 
 export * from './deps/index.js';
+export * from './secrets/index.js';
