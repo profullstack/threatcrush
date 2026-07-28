@@ -13,7 +13,8 @@
 
 export * from './rules.js';
 
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { open, readdir } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 
 import { scanSource, type SastFinding, type SuppressionRecord } from './rules.js';
@@ -120,17 +121,23 @@ export async function scanSast(options: SastOptions): Promise<SastResult> {
     await walk(base, 0, options.maxDepth, files);
 
     for (const file of files) {
-      try {
-        if ((await stat(file)).size > options.maxFileBytes) continue;
-      } catch {
-        continue;
-      }
-
+      // One file handle for the size check and the read, matching `secrets/`.
+      // `stat(path)` then `readFile(path)` is a time-of-check/time-of-use gap:
+      // the path can be swapped between the calls, so the bytes analysed need
+      // not be the bytes measured. Holding a descriptor and stat-ing that
+      // removes the gap.
       let text: string;
+      let handle: FileHandle | undefined;
       try {
-        text = await readFile(file, 'utf8');
+        handle = await open(file, 'r');
+        if ((await handle.stat()).size > options.maxFileBytes) continue;
+        text = await handle.readFile('utf8');
       } catch {
         continue;
+      } finally {
+        await handle?.close().catch(() => {
+          /* a failed close must not abort the scan */
+        });
       }
 
       filesScanned += 1;
