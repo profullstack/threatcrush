@@ -9,7 +9,7 @@ same directories, so the module is a thin host and each one is a **subsystem**:
 | `deps/` | Dependency advisories, malicious install scripts, lockfile drift | **implemented** ([PRD 0002](../../prd/0002-detect-vulnerable-and-malicious-dependencies-on-running-servers.md)) |
 | `secrets/` | Hardcoded credentials, redacted by construction | **implemented** ([PRD 0003](../../prd/0003-detect-hardcoded-secrets-before-they-are-committed-or-served.md)) |
 | `sast/` | Dangerous source patterns, with stated confidence | **implemented** ([PRD 0004](../../prd/0004-find-dangerous-code-patterns-without-pretending-to-be-a-compiler.md)) |
-| `config/` | Misconfiguration checks | not yet built |
+| `config/` | Misconfigurations that get servers breached | **implemented** ([PRD 0005](../../prd/0005-catch-the-misconfigurations-that-actually-get-servers-breached.md)) |
 
 ```bash
 threatcrush modules install code-scanner

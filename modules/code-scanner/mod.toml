@@ -42,6 +42,24 @@ max_alerts = 25
 # truth is "nothing was read". An unexamined project is not a clean one.
 fail_on_unparseable = true
 
+# --- config subsystem: misconfiguration detection (PRD 0005) --------------
+config_enabled = true
+
+# Directories the webserver serves. Empty means: parse nginx/Apache config,
+# then fall back to conventional locations. If none can be determined the scan
+# reports the exposure checks as NOT RUN rather than as clean — silence there
+# would mean "did not look", not "nothing exposed".
+config_web_roots = []
+
+config_check_permissions = true
+config_check_containers = true
+
+# Minimum reachability to report:
+#   exposed    reachable over the network — sets the deadline
+#   local      needs host access first
+#   hardening  defence in depth
+config_min_reachability = "local"
+
 # --- sast subsystem: dangerous source patterns (PRD 0004) -----------------
 sast_enabled = true
 
