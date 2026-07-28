@@ -31,6 +31,8 @@ import {
   type Verdict,
 } from './detectors.js';
 import { AlchemyProvider, redactRpcUrl } from './providers/alchemy.js';
+import { ElevenLabsQuota, ValueSerpQuota, type QuotaProvider } from './providers/quota-apis.js';
+import { DEFAULT_QUOTA_THRESHOLDS, evaluateQuota } from './quota.js';
 import { TwilioProvider } from './providers/twilio.js';
 import { ProviderError, type SpendProvider } from './providers/types.js';
 
@@ -48,17 +50,19 @@ const DEFAULTS = {
 
 export default class SpendGuardModule implements ThreatCrushModule {
   name = 'spend-guard';
-  version = '0.2.0';
+  version = '0.3.0';
   description = 'Detects balance-drain attacks (SMS pumping, toll fraud, runaway API spend) on third-party providers';
 
   private ctx!: ModuleContext;
   private providers: SpendProvider[] = [];
+  private quotaProviders: QuotaProvider[] = [];
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
   async init(ctx: ModuleContext): Promise<void> {
     this.ctx = ctx;
     this.providers = buildProviders(ctx);
+    this.quotaProviders = buildQuotaProviders(ctx);
 
     if (this.providers.length === 0) {
       ctx.logger.warn(
@@ -97,6 +101,14 @@ export default class SpendGuardModule implements ThreatCrushModule {
 
   private async tick(): Promise<void> {
     if (!this.running) return;
+
+    for (const q of this.quotaProviders) {
+      try {
+        await this.pollQuotaProvider(q);
+      } catch (err) {
+        this.ctx.logger.error('[%s] %s quota poll failed: %s', this.name, q.name, String(err));
+      }
+    }
 
     for (const provider of this.providers) {
       try {
@@ -216,6 +228,42 @@ export default class SpendGuardModule implements ThreatCrushModule {
       }),
     );
     this.ctx.alert({ title: headline, severity, body: probe.detail });
+  }
+
+  /**
+   * Credit/quota pace monitoring. Works with the ordinary API key the app
+   * already deploys — no admin credential and no billing API required, which
+   * is what makes coverage across a large estate practical.
+   */
+  private async pollQuotaProvider(provider: QuotaProvider): Promise<void> {
+    const snap = await provider.fetchQuota();
+    const verdict = evaluateQuota(snap, Date.now(), {
+      ...DEFAULT_QUOTA_THRESHOLDS,
+      paceFactor: (this.ctx.config.quota_pace_factor as number) ?? DEFAULT_QUOTA_THRESHOLDS.paceFactor,
+    });
+
+    if (verdict.severity === 'info') return;
+
+    // Alert on severity change only, so a quota that sits at 80% all month
+    // does not page on every poll.
+    const stateKey = `quota:${provider.name}:severity`;
+    if (this.readState<string>(stateKey, 'info') === verdict.severity) return;
+    this.writeState(stateKey, verdict.severity);
+
+    const headline = `spend-guard: ${verdict.message}`;
+    this.ctx.emit(
+      this.event('system', verdict.severity, headline, {
+        provider: provider.name,
+        used: snap.used,
+        limit: snap.limit,
+        unit: snap.unit,
+        pace_ratio: Number(verdict.paceRatio.toFixed(2)),
+        used_fraction: Number(verdict.usedFraction.toFixed(3)),
+        will_exhaust: verdict.willExhaust,
+        projected_exhaustion: verdict.projectedExhaustion,
+      }),
+    );
+    this.ctx.alert({ title: headline, severity: verdict.severity });
   }
 
   private report(provider: SpendProvider, day: string, verdict: Verdict, baseline: Baseline): void {
@@ -377,6 +425,34 @@ export function buildProviders(ctx: ModuleContext): SpendProvider[] {
   return providers;
 }
 
+/**
+ * Build quota providers from config. Each entry is `{ provider, api_key,
+ * label }` so one physical key shared by several apps can still be labelled.
+ */
+export function buildQuotaProviders(ctx: ModuleContext): QuotaProvider[] {
+  const out: QuotaProvider[] = [];
+  const entries = ctx.config.quota_providers;
+  if (!Array.isArray(entries)) return out;
+
+  for (const raw of entries) {
+    const e = raw as { provider?: string; api_key?: string; label?: string };
+    if (!e?.provider || !e?.api_key) continue;
+    const label = e.label ?? e.provider;
+
+    switch (e.provider.toLowerCase()) {
+      case 'valueserp':
+        out.push(new ValueSerpQuota(e.api_key, label));
+        break;
+      case 'elevenlabs':
+        out.push(new ElevenLabsQuota(e.api_key, label));
+        break;
+      default:
+        ctx.logger.warn('[spend-guard] unknown quota provider: %s', e.provider);
+    }
+  }
+  return out;
+}
+
 export function isoDaysAgo(days: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - days);
@@ -385,5 +461,7 @@ export function isoDaysAgo(days: number): string {
 
 export * from './detectors.js';
 export * from './providers/alchemy.js';
+export * from './providers/quota-apis.js';
+export * from './quota.js';
 export * from './providers/twilio.js';
 export * from './providers/types.js';

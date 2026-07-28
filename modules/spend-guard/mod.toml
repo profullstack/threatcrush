@@ -1,6 +1,6 @@
 [module]
 name = "spend-guard"
-version = "0.2.0"
+version = "0.3.0"
 description = "Detects balance-drain attacks on metered third-party services — SMS pumping, toll fraud, and runaway API spend"
 author = "Profullstack, Inc."
 license = "MIT"
@@ -82,3 +82,22 @@ twilio_auth_token = ""
 #   { label = "payments-btc", url = "${BITCOIN_RPC_URL}" },
 # ]
 alchemy_rpc_urls = []
+
+# --- Credit/quota providers ------------------------------------------------
+# The generic drain detector. Most metered SaaS exposes credits-remaining to
+# the SAME key the app already deploys, so this needs no admin credential and
+# no billing API — which is what makes broad coverage practical.
+#
+# Detection is pace-based: quota consumed vs billing period elapsed. Burning
+# 80% of the month in the first 20% is anomalous whether the units are search
+# credits, TTS characters or compute units. A plain low-balance alarm only
+# fires after the money is gone; pace fires while it is going.
+#
+# quota_providers = [
+#   { provider = "valueserp",  api_key = "${VALUESERP_API_KEY}",  label = "valueserp" },
+#   { provider = "elevenlabs", api_key = "${ELEVENLABS_API_KEY}", label = "elevenlabs" },
+# ]
+quota_providers = []
+
+# Flag when consumption runs this many times ahead of schedule.
+quota_pace_factor = 2.0
