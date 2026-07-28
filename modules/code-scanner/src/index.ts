@@ -9,7 +9,7 @@
  *   deps/      dependency and supply-chain scanning — PRD 0002, implemented
  *   secrets/   hardcoded credential detection — PRD 0003, implemented
  *   sast/      source-level vulnerability analysis — PRD 0004, implemented
- *   config/    misconfiguration checks — not yet built
+ *   config/    misconfiguration checks — PRD 0005, implemented
  *
  * PRD 0002 originally proposed dependency scanning as a standalone
  * `dep-scanner` module and left the boundary as an open question. It is
@@ -39,6 +39,12 @@ import {
   type Finding,
 } from './deps/index.js';
 import {
+  CONFIG_DEFAULTS,
+  scanConfig,
+  type ConfigOptions,
+  type ConfigResult,
+} from './config/index.js';
+import {
   SAST_DEFAULTS,
   scanSast,
   type SastOptions,
@@ -63,6 +69,7 @@ export interface ScanResult {
   deps: DepsResult | null;
   secrets: SecretsResult | null;
   sast: SastResult | null;
+  config: ConfigResult | null;
   /** True when any subsystem could not complete — never report "clean". */
   incomplete: boolean;
 }
@@ -130,7 +137,11 @@ export default class CodeScannerModule implements ThreatCrushModule {
     const deps = this.depsEnabled() ? await scanDependencies(this.depsOptions()) : null;
     const secrets = this.secretsEnabled() ? await scanSecrets(this.secretsOptions()) : null;
     const sast = this.sastEnabled() ? await scanSast(this.sastOptions()) : null;
-    return { deps, secrets, sast, incomplete: Boolean(deps?.incomplete) };
+    const config = this.configEnabled() ? await scanConfig(this.configOptions()) : null;
+    // A config scan that could not find the web root is blind to every exposure
+    // check, which must not present as a clean result.
+    const incomplete = Boolean(deps?.incomplete) || Boolean(config?.webRootUnknown);
+    return { deps, secrets, sast, config, incomplete };
   }
 
   private depsEnabled(): boolean {
@@ -139,6 +150,24 @@ export default class CodeScannerModule implements ThreatCrushModule {
 
   private secretsEnabled(): boolean {
     return this.ctx.config.secrets_enabled !== false;
+  }
+
+  private configEnabled(): boolean {
+    return this.ctx.config.config_enabled !== false;
+  }
+
+  private configOptions(): ConfigOptions {
+    const cfg = this.ctx.config;
+    return {
+      paths: this.paths(),
+      maxDepth: (cfg.max_depth as number | undefined) ?? CONFIG_DEFAULTS.maxDepth,
+      webRoots: Array.isArray(cfg.config_web_roots) ? (cfg.config_web_roots as string[]) : [],
+      checkPermissions: cfg.config_check_permissions !== false,
+      checkContainers: cfg.config_check_containers !== false,
+      minReachability:
+        (cfg.config_min_reachability as ConfigOptions['minReachability'] | undefined) ??
+        CONFIG_DEFAULTS.minReachability,
+    };
   }
 
   private sastEnabled(): boolean {
@@ -200,6 +229,7 @@ export default class CodeScannerModule implements ThreatCrushModule {
 
     if (result.secrets) this.reportSecrets(result.secrets, floor, maxAlerts, reported);
     if (result.sast) this.reportSast(result.sast, floor, maxAlerts, reported);
+    if (result.config) this.reportConfig(result.config, maxAlerts, reported);
 
     const deps = result.deps;
     if (!deps) {
@@ -409,6 +439,55 @@ export default class CodeScannerModule implements ThreatCrushModule {
     );
   }
 
+  /**
+   * Alert on misconfiguration.
+   *
+   * Reachability leads, because it is what sets the deadline: an exposed .env
+   * is a tonight problem and the same file outside a web root is not.
+   */
+  private reportConfig(config: ConfigResult, maxAlerts: number, reported: Set<string>): void {
+    for (const finding of config.findings
+      .filter((f) => !reported.has(`config:${f.checkId}:${f.subject}`))
+      .slice(0, maxAlerts)) {
+      const headline = `code-scanner: ${finding.title} — ${finding.subject}`;
+      this.ctx.emit(
+        this.event('scan', finding.severity, headline, {
+          check: finding.checkId,
+          subject: finding.subject,
+          reachability: finding.reachability,
+        }),
+      );
+      this.ctx.alert({
+        title: headline,
+        severity: finding.severity,
+        body: [
+          `${finding.subject}   reachability: ${finding.reachability}`,
+          '',
+          finding.consequence,
+          '',
+          `Fix: ${finding.remediation}`,
+        ].join('\n'),
+      } satisfies Alert);
+      reported.add(`config:${finding.checkId}:${finding.subject}`);
+    }
+
+    if (config.webRootUnknown) {
+      // Every exposure check depends on knowing what is served. Silence here
+      // means "did not look", not "nothing exposed".
+      this.ctx.logger.warn(
+        '[%s] config: no web root could be determined — exposure checks did not run',
+        this.name,
+      );
+    }
+
+    this.ctx.logger.info(
+      '[%s] config: %d finding(s) across %d path(s) inspected',
+      this.name,
+      config.findings.length,
+      config.filesInspected,
+    );
+  }
+
   private paths(): string[] {
     const configured = this.ctx.config.paths;
     if (Array.isArray(configured) && configured.length > 0) return configured as string[];
@@ -464,5 +543,6 @@ export function summarize(result: ScanResult): string {
 }
 
 export * from './deps/index.js';
+export * from './config/index.js';
 export * from './sast/index.js';
 export * from './secrets/index.js';
