@@ -24,3 +24,4 @@ these numbered PRDs cover individual changes to it.
 | [0009](./0009-read-the-logs-for-evidence-including-the-logs-that-stopped.md) | Read the logs for evidence, including the logs that stopped | Draft | log-watcher, logs, web-attacks, tampering, gaps, modules |
 | [0010](./0010-block-attackers-without-locking-out-the-operator.md) | Block attackers without locking out the operator | Draft | firewall-rules, blocking, nftables, iptables, containment, modules |
 | [0011](./0011-catch-the-exfiltration-channel-that-survives-egress-filtering.md) | Catch the exfiltration channel that survives egress filtering | Draft | dns-monitor, exfiltration, tunneling, dga, c2, modules |
+| [0012](./0012-a-decoy-nobody-legitimate-touches.md) | A decoy nobody legitimate touches | Draft | honeypot, deception, decoy, high-precision, modules |
