@@ -1,6 +1,6 @@
 [module]
 name = "spend-guard"
-version = "0.1.0"
+version = "0.2.0"
 description = "Detects balance-drain attacks on metered third-party services — SMS pumping, toll fraud, and runaway API spend"
 author = "Profullstack, Inc."
 license = "MIT"
@@ -67,3 +67,18 @@ circuit_breaker_webhook = ""
 # Read-only credentials. Prefer env interpolation over literals here.
 twilio_account_sid = ""
 twilio_auth_token = ""
+
+# Alchemy has NO billing or usage API — compute-unit spend is dashboard-only.
+# So this connector monitors QUOTA STATE, not spend: it makes one cheap
+# eth_blockNumber call per poll and alerts critically when the monthly capacity
+# limit is hit, which is simultaneously a billing event and an outage (every
+# app on that key starts failing).
+#
+# List one entry per app. A single Alchemy key is often shared across several
+# services, and the label is what tells you which one to look at.
+#
+# alchemy_rpc_urls = [
+#   { label = "b1dz-base", url = "${BASE_RPC_URL}" },
+#   { label = "payments-btc", url = "${BITCOIN_RPC_URL}" },
+# ]
+alchemy_rpc_urls = []

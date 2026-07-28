@@ -109,10 +109,42 @@ Being explicit, because the gap matters:
 
 ## Providers
 
-| Provider | Status                                        |
-| -------- | --------------------------------------------- |
-| Twilio   | ✅ usage by day + destination, balance         |
-| Others   | implement `SpendProvider` in `src/providers/` |
+| Provider | Status                                                        |
+| -------- | ------------------------------------------------------------- |
+| Twilio   | ✅ usage by day + destination, balance                         |
+| Alchemy  | ⚠️ quota state only — **no billing API exists** (see below)    |
+| Others   | implement `SpendProvider` in `src/providers/`                 |
+
+### Alchemy is a special case
+
+Alchemy publishes **no usage or billing API**. Compute-unit consumption is
+visible only in the dashboard; probing the plausible endpoints with a valid key
+returns 404/429, not data. A usage-polling connector is therefore impossible,
+and shipping one would mean detectors that appear to work but can never fire.
+
+What Alchemy does expose for free is the state that matters most: once the
+monthly capacity limit is reached, every JSON-RPC call returns a distinctive
+429. spend-guard polls one cheap `eth_blockNumber` and alerts **critical** on
+that, because it is simultaneously a billing event and an outage — the drain has
+already happened, and every app on that key is failing until the cap is raised.
+
+It also distinguishes an exhausted quota from a rejected key, since those need
+opposite responses (raise the cap vs. rotate the credential).
+
+Because one Alchemy key is commonly shared across several apps, each entry takes
+a `label` so alerts name the right service:
+
+```toml
+alchemy_rpc_urls = [
+  { label = "trading-base", url = "${BASE_RPC_URL}" },
+  { label = "payments-btc", url = "${BITCOIN_RPC_URL}" },
+]
+```
+
+**Sharing one key across apps defeats attribution.** Alchemy bills and reports
+per app, so a shared key makes it impossible to tell which service burned the
+quota — or to revoke one without breaking the others. Split the key first; the
+labels here are a mitigation, not a substitute.
 
 The interface is two methods — `fetchUsage`, `fetchBalance` — so adding
 SendGrid, OpenAI, AWS or Vonage is a small, self-contained contribution.
@@ -121,7 +153,7 @@ SendGrid, OpenAI, AWS or Vonage is a small, self-contained contribution.
 
 ```bash
 pnpm install
-pnpm test      # 30 tests, replays the real incident
+pnpm test      # 42 tests, replays real incidents
 pnpm build
 ```
 

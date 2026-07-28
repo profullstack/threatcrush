@@ -30,6 +30,7 @@ import {
   type UsageSample,
   type Verdict,
 } from './detectors.js';
+import { AlchemyProvider, redactRpcUrl } from './providers/alchemy.js';
 import { TwilioProvider } from './providers/twilio.js';
 import { ProviderError, type SpendProvider } from './providers/types.js';
 
@@ -47,7 +48,7 @@ const DEFAULTS = {
 
 export default class SpendGuardModule implements ThreatCrushModule {
   name = 'spend-guard';
-  version = '0.1.0';
+  version = '0.2.0';
   description = 'Detects balance-drain attacks (SMS pumping, toll fraud, runaway API spend) on third-party providers';
 
   private ctx!: ModuleContext;
@@ -118,6 +119,14 @@ export default class SpendGuardModule implements ThreatCrushModule {
   }
 
   private async pollProvider(provider: SpendProvider): Promise<void> {
+    // Providers that expose no usage API (Alchemy) report quota state instead.
+    // Handled first so an exhausted quota alerts even though there is no
+    // usage series to score.
+    if (provider instanceof AlchemyProvider) {
+      await this.pollQuota(provider);
+      return;
+    }
+
     const lookbackDays =
       (this.ctx.config.lookback_days as number | undefined) ?? DEFAULTS.lookbackDays;
     const since = isoDaysAgo(lookbackDays);
@@ -168,6 +177,45 @@ export default class SpendGuardModule implements ThreatCrushModule {
 
     this.writeState(`${provider.name}:${STATE_QUARANTINE}`, [...quarantine]);
     await this.checkBalance(provider, usage);
+  }
+
+  /**
+   * Quota-state monitoring for providers with no billing API.
+   *
+   * An exhausted quota is critical, not a warning: it means the spend already
+   * happened AND every app on that key is now failing. Alerts fire on state
+   * *change* so a month-long exhaustion does not page every poll.
+   */
+  private async pollQuota(provider: AlchemyProvider): Promise<void> {
+    const probe = await provider.probeQuota();
+    const stateKey = `${provider.name}:quota_state`;
+    const previous = this.readState<string>(stateKey, 'unknown');
+
+    this.writeState(stateKey, probe.state);
+    if (probe.state === previous) return;
+
+    if (probe.state === 'healthy') {
+      if (previous !== 'unknown') {
+        this.ctx.logger.info('[%s] %s quota recovered', this.name, provider.name);
+      }
+      return;
+    }
+
+    const severity = probe.state === 'exhausted' ? 'critical' : 'high';
+    const headline =
+      probe.state === 'exhausted'
+        ? `spend-guard: ${provider.name} monthly capacity EXHAUSTED — every app on this key is failing`
+        : `spend-guard: ${provider.name} quota probe returned ${probe.state}`;
+
+    this.ctx.emit(
+      this.event('system', severity, headline, {
+        provider: provider.name,
+        state: probe.state,
+        previous,
+        detail: probe.detail,
+      }),
+    );
+    this.ctx.alert({ title: headline, severity, body: probe.detail });
   }
 
   private report(provider: SpendProvider, day: string, verdict: Verdict, baseline: Baseline): void {
@@ -313,6 +361,19 @@ export function buildProviders(ctx: ModuleContext): SpendProvider[] {
     providers.push(new TwilioProvider({ accountSid: sid, authToken: token }));
   }
 
+  // Alchemy is configured as a list of RPC URLs, because one key is commonly
+  // shared across several apps — label each so alerts name the right service.
+  const alchemy = ctx.config.alchemy_rpc_urls;
+  if (Array.isArray(alchemy)) {
+    for (const entry of alchemy) {
+      const rpcUrl = typeof entry === 'string' ? entry : (entry as { url?: string })?.url;
+      if (!rpcUrl) continue;
+      const label = typeof entry === 'string' ? undefined : (entry as { label?: string })?.label;
+      providers.push(new AlchemyProvider({ rpcUrl, label }));
+      ctx.logger.info('[spend-guard] alchemy provider: %s', redactRpcUrl(rpcUrl));
+    }
+  }
+
   return providers;
 }
 
@@ -323,5 +384,6 @@ export function isoDaysAgo(days: number): string {
 }
 
 export * from './detectors.js';
+export * from './providers/alchemy.js';
 export * from './providers/twilio.js';
 export * from './providers/types.js';
