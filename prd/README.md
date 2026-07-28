@@ -28,3 +28,4 @@ these numbered PRDs cover individual changes to it.
 | [0013](./0013-make-attacks-expensive-instead-of-blocking-them.md) | Make attacks expensive instead of blocking them | Draft | tar-pit, throttling, cost-asymmetry, containment, modules |
 | [0014](./0014-learn-about-a-breach-when-the-stolen-credential-is-used.md) | Learn about a breach when the stolen credential is used | Draft | deception, canary-tokens, breach-detection, dwell-time, modules |
 | [0015](./0015-report-abuse-without-becoming-a-source-of-it.md) | Report abuse without becoming a source of it | Draft | abuse-reporter, abuseipdb, reputation, false-positives, modules |
+| [0016](./0016-attack-your-own-infrastructure-safely-and-only-your-own.md) | Attack your own infrastructure, safely, and only your own | Draft | pentest-engine, authorization, blast-radius, dast, scanning, modules |
