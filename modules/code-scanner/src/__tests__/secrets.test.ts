@@ -9,6 +9,7 @@ import {
   matchesIgnore,
   redact,
   scanText,
+  trimStars,
 } from '../secrets/index.js';
 
 /**
@@ -243,5 +244,45 @@ describe('overlapping rules', () => {
     const found = scanText('DATABASE_URL=postgres://admin:s3cr3tP4ss@db.internal:5432/app');
     expect(found).toHaveLength(1);
     expect(found[0]?.ruleId).toBe('connection-string-password');
+  });
+});
+
+/**
+ * ReDoS regression (CodeQL js/polynomial-redos).
+ *
+ * These patterns run against file content and operator config the scanner does
+ * not control. An unbounded quantifier turns a crafted file into a denial of
+ * service against the security agent itself — a worse outcome than any
+ * placeholder the bound might cause us to miss. CodeQL flagged three of these
+ * after the subsystem merged; these tests keep them fixed.
+ */
+describe('pathological input does not stall the scanner', () => {
+  const budgetMs = 1000;
+
+  it('handles a long run of angle brackets', () => {
+    const hostile = '<'.repeat(50_000);
+    const started = Date.now();
+    scanText(`api_key = "${hostile}"`);
+    expect(Date.now() - started).toBeLessThan(budgetMs);
+  });
+
+  it('handles an allowlist entry that is all asterisks', () => {
+    const started = Date.now();
+    expect(isAllowed({ fingerprint: 'sha256:x', file: '/srv/a.ts' }, ['*'.repeat(50_000)])).toBe(
+      false,
+    );
+    expect(Date.now() - started).toBeLessThan(budgetMs);
+  });
+
+  it('handles a gitignore pattern that is all asterisks', () => {
+    const started = Date.now();
+    expect(matchesIgnore('a/b/c.ts', ['*'.repeat(50_000)])).toBe(false);
+    expect(Date.now() - started).toBeLessThan(budgetMs);
+  });
+
+  it('trims stars without a regex', () => {
+    expect(trimStars('**foo**')).toBe('foo');
+    expect(trimStars('***')).toBe('');
+    expect(trimStars('bar')).toBe('bar');
   });
 });

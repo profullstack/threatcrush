@@ -18,7 +18,8 @@
 
 export * from './rules.js';
 
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { open, readdir, readFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import { basename, extname, join, relative } from 'node:path';
 
 import { scanText, type SecretMatch } from './rules.js';
@@ -140,11 +141,22 @@ export async function readGitignore(root: string): Promise<string[]> {
   }
 }
 
+/** Strip leading and trailing `*` without a regex. See `isAllowed`. */
+export function trimStars(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '*') start += 1;
+  while (end > start && value[end - 1] === '*') end -= 1;
+  return value.slice(start, end);
+}
+
 export function matchesIgnore(relativePath: string, patterns: readonly string[]): boolean {
   const segments = relativePath.split('/');
   return patterns.some((pattern) => {
     if (pattern.includes('*')) {
-      const suffix = pattern.replace(/^\*+/, '');
+      // Same reasoning as `isAllowed`: .gitignore is file content the scanner
+      // does not control, so no unbounded quantifier runs against it.
+      const suffix = trimStars(pattern);
       return suffix.length > 1 && relativePath.endsWith(suffix);
     }
     return segments.includes(pattern);
@@ -159,7 +171,14 @@ export function isAllowed(
   return allow.some((entry) => {
     if (entry.startsWith('sha256:')) return finding.fingerprint === entry;
     if (entry.includes('*')) {
-      const inner = entry.replace(/^\*+/, '').replace(/\*+$/, '');
+      // Trimmed without a regex. An allowlist entry is operator-supplied and
+      // `/^\*+/` on a long run of asterisks backtracks polynomially — a config
+      // file should not be able to stall the scanner.
+      let start = 0;
+      let end = entry.length;
+      while (start < end && entry[start] === '*') start += 1;
+      while (end > start && entry[end - 1] === '*') end -= 1;
+      const inner = entry.slice(start, end);
       return inner.length > 0 && finding.file.includes(inner);
     }
     // A trailing slash means "everything under this directory", which is what
@@ -214,28 +233,36 @@ export async function scanSecrets(options: SecretsOptions): Promise<SecretsResul
 
       if (!highRisk && SKIP_EXTENSIONS.has(extname(file).toLowerCase())) continue;
 
-      let size: number;
-      try {
-        size = (await stat(file)).size;
-      } catch {
-        skipped.push({ file, reason: 'unreadable' });
-        continue;
-      }
-
-      if (size === 0) continue;
-      if (size > options.maxFileBytes && !highRisk) {
-        // Recorded rather than silently dropped: an unscanned file must never
-        // be indistinguishable from a clean one (PRD 0002 R6, PRD 0003 R2).
-        skipped.push({ file, reason: `larger than ${options.maxFileBytes} bytes` });
-        continue;
-      }
-
+      // Size check and read happen through ONE file handle.
+      //
+      // `stat(path)` followed by `readFile(path)` is a time-of-check /
+      // time-of-use gap: the path can be replaced between the two calls, so the
+      // bytes examined need not be the bytes measured. On a host where an
+      // attacker can write to a scanned directory that is a way to feed the
+      // scanner something other than what it approved. Holding a descriptor and
+      // stat-ing *that* removes the gap entirely.
       let buffer: Buffer;
+      let handle: FileHandle | undefined;
       try {
-        buffer = await readFile(file);
+        handle = await open(file, 'r');
+        const size = (await handle.stat()).size;
+
+        if (size === 0) continue;
+        if (size > options.maxFileBytes && !highRisk) {
+          // Recorded rather than silently dropped: an unscanned file must never
+          // be indistinguishable from a clean one (PRD 0002 R6, PRD 0003 R2).
+          skipped.push({ file, reason: `larger than ${options.maxFileBytes} bytes` });
+          continue;
+        }
+
+        buffer = await handle.readFile();
       } catch {
         skipped.push({ file, reason: 'unreadable' });
         continue;
+      } finally {
+        await handle?.close().catch(() => {
+          /* a failed close must not abort the scan */
+        });
       }
 
       if (!highRisk && looksBinary(buffer)) continue;
