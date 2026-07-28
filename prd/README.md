@@ -21,3 +21,4 @@ these numbered PRDs cover individual changes to it.
 | [0006](./0006-route-alerts-so-they-keep-being-read.md) | Route alerts so they keep being read | Draft | alert-system, routing, deduplication, escalation, notifications, modules |
 | [0007](./0007-tell-ssh-compromise-apart-from-ssh-background-noise.md) | Tell SSH compromise apart from SSH background noise | Draft | ssh-guard, brute-force, authentication, tunneling, posture, modules |
 | [0008](./0008-notice-what-changed-on-the-network-not-everything-on-it.md) | Notice what changed on the network, not everything on it | Draft | network-monitor, listeners, egress, port-scan, baseline, modules |
+| [0009](./0009-read-the-logs-for-evidence-including-the-logs-that-stopped.md) | Read the logs for evidence, including the logs that stopped | Draft | log-watcher, logs, web-attacks, tampering, gaps, modules |
