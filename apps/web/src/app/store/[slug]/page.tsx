@@ -134,7 +134,6 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
   const [configError, setConfigError] = useState<string | null>(null);
 
   // Review form
-  const [reviewEmail, setReviewEmail] = useState("");
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewBody, setReviewBody] = useState("");
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -318,14 +317,13 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
 
   const handleReviewSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mod || !reviewEmail) return;
+    if (!mod || !profile?.email) return;
     setSubmittingReview(true);
     try {
       const res = await fetch(`/api/modules/${mod.slug}/review`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
-          user_email: reviewEmail,
           rating: reviewRating,
           body: reviewBody,
         }),
@@ -678,10 +676,10 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
                     <h3 className="text-sm font-bold text-white">Leave a Review</h3>
                     <input
                       type="email"
-                      placeholder="Your email"
-                      value={reviewEmail}
-                      onChange={(e) => setReviewEmail(e.target.value)}
-                      required
+                      placeholder="Log in to leave a review"
+                      value={profile?.email ?? ""}
+                      readOnly
+                      disabled={!signedIn}
                       className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text placeholder-tc-text-dim focus:border-tc-green/50 focus:outline-none"
                     />
                     <div className="flex items-center gap-2">
@@ -708,7 +706,7 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
                     />
                     <button
                       type="submit"
-                      disabled={submittingReview || !reviewEmail}
+                      disabled={submittingReview || !profile?.email}
                       className="rounded-lg bg-tc-green px-4 py-2 text-xs font-bold text-black hover:bg-tc-green-dim disabled:opacity-50 transition-all"
                     >
                       {submittingReview ? "Submitting..." : "Submit Review"}

@@ -19,13 +19,28 @@ let upsertResult: { data: unknown; error: unknown } = {
 let allReviewsResult: { data: unknown } = {
   data: [{ rating: 5 }, { rating: 4 }],
 };
+let authenticatedUser: { id: string } | null = { id: "user-1" };
+let profileResult: { data: unknown; error: unknown } = {
+  data: { id: "user-1", email: "reviewer@example.com" },
+  error: null,
+};
 const mockUpdateRating = vi.fn().mockReturnValue({
   eq: vi.fn().mockResolvedValue({ error: null }),
 });
 const mockReviewRange = vi.fn().mockResolvedValue(reviewsResult);
+const mockReviewUpsert = vi.fn().mockReturnValue({
+  select: vi.fn().mockReturnValue({
+    single: vi.fn().mockResolvedValue(upsertResult),
+  }),
+});
 
 vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
+    auth: {
+      getUser: vi.fn().mockImplementation(async () => ({
+        data: { user: authenticatedUser },
+      })),
+    },
     from: (table: string) => {
       if (table === "modules") {
         return {
@@ -51,18 +66,14 @@ vi.mock("@/lib/supabase", () => ({
               eq: vi.fn().mockResolvedValue(allReviewsResult),
             }),
           }),
-          upsert: vi.fn().mockReturnValue({
-            select: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue(upsertResult),
-            }),
-          }),
+          upsert: mockReviewUpsert,
         };
       }
       if (table === "user_profiles") {
         return {
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue({ data: { id: 'user-1' }, error: null }),
+              single: vi.fn().mockImplementation(async () => profileResult),
             }),
           }),
         };
@@ -79,10 +90,13 @@ function makeGetRequest(slug: string, page: string | number = 1) {
   return new Request(url) as unknown as import("next/server").NextRequest;
 }
 
-function makePostRequest(body: unknown) {
+function makePostRequest(body: unknown, authenticated = true) {
   return new Request("http://localhost/api/modules/test-scanner/review", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authenticated ? { Authorization: "Bearer test-token" } : {}),
+    },
     body: JSON.stringify(body),
   }) as unknown as import("next/server").NextRequest;
 }
@@ -138,11 +152,16 @@ describe("POST /api/modules/:slug/review", () => {
     moduleResult = { data: { id: "mod-001", rating_avg: 4.5, rating_count: 10 }, error: null };
     upsertResult = { data: TEST_REVIEW, error: null };
     allReviewsResult = { data: [{ rating: 5 }, { rating: 4 }] };
+    authenticatedUser = { id: "user-1" };
+    profileResult = {
+      data: { id: "user-1", email: "reviewer@example.com" },
+      error: null,
+    };
   });
 
   it("creates a review with valid rating", async () => {
     const req = makePostRequest({
-      user_email: "reviewer@example.com",
+      user_email: "victim@example.com",
       rating: 5,
       title: "Great module",
       body: "Works perfectly",
@@ -152,11 +171,24 @@ describe("POST /api/modules/:slug/review", () => {
 
     expect(res.status).toBe(201);
     expect(body.review).toBeDefined();
+    expect(mockReviewUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_email: "reviewer@example.com" }),
+      { onConflict: "module_id,user_email" }
+    );
+  });
+
+  it("rejects unauthenticated reviews", async () => {
+    const req = makePostRequest({ rating: 5 }, false);
+    const res = await POST(req, makeContext("test-scanner"));
+    const body = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(body.error).toContain("logged in");
+    expect(mockReviewUpsert).not.toHaveBeenCalled();
   });
 
   it("rejects rating below 1", async () => {
     const req = makePostRequest({
-      user_email: "reviewer@example.com",
       rating: 0,
     });
     const res = await POST(req, makeContext("test-scanner"));
@@ -168,7 +200,6 @@ describe("POST /api/modules/:slug/review", () => {
 
   it("rejects rating above 5", async () => {
     const req = makePostRequest({
-      user_email: "reviewer@example.com",
       rating: 6,
     });
     const res = await POST(req, makeContext("test-scanner"));
@@ -178,17 +209,8 @@ describe("POST /api/modules/:slug/review", () => {
     expect(body.error).toContain("rating must be 1-5");
   });
 
-  it("rejects missing user_email", async () => {
-    const req = makePostRequest({ rating: 5 });
-    const res = await POST(req, makeContext("test-scanner"));
-    const body = await res.json();
-
-    expect(res.status).toBe(400);
-    expect(body.error).toContain("user_email");
-  });
-
   it("rejects missing rating", async () => {
-    const req = makePostRequest({ user_email: "test@example.com" });
+    const req = makePostRequest({});
     const res = await POST(req, makeContext("test-scanner"));
     const body = await res.json();
 
@@ -199,7 +221,10 @@ describe("POST /api/modules/:slug/review", () => {
   it("rejects invalid JSON", async () => {
     const req = new Request("http://localhost/api/modules/test-scanner/review", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer test-token",
+      },
       body: "not json",
     }) as unknown as import("next/server").NextRequest;
     const res = await POST(req, makeContext("test-scanner"));
