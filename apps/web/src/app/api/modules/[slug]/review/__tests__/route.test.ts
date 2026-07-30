@@ -209,6 +209,18 @@ describe("POST /api/modules/:slug/review", () => {
     expect(body.error).toContain("rating must be 1-5");
   });
 
+  it("rejects fractional ratings before writing to the integer column", async () => {
+    const req = makePostRequest({
+      rating: 4.5,
+    });
+    const res = await POST(req, makeContext("test-scanner"));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("integer");
+    expect(mockReviewUpsert).not.toHaveBeenCalled();
+  });
+
   it("rejects missing rating", async () => {
     const req = makePostRequest({});
     const res = await POST(req, makeContext("test-scanner"));
