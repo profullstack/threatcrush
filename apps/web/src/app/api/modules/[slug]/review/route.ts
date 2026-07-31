@@ -85,8 +85,13 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  if (!body.rating || body.rating < 1 || body.rating > 5) {
-    return NextResponse.json({ error: "rating must be 1-5" }, { status: 400 });
+  if (
+    typeof body.rating !== "number"
+    || !Number.isInteger(body.rating)
+    || body.rating < 1
+    || body.rating > 5
+  ) {
+    return NextResponse.json({ error: "rating must be 1-5 and an integer" }, { status: 400 });
   }
 
   const sb = getSupabaseAdmin();
