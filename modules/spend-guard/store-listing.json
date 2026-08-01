@@ -21,7 +21,7 @@
     "cost-control"
   ],
   "keywords": "sms pumping, IRSF, toll fraud, balance drain, auto-recharge, billing anomaly, twilio, spend monitoring",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "min_threatcrush_version": ">=0.2.0",
   "os_support": ["linux", "darwin"],
   "capabilities": ["network:outbound"]
