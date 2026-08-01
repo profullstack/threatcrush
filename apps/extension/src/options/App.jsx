@@ -8,6 +8,20 @@ const DEFAULT_SETTINGS = {
   scanInterval: 5,
 };
 
+const MIN_SCAN_INTERVAL = 1;
+const MAX_SCAN_INTERVAL = 60;
+const EVENT_CHECK_ALARM = 'threatcrush-event-check';
+
+function normalizeScanInterval(value) {
+  const parsed = Number.parseInt(value, 10);
+
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_SETTINGS.scanInterval;
+  }
+
+  return Math.min(MAX_SCAN_INTERVAL, Math.max(MIN_SCAN_INTERVAL, parsed));
+}
+
 export default function App() {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
@@ -21,7 +35,16 @@ export default function App() {
 
   async function handleSave(e) {
     e.preventDefault();
-    await chrome.storage.local.set(settings);
+    const nextSettings = {
+      ...settings,
+      scanInterval: normalizeScanInterval(settings.scanInterval),
+    };
+
+    await chrome.storage.local.set(nextSettings);
+    await chrome.alarms.create(EVENT_CHECK_ALARM, {
+      periodInMinutes: nextSettings.scanInterval,
+    });
+    setSettings(nextSettings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -48,8 +71,9 @@ export default function App() {
 
           <div className="space-y-3">
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Server URL</label>
+              <label htmlFor="server-url" className="block text-xs text-gray-400 mb-1">Server URL</label>
               <input
+                id="server-url"
                 type="url"
                 value={settings.serverUrl}
                 onChange={(e) => updateSetting('serverUrl', e.target.value)}
@@ -58,8 +82,9 @@ export default function App() {
             </div>
 
             <div>
-              <label className="block text-xs text-gray-400 mb-1">License Key</label>
+              <label htmlFor="license-key" className="block text-xs text-gray-400 mb-1">License Key</label>
               <input
+                id="license-key"
                 type="password"
                 value={settings.licenseKey}
                 onChange={(e) => updateSetting('licenseKey', e.target.value)}
@@ -105,15 +130,16 @@ export default function App() {
             </label>
 
             <div>
-              <label className="block text-xs text-gray-400 mb-1">
+              <label htmlFor="scan-interval" className="block text-xs text-gray-400 mb-1">
                 Event check interval (minutes)
               </label>
               <input
+                id="scan-interval"
                 type="number"
                 min="1"
                 max="60"
                 value={settings.scanInterval}
-                onChange={(e) => updateSetting('scanInterval', parseInt(e.target.value, 10))}
+                onChange={(e) => updateSetting('scanInterval', e.target.value)}
                 className="w-24 px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-lg text-sm text-white focus:outline-none focus:border-[#00ff41] transition-colors"
               />
             </div>
