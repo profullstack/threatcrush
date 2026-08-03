@@ -1,396 +1,346 @@
-import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
-import { join, relative, extname } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import chalk from 'chalk';
 import ora from 'ora';
 import { banner, logger } from '../core/logger.js';
 import type { RunResult, StructuredFinding } from '../core/run-result.js';
 import { summarize } from '../core/run-result.js';
+import { scanDependencies } from '../scan/dependencies.js';
+import { meetsFailThreshold, scanPath } from '../scan/engine.js';
+import { buildSarif } from '../scan/sarif.js';
+import type { ScanFinding, Severity } from '../scan/types.js';
+import { SEVERITY_ORDER } from '../scan/types.js';
 
-interface ScanFinding {
-  file: string;
-  line: number;
-  type: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  message: string;
-  snippet: string;
+export type ScanFormat = 'text' | 'json' | 'sarif';
+
+export interface ScanCommandOptions {
+  /**
+   * `text` for humans, `sarif` for the Security tab and coverage validators,
+   * `json` for anything else. Non-text formats put the payload on stdout (or
+   * `--output`) and every human line on stderr, so
+   * `threatcrush scan --format sarif > out.sarif` produces a valid file.
+   */
+  format?: ScanFormat;
+  /** Write the machine-readable payload here instead of stdout. */
+  output?: string;
+  /** Exit non-zero when a finding at or above one of these severities exists. */
+  failOn?: readonly Severity[];
+  /** Prefix prepended to SARIF URIs when the scan root is not the repo root. */
+  pathPrefix?: string;
+  /** Print the paths that could not be read, not just the count. */
+  verbose?: boolean;
+  /**
+   * Query OSV.dev for advisories against the resolved lockfile versions.
+   * Off by default in the CLI because it is the only part of a scan that
+   * needs the network — a CI job should opt in deliberately rather than
+   * discover the dependency mid-run.
+   */
+  dependencies?: boolean;
 }
 
-// Secret patterns
-const SECRET_PATTERNS: Array<{
-  name: string;
-  pattern: RegExp;
-  severity: 'medium' | 'high' | 'critical';
-}> = [
-  { name: 'AWS Access Key', pattern: /(?:AKIA[0-9A-Z]{16})/g, severity: 'critical' },
-  { name: 'AWS Secret Key', pattern: /(?:aws_secret_access_key|AWS_SECRET)\s*[=:]\s*['"]?([A-Za-z0-9/+=]{40})['"]?/gi, severity: 'critical' },
-  { name: 'GitHub Token', pattern: /(?:ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82})/g, severity: 'critical' },
-  { name: 'Generic API Key', pattern: /(?:api[_-]?key|apikey)\s*[=:]\s*['"]([A-Za-z0-9\-_]{20,})['"]?/gi, severity: 'high' },
-  { name: 'Generic Secret', pattern: /(?:secret|password|passwd|pwd)\s*[=:]\s*['"]([^'"]{8,})['"]?/gi, severity: 'high' },
-  { name: 'Private Key', pattern: /-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----/g, severity: 'critical' },
-  { name: 'JWT Token', pattern: /eyJ[A-Za-z0-9-_]+\.eyJ[A-Za-z0-9-_]+\.[A-Za-z0-9-_.+/=]*/g, severity: 'high' },
-  { name: 'Slack Token', pattern: /xox[bpors]-[A-Za-z0-9-]{10,}/g, severity: 'critical' },
-  { name: 'Stripe Key', pattern: /(?:sk_live_|pk_live_|sk_test_|pk_test_)[A-Za-z0-9]{20,}/g, severity: 'critical' },
-  { name: 'Database URL', pattern: /(?:postgres|mysql|mongodb|redis):\/\/[^\s'"]+/gi, severity: 'high' },
-  { name: 'Bearer Token', pattern: /Bearer\s+[A-Za-z0-9\-_\.]{20,}/g, severity: 'medium' },
-  { name: 'Hex Token (32+)', pattern: /(?:token|key|secret|auth)\s*[=:]\s*['"]?([0-9a-f]{32,})['"]?/gi, severity: 'medium' },
-];
+interface ScanOutcome {
+  result: RunResult;
+  findings: ScanFinding[];
+  filesScanned: number;
+  unreadable: string[];
+  suppressed: number;
+  root: string;
+}
 
-// File permission / misconfig checks
-const MISCONFIG_FILES = [
-  { pattern: '.env', message: '.env file found — may contain secrets' },
-  { pattern: '.env.local', message: '.env.local file found — may contain secrets' },
-  { pattern: '.env.production', message: '.env.production file found — may contain secrets' },
-  { pattern: 'id_rsa', message: 'Private SSH key found' },
-  { pattern: 'id_ed25519', message: 'Private SSH key found' },
-  { pattern: '.pem', message: 'PEM certificate/key file found' },
-  { pattern: '.p12', message: 'PKCS#12 keystore found' },
-  { pattern: '.keystore', message: 'Keystore file found' },
-];
-
-const SKIP_DIRS = new Set([
-  'node_modules', '.git', '.next', 'dist', 'build', '__pycache__',
-  '.venv', 'vendor', '.terraform', 'coverage', '.cache',
-]);
-
-const SCAN_EXTENSIONS = new Set([
-  '.ts', '.js', '.tsx', '.jsx', '.py', '.rb', '.go', '.java',
-  '.php', '.rs', '.c', '.cpp', '.h', '.yml', '.yaml', '.json',
-  '.toml', '.ini', '.cfg', '.conf', '.env', '.sh', '.bash',
-  '.tf', '.hcl', '.xml', '.properties', '.gradle',
-]);
-
-export async function runScan(targetPath: string): Promise<RunResult> {
-  const findings: ScanFinding[] = [];
-  try {
-    scanDirectory(targetPath, targetPath, findings, () => {});
-    // Dependency CVE scan (PRD 06)
-    const depFindings = await scanDependencies(targetPath);
-    findings.push(...depFindings);
-  } catch (err) {
-    return {
-      type: 'scan',
-      target: targetPath,
-      findings: [],
-      severity_summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
-      summary: `Scan failed: ${(err as Error).message}`,
-      error: (err as Error).message,
-    };
+function readVersion(): string {
+  for (const candidate of [
+    join(__dirname, '..', 'package.json'),
+    join(__dirname, '..', '..', 'package.json'),
+  ]) {
+    try {
+      return (
+        (JSON.parse(readFileSync(candidate, 'utf-8')) as { version?: string }).version ?? '0.0.0'
+      );
+    } catch {
+      /* try the next candidate */
+    }
   }
+  return '0.0.0';
+}
 
-  const structured: StructuredFinding[] = findings.map((f) => ({
-    type: f.type,
-    severity: f.severity,
-    message: f.message,
-    location: `${f.file}:${f.line}`,
-    details: { file: f.file, line: f.line, snippet: f.snippet },
+const PKG_VERSION = readVersion();
+
+/** Parse `--fail-on critical,high` into severities, rejecting unknown names. */
+export function parseFailOn(raw: string | undefined): Severity[] {
+  if (!raw) return [];
+  const requested = raw
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+
+  const unknown = requested.filter((name) => !SEVERITY_ORDER.includes(name as Severity));
+  if (unknown.length > 0) {
+    throw new Error(
+      `unknown severity in --fail-on: ${unknown.join(', ')} (expected ${SEVERITY_ORDER.join(', ')})`,
+    );
+  }
+  return requested as Severity[];
+}
+
+function toRunResult(
+  targetPath: string,
+  findings: readonly ScanFinding[],
+  filesScanned: number,
+): RunResult {
+  const structured: StructuredFinding[] = findings.map((finding) => ({
+    type: finding.title,
+    severity: finding.severity,
+    message: finding.message,
+    location: `${finding.file}:${finding.line}`,
+    details: {
+      file: finding.file,
+      line: finding.line,
+      snippet: finding.excerpt,
+      ruleId: finding.ruleId,
+      confidence: finding.confidence,
+      ...(finding.cwe ? { cwe: finding.cwe } : {}),
+    },
   }));
-  const summary = summarize(structured);
+  const counts = summarize(structured);
 
   return {
     type: 'scan',
     target: targetPath,
     findings: structured,
-    severity_summary: summary,
-    summary: findings.length === 0
-      ? 'No security issues found'
-      : `${findings.length} issue(s): ${summary.critical}C ${summary.high}H ${summary.medium}M ${summary.low}L`,
+    severity_summary: counts,
+    summary:
+      findings.length === 0
+        ? `No issues found across ${filesScanned} files`
+        : `${findings.length} issue(s): ${counts.critical}C ${counts.high}H ${counts.medium}M ${counts.low}L`,
   };
 }
 
-export async function scanCommand(targetPath: string): Promise<RunResult> {
-  banner();
-  logger.info(`Scanning ${chalk.white(targetPath)} for security issues...\n`);
+function failedResult(targetPath: string, message: string): RunResult {
+  return {
+    type: 'scan',
+    target: targetPath,
+    findings: [],
+    severity_summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+    summary: `Scan failed: ${message}`,
+    error: message,
+  };
+}
 
-  const spinner = ora({ text: 'Scanning files...', color: 'green' }).start();
-  const findings: ScanFinding[] = [];
-  let filesScanned = 0;
-
+/**
+ * Non-interactive scan used by the daemon and the runs worker.
+ *
+ * Includes dependency advisories, as it always has — the daemon runs on a
+ * schedule against a server it can reach the network from, and an advisory
+ * published since the last run is the main thing that changed.
+ */
+export async function runScan(targetPath: string): Promise<RunResult> {
   try {
-    scanDirectory(targetPath, targetPath, findings, () => {
-      filesScanned++;
-      spinner.text = `Scanning files... (${filesScanned} files)`;
-    });
+    const report = scanPath(targetPath);
+    const findings = [...report.findings, ...(await scanDependencies(targetPath))];
+    return toRunResult(targetPath, findings, report.filesScanned);
   } catch (err) {
-    spinner.fail(`Scan failed: ${(err as Error).message}`);
-    return {
-      type: 'scan',
-      target: targetPath,
-      findings: [],
-      severity_summary: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
-      summary: `Scan failed: ${(err as Error).message}`,
-      error: (err as Error).message,
-    };
+    return failedResult(targetPath, (err as Error).message);
+  }
+}
+
+export async function scanCommand(
+  targetPath: string,
+  options: ScanCommandOptions = {},
+): Promise<RunResult> {
+  const format = options.format ?? 'text';
+  const machineReadable = format !== 'text';
+  // Human output goes to stderr whenever stdout is carrying a payload. A
+  // banner in the middle of a SARIF document is exactly how "the scan worked
+  // but the pipeline reports zero findings" happens.
+  const say = machineReadable
+    ? (line: string) => process.stderr.write(`${line}\n`)
+    : (line: string) => process.stdout.write(`${line}\n`);
+
+  if (!existsSync(targetPath)) {
+    say(chalk.red(`Scan target does not exist: ${targetPath}`));
+    process.exitCode = 2;
+    return failedResult(targetPath, `no such path: ${targetPath}`);
   }
 
-  spinner.succeed(`Scanned ${filesScanned} files\n`);
+  if (!machineReadable) {
+    banner();
+    logger.info(`Scanning ${chalk.white(targetPath)} for security issues...\n`);
+  }
 
-  const structured: StructuredFinding[] = findings.map((f) => ({
-    type: f.type,
-    severity: f.severity,
-    message: f.message,
-    location: `${f.file}:${f.line}`,
-    details: { file: f.file, line: f.line, snippet: f.snippet },
-  }));
-  const sevCounts = summarize(structured);
+  const spinner = machineReadable ? null : ora({ text: 'Scanning files...', color: 'green' }).start();
 
-  // Print results
+  let outcome: ScanOutcome;
+  try {
+    let seen = 0;
+    const report = scanPath(targetPath, {
+      onFile: () => {
+        seen += 1;
+        if (spinner) spinner.text = `Scanning files... (${seen} files)`;
+      },
+    });
+    if (options.dependencies) {
+      if (spinner) spinner.text = 'Querying OSV.dev for dependency advisories...';
+      report.findings.push(...(await scanDependencies(targetPath)));
+    }
+    outcome = {
+      result: toRunResult(targetPath, report.findings, report.filesScanned),
+      findings: report.findings,
+      filesScanned: report.filesScanned,
+      unreadable: report.unreadable,
+      suppressed: report.suppressed,
+      root: report.root,
+    };
+  } catch (err) {
+    spinner?.fail(`Scan failed: ${(err as Error).message}`);
+    process.exitCode = 2;
+    return failedResult(targetPath, (err as Error).message);
+  }
+
+  spinner?.succeed(`Scanned ${outcome.filesScanned} files\n`);
+
+  if (outcome.unreadable.length > 0) {
+    // Surfaced, never swallowed. An unexamined file is not a clean one, and a
+    // scanner that hides read failures reports silence as safety.
+    say(
+      chalk.yellow(
+        `  ! ${outcome.unreadable.length} path(s) could not be read and were NOT scanned`,
+      ),
+    );
+    if (options.verbose) {
+      for (const path of outcome.unreadable) say(chalk.gray(`      ${path}`));
+    }
+  }
+
+  if (outcome.suppressed > 0) {
+    say(
+      chalk.gray(
+        `  · ${outcome.suppressed} finding(s) suppressed by inline threatcrush-disable comments`,
+      ),
+    );
+  }
+
+  if (machineReadable) {
+    emitMachineReadable(format, outcome, targetPath, options, say);
+  } else {
+    printHuman(outcome);
+  }
+
+  const failOn = options.failOn ?? [];
+  if (meetsFailThreshold(outcome.findings, failOn)) {
+    say(
+      chalk.red(
+        `\n  ✗ findings at or above ${[...failOn].join('/')} — failing as requested by --fail-on`,
+      ),
+    );
+    process.exitCode = 1;
+  }
+
+  return outcome.result;
+}
+
+function emitMachineReadable(
+  format: ScanFormat,
+  outcome: ScanOutcome,
+  targetPath: string,
+  options: ScanCommandOptions,
+  say: (line: string) => void,
+): void {
+  const payload =
+    format === 'sarif'
+      ? buildSarif(outcome.findings, {
+          toolVersion: PKG_VERSION,
+          pathPrefix: options.pathPrefix,
+          // Relative to the working directory, NOT the scan root. `threatcrush
+          // scan vulns` from a repo root must emit `vulns/secrets/x.env`, not
+          // `secrets/x.env` — the second form matches nothing in the
+          // consumer's view of the repository, so every finding lands
+          // "outside" whatever it scoped to and a working scan reads as 0%.
+          // This is the single most expensive mistake in the whole pipeline
+          // and it fails silently. `--path-prefix` covers the remaining case:
+          // a scan run from inside the subdirectory it is scanning.
+          base: process.cwd(),
+          root: resolve(outcome.root),
+        })
+      : {
+          tool: 'threatcrush',
+          version: PKG_VERSION,
+          target: targetPath,
+          filesScanned: outcome.filesScanned,
+          unreadable: outcome.unreadable,
+          suppressed: outcome.suppressed,
+          summary: outcome.result.severity_summary,
+          findings: outcome.findings,
+        };
+
+  const serialized = `${JSON.stringify(payload, null, 2)}\n`;
+
+  if (options.output) {
+    mkdirSync(dirname(resolve(options.output)), { recursive: true });
+    writeFileSync(options.output, serialized, 'utf-8');
+    say(
+      chalk.gray(
+        `  ${format.toUpperCase()} written to ${options.output} (${outcome.findings.length} finding(s))`,
+      ),
+    );
+    return;
+  }
+  process.stdout.write(serialized);
+}
+
+function printHuman(outcome: ScanOutcome): void {
+  const { findings, filesScanned } = outcome;
+
   if (findings.length === 0) {
     console.log(chalk.green.bold('  ✓ No security issues found!'));
     console.log();
-    return {
-      type: 'scan',
-      target: targetPath,
-      findings: [],
-      severity_summary: sevCounts,
-      summary: `No issues found across ${filesScanned} files`,
-    };
+    return;
   }
 
-  // Group by severity
-  const critical = findings.filter((f) => f.severity === 'critical');
-  const high = findings.filter((f) => f.severity === 'high');
-  const medium = findings.filter((f) => f.severity === 'medium');
-  const low = findings.filter((f) => f.severity === 'low');
-
+  const counts = outcome.result.severity_summary;
   console.log(chalk.white.bold('  Scan Results'));
   console.log(chalk.gray('  ' + '─'.repeat(70)));
   console.log(
-    `  ${chalk.red.bold(critical.length + ' critical')}  ` +
-    `${chalk.red(high.length + ' high')}  ` +
-    `${chalk.yellow(medium.length + ' medium')}  ` +
-    `${chalk.gray(low.length + ' low')}`,
+    `  ${chalk.red.bold(counts.critical + ' critical')}  ` +
+      `${chalk.red(counts.high + ' high')}  ` +
+      `${chalk.yellow(counts.medium + ' medium')}  ` +
+      `${chalk.gray(counts.low + ' low')}`,
   );
   console.log(chalk.gray('  ' + '─'.repeat(70)));
   console.log();
 
-  const allFindings = [...critical, ...high, ...medium, ...low];
-  for (const finding of allFindings) {
-    const sev =
-      finding.severity === 'critical' ? chalk.bgRed.white.bold(` ${finding.severity.toUpperCase()} `) :
-      finding.severity === 'high' ? chalk.red(`[${finding.severity.toUpperCase()}]`) :
-      finding.severity === 'medium' ? chalk.yellow(`[${finding.severity.toUpperCase()}]`) :
-      chalk.gray(`[${finding.severity.toUpperCase()}]`);
+  for (const finding of findings) {
+    const label = finding.severity.toUpperCase();
+    const badge =
+      finding.severity === 'critical'
+        ? chalk.bgRed.white.bold(` ${label} `)
+        : finding.severity === 'high'
+          ? chalk.red(`[${label}]`)
+          : finding.severity === 'medium'
+            ? chalk.yellow(`[${label}]`)
+            : chalk.gray(`[${label}]`);
 
-    console.log(`  ${sev} ${chalk.white.bold(finding.type)}`);
-    console.log(`    ${chalk.gray('File:')} ${chalk.cyan(finding.file)}:${chalk.yellow(String(finding.line))}`);
+    console.log(`  ${badge} ${chalk.white.bold(finding.title)}`);
+    console.log(
+      `    ${chalk.gray('File:')} ${chalk.cyan(finding.file)}:${chalk.yellow(String(finding.line))}`,
+    );
     console.log(`    ${chalk.gray('Info:')} ${finding.message}`);
-    if (finding.snippet) {
-      // Redact the actual secret value
-      const redacted = finding.snippet.replace(
-        /(['"]?)([A-Za-z0-9+/=\-_]{16,})(['"]?)/g,
-        '$1' + chalk.red('*'.repeat(16)) + '$3',
-      );
-      console.log(`    ${chalk.gray('Code:')} ${redacted.trim()}`);
+    if (finding.consequence) {
+      console.log(`    ${chalk.gray('Risk:')} ${chalk.dim(finding.consequence)}`);
     }
+    if (finding.excerpt) {
+      console.log(`    ${chalk.gray('Code:')} ${finding.excerpt}`);
+    }
+    console.log(
+      `    ${chalk.gray('Rule:')} ${chalk.dim(finding.ruleId)}` +
+        (finding.cwe ? chalk.dim(` · ${finding.cwe}`) : '') +
+        chalk.dim(` · confidence: ${finding.confidence}`),
+    );
     console.log();
   }
 
   console.log(chalk.gray('  ' + '─'.repeat(70)));
-  console.log(`  ${chalk.white.bold(`${findings.length} issue(s) found`)} across ${filesScanned} files`);
+  console.log(
+    `  ${chalk.white.bold(`${findings.length} issue(s) found`)} across ${filesScanned} files`,
+  );
   console.log();
-
-  return {
-    type: 'scan',
-    target: targetPath,
-    findings: structured,
-    severity_summary: sevCounts,
-    summary: `${findings.length} issue(s): ${sevCounts.critical}C ${sevCounts.high}H ${sevCounts.medium}M ${sevCounts.low}L`,
-  };
-}
-
-function scanDirectory(
-  basePath: string,
-  currentPath: string,
-  findings: ScanFinding[],
-  onFile: () => void,
-): void {
-  let entries;
-  try {
-    entries = readdirSync(currentPath, { withFileTypes: true });
-  } catch {
-    return; // Permission denied or similar
-  }
-
-  for (const entry of entries) {
-    const fullPath = join(currentPath, entry.name);
-
-    if (entry.isDirectory()) {
-      if (SKIP_DIRS.has(entry.name)) continue;
-      scanDirectory(basePath, fullPath, findings, onFile);
-      continue;
-    }
-
-    if (!entry.isFile()) continue;
-
-    // Check for misconfig files
-    for (const mc of MISCONFIG_FILES) {
-      if (entry.name === mc.pattern || entry.name.endsWith(mc.pattern)) {
-        findings.push({
-          file: relative(basePath, fullPath),
-          line: 0,
-          type: 'Sensitive File',
-          severity: 'high',
-          message: mc.message,
-          snippet: '',
-        });
-      }
-    }
-
-    // Only scan text files with known extensions
-    const ext = extname(entry.name).toLowerCase();
-    if (!SCAN_EXTENSIONS.has(ext) && !entry.name.startsWith('.env')) continue;
-
-    // Skip large files
-    try {
-      const stat = statSync(fullPath);
-      if (stat.size > 1024 * 1024) continue; // Skip >1MB
-    } catch {
-      continue;
-    }
-
-    onFile();
-
-    // Scan file content
-    let content: string;
-    try {
-      content = readFileSync(fullPath, 'utf-8');
-    } catch {
-      continue;
-    }
-
-    const lines = content.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      // Skip comments
-      if (line.trim().startsWith('//') && !line.includes('password') && !line.includes('secret')) continue;
-
-      for (const pattern of SECRET_PATTERNS) {
-        pattern.pattern.lastIndex = 0;
-        if (pattern.pattern.test(line)) {
-          findings.push({
-            file: relative(basePath, fullPath),
-            line: i + 1,
-            type: pattern.name,
-            severity: pattern.severity,
-            message: `Possible ${pattern.name} detected`,
-            snippet: line.length > 120 ? line.slice(0, 120) + '...' : line,
-          });
-        }
-      }
-    }
-  }
-}
-
-// ─── Dependency CVE Scanner (PRD 06) ───
-
-interface OsvVulnerability {
-  id: string;
-  summary: string;
-  details?: string;
-  severity?: Array<{ type: string; score: string }>;
-  affected?: Array<{ package: { name: string; ecosystem: string }; ranges?: Array<{ events: Array<{ introduced?: string; fixed?: string }> }> }>;
-}
-
-async function scanDependencies(targetPath: string): Promise<ScanFinding[]> {
-  const findings: ScanFinding[] = [];
-
-  // Check for package-lock.json or package.json
-  const lockfiles = [
-    { file: 'package-lock.json', ecosystem: 'npm' },
-    { file: 'pnpm-lock.yaml', ecosystem: 'npm' },
-    { file: 'yarn.lock', ecosystem: 'npm' },
-    { file: 'requirements.txt', ecosystem: 'PyPI' },
-    { file: 'Pipfile.lock', ecosystem: 'PyPI' },
-  ];
-
-  for (const { file, ecosystem } of lockfiles) {
-    const lockPath = join(targetPath, file);
-    if (!existsSync(lockPath)) continue;
-
-    try {
-      const deps = parseDependencies(lockPath, file, ecosystem);
-      for (const dep of deps.slice(0, 50)) { // Limit to 50 deps to avoid API flooding
-        try {
-          const vulns = await queryOsv(dep.name, dep.version, ecosystem);
-          for (const vuln of vulns) {
-            const cvssScore = vuln.severity?.find(s => s.type === 'CVSS_V3')?.score;
-            const severity: ScanFinding['severity'] = cvssScore
-              ? (parseFloat(cvssScore) >= 9 ? 'critical' : parseFloat(cvssScore) >= 7 ? 'high' : parseFloat(cvssScore) >= 4 ? 'medium' : 'low')
-              : 'medium';
-
-            findings.push({
-              file: file,
-              line: 0,
-              type: 'Dependency CVE',
-              severity,
-              message: `${dep.name}@${dep.version}: ${vuln.summary || vuln.id}`,
-              snippet: `${vuln.id}${cvssScore ? ` (CVSS: ${cvssScore})` : ''}`,
-            });
-          }
-        } catch {
-          // Skip individual dep query failures
-        }
-      }
-    } catch {
-      // Skip lockfile parse failures
-    }
-  }
-
-  return findings;
-}
-
-function parseDependencies(lockPath: string, filename: string, ecosystem: string): Array<{ name: string; version: string }> {
-  const deps: Array<{ name: string; version: string }> = [];
-
-  if (filename === 'package-lock.json') {
-    try {
-      const lock = JSON.parse(readFileSync(lockPath, 'utf-8'));
-      const packages = lock.packages || lock.dependencies || {};
-      for (const [key, value] of Object.entries(packages)) {
-        const name = key.replace(/^node_modules\//, '');
-        const version = (value as any).version;
-        if (name && version && !name.startsWith('.')) {
-          deps.push({ name, version });
-        }
-      }
-    } catch { /* skip */ }
-  } else if (filename === 'requirements.txt') {
-    try {
-      const content = readFileSync(lockPath, 'utf-8');
-      for (const line of content.split('\n')) {
-        const match = line.match(/^([a-zA-Z0-9_.-]+)==([0-9.]+)/);
-        if (match) deps.push({ name: match[1], version: match[2] });
-      }
-    } catch { /* skip */ }
-  }
-
-  return deps;
-}
-
-// Validate package name to prevent injection in OSV API queries
-function isValidPackageName(name: string): boolean {
-  return /^[@a-zA-Z0-9_.\-/]{1,214}$/.test(name);
-}
-
-function isValidVersion(version: string): boolean {
-  return /^[0-9a-zA-Z._\-+]{1,50}$/.test(version);
-}
-
-async function queryOsv(name: string, version: string, ecosystem: string): Promise<OsvVulnerability[]> {
-  // Sanitize inputs before sending to external API
-  if (!isValidPackageName(name) || !isValidVersion(version)) return [];
-
-  try {
-    const res = await fetch('https://api.osv.dev/v1/query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ package: { name, ecosystem }, version }),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) return [];
-    const data = await res.json() as { vulns?: OsvVulnerability[] };
-    return data.vulns || [];
-  } catch {
-    return [];
-  }
 }

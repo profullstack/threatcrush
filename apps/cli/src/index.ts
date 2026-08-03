@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { monitorCommand } from "./commands/monitor.js";
-import { scanCommand } from "./commands/scan.js";
+import { parseFailOn, scanCommand, type ScanFormat } from "./commands/scan.js";
 import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { modulesCommand } from "./commands/modules.js";
@@ -243,8 +243,48 @@ program
   .command("scan")
   .description("Scan codebase for vulnerabilities and secrets")
   .argument("[path]", "Path to scan", ".")
-  .action(async (targetPath: string) => {
-    await scanCommand(targetPath);
+  .option("-f, --format <format>", "output format: text, json, or sarif", "text")
+  .option("-o, --output <file>", "write json/sarif output to a file instead of stdout")
+  .option(
+    "--fail-on <severities>",
+    "exit 1 when a finding at or above any of these exists (comma-separated: critical,high,medium,low,info)",
+  )
+  .option(
+    "--path-prefix <prefix>",
+    "prepend this to SARIF file URIs — use when the scan root is not the repository root",
+  )
+  .option("--deps", "also query OSV.dev for advisories against lockfile versions (network)")
+  .option("-v, --verbose", "list the paths that could not be read")
+  .action(async (targetPath: string, opts: {
+    format?: string;
+    output?: string;
+    failOn?: string;
+    pathPrefix?: string;
+    deps?: boolean;
+    verbose?: boolean;
+  }) => {
+    const format = (opts.format ?? "text").toLowerCase();
+    if (!["text", "json", "sarif"].includes(format)) {
+      console.error(chalk.red(`Unknown --format "${opts.format}" (expected text, json, or sarif)`));
+      process.exit(2);
+    }
+
+    let failOn;
+    try {
+      failOn = parseFailOn(opts.failOn);
+    } catch (err) {
+      console.error(chalk.red((err as Error).message));
+      process.exit(2);
+    }
+
+    await scanCommand(targetPath, {
+      format: format as ScanFormat,
+      output: opts.output,
+      failOn,
+      pathPrefix: opts.pathPrefix,
+      dependencies: opts.deps,
+      verbose: opts.verbose,
+    });
   });
 
 program
