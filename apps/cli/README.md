@@ -94,6 +94,7 @@ threatcrush              # Get started
 threatcrush monitor      # Real-time security monitoring (all ports)
 threatcrush tui          # Interactive dashboard (htop for security)
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
+threatcrush scan . --format sarif --output out.sarif --fail-on critical,high
 threatcrush pentest URL  # Penetration test a URL/API
 threatcrush init         # Auto-detect services, generate config
 threatcrush status       # Show daemon status & loaded modules
