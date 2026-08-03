@@ -7,7 +7,7 @@
  * without three implementations drifting apart.
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { CODE_RULES, evaluateRule, proseLines } from './code-rules.js';
 import { scanPackageJson, scanRequirementsTxt } from './manifest-rules.js';
@@ -253,19 +253,38 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
       return;
     }
 
+    // Size-check and read through one descriptor.
+    //
+    // `statSync(path)` followed by `readFileSync(path)` is check-then-use: the
+    // path can be replaced between the two calls, so the size that was checked
+    // is not necessarily the size that gets read. Opening once and calling
+    // `fstatSync` on the descriptor removes the window — the descriptor refers
+    // to the same inode for both operations, whatever happens to the name.
+    //
+    // A scanner walking directories it does not control is exactly where this
+    // matters, and CWE-362 is a class this tool reports on. Worth getting
+    // right in its own walker.
+    let text: string;
+    let handle: number;
     try {
-      if (statSync(fullPath).size > maxFileBytes) return;
+      handle = openSync(fullPath, 'r');
     } catch {
       unreadable.push(relativePath);
       return;
     }
 
-    let text: string;
     try {
-      text = readFileSync(fullPath, 'utf-8');
+      if (fstatSync(handle).size > maxFileBytes) return;
+      text = readFileSync(handle, 'utf-8');
     } catch {
       unreadable.push(relativePath);
       return;
+    } finally {
+      try {
+        closeSync(handle);
+      } catch {
+        /* the descriptor is going away regardless */
+      }
     }
 
     filesScanned += 1;
