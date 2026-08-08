@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "@profullstack/autoblog": "github:profullstack/autoblog#75e54af",
+    "@profullstack/autoblog": "github:profullstack/autoblog#v0.4.0",
     "@profullstack/pluginstore": "^0.1.1",
     "@profullstack/stack": "^0.1.3",
     "@supabase/supabase-js": "^2.101.1",
