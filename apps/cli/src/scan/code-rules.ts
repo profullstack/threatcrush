@@ -68,6 +68,16 @@ export interface CodeRule {
    * `process.env`, so the generic guard would veto every true positive.
    */
   guard?: RegExp | false;
+  /**
+   * Evidence — on the matched line ONLY — that this occurrence is safe.
+   *
+   * Distinct from `guard`, which also searches the surrounding window. That
+   * breadth is right for "the value was sanitised three lines up" but wrong
+   * for properties of the line itself: a static `innerHTML` assignment says
+   * nothing about a dynamic one two lines below it, and a context-scoped
+   * guard would silently veto the dynamic one too.
+   */
+  lineGuard?: RegExp;
   /** Lines of context searched backwards for guards and required evidence. */
   guardBack?: number;
   /**
@@ -86,8 +96,15 @@ export interface CodeRule {
  * model. A real source list would be framework-aware and interprocedural,
  * which is exactly what this subsystem promises not to pretend to be.
  */
+/**
+ * `searchParams` is a read *and* a write API. `params.get('q')` is inbound
+ * data; `url.searchParams.set('limit', 50)` is an outbound URL being built,
+ * and treating the two alike marked every client of every third-party API as
+ * taking untrusted input — which is what made the SSRF rule fire on requests
+ * whose host is a compile-time constant. Only the reading half is evidence.
+ */
 const UNTRUSTED_JS =
-  /\b(?:req|request|ctx|context)\s*\.\s*(?:body|query|params|param|headers|cookies|url|files)\b|\bprocess\.argv\b|\bwindow\.location\b|\bdocument\.location\b|\blocation\.(?:search|hash|href)\b|\bsearchParams\b|\bgetParameter\s*\(|\bgetQueryString\s*\(|\bgetInputStream\s*\(/;
+  /\b(?:req|request|ctx|context)\s*\.\s*(?:body|query|params|param|headers|cookies|url|files)\b|\bprocess\.argv\b|\bwindow\.location\b|\bdocument\.location\b|\blocation\.(?:search|hash|href)\b|\bsearchParams\s*\.\s*(?:get|getAll|has|entries|keys|values|forEach)\b|\bgetParameter\s*\(|\bgetQueryString\s*\(|\bgetInputStream\s*\(/;
 
 const UNTRUSTED_PY = /\brequest\b|\bparams\b|\bflask\b|\bsys\.argv\b|\bos\.environ\b\s*\[/;
 
@@ -132,7 +149,15 @@ export function untrustedPatternFor(language: ScanLanguage): RegExp {
  * operators stop reading scanner output.
  */
 export const GENERIC_GUARD =
-  /\ballow(?:ed|list|_list|ed_hosts)?\b|\bwhitelist\b|\bescape(?:Html|Html4|Xml|Sql)?\s*\(|\bhtml_escape\b|\bhtmlspecialchars\s*\(|\bsanitiz\w*\b|\bencoded\b|\brealpath\b|\bcommonpath\b|\bresolve\(\)\.startsWith\b|\bprocess\.env\b|\bos\.environ\b|\bgetenv\b|\bENV\s*\[|setObjectInputFilter|ObjectInputFilter/i;
+  // `esc(`, `aEsc(`, `htmlEscape(`, `escapeHtml(` — the escaper is almost
+  // never *named* `escapeHtml` in real code. It gets aliased to something
+  // short because it is called on nearly every interpolation, so matching only
+  // the long spellings reported the codebases that escape most rigorously.
+  //
+  // The identifier must END at the escaper (with at most a known output-context
+  // suffix). An earlier, looser form also matched `describe(`, which would have
+  // silenced findings across every test file in every repository.
+  /\ballow(?:ed|list|_list|ed_hosts)?\b|\bwhitelist\b|\b\w{0,6}[Ee]sc(?:ape)?(?:[Hh]tml|HTML|[Xx]ml|XML|[Ss]ql|[Aa]ttr|[Jj]s|[Uu]ri|[Uu]rl)?\s*\(|\bhtml_escape\b|\bhtmlspecialchars\s*\(|\bsanitiz\w*\b|\bencoded\b|\brealpath\b|\bcommonpath\b|\bresolve\(\)\.startsWith\b|\bprocess\.env\b|\bos\.environ\b|\bgetenv\b|\bENV\s*\[|setObjectInputFilter|ObjectInputFilter/i;
 
 /** Evidence that an XML parser factory has been hardened against XXE. */
 const XXE_GUARD =
@@ -340,6 +365,17 @@ export const CODE_RULES: readonly CodeRule[] = [
     languages: ['javascript', 'typescript'],
     pattern:
       /\bdangerouslySetInnerHTML\s*=|\.\s*(?:innerHTML|outerHTML)\s*=\s*(?!\s*['"`]\s*['"`]\s*;?\s*$)|\bdocument\s*\.\s*write(?:ln)?\s*\(|\.\s*insertAdjacentHTML\s*\(/,
+    /**
+     * A whole-statement assignment of a string with no interpolation and no
+     * concatenation carries no data, so it cannot carry attacker data. This
+     * was the single largest source of noise: a codebase that builds its UI
+     * with innerHTML reports every static heading and spinner as XSS, and a
+     * rule that flags 40 safe lines to catch one real one gets switched off.
+     *
+     * Line-scoped on purpose — see `lineGuard`.
+     */
+    lineGuard:
+      /(?:innerHTML|outerHTML)\s*=\s*(?:'[^'\\]*'|"[^"\\]*"|`[^`$\\]*`)\s*;?\s*$/,
   },
   {
     id: 'java-html-writer-concatenation',
@@ -790,6 +826,8 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   const context = windowText(ctx.lines, ctx.index, back, forward, ctx.prose);
 
   if (rule.requires && !rule.requires.test(context)) return null;
+
+  if (rule.lineGuard?.test(line)) return null;
 
   const guard = rule.guard === undefined ? GENERIC_GUARD : rule.guard;
   if (guard && (guard.test(line) || guard.test(context))) return null;

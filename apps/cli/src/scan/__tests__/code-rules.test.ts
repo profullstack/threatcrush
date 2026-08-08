@@ -184,3 +184,131 @@ describe('confidence', () => {
     expect(contextual[0]?.severity).toBe('high');
   });
 });
+
+/**
+ * Accuracy fixes from the 0.3.1 triage. Every case below was a real finding
+ * reported against a real repository where the code was correct; each keeps a
+ * genuinely vulnerable counterpart beside it, because a rule that stops
+ * reporting the safe shape by also missing the dangerous one is worse than the
+ * noise it replaced.
+ */
+describe('unescaped HTML rendering: static assignments', () => {
+  it('stays silent on an assignment with no interpolation', () => {
+    // A UI built with innerHTML reports every static heading and spinner. That
+    // was the largest single source of noise in the corpus.
+    expect(ruleIds('a.js', `el.innerHTML = '<div class="spinner"></div>';`)).toHaveLength(0);
+    expect(ruleIds('a.js', 'el.innerHTML = `<h2>Verifying your email…</h2>`;')).toHaveLength(0);
+    expect(ruleIds('a.js', 'body.innerHTML = "<p>done</p>"')).toHaveLength(0);
+  });
+
+  it('still flags interpolation and concatenation', () => {
+    expect(ruleIds('a.js', 'el.innerHTML = `<b>Results for ${q}</b>`;')).toContain(
+      'js-unescaped-html-sink',
+    );
+    expect(ruleIds('a.js', 'el.innerHTML = "<b>Results for " + q + "</b>";')).toContain(
+      'js-unescaped-html-sink',
+    );
+  });
+
+  it('does not let a static line silence a dynamic one beside it', () => {
+    // The reason this is a line guard and not a context guard.
+    const source = ['el.innerHTML = "<hr>";', 'out.innerHTML = `<b>${req.query.q}</b>`;'].join('\n');
+    expect(ruleIds('a.js', source)).toContain('js-unescaped-html-sink');
+  });
+});
+
+describe('unescaped HTML rendering: escaper aliases', () => {
+  it('recognises a short escaper alias', () => {
+    // Real code aliases the escaper because it is called on every value;
+    // matching only `escapeHtml(` reported the codebases that escape most.
+    expect(ruleIds('a.js', 'el.innerHTML = `<b>${esc(name)}</b>`;')).toHaveLength(0);
+    expect(ruleIds('a.js', 'el.innerHTML = `<b>${aEsc(name)}</b>`;')).toHaveLength(0);
+    expect(ruleIds('a.js', 'el.innerHTML = `<b>${htmlEscape(name)}</b>`;')).toHaveLength(0);
+  });
+
+  it('still flags an unescaped interpolation', () => {
+    expect(ruleIds('a.js', 'el.innerHTML = `<b>${name}</b>`;')).toContain('js-unescaped-html-sink');
+  });
+});
+
+describe('SSRF: building a URL is not reading one', () => {
+  it('stays silent when the host is constant and only query values are set', () => {
+    const source = [
+      "const url = new URL('https://api.example.com/v1/bars');",
+      "url.searchParams.set('symbols', symbols.join(','));",
+      'const res = await fetch(url, { headers });',
+    ].join('\n');
+    expect(ruleIds('a.ts', source)).not.toContain('js-ssrf-outbound-request');
+  });
+
+  it('still flags a request whose URL comes from the caller', () => {
+    const source = [
+      'const target = req.query.url;',
+      'const res = await fetch(target);',
+    ].join('\n');
+    expect(ruleIds('a.ts', source)).toContain('js-ssrf-outbound-request');
+  });
+
+  it('treats reading searchParams as untrusted input', () => {
+    const source = [
+      'const target = new URL(req.url).searchParams.get("next");',
+      'const res = await fetch(target);',
+    ].join('\n');
+    expect(ruleIds('a.ts', source)).toContain('js-ssrf-outbound-request');
+  });
+});
+
+describe('credentials in tests', () => {
+  // Deliberately vendor-less. An earlier version of this fixture used a
+  // well-formed Stripe `sk_live_` string and GitHub push protection rejected
+  // the commit — correctly, which is a decent argument for the rule this file
+  // is testing.
+  const secret =
+    'const client = new Client({ apiKey: "' + 'a1b2c3d4' + 'e5f6a7b8c9d0e1f2a3b4c5d6" });';
+
+  it('reports a key in application code at full severity', () => {
+    const [finding] = scanText('src/client.ts', secret);
+    expect(finding).toBeDefined();
+    expect(finding?.severity).not.toBe('low');
+  });
+
+  it('reports the same key in a test, but not at a blocking severity', () => {
+    // Fixtures are the overwhelming majority, and a deliberately real-looking
+    // one is sometimes the point of the test. Still reported: a genuine key
+    // does get pasted into a test, and dropping it would hide that entirely.
+    const [finding] = scanText('test/client.test.ts', secret);
+    expect(finding).toBeDefined();
+    expect(finding?.severity).toBe('low');
+    expect(finding?.message).toContain('test file');
+  });
+
+  it('recognises the usual test layouts', () => {
+    for (const path of [
+      'test/a.test.ts',
+      'tests/a.spec.js',
+      'src/__tests__/a.ts',
+      'spec/models/a_spec.rb',
+      'pkg/thing_test.go',
+      'tests/fixtures/seed.ts',
+      'app/test_views.py',
+    ]) {
+      expect(scanText(path, secret)[0]?.severity, path).toBe('low');
+    }
+    expect(scanText('src/attestation.ts', secret)[0]?.severity).not.toBe('low');
+  });
+});
+
+describe('escaper matching does not over-reach', () => {
+  it('does not treat describe() as an escaper', () => {
+    // A looser form of the alias pattern matched `describe(`, which would have
+    // silenced every finding inside every test file in every repository.
+    const source = ['describe("thing", () => {', '  el.innerHTML = `<b>${name}</b>`;'].join('\n');
+    expect(ruleIds('a.js', source)).toContain('js-unescaped-html-sink');
+  });
+
+  it('does not treat an arbitrary identifier ending in -esc- as one', () => {
+    expect(ruleIds('a.js', 'el.innerHTML = `<b>${rescale(name)}</b>`;')).toContain(
+      'js-unescaped-html-sink',
+    );
+  });
+});
