@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush-desktop",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "ThreatCrush Desktop - Security Monitoring Dashboard",
   "main": "./out/main/index.js",
   "homepage": "https://threatcrush.com",
