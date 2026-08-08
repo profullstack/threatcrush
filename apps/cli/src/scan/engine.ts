@@ -135,6 +135,26 @@ function isSuppressed(suppressions: Suppressions, index: number, ruleId: string)
   return rules.has('*') || rules.has(ruleId);
 }
 
+/**
+ * Does this path hold tests or fixtures?
+ *
+ * Used to soften credential findings, never to hide them. A secret in a test
+ * is nearly always a fixture — often a deliberately real-looking one, because
+ * the test exists to prove the real path is guarded — but "nearly always" is
+ * not "always", and a genuine key does get pasted into a test. So these are
+ * still reported, at a severity that does not block a merge, rather than
+ * dropped where nobody would ever see them.
+ */
+export function isTestPath(relativePath: string): boolean {
+  const p = relativePath.replace(/\\/g, '/');
+  return (
+    /(?:^|\/)(?:tests?|__tests__|__mocks__|spec|specs|fixtures?|mocks?|e2e|testdata)\//i.test(p) ||
+    /(?:^|\/)(?:test|conftest)_[^/]+$/i.test(p) ||
+    /[._-](?:test|spec)\.[a-z]+$/i.test(p) ||
+    /_test\.[a-z]+$/i.test(p)
+  );
+}
+
 /** Scan a single file's text. Exposed for tests and for single-file callers. */
 export function scanText(
   relativePath: string,
@@ -144,6 +164,7 @@ export function scanText(
   const findings: ScanFinding[] = [];
   const lines = text.split('\n');
   const suppressions = collectSuppressions(lines);
+  const inTests = isTestPath(relativePath);
 
   // ── Credentials ────────────────────────────────────────────────────────
   lines.forEach((line, index) => {
@@ -158,10 +179,13 @@ export function scanText(
         title: rule.name,
         file: relativePath,
         line: index + 1,
-        severity: rule.severity,
+        // Reported but not blocking in tests — see isTestPath.
+        severity: inTests ? 'low' : rule.severity,
         // A matched credential format is the finding, not a proxy for one.
         confidence: 'evidence',
-        message: `Possible ${rule.name} detected`,
+        message: inTests
+          ? `Possible ${rule.name} detected in a test file — usually a fixture, still worth confirming it is not a live credential`
+          : `Possible ${rule.name} detected`,
         consequence: rule.consequence,
         cwe: rule.cwe,
         excerpt: redactSecret(line.trim()).slice(0, 200),
