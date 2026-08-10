@@ -63,6 +63,18 @@ export interface CodeRule {
    */
   requires?: RegExp;
   /**
+   * Evidence that must appear somewhere in the file, not merely in the guard
+   * window.
+   *
+   * For rules whose *applicability* is settled far from the match. Whether a
+   * `.parse()` call is XML parsing is decided by an import at the top of the
+   * file, which in a 1,600-line source is nowhere near the line that matched;
+   * widening `guardBack` far enough to reach it would drag in unrelated
+   * evidence for every other rule. Distinct from `requires`, which asks
+   * whether the surrounding lines complete a dangerous combination.
+   */
+  fileRequires?: RegExp;
+  /**
    * Evidence that the construct is already handled. `false` opts the rule out
    * of the generic guard entirely — the CWE-532 rules are *about* reading
    * `process.env`, so the generic guard would veto every true positive.
@@ -162,6 +174,17 @@ export const GENERIC_GUARD =
 /** Evidence that an XML parser factory has been hardened against XXE. */
 const XXE_GUARD =
   /FEATURE_SECURE_PROCESSING|setExpandEntityReferences|disallow-doctype-decl|external-general-entities|external-parameter-entities|setXIncludeAware\s*\(\s*false/;
+
+/**
+ * Evidence that a Java source parses XML at all.
+ *
+ * The package names are the reliable half: a file that reaches for
+ * `javax.xml.parsers` or `org.xml.sax` has declared its intent at the top,
+ * whatever the local variable ends up being called. The bare type names cover
+ * sources that import by wildcard or sit in the same package.
+ */
+const XML_PARSING_FILE =
+  /\b(?:javax\.xml|org\.xml\.sax|org\.w3c\.dom|org\.jdom2?|org\.dom4j|XmlPullParser|DocumentBuilderFactory|DocumentBuilder|SAXParserFactory|SAXParser|XMLInputFactory|XMLReaderFactory|XMLReader|SAXBuilder|SAXReader)\b/;
 
 /** A sink that executes whatever string reaches it. */
 const CODE_SINK =
@@ -507,6 +530,16 @@ export const CODE_RULES: readonly CodeRule[] = [
   },
 
   // ── XML external entities ────────────────────────────────────────────────
+  //
+  // Evidence that a file parses XML at all. The XXE rules match on receiver
+  // *names* — `builder.parse(is)` is the shape the vulnerability actually takes,
+  // and the declared type is rarely on that line — so without this the pattern
+  // reads any `.parse()` on anything suffixed Builder, Parser or Reader as XML.
+  // In practice that meant a hostname-mask parser (`HostMask.Parser.parse(...)`)
+  // was reported as CWE-611 at high severity.
+  //
+  // An import is the cheapest honest signal: a file that parses XML says so at
+  // the top, and one that never mentions XML is not parsing it.
   {
     id: 'java-xxe-parser-defaults',
     title: 'XML parser left on its insecure defaults',
@@ -530,7 +563,10 @@ export const CODE_RULES: readonly CodeRule[] = [
     severity: 'high',
     languages: ['java'],
     // Receiver-qualified so `LocalDate.parse(s)` and friends stay out of it.
+    // The suffix alone is not enough — plenty of parsers parse things that are
+    // not XML — so `fileRequires` decides whether the file is in scope at all.
     pattern: /\b\w*(?:[Bb]uilder|[Pp]arser|[Rr]eader)\s*\.\s*parse\s*\(/,
+    fileRequires: XML_PARSING_FILE,
     guard: XXE_GUARD,
     guardBack: 6,
     guardForward: 4,
@@ -802,6 +838,26 @@ function windowText(
   return collected.join('\n');
 }
 
+/**
+ * Whole-file text, memoised on the `lines` array it came from.
+ *
+ * `fileRequires` asks a question no window can answer, but joining the file on
+ * every line of every rule would make scanning quadratic in file length. The
+ * caller already reuses one `lines` array for the whole file, so keying on its
+ * identity gives one join per file. A `WeakMap` keeps nothing alive after the
+ * file is done with.
+ */
+const FILE_TEXT = new WeakMap<readonly string[], string>();
+
+function fileTextOf(lines: readonly string[]): string {
+  let text = FILE_TEXT.get(lines);
+  if (text === undefined) {
+    text = lines.join('\n');
+    FILE_TEXT.set(lines, text);
+  }
+  return text;
+}
+
 export interface RuleMatch {
   rule: CodeRule;
   confidence: Confidence;
@@ -820,6 +876,10 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   const line = ctx.lines[ctx.index] ?? '';
   if (isComment(line) || ctx.prose?.has(ctx.index)) return null;
   if (!rule.pattern.test(line)) return null;
+
+  // Before any window work: a rule whose file-level precondition fails does not
+  // apply to this file at all.
+  if (rule.fileRequires && !rule.fileRequires.test(fileTextOf(ctx.lines))) return null;
 
   const back = rule.guardBack ?? 8;
   const forward = rule.guardForward ?? 0;

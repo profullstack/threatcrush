@@ -139,6 +139,39 @@ describe('guard windows', () => {
     expect(ruleIds('a.java', bare)).toContain('java-xxe-parser-defaults');
   });
 
+  it('flags an unhardened parse in a file that parses XML', () => {
+    const source = [
+      'import javax.xml.parsers.DocumentBuilder;',
+      'import javax.xml.parsers.DocumentBuilderFactory;',
+      '',
+      'public Document read(InputStream is) throws Exception {',
+      '    return builder.parse(is);',
+      '}',
+    ].join('\n');
+    expect(ruleIds('a.java', source)).toContain('java-xxe-parse-call');
+  });
+
+  // The receiver suffix alone matched any `.parse()` on anything named Builder,
+  // Parser or Reader. A hostname-mask parser is not an XML parser.
+  it('stays silent on a parser that has nothing to do with XML', () => {
+    const source = [
+      'package com.getcapacitor;',
+      '',
+      'public void setAllowedOrigins(String[] origins) {',
+      '    this.mask = HostMask.Parser.parse(origins);',
+      '}',
+    ].join('\n');
+    expect(ruleIds('a.java', source)).toHaveLength(0);
+  });
+
+  it('stays silent on a date parser and a JSON reader', () => {
+    const source = [
+      'LocalDate when = dateParser.parse(raw);',
+      'Config cfg = jsonReader.parse(body);',
+    ].join('\n');
+    expect(ruleIds('a.java', source)).toHaveLength(0);
+  });
+
   it('looks forward for an ObjectInputFilter installed after the stream', () => {
     const filtered = [
       'ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(blob));',
