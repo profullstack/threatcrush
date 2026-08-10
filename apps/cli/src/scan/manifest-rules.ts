@@ -118,7 +118,28 @@ export interface SquatVerdict {
  */
 export function detectTyposquat(name: string, ecosystem: 'npm' | 'pypi'): SquatVerdict | null {
   const popular = ecosystem === 'npm' ? POPULAR_NPM : POPULAR_PYPI;
-  const lower = name.toLowerCase().replace(/^@[^/]+\//, '');
+  const lower = name.toLowerCase();
+
+  // A scoped name is left alone, scope and all.
+  //
+  // Discarding the scope before comparing was this rule's largest source of
+  // false positives, and it fired on some of the most widely installed packages
+  // there are: `@babel/core`, `@angular/core`, `@nestjs/core` and
+  // `@capacitor/core` all reduce to `core`, which sits one edit from `cors`.
+  //
+  // Scopes are owned. Publishing `@babel/anything` requires control of the
+  // `@babel` scope, so a squat cannot be planted inside a legitimate one, and
+  // nobody typing `npm i cors` arrives at `@capacitor/core` by accident. The
+  // misreading this rule exists to catch does not cross the scope boundary, so
+  // a name that has one is not a candidate.
+  //
+  // The scoped attack that *is* real is a lookalike scope — `@babeljs/core` for
+  // `@babel/core`. Catching it means comparing scopes against a list of popular
+  // scopes, which is a different check than this one rather than a variation on
+  // it. Stripping the scope never performed that check; it only compared the
+  // part after the slash, so nothing is lost here.
+  if (/^@[^/]+\//.test(lower)) return null;
+
   if (popular.includes(lower)) return null;
   if (lower.length < 4) return null;
 
