@@ -117,6 +117,29 @@ describe('typosquat detection', () => {
     expect(detectTyposquat('requests', 'pypi')).toBeNull();
     expect(detectTyposquat('react-dom', 'npm')).toBeNull();
   });
+
+  // The scope used to be stripped before the comparison, which reduced every
+  // one of these to `core` and reported it as one edit from `cors`.
+  it('does not reduce a scoped package to the part after the slash', () => {
+    expect(detectTyposquat('@capacitor/core', 'npm')).toBeNull();
+    expect(detectTyposquat('@babel/core', 'npm')).toBeNull();
+    expect(detectTyposquat('@angular/core', 'npm')).toBeNull();
+    expect(detectTyposquat('@nestjs/core', 'npm')).toBeNull();
+    expect(detectTyposquat('@sentry/core', 'npm')).toBeNull();
+  });
+
+  it('leaves a scoped package alone even when the scope is unfamiliar', () => {
+    // Ownership of the scope is what makes this safe: the package cannot be
+    // reached by misreading an unscoped name.
+    expect(detectTyposquat('@some-org/expres', 'npm')).toBeNull();
+    expect(detectTyposquat('@types/node', 'npm')).toBeNull();
+  });
+
+  it('still catches an unscoped squat of the same name', () => {
+    // The exemption is for scoped names only — it must not become a way to
+    // smuggle the bare name past the check.
+    expect(detectTyposquat('cores', 'npm')?.impersonates).toBe('cors');
+  });
 });
 
 describe('manifest rules', () => {
