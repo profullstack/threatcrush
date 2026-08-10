@@ -958,6 +958,102 @@ export const CODE_RULES: readonly CodeRule[] = [
     pattern: /\bextract\s*\(\s*\$_(?:GET|POST|REQUEST|COOKIE)\b|\bimport_request_variables\s*\(/,
     guard: false,
   },
+
+  // ── Java and Go: classes the other languages already had ─────────────────
+  //
+  // Command injection, SSRF and path traversal were implemented for JavaScript
+  // and, in part, for Go, and never for Java — so the same defect in the same
+  // codebase was reported or not depending on which file it lived in. TLS
+  // verification, weak hashing and insecure randomness are deliberately absent
+  // here: `tls-verification-disabled`, `weak-hash-on-credential` and
+  // `insecure-randomness-for-secret` are language-agnostic and already cover
+  // both, including Go's `InsecureSkipVerify` and Java's `MessageDigest`.
+  {
+    id: 'java-runtime-exec-concatenation',
+    title: 'Runtime.exec with a concatenated command',
+    consequence:
+      'The single-string form of `exec` is split on whitespace and handed to the OS. A value carrying a space becomes extra arguments, and where a shell is invoked, `;` and `$(…)` become extra commands.',
+    cwe: 'CWE-78',
+    severity: 'critical',
+    languages: ['java'],
+    // The array form — `exec(new String[]{"git", arg})` — passes argv and is
+    // the fix, so it is not matched: the `+` has to be inside the string
+    // argument for this to fire.
+    pattern:
+      /\b(?:Runtime\s*\.\s*getRuntime\s*\(\s*\)\s*\.\s*exec|ProcessBuilder)\s*\(\s*(?:"[^"\n]*"\s*\+|\w+\s*\+\s*")/,
+  },
+  {
+    id: 'java-ssrf-outbound-request',
+    title: 'outbound request to a computed URL',
+    consequence:
+      'The destination is chosen by the caller, so the request can be aimed at internal services and cloud metadata endpoints that are reachable from this host and from nowhere else.',
+    cwe: 'CWE-918',
+    severity: 'high',
+    languages: ['java'],
+    pattern:
+      /\bnew\s+URL\s*\(\s*(?!\s*"[a-z]+:\/\/[^"\n]*"\s*\))[^)\n]*\w|\bHttpRequest\s*\.\s*newBuilder\s*\(\s*\)\s*\.\s*uri\s*\(\s*URI\s*\.\s*create\s*\(\s*[^"\n)]/,
+    needsContext: true,
+  },
+  {
+    id: 'java-request-path-traversal',
+    title: 'file path built from request data',
+    consequence:
+      'A `../` sequence in the value walks out of the intended directory. The process then reads or writes wherever it lands, with its own privileges.',
+    cwe: 'CWE-22',
+    severity: 'high',
+    languages: ['java'],
+    pattern:
+      /\b(?:new\s+File|new\s+FileInputStream|new\s+FileOutputStream|Paths\s*\.\s*get|Files\s*\.\s*(?:readAllBytes|newInputStream|newOutputStream|copy|delete))\s*\([^)\n]*\+/,
+    // `getCanonicalPath().startsWith(base)` is the check that makes this safe,
+    // and it is normally a line or two below the construction.
+    guard: /getCanonicalPath|toRealPath|normalize\s*\(\s*\)|\bstartsWith\s*\(/,
+    guardForward: 4,
+    needsContext: true,
+  },
+  {
+    id: 'java-broken-cipher',
+    title: 'broken cipher or ECB mode',
+    consequence:
+      'DES, RC2, RC4 and Blowfish are broken or too small to rely on. ECB encrypts identical plaintext blocks to identical ciphertext blocks, so structure in the data survives encryption and is readable straight off the ciphertext.',
+    cwe: 'CWE-327',
+    severity: 'high',
+    languages: ['java'],
+    // Bare `"AES"` is included: the JCE resolves it to `AES/ECB/PKCS5Padding`,
+    // so the default is the mode this rule exists to catch.
+    pattern:
+      /\bCipher\s*\.\s*getInstance\s*\(\s*"(?:DES|DESede|RC2|RC4|ARCFOUR|Blowfish)(?:\/|")|\bCipher\s*\.\s*getInstance\s*\(\s*"[^"\n]*\/ECB\/|\bCipher\s*\.\s*getInstance\s*\(\s*"AES"\s*\)/,
+    guard: false,
+  },
+  {
+    id: 'go-request-path-traversal',
+    title: 'file path built from request data',
+    consequence:
+      'A `../` sequence in the value walks out of the intended directory, and the handler serves or writes whatever it reaches.',
+    cwe: 'CWE-22',
+    severity: 'high',
+    languages: ['go'],
+    pattern:
+      /\b(?:os\s*\.\s*(?:Open|OpenFile|ReadFile|Create|Remove|WriteFile)|ioutil\s*\.\s*(?:ReadFile|WriteFile)|http\s*\.\s*ServeFile)\s*\([^)\n]*(?:r\s*\.\s*URL|FormValue|Query\s*\(\s*\)\s*\.\s*Get|mux\s*\.\s*Vars|\bfilepath\s*\.\s*Join\s*\([^)\n]*\w)/,
+    // `filepath.Clean` alone does not bound the result to a directory, so it is
+    // not a guard here — the containment check is.
+    guard: /\bstrings\s*\.\s*HasPrefix\s*\(|\bfilepath\s*\.\s*Rel\s*\(|\bfs\s*\.\s*ValidPath\s*\(|\bhttp\s*\.\s*Dir\b/,
+    guardBack: 5,
+    guardForward: 3,
+    needsContext: true,
+  },
+  {
+    id: 'go-template-escaping-bypass',
+    title: 'value marked as pre-escaped HTML',
+    consequence:
+      '`template.HTML` tells `html/template` the value is already safe, which switches off the contextual escaping that makes the package worth using. Markup in the value reaches the page intact.',
+    cwe: 'CWE-79',
+    severity: 'high',
+    languages: ['go'],
+    // A conversion of a *variable*. `template.HTML("<br>")` on a literal is a
+    // constant the author wrote and is not a finding.
+    pattern: /\btemplate\s*\.\s*(?:HTML|JS|CSS|HTMLAttr|URL|Srcset)\s*\(\s*(?!\s*[`"])/,
+    needsContext: true,
+  },
 ];
 
 /**
