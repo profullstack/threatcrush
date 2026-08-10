@@ -128,8 +128,21 @@ const UNTRUSTED_GO =
 const UNTRUSTED_JAVA =
   /\bgetParameter\s*\(|\bgetQueryString\s*\(|\bgetHeader\s*\(|\bgetInputStream\s*\(|\bgetCookies\s*\(|\b@RequestParam\b|\b@PathVariable\b/;
 
+/**
+ * Untrusted input to a shell script: what the caller controls.
+ *
+ * Positional parameters and `read` are the whole surface. Environment
+ * variables are deliberately absent — a script's own configuration arrives
+ * that way, so treating `$PREFIX` as attacker-controlled would mark every
+ * line of every installer.
+ */
+const UNTRUSTED_SH =
+  /\$\{?[1-9]\d*\b|\$[@*]|\$\{@\}|\bread\s+(?:-\S+\s+)*[A-Za-z_]\w*|\$\{?REPLY\b|\$\{?QUERY_STRING\b/;
+
 export function untrustedPatternFor(language: ScanLanguage): RegExp {
   switch (language) {
+    case 'shell':
+      return UNTRUSTED_SH;
     case 'python':
       return UNTRUSTED_PY;
     case 'ruby':
@@ -708,6 +721,127 @@ export const CODE_RULES: readonly CodeRule[] = [
     languages: ['javascript', 'typescript'],
     pattern:
       /\[\s*['"]__proto__['"]\s*\]|\bObject\s*\.\s*assign\s*\(\s*[\w.$]*\.prototype\b|\.\s*__proto__\s*=/,
+  },
+
+  // ── Shell ────────────────────────────────────────────────────────────────
+  //
+  // `shell` was a language the type system knew about and no rule targeted, so
+  // a repository written entirely in bash got secret detection and nothing
+  // else. Installers, CI helpers and packaging scripts are where a great deal
+  // of privileged work actually happens, and they run as whoever invoked them.
+  {
+    id: 'sh-remote-script-execution',
+    title: 'network output piped into a shell',
+    consequence:
+      'Whatever that URL serves at the moment this runs is executed as the invoking user. There is no version, no signature, and no review — a compromise of the host, or anyone able to answer for it, is a compromise of every machine that runs the script.',
+    cwe: 'CWE-494',
+    severity: 'high',
+    languages: ['shell'],
+    // The pipe must be the *next* thing: `curl -o f url && sh f` is a different
+    // (and checkable) shape, and `curl url | jq` is not an execution at all.
+    pattern: /\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\/bin\/|\/usr\/bin\/)?(?:ba|da|k|z|a)?sh\b/,
+    // Nothing on this line can exonerate it. Integrity checking happens in a
+    // separate step by construction, so a window guard would only mislead.
+    guard: false,
+  },
+  {
+    id: 'sh-eval-expansion',
+    title: 'eval on an expanded string',
+    consequence:
+      'The expansion is re-parsed as shell source, so a `;` or `$(…)` anywhere in the value runs as a command rather than arriving as data.',
+    cwe: 'CWE-78',
+    severity: 'high',
+    languages: ['shell'],
+    // Matched against eval's *argument*, not against the rest of the line.
+    //
+    // `\beval\b.*\$` looks equivalent and is not: bash's ordinary dynamic-range
+    // idiom, `eval echo {$((k + 1))..$((k + n))}`, contains `$k` inside the
+    // arithmetic, so a line-wide search finds an expansion in a construct that
+    // cannot carry a command — `$((…))` is parsed as an expression, where a `;`
+    // is a syntax error rather than a second command. That spelling reported
+    // 355 findings in one 3,500-line script, all of them the same safe loop.
+    //
+    // What is left is the form where eval is handed a value directly —
+    // `eval "$cmd"`, `eval $cmd`, `eval "$(…)"` — which is the shape that
+    // actually re-parses untrusted text as source. `eval echo $x` is not
+    // covered; catching it without also catching the range idiom needs to know
+    // which expansions are arithmetic, which is parsing, not matching.
+    pattern: /\beval\s+(?:-\S+\s+)*(?:"\s*)?\$(?:\{?[A-Za-z_]\w*|\((?!\())/,
+    // The shell-init idiom `eval "$(tool init -)"` is the documented interface
+    // of most version managers. It is still eval of program output, but the
+    // program is a fixed local binary, and flagging it reports every developer
+    // dotfile in existence.
+    lineGuard:
+      /\beval\s+"?\$\(\s*(?:ssh-agent|dircolors|direnv|rbenv|pyenv|nodenv|goenv|jenv|tfenv|opam|luarocks|conda|mamba|zoxide|starship|mise|asdf|fnm|nvm|brew|thefuck|register-python-argcomplete|_\w+_completion)\b/,
+  },
+  {
+    id: 'sh-unquoted-expansion-destructive',
+    title: 'unquoted expansion in a destructive command',
+    consequence:
+      'An unquoted expansion is word-split and glob-expanded before the command sees it. A value with a space removes two paths instead of one; an empty value removes the argument entirely, which is how `rm -rf $DIR/` becomes `rm -rf /`.',
+    cwe: 'CWE-78',
+    severity: 'high',
+    languages: ['shell'],
+    // `[^"'\n]*?` cannot cross a quote, so `rm -rf "$dir"` — the correct form —
+    // never reaches the `$` and never matches. Only a genuinely bare expansion
+    // does. Restricted to recursive/forced removal: a bare `$f` in `rm $f` is
+    // sloppy, but it is not the shape that erases a filesystem.
+    pattern: /\brm\s+(?:-[a-zA-Z-]*[rRf][a-zA-Z-]*\s+)+[^"'\n]*?\$\{?[A-Za-z_]/,
+  },
+  {
+    id: 'sh-insecure-transport-flag',
+    title: 'certificate verification disabled',
+    consequence:
+      'Anyone positioned between this host and the server can substitute the response. When the response is a package, a key or a script, that is remote code execution with the transport doing nothing to stop it.',
+    cwe: 'CWE-295',
+    severity: 'high',
+    languages: ['shell'],
+    pattern:
+      /\b(?:curl|wget)\b[^\n|]*(?:\s-k(?=\s|$)|\s--insecure\b|\s--no-check-certificate\b)/,
+    // Over plain HTTP there is no certificate to skip, so the flag is inert and
+    // this rule has nothing to say — `sh-plaintext-download` is the finding
+    // that fits. Reporting both put two entries on one line, one of which
+    // recommended a fix that would change nothing.
+    lineGuard: /^(?!.*https:\/\/).*\bhttp:\/\//,
+  },
+  {
+    id: 'sh-plaintext-download',
+    title: 'download over plain HTTP',
+    consequence:
+      'The response arrives unauthenticated over a channel any intermediary can rewrite. Where the payload is an archive, a package list or a key, substituting it is straightforward and leaves nothing for the script to notice.',
+    cwe: 'CWE-319',
+    severity: 'high',
+    languages: ['shell'],
+    pattern: /\b(?:curl|wget)\b[^\n|]*\bhttp:\/\//,
+    // Loopback and link-local are not carried over a network anyone can sit on.
+    lineGuard:
+      /http:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|169\.254\.|host\.docker\.internal)\b/,
+  },
+  {
+    id: 'sh-world-writable-permissions',
+    title: 'world-writable permissions',
+    consequence:
+      'Any local account can rewrite the file. If it is a script, a config or anything on a privileged path, the next process to read it runs someone else’s content.',
+    cwe: 'CWE-732',
+    severity: 'medium',
+    languages: ['shell'],
+    pattern: /\bchmod\s+(?:-[a-zA-Z-]+\s+)*(?:0?777|a\+rwx|ugo\+rwx|a=rwx)\b/,
+  },
+  {
+    id: 'sh-predictable-temp-path',
+    title: 'predictable temporary file',
+    consequence:
+      'The name is guessable, so a local attacker can create it first — as a symlink to somewhere that matters — and the script writes through it with its own privileges.',
+    cwe: 'CWE-377',
+    severity: 'medium',
+    languages: ['shell'],
+    // Redirection or an explicit write into a literal `/tmp` path. A `$$` or
+    // `$RANDOM` suffix is still predictable, so it is not treated as a fix;
+    // `mktemp` is, and it is the guard below.
+    pattern: /(?:>{1,2}\s*|\b(?:tee|touch|cp|mv|install)\s+(?:-\S+\s+)*)\/tmp\/[\w.$-]+/,
+    guard: /\bmktemp\b/,
+    guardBack: 6,
+    guardForward: 2,
   },
 ];
 
