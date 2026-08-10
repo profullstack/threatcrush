@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { proseLines } from '../code-rules.js';
-import { scanText } from '../engine.js';
+import { CODE_RULES, proseLines } from '../code-rules.js';
+import { languageOf, scanText } from '../engine.js';
+import type { ScanLanguage } from '../types.js';
 
 /**
  * Every case here is a pair: the vulnerable shape and the *corrected* shape
@@ -137,6 +138,39 @@ describe('guard windows', () => {
       'DocumentBuilder builder = factory.newDocumentBuilder();',
     ].join('\n');
     expect(ruleIds('a.java', bare)).toContain('java-xxe-parser-defaults');
+  });
+
+  it('flags an unhardened parse in a file that parses XML', () => {
+    const source = [
+      'import javax.xml.parsers.DocumentBuilder;',
+      'import javax.xml.parsers.DocumentBuilderFactory;',
+      '',
+      'public Document read(InputStream is) throws Exception {',
+      '    return builder.parse(is);',
+      '}',
+    ].join('\n');
+    expect(ruleIds('a.java', source)).toContain('java-xxe-parse-call');
+  });
+
+  // The receiver suffix alone matched any `.parse()` on anything named Builder,
+  // Parser or Reader. A hostname-mask parser is not an XML parser.
+  it('stays silent on a parser that has nothing to do with XML', () => {
+    const source = [
+      'package com.getcapacitor;',
+      '',
+      'public void setAllowedOrigins(String[] origins) {',
+      '    this.mask = HostMask.Parser.parse(origins);',
+      '}',
+    ].join('\n');
+    expect(ruleIds('a.java', source)).toHaveLength(0);
+  });
+
+  it('stays silent on a date parser and a JSON reader', () => {
+    const source = [
+      'LocalDate when = dateParser.parse(raw);',
+      'Config cfg = jsonReader.parse(body);',
+    ].join('\n');
+    expect(ruleIds('a.java', source)).toHaveLength(0);
   });
 
   it('looks forward for an ObjectInputFilter installed after the stream', () => {
@@ -320,5 +354,190 @@ describe('escaper matching does not over-reach', () => {
     expect(ruleIds('a.js', 'el.innerHTML = `<b>${rescale(name)}</b>`;')).toContain(
       'js-unescaped-html-sink',
     );
+  });
+});
+
+describe('shell', () => {
+  it('flags network output piped into a shell', () => {
+    expect(ruleIds('i.sh', 'curl -fsSL https://example.invalid/i.sh | bash')).toContain(
+      'sh-remote-script-execution',
+    );
+    expect(ruleIds('i.sh', 'wget -qO- https://example.invalid/i.sh | su' + 'do sh')).toContain(
+      'sh-remote-script-execution',
+    );
+  });
+
+  it('does not flag a download piped to something other than a shell', () => {
+    expect(ruleIds('i.sh', 'curl -fsSL https://example.invalid/v.json | jq -r .version')).toEqual(
+      [],
+    );
+    expect(ruleIds('i.sh', 'curl -fsSL https://example.invalid/f.tgz | sha256sum -c -')).toEqual([]);
+  });
+
+  it('flags eval handed an expansion', () => {
+    expect(ruleIds('i.sh', 'eval "$cmd"')).toContain('sh-eval-expansion');
+    expect(ruleIds('i.sh', 'eval $USER_SUPPLIED')).toContain('sh-eval-expansion');
+    expect(ruleIds('i.sh', 'eval "$(build_command "$1")"')).toContain('sh-eval-expansion');
+  });
+
+  // Bash's ordinary way to build a numeric range. Every expansion sits inside
+  // `$((…))`, where a `;` is a syntax error rather than a second command — and
+  // a line-wide `\beval\b.*\$` reported this 355 times in one real script.
+  it('does not flag the dynamic brace-range idiom', () => {
+    expect(ruleIds('i.sh', 'for r in $(eval echo {$(($k + 1))..$(($k + $n - 1))}); do')).toEqual([]);
+    expect(ruleIds('i.sh', 'for q in $(eval echo {1..$(($k + $l - 2))}); do')).toEqual([]);
+  });
+
+  it('does not flag the documented shell-init idiom', () => {
+    expect(ruleIds('i.sh', 'eval "$(dircolors -b)"')).toEqual([]);
+    expect(ruleIds('i.sh', 'eval "$(pyenv init -)"')).toEqual([]);
+  });
+
+  it('flags an unquoted expansion in a recursive remove, and not a quoted one', () => {
+    expect(ruleIds('i.sh', 'rm -rf $BUILD_DIR/output')).toContain(
+      'sh-unquoted-expansion-destructive',
+    );
+    // The correct form. `[^"'\n]*?` cannot cross the quote, so the match never
+    // reaches the expansion.
+    expect(ruleIds('i.sh', 'rm -rf "$BUILD_DIR/output"')).toEqual([]);
+    expect(ruleIds('i.sh', 'rm -rf "${BUILD_DIR:?}/output"')).toEqual([]);
+  });
+
+  it('flags disabled certificate verification over TLS', () => {
+    expect(ruleIds('i.sh', 'curl -k -L https://example.invalid/a.tgz > a.tgz')).toContain(
+      'sh-insecure-transport-flag',
+    );
+    expect(ruleIds('i.sh', 'wget --no-check-certificate https://example.invalid/a.tgz')).toContain(
+      'sh-insecure-transport-flag',
+    );
+  });
+
+  // `-k` skips a check that plain HTTP never performs. Reporting both put two
+  // findings on one line, one recommending a fix that would change nothing.
+  it('reports a plain-HTTP download once, as plaintext rather than a skipped check', () => {
+    expect(ruleIds('i.sh', 'curl -k -f http://example.invalid/a.gz > a.gz')).toEqual([
+      'sh-plaintext-download',
+    ]);
+  });
+
+  it('does not flag plain HTTP to loopback', () => {
+    expect(ruleIds('i.sh', 'curl -s http://127.0.0.1:8080/health')).toEqual([]);
+    expect(ruleIds('i.sh', 'curl -s http://localhost:3000/ready')).toEqual([]);
+  });
+
+  it('flags world-writable permissions', () => {
+    expect(ruleIds('i.sh', 'chmod 777 /var/cache/app')).toContain('sh-world-writable-permissions');
+    expect(ruleIds('i.sh', 'chmod -R a+rwx /srv/data')).toContain('sh-world-writable-permissions');
+    expect(ruleIds('i.sh', 'chmod 0755 /usr/local/bin/app')).toEqual([]);
+  });
+
+  it('flags a predictable temp path unless mktemp made it', () => {
+    expect(ruleIds('i.sh', 'echo "$payload" > /tmp/app-build.log')).toContain(
+      'sh-predictable-temp-path',
+    );
+    const guarded = ['tmp=$(mktemp -d)', 'echo "$payload" > /tmp/app-build.log'].join('\n');
+    expect(ruleIds('i.sh', guarded)).toEqual([]);
+  });
+
+  it('does not apply shell rules to a language that merely mentions the same words', () => {
+    expect(ruleIds('a.js', 'const cmd = "curl -k https://x.invalid | bash";')).not.toContain(
+      'sh-remote-script-execution',
+    );
+  });
+});
+
+describe('php', () => {
+  it('flags SQL built by interpolation and not a prepared statement', () => {
+    expect(ruleIds('a.php', '$r = mysqli_query($db, "SELECT * FROM users WHERE id = $id");')).toContain(
+      'php-sql-interpolation',
+    );
+    expect(ruleIds('a.php', '$r = $db->query("SELECT * FROM users WHERE id = {$id}");')).toContain(
+      'php-sql-interpolation',
+    );
+    // The correct form binds separately, so its query string holds no variable.
+    expect(
+      ruleIds('a.php', '$s = $db->prepare("SELECT * FROM users WHERE id = ?"); $s->execute([$id]);'),
+    ).toEqual([]);
+  });
+
+  it('flags a shell command built from a variable, unless it is escaped', () => {
+    expect(ruleIds('a.php', 'system("convert $file out.png");')).toContain(
+      'php-shell-exec-interpolation',
+    );
+    expect(ruleIds('a.php', 'system("convert " . escapeshellarg($file) . " out.png");')).toEqual([]);
+  });
+
+  it('flags dynamic code execution', () => {
+    expect(ruleIds('a.php', 'eval($code);')).toContain('php-dynamic-code-execution');
+    expect(ruleIds('a.php', 'eval("return $expr;");')).toContain('php-dynamic-code-execution');
+  });
+
+  it('flags an include path built from a variable, unless basename bounds it', () => {
+    expect(ruleIds('a.php', 'include $_GET["page"] . ".php";')).toContain(
+      'php-dynamic-file-inclusion',
+    );
+    expect(ruleIds('a.php', 'include "pages/$page.php";')).toContain('php-dynamic-file-inclusion');
+    expect(ruleIds('a.php', 'include "pages/" . basename($page) . ".php";')).toEqual([]);
+  });
+
+  it('flags unserialize on request data unless classes are disallowed', () => {
+    expect(ruleIds('a.php', '$o = unserialize($_COOKIE["prefs"]);')).toContain(
+      'php-unserialize-untrusted',
+    );
+    expect(
+      ruleIds('a.php', '$o = unserialize($_COOKIE["prefs"], ["allowed_classes" => false]);'),
+    ).toEqual([]);
+  });
+
+  it('flags request data echoed without escaping', () => {
+    expect(ruleIds('a.php', 'echo "Hello " . $_GET["name"];')).toContain('php-unescaped-output');
+    expect(ruleIds('a.php', 'echo htmlspecialchars($_GET["name"]);')).toEqual([]);
+  });
+
+  it('flags a file path taken straight from the request', () => {
+    expect(ruleIds('a.php', 'readfile($_GET["f"]);')).toContain('php-request-path-traversal');
+    expect(ruleIds('a.php', 'readfile("uploads/" . basename($_GET["f"]));')).toEqual([]);
+  });
+
+  it('flags request data expanded into locals', () => {
+    expect(ruleIds('a.php', 'extract($_POST);')).toContain('php-variable-injection');
+  });
+});
+
+/**
+ * Every language the scanner claims to understand must have at least one rule
+ * that targets it.
+ *
+ * This exists because the claim and the rules were never checked against each
+ * other, and two languages silently had none. `shell` went first: `.sh` files
+ * were read, matched against secret rules, and reported clean no matter what
+ * the code did. `php` was still in that state afterwards. Both looked exactly
+ * like a supported language from the outside — which is the failure mode, not
+ * a missing feature.
+ *
+ * `config` and `other` are excluded deliberately: they are covered by the
+ * secret and manifest rule sets, which are not in CODE_RULES.
+ */
+describe('language coverage', () => {
+  const REPRESENTATIVE = [
+    'a.js', 'a.ts', 'a.jsx', 'a.tsx', 'a.py', 'a.rb', 'a.go', 'a.java', 'a.kt', 'a.php', 'a.sh',
+  ];
+  const NOT_CODE_RULE_TERRITORY: readonly ScanLanguage[] = ['config', 'other'];
+
+  const targeted = new Set<ScanLanguage>();
+  for (const rule of CODE_RULES) for (const language of rule.languages ?? []) targeted.add(language);
+
+  const claimed = [...new Set(REPRESENTATIVE.map(languageOf))].filter(
+    (language) => !NOT_CODE_RULE_TERRITORY.includes(language),
+  );
+
+  it.each(claimed)('%s has at least one rule targeting it', (language) => {
+    expect(targeted.has(language)).toBe(true);
+  });
+
+  it('covers every representative extension', () => {
+    // Guards the guard: if `languageOf` stopped mapping these, `claimed` would
+    // collapse to nothing and the assertions above would vacuously pass.
+    expect(claimed.length).toBeGreaterThanOrEqual(7);
   });
 });

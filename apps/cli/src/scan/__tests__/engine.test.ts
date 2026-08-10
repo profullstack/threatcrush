@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseFailOn } from '../../commands/scan.js';
-import { collectSuppressions, languageOf, meetsFailThreshold, scanText } from '../engine.js';
+import {
+  collectSuppressions,
+  languageOf,
+  languageOfShebang,
+  meetsFailThreshold,
+  scanText,
+} from '../engine.js';
 import { detectTyposquat, editDistance, scanPackageJson, scanRequirementsTxt } from '../manifest-rules.js';
 import { isKnownPlaceholder, redactSecret } from '../secret-rules.js';
 import type { ScanFinding } from '../types.js';
@@ -11,6 +17,32 @@ describe('language detection', () => {
     expect(languageOf('a.rb')).toBe('ruby');
     expect(languageOf('.env.production')).toBe('config');
     expect(languageOf('aws-credentials.env')).toBe('config');
+  });
+});
+
+describe('shebang detection', () => {
+  // An executable is named for the command it provides, not the language it is
+  // written in. `debtap` is 3,500 lines of bash with no extension, and
+  // extension-only detection scanned zero of them while reporting success.
+  it('reads the interpreter from a shebang', () => {
+    expect(languageOfShebang('#!/usr/bin/bash')).toBe('shell');
+    expect(languageOfShebang('#!/bin/sh')).toBe('shell');
+    expect(languageOfShebang('#!/usr/bin/env bash')).toBe('shell');
+    expect(languageOfShebang('#!/usr/bin/env python3')).toBe('python');
+    expect(languageOfShebang('#!/usr/bin/env node')).toBe('javascript');
+    expect(languageOfShebang('#!/usr/bin/ruby')).toBe('ruby');
+  });
+
+  it('tolerates a version suffix and extra whitespace', () => {
+    expect(languageOfShebang('#! /bin/bash')).toBe('shell');
+    expect(languageOfShebang('#!/usr/bin/python3.11')).toBe('python');
+  });
+
+  it('returns null for anything that is not a recognised interpreter', () => {
+    expect(languageOfShebang('#!/usr/bin/env perl')).toBeNull();
+    expect(languageOfShebang('# a comment, not a shebang')).toBeNull();
+    expect(languageOfShebang('')).toBeNull();
+    expect(languageOfShebang('\x7fELF\x02\x01')).toBeNull();
   });
 });
 

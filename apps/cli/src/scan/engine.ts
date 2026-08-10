@@ -7,7 +7,9 @@
  * without three implementations drifting apart.
  */
 
-import { closeSync, fstatSync, openSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync,
+} from 'node:fs';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { CODE_RULES, evaluateRule, proseLines } from './code-rules.js';
 import { scanPackageJson, scanRequirementsTxt } from './manifest-rules.js';
@@ -48,6 +50,43 @@ const LANGUAGE_BY_EXTENSION: Record<string, ScanLanguage> = {
 export function languageOf(filename: string): ScanLanguage {
   if (filename.startsWith('.env') || filename.endsWith('.env')) return 'config';
   return LANGUAGE_BY_EXTENSION[extname(filename).toLowerCase()] ?? 'other';
+}
+
+/** Interpreters worth recognising, by the language their scripts are written in. */
+const LANGUAGE_BY_INTERPRETER: Record<string, ScanLanguage> = {
+  sh: 'shell', bash: 'shell', zsh: 'shell', dash: 'shell', ksh: 'shell', ash: 'shell',
+  python: 'python', python2: 'python', python3: 'python',
+  ruby: 'ruby',
+  node: 'javascript', nodejs: 'javascript', deno: 'javascript', bun: 'javascript',
+  php: 'php',
+};
+
+/**
+ * The language a `#!` line declares, or `null` if the line is not a shebang.
+ *
+ * An executable in a repository root is routinely named for the command it
+ * provides rather than the language it is written in — `debtap`, `configure`,
+ * `gradlew`. Extension-based detection skips every one of them, which is worst
+ * exactly where it matters: a project whose entire source is one extensionless
+ * script gets a clean scan because nothing was read.
+ *
+ * The shebang is the authoritative answer to a question the filename cannot
+ * answer, and the kernel already treats it that way.
+ */
+export function languageOfShebang(firstLine: string): ScanLanguage | null {
+  const match = /^#!\s*(\S+)(?:\s+(\S+))?/.exec(firstLine);
+  if (!match) return null;
+
+  // `#!/usr/bin/env bash` names the interpreter in the argument, not the path.
+  const command = basename(match[1]!);
+  const name = command === 'env' && match[2] ? basename(match[2]) : command;
+
+  const exact = LANGUAGE_BY_INTERPRETER[name];
+  if (exact) return exact;
+
+  // `python3.11` and `bash5` are the same interpreters with a version glued on.
+  const stripped = name.replace(/[\d.]+$/, '');
+  return (stripped ? LANGUAGE_BY_INTERPRETER[stripped] : undefined) ?? null;
 }
 
 export interface ScanOptions {
@@ -272,7 +311,16 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
     const isManifest = filename === 'package.json' || filename === 'requirements.txt';
     const scannable = SCAN_EXTENSIONS.has(extension) || filename.startsWith('.env');
 
-    if (!scannable && !isManifest) {
+    // A file with no extension gets one question asked of it before being
+    // dismissed: does it start with a shebang? Executables are habitually named
+    // for what they do rather than what they are written in, and skipping them
+    // silently is how a repository whose only source file is `debtap` scans
+    // clean. Files that carry an unrecognised extension are still skipped —
+    // `.png` is not a script, and sniffing every one of them would mean reading
+    // the whole tree.
+    const mayDeclareInterpreter = !scannable && !isManifest && extension === '';
+
+    if (!scannable && !isManifest && !mayDeclareInterpreter) {
       recordSensitiveFile(filename, relativePath, findings, []);
       return;
     }
@@ -290,6 +338,7 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
     // right in its own walker.
     let text: string;
     let handle: number;
+    let declared: ScanLanguage | null = null;
     try {
       handle = openSync(fullPath, 'r');
     } catch {
@@ -299,6 +348,17 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
 
     try {
       if (fstatSync(handle).size > maxFileBytes) return;
+
+      // Sniff the shebang from a short prefix rather than the whole file, so an
+      // extensionless blob — a checked-in binary, a data file — costs one small
+      // read instead of a megabyte decoded as UTF-8 and thrown away.
+      if (mayDeclareInterpreter) {
+        const prefix = Buffer.alloc(128);
+        const read = readSync(handle, prefix, 0, prefix.length, 0);
+        declared = languageOfShebang(prefix.subarray(0, read).toString('utf-8').split('\n', 1)[0] ?? '');
+        if (!declared) return;
+      }
+
       text = readFileSync(handle, 'utf-8');
     } catch {
       unreadable.push(relativePath);
@@ -316,7 +376,7 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
     suppressed += collectSuppressions(text.split('\n')).count;
 
     const fileFindings = [
-      ...scanText(relativePath, text, languageOf(filename)),
+      ...scanText(relativePath, text, declared ?? languageOf(filename)),
       ...(isManifest ? scanManifest(relativePath, filename, text) : []),
     ];
 
