@@ -74,12 +74,14 @@ const LANGUAGE_BY_INTERPRETER: Record<string, ScanLanguage> = {
  * answer, and the kernel already treats it that way.
  */
 export function languageOfShebang(firstLine: string): ScanLanguage | null {
-  const match = /^#!\s*(\S+)(?:\s+(\S+))?/.exec(firstLine);
+  const match = /^#!\s*(\S+)(?:\s+(.+?))?\s*$/.exec(firstLine);
   if (!match) return null;
 
   // `#!/usr/bin/env bash` names the interpreter in the argument, not the path.
   const command = basename(match[1]!);
-  const name = command === 'env' && match[2] ? basename(match[2]) : command;
+  const args = match[2]?.trim().split(/\s+/) ?? [];
+  const splitString = args[0] === '-S' || args[0] === '--split-string';
+  const name = command === 'env' ? basename(args[splitString ? 1 : 0] ?? '') : command;
 
   const exact = LANGUAGE_BY_INTERPRETER[name];
   if (exact) return exact;

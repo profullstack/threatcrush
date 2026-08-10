@@ -38,6 +38,13 @@ describe('shebang detection', () => {
     expect(languageOfShebang('#!/usr/bin/python3.11')).toBe('python');
   });
 
+  it('reads interpreters passed through env split-string mode', () => {
+    expect(languageOfShebang('#!/usr/bin/env -S node --experimental-strip-types')).toBe(
+      'javascript',
+    );
+    expect(languageOfShebang('#!/usr/bin/env --split-string python3 -u')).toBe('python');
+  });
+
   it('returns null for anything that is not a recognised interpreter', () => {
     expect(languageOfShebang('#!/usr/bin/env perl')).toBeNull();
     expect(languageOfShebang('# a comment, not a shebang')).toBeNull();
