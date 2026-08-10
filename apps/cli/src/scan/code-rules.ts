@@ -63,6 +63,18 @@ export interface CodeRule {
    */
   requires?: RegExp;
   /**
+   * Evidence that must appear somewhere in the file, not merely in the guard
+   * window.
+   *
+   * For rules whose *applicability* is settled far from the match. Whether a
+   * `.parse()` call is XML parsing is decided by an import at the top of the
+   * file, which in a 1,600-line source is nowhere near the line that matched;
+   * widening `guardBack` far enough to reach it would drag in unrelated
+   * evidence for every other rule. Distinct from `requires`, which asks
+   * whether the surrounding lines complete a dangerous combination.
+   */
+  fileRequires?: RegExp;
+  /**
    * Evidence that the construct is already handled. `false` opts the rule out
    * of the generic guard entirely — the CWE-532 rules are *about* reading
    * `process.env`, so the generic guard would veto every true positive.
@@ -116,8 +128,27 @@ const UNTRUSTED_GO =
 const UNTRUSTED_JAVA =
   /\bgetParameter\s*\(|\bgetQueryString\s*\(|\bgetHeader\s*\(|\bgetInputStream\s*\(|\bgetCookies\s*\(|\b@RequestParam\b|\b@PathVariable\b/;
 
+/**
+ * Untrusted input to a shell script: what the caller controls.
+ *
+ * Positional parameters and `read` are the whole surface. Environment
+ * variables are deliberately absent — a script's own configuration arrives
+ * that way, so treating `$PREFIX` as attacker-controlled would mark every
+ * line of every installer.
+ */
+const UNTRUSTED_SH =
+  /\$\{?[1-9]\d*\b|\$[@*]|\$\{@\}|\bread\s+(?:-\S+\s+)*[A-Za-z_]\w*|\$\{?REPLY\b|\$\{?QUERY_STRING\b/;
+
+/** PHP's superglobals are the request, verbatim. */
+const UNTRUSTED_PHP =
+  /\$_(?:GET|POST|REQUEST|COOKIE|FILES|SERVER)\b|\bphp:\/\/input\b|\bgetallheaders\s*\(/;
+
 export function untrustedPatternFor(language: ScanLanguage): RegExp {
   switch (language) {
+    case 'php':
+      return UNTRUSTED_PHP;
+    case 'shell':
+      return UNTRUSTED_SH;
     case 'python':
       return UNTRUSTED_PY;
     case 'ruby':
@@ -162,6 +193,17 @@ export const GENERIC_GUARD =
 /** Evidence that an XML parser factory has been hardened against XXE. */
 const XXE_GUARD =
   /FEATURE_SECURE_PROCESSING|setExpandEntityReferences|disallow-doctype-decl|external-general-entities|external-parameter-entities|setXIncludeAware\s*\(\s*false/;
+
+/**
+ * Evidence that a Java source parses XML at all.
+ *
+ * The package names are the reliable half: a file that reaches for
+ * `javax.xml.parsers` or `org.xml.sax` has declared its intent at the top,
+ * whatever the local variable ends up being called. The bare type names cover
+ * sources that import by wildcard or sit in the same package.
+ */
+const XML_PARSING_FILE =
+  /\b(?:javax\.xml|org\.xml\.sax|org\.w3c\.dom|org\.jdom2?|org\.dom4j|XmlPullParser|DocumentBuilderFactory|DocumentBuilder|SAXParserFactory|SAXParser|XMLInputFactory|XMLReaderFactory|XMLReader|SAXBuilder|SAXReader)\b/;
 
 /** A sink that executes whatever string reaches it. */
 const CODE_SINK =
@@ -507,6 +549,16 @@ export const CODE_RULES: readonly CodeRule[] = [
   },
 
   // ── XML external entities ────────────────────────────────────────────────
+  //
+  // Evidence that a file parses XML at all. The XXE rules match on receiver
+  // *names* — `builder.parse(is)` is the shape the vulnerability actually takes,
+  // and the declared type is rarely on that line — so without this the pattern
+  // reads any `.parse()` on anything suffixed Builder, Parser or Reader as XML.
+  // In practice that meant a hostname-mask parser (`HostMask.Parser.parse(...)`)
+  // was reported as CWE-611 at high severity.
+  //
+  // An import is the cheapest honest signal: a file that parses XML says so at
+  // the top, and one that never mentions XML is not parsing it.
   {
     id: 'java-xxe-parser-defaults',
     title: 'XML parser left on its insecure defaults',
@@ -530,7 +582,10 @@ export const CODE_RULES: readonly CodeRule[] = [
     severity: 'high',
     languages: ['java'],
     // Receiver-qualified so `LocalDate.parse(s)` and friends stay out of it.
+    // The suffix alone is not enough — plenty of parsers parse things that are
+    // not XML — so `fileRequires` decides whether the file is in scope at all.
     pattern: /\b\w*(?:[Bb]uilder|[Pp]arser|[Rr]eader)\s*\.\s*parse\s*\(/,
+    fileRequires: XML_PARSING_FILE,
     guard: XXE_GUARD,
     guardBack: 6,
     guardForward: 4,
@@ -673,6 +728,236 @@ export const CODE_RULES: readonly CodeRule[] = [
     pattern:
       /\[\s*['"]__proto__['"]\s*\]|\bObject\s*\.\s*assign\s*\(\s*[\w.$]*\.prototype\b|\.\s*__proto__\s*=/,
   },
+
+  // ── Shell ────────────────────────────────────────────────────────────────
+  //
+  // `shell` was a language the type system knew about and no rule targeted, so
+  // a repository written entirely in bash got secret detection and nothing
+  // else. Installers, CI helpers and packaging scripts are where a great deal
+  // of privileged work actually happens, and they run as whoever invoked them.
+  {
+    id: 'sh-remote-script-execution',
+    title: 'network output piped into a shell',
+    consequence:
+      'Whatever that URL serves at the moment this runs is executed as the invoking user. There is no version, no signature, and no review — a compromise of the host, or anyone able to answer for it, is a compromise of every machine that runs the script.',
+    cwe: 'CWE-494',
+    severity: 'high',
+    languages: ['shell'],
+    // The pipe must be the *next* thing: `curl -o f url && sh f` is a different
+    // (and checkable) shape, and `curl url | jq` is not an execution at all.
+    pattern: /\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\/bin\/|\/usr\/bin\/)?(?:ba|da|k|z|a)?sh\b/,
+    // Nothing on this line can exonerate it. Integrity checking happens in a
+    // separate step by construction, so a window guard would only mislead.
+    guard: false,
+  },
+  {
+    id: 'sh-eval-expansion',
+    title: 'eval on an expanded string',
+    consequence:
+      'The expansion is re-parsed as shell source, so a `;` or `$(…)` anywhere in the value runs as a command rather than arriving as data.',
+    cwe: 'CWE-78',
+    severity: 'high',
+    languages: ['shell'],
+    // Matched against eval's *argument*, not against the rest of the line.
+    //
+    // `\beval\b.*\$` looks equivalent and is not: bash's ordinary dynamic-range
+    // idiom, `eval echo {$((k + 1))..$((k + n))}`, contains `$k` inside the
+    // arithmetic, so a line-wide search finds an expansion in a construct that
+    // cannot carry a command — `$((…))` is parsed as an expression, where a `;`
+    // is a syntax error rather than a second command. That spelling reported
+    // 355 findings in one 3,500-line script, all of them the same safe loop.
+    //
+    // What is left is the form where eval is handed a value directly —
+    // `eval "$cmd"`, `eval $cmd`, `eval "$(…)"` — which is the shape that
+    // actually re-parses untrusted text as source. `eval echo $x` is not
+    // covered; catching it without also catching the range idiom needs to know
+    // which expansions are arithmetic, which is parsing, not matching.
+    pattern: /\beval\s+(?:-\S+\s+)*(?:"\s*)?\$(?:\{?[A-Za-z_]\w*|\((?!\())/,
+    // The shell-init idiom `eval "$(tool init -)"` is the documented interface
+    // of most version managers. It is still eval of program output, but the
+    // program is a fixed local binary, and flagging it reports every developer
+    // dotfile in existence.
+    lineGuard:
+      /\beval\s+"?\$\(\s*(?:ssh-agent|dircolors|direnv|rbenv|pyenv|nodenv|goenv|jenv|tfenv|opam|luarocks|conda|mamba|zoxide|starship|mise|asdf|fnm|nvm|brew|thefuck|register-python-argcomplete|_\w+_completion)\b/,
+  },
+  {
+    id: 'sh-unquoted-expansion-destructive',
+    title: 'unquoted expansion in a destructive command',
+    consequence:
+      'An unquoted expansion is word-split and glob-expanded before the command sees it. A value with a space removes two paths instead of one; an empty value removes the argument entirely, which is how `rm -rf $DIR/` becomes `rm -rf /`.',
+    cwe: 'CWE-78',
+    severity: 'high',
+    languages: ['shell'],
+    // `[^"'\n]*?` cannot cross a quote, so `rm -rf "$dir"` — the correct form —
+    // never reaches the `$` and never matches. Only a genuinely bare expansion
+    // does. Restricted to recursive/forced removal: a bare `$f` in `rm $f` is
+    // sloppy, but it is not the shape that erases a filesystem.
+    pattern: /\brm\s+(?:-[a-zA-Z-]*[rRf][a-zA-Z-]*\s+)+[^"'\n]*?\$\{?[A-Za-z_]/,
+  },
+  {
+    id: 'sh-insecure-transport-flag',
+    title: 'certificate verification disabled',
+    consequence:
+      'Anyone positioned between this host and the server can substitute the response. When the response is a package, a key or a script, that is remote code execution with the transport doing nothing to stop it.',
+    cwe: 'CWE-295',
+    severity: 'high',
+    languages: ['shell'],
+    pattern:
+      /\b(?:curl|wget)\b[^\n|]*(?:\s-k(?=\s|$)|\s--insecure\b|\s--no-check-certificate\b)/,
+    // Over plain HTTP there is no certificate to skip, so the flag is inert and
+    // this rule has nothing to say — `sh-plaintext-download` is the finding
+    // that fits. Reporting both put two entries on one line, one of which
+    // recommended a fix that would change nothing.
+    lineGuard: /^(?!.*https:\/\/).*\bhttp:\/\//,
+  },
+  {
+    id: 'sh-plaintext-download',
+    title: 'download over plain HTTP',
+    consequence:
+      'The response arrives unauthenticated over a channel any intermediary can rewrite. Where the payload is an archive, a package list or a key, substituting it is straightforward and leaves nothing for the script to notice.',
+    cwe: 'CWE-319',
+    severity: 'high',
+    languages: ['shell'],
+    pattern: /\b(?:curl|wget)\b[^\n|]*\bhttp:\/\//,
+    // Loopback and link-local are not carried over a network anyone can sit on.
+    lineGuard:
+      /http:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|169\.254\.|host\.docker\.internal)\b/,
+  },
+  {
+    id: 'sh-world-writable-permissions',
+    title: 'world-writable permissions',
+    consequence:
+      'Any local account can rewrite the file. If it is a script, a config or anything on a privileged path, the next process to read it runs someone else’s content.',
+    cwe: 'CWE-732',
+    severity: 'medium',
+    languages: ['shell'],
+    pattern: /\bchmod\s+(?:-[a-zA-Z-]+\s+)*(?:0?777|a\+rwx|ugo\+rwx|a=rwx)\b/,
+  },
+  {
+    id: 'sh-predictable-temp-path',
+    title: 'predictable temporary file',
+    consequence:
+      'The name is guessable, so a local attacker can create it first — as a symlink to somewhere that matters — and the script writes through it with its own privileges.',
+    cwe: 'CWE-377',
+    severity: 'medium',
+    languages: ['shell'],
+    // Redirection or an explicit write into a literal `/tmp` path. A `$$` or
+    // `$RANDOM` suffix is still predictable, so it is not treated as a fix;
+    // `mktemp` is, and it is the guard below.
+    pattern: /(?:>{1,2}\s*|\b(?:tee|touch|cp|mv|install)\s+(?:-\S+\s+)*)\/tmp\/[\w.$-]+/,
+    guard: /\bmktemp\b/,
+    guardBack: 6,
+    guardForward: 2,
+  },
+
+  // ── PHP ──────────────────────────────────────────────────────────────────
+  //
+  // `php` was the second language in `ScanLanguage` that no rule targeted, for
+  // the same reason `shell` was: nothing checks the two lists against each
+  // other. `LANGUAGE_COVERAGE` in the tests does now.
+  {
+    id: 'php-sql-interpolation',
+    title: 'SQL assembled by interpolation',
+    consequence:
+      'PHP interpolates variables inside double-quoted strings, so the value is part of the statement before the driver ever sees it. A quote in the value ends the literal and the rest is parsed as SQL.',
+    cwe: 'CWE-89',
+    severity: 'critical',
+    languages: ['php'],
+    // Interpolation (`"… $id …"`, `"… {$id} …"`) or concatenation onto a SQL
+    // string. A prepared statement passes placeholders and binds separately,
+    // so its query string contains neither.
+    pattern: new RegExp(
+      `\\b(?:mysqli_query|mysql_query|pg_query|->\\s*(?:query|exec|unprepared))\\s*\\([^)]*(?:"[^"\\n]*(?:${SQL_KEYWORDS})\\b[^"\\n]*(?:\\$\\w+|\\{\\$)|${SQL_STRING}\\s*\\.)`,
+      'i',
+    ),
+  },
+  {
+    id: 'php-shell-exec-interpolation',
+    title: 'shell command built from a variable',
+    consequence:
+      'The string is handed to `/bin/sh`, which interprets `;`, `|` and `$(…)` in whatever the variable held.',
+    cwe: 'CWE-78',
+    severity: 'critical',
+    languages: ['php'],
+    pattern:
+      /\b(?:exec|system|shell_exec|passthru|popen|proc_open|pcntl_exec)\s*\(\s*(?:"[^"\n]*(?:\$\w+|\{\$)|'[^'\n]*'\s*\.|\$\w+\s*\.)/,
+    // `escapeshellarg`/`escapeshellcmd` are the correct answer and are usually
+    // applied inline, so a line-scoped guard is the right shape.
+    lineGuard: /\bescapeshell(?:arg|cmd)\s*\(/,
+  },
+  {
+    id: 'php-dynamic-code-execution',
+    title: 'dynamic code execution',
+    consequence:
+      'Whatever reaches this call is executed as PHP source with the privileges of the web process.',
+    cwe: 'CWE-95',
+    severity: 'critical',
+    languages: ['php'],
+    pattern: /\b(?:eval|assert|create_function)\s*\(\s*(?:\$\w+|"[^"\n]*(?:\$\w+|\{\$))/,
+    guard: false,
+  },
+  {
+    id: 'php-dynamic-file-inclusion',
+    title: 'include path built from a variable',
+    consequence:
+      'The included file is executed, not read. A traversal sequence reaches any file the process can open, and with a remote wrapper enabled the path need not be local at all.',
+    cwe: 'CWE-98',
+    severity: 'critical',
+    languages: ['php'],
+    pattern:
+      /\b(?:include|include_once|require|require_once)\s*(?:\(\s*)?(?:\$\w+|"[^"\n]*(?:\$\w+|\{\$)|'[^'\n]*'\s*\.)/,
+    // A basename-and-allow-list is the standard fix; `basename` alone still
+    // leaves the extension open, but it defeats traversal, which is the part
+    // this rule is about.
+    lineGuard: /\bbasename\s*\(/,
+  },
+  {
+    id: 'php-unserialize-untrusted',
+    title: 'unserialize on request data',
+    consequence:
+      'PHP object deserialisation instantiates classes and runs their magic methods. With a suitable class in scope this is remote code execution, and no `unserialize` option short of `allowed_classes => false` prevents it.',
+    cwe: 'CWE-502',
+    severity: 'critical',
+    languages: ['php'],
+    pattern: /\bunserialize\s*\(\s*(?:\$_(?:GET|POST|REQUEST|COOKIE)\b|\$\w+)/,
+    // The key is an array key and is normally quoted: `['allowed_classes' => false]`.
+    lineGuard: /["']?allowed_classes["']?\s*=>\s*(?:false|\[)/,
+    needsContext: true,
+  },
+  {
+    id: 'php-unescaped-output',
+    title: 'request data echoed without escaping',
+    consequence:
+      'The value is written into the response verbatim, so markup in it becomes markup in the page — script that runs with the victim’s session.',
+    cwe: 'CWE-79',
+    severity: 'high',
+    languages: ['php'],
+    pattern:
+      /\b(?:echo|print)\s+[^;\n]*\$_(?:GET|POST|REQUEST|COOKIE|SERVER)\b|<\?=\s*\$_(?:GET|POST|REQUEST|COOKIE)\b/,
+  },
+  {
+    id: 'php-request-path-traversal',
+    title: 'file path taken from the request',
+    consequence:
+      'A `../` sequence in the value walks out of the intended directory, and the process reads or writes wherever it lands.',
+    cwe: 'CWE-22',
+    severity: 'high',
+    languages: ['php'],
+    pattern:
+      /\b(?:file_get_contents|file_put_contents|fopen|readfile|unlink|copy|rename|opendir|scandir)\s*\(\s*[^)\n]*\$_(?:GET|POST|REQUEST|COOKIE)\b/,
+    lineGuard: /\bbasename\s*\(|\brealpath\s*\(/,
+  },
+  {
+    id: 'php-variable-injection',
+    title: 'request data expanded into local variables',
+    consequence:
+      '`extract` creates a variable per key, so a request can overwrite any local already in scope — including the one a subsequent authorisation check reads.',
+    cwe: 'CWE-621',
+    severity: 'high',
+    languages: ['php'],
+    pattern: /\bextract\s*\(\s*\$_(?:GET|POST|REQUEST|COOKIE)\b|\bimport_request_variables\s*\(/,
+    guard: false,
+  },
 ];
 
 /**
@@ -802,6 +1087,26 @@ function windowText(
   return collected.join('\n');
 }
 
+/**
+ * Whole-file text, memoised on the `lines` array it came from.
+ *
+ * `fileRequires` asks a question no window can answer, but joining the file on
+ * every line of every rule would make scanning quadratic in file length. The
+ * caller already reuses one `lines` array for the whole file, so keying on its
+ * identity gives one join per file. A `WeakMap` keeps nothing alive after the
+ * file is done with.
+ */
+const FILE_TEXT = new WeakMap<readonly string[], string>();
+
+function fileTextOf(lines: readonly string[]): string {
+  let text = FILE_TEXT.get(lines);
+  if (text === undefined) {
+    text = lines.join('\n');
+    FILE_TEXT.set(lines, text);
+  }
+  return text;
+}
+
 export interface RuleMatch {
   rule: CodeRule;
   confidence: Confidence;
@@ -820,6 +1125,10 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   const line = ctx.lines[ctx.index] ?? '';
   if (isComment(line) || ctx.prose?.has(ctx.index)) return null;
   if (!rule.pattern.test(line)) return null;
+
+  // Before any window work: a rule whose file-level precondition fails does not
+  // apply to this file at all.
+  if (rule.fileRequires && !rule.fileRequires.test(fileTextOf(ctx.lines))) return null;
 
   const back = rule.guardBack ?? 8;
   const forward = rule.guardForward ?? 0;
