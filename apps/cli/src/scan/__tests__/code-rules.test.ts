@@ -468,7 +468,9 @@ describe('php', () => {
   });
 
   it('flags dynamic code execution', () => {
+    // threatcrush-disable-next-line js-dynamic-code-execution  PHP fixture, not JS
     expect(ruleIds('a.php', 'eval($code);')).toContain('php-dynamic-code-execution');
+    // threatcrush-disable-next-line js-dynamic-code-execution  PHP fixture, not JS
     expect(ruleIds('a.php', 'eval("return $expr;");')).toContain('php-dynamic-code-execution');
   });
 
@@ -506,9 +508,9 @@ describe('php', () => {
 
 describe('java', () => {
   it('flags Runtime.exec built by concatenation, and not the argv form', () => {
-    expect(
-      ruleIds('A.java', 'Process p = Runtime.getRuntime().exec("git checkout " + branch);'),
-    ).toContain('java-runtime-exec-concatenation');
+    // threatcrush-disable-next-line js-shell-exec-interpolation  Java fixture, not JS
+    const vulnerable = 'Process p = Runtime.getRuntime().exec("git checkout " + branch);';
+    expect(ruleIds('A.java', vulnerable)).toContain('java-runtime-exec-concatenation');
     // The array form passes argv and is the fix.
     expect(
       ruleIds('A.java', 'Process p = Runtime.getRuntime().exec(new String[]{"git", "checkout", branch});'),
