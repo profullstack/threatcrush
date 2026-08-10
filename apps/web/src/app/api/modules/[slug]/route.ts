@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthenticatedRequestUser } from "@/lib/api-auth";
 
 type RouteContext = { params: Promise<{ slug: string }> };
 
@@ -55,17 +56,20 @@ export async function PATCH(
   request: NextRequest,
   context: RouteContext
 ) {
+  const user = await getAuthenticatedRequestUser(request);
+  if (!user) {
+    return NextResponse.json(
+      { error: "You must be logged in to update modules." },
+      { status: 401 }
+    );
+  }
+
   const { slug } = await context.params;
   let body: Record<string, unknown>;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const author_email = body.author_email as string;
-  if (!author_email) {
-    return NextResponse.json({ error: "author_email is required" }, { status: 400 });
   }
 
   const sb = getSupabaseAdmin();
@@ -80,7 +84,7 @@ export async function PATCH(
   if (!existing) {
     return NextResponse.json({ error: "Module not found" }, { status: 404 });
   }
-  if (existing.author_email !== author_email) {
+  if (!user.email || existing.author_email !== user.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
@@ -121,14 +125,15 @@ export async function DELETE(
   request: NextRequest,
   context: RouteContext
 ) {
-  const { slug } = await context.params;
-  const { searchParams } = new URL(request.url);
-  const author_email = searchParams.get("author_email");
-
-  if (!author_email) {
-    return NextResponse.json({ error: "author_email is required" }, { status: 400 });
+  const user = await getAuthenticatedRequestUser(request);
+  if (!user) {
+    return NextResponse.json(
+      { error: "You must be logged in to delete modules." },
+      { status: 401 }
+    );
   }
 
+  const { slug } = await context.params;
   const sb = getSupabaseAdmin();
 
   const { data: existing } = await sb
@@ -140,7 +145,7 @@ export async function DELETE(
   if (!existing) {
     return NextResponse.json({ error: "Module not found" }, { status: 404 });
   }
-  if (existing.author_email !== author_email) {
+  if (!user.email || existing.author_email !== user.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 

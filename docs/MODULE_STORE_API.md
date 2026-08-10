@@ -24,24 +24,20 @@ an issue.
 | `GET`    | `/api/modules`                        | none      | List / search / paginate published modules    |
 | `POST`   | `/api/modules`                        | required  | Publish a new module                          |
 | `GET`    | `/api/modules/{slug}`                 | none      | Module detail + versions + recent reviews     |
-| `PATCH`  | `/api/modules/{slug}`                 | email     | Edit your module                              |
-| `DELETE` | `/api/modules/{slug}?author_email=…`  | email     | Remove your module                            |
+| `PATCH`  | `/api/modules/{slug}`                 | required  | Edit your module                              |
+| `DELETE` | `/api/modules/{slug}`                 | required  | Remove your module                            |
 | `GET`    | `/api/modules/{slug}/versions`        | none      | List published releases newest first          |
 | `POST`   | `/api/modules/{slug}/versions`        | required  | Publish a new module release                  |
 | `GET`    | `/api/modules/{slug}/install`         | none      | Read-only install info (does **not** count)   |
 | `POST`   | `/api/modules/{slug}/install`         | none      | Install info **and** increment download count |
 | `GET`    | `/api/modules/{slug}/review`          | none      | List reviews (paginated, 20 / page)           |
-| `POST`   | `/api/modules/{slug}/review`          | email     | Create / update your review (one per email)   |
+| `POST`   | `/api/modules/{slug}/review`          | required  | Create / update your review (one per email)   |
 | `POST`   | `/api/modules/fetch-meta`             | none      | Probe a URL or GitHub repo for prefilled meta |
 
 > **Auth modes.**
 > - **none** — fully public.
-> - **required** — must send a valid Supabase Bearer token *and* the
->   matching account must exist in `user_profiles` with `email_verified = true`.
-> - **email** — author identity is asserted by `author_email` (in the body
->   or query string). The server confirms the email matches the row's
->   `author_email`. This is a soft check intended to be tightened to full
->   token auth later — treat it as advisory today.
+> - **required** — must send a valid Supabase Bearer token. Publishing routes
+>   additionally require a matching verified `user_profiles` account.
 
 ---
 
@@ -231,8 +227,8 @@ For full pagination of reviews, use `GET /api/modules/{slug}/review`.
 
 ### `PATCH /api/modules/{slug}` — edit
 
-Updates a subset of fields. Body **must** include `author_email`; the server
-checks it against the row before applying.
+Requires a valid Supabase Bearer token whose account email matches the module
+row's `author_email`. Updates a subset of fields.
 
 **Whitelisted fields**
 
@@ -255,16 +251,17 @@ Anything outside this list is silently ignored. The server also stamps
 **Errors**
 
 - `400 Invalid JSON`
-- `400 author_email is required`
-- `403 Unauthorized` *(email mismatch)*
+- `401 You must be logged in to update modules`
+- `403 Unauthorized` *(authenticated account does not own the module)*
 - `404 Module not found`
 
 ---
 
-### `DELETE /api/modules/{slug}?author_email={email}` — remove
+### `DELETE /api/modules/{slug}` — remove
 
-Deletes the module row. Cascade in the DB removes its versions, installs,
-and reviews.
+Requires a valid Supabase Bearer token whose account email matches the module
+row's `author_email`. Deletes the module row. Cascade in the DB removes its
+versions, installs, and reviews.
 
 **Response 200**
 
@@ -272,7 +269,7 @@ and reviews.
 { "deleted": true }
 ```
 
-**Errors:** same authorisation pattern as `PATCH`.
+**Errors:** same authorization pattern as `PATCH`.
 
 ---
 

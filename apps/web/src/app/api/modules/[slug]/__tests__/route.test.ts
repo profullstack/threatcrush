@@ -4,6 +4,9 @@ import { TEST_MODULE } from "@/__tests__/helpers/supabase-mock";
 // ─── Supabase mock ───
 
 let mockFromResponses: Record<string, unknown> = {};
+const { mockGetAuthenticatedRequestUser } = vi.hoisted(() => ({
+  mockGetAuthenticatedRequestUser: vi.fn(),
+}));
 
 vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
@@ -12,6 +15,10 @@ vi.mock("@/lib/supabase", () => ({
       return createChainable({ data: null, error: null });
     },
   }),
+}));
+
+vi.mock("@/lib/api-auth", () => ({
+  getAuthenticatedRequestUser: mockGetAuthenticatedRequestUser,
 }));
 
 function createChainable(result: { data: unknown; error: unknown }) {
@@ -54,6 +61,10 @@ const TEST_REVIEWS = [
 describe("GET /api/modules/:slug", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetAuthenticatedRequestUser.mockResolvedValue({
+      userId: "user-1",
+      email: "test@example.com",
+    });
     mockFromResponses = {
       modules: createChainable({ data: TEST_MODULE, error: null }),
       module_versions: createChainable({ data: TEST_VERSIONS, error: null }),
@@ -106,8 +117,8 @@ describe("PATCH /api/modules/:slug", () => {
 
     const req = makeRequest("http://localhost/api/modules/test-scanner", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ author_email: "test@example.com", description: "Updated description" }),
+      headers: { "Content-Type": "application/json", Authorization: "Bearer owner-token" },
+      body: JSON.stringify({ description: "Updated description" }),
     });
     const res = await PATCH(req, makeContext("test-scanner"));
     const body = await res.json();
@@ -116,17 +127,35 @@ describe("PATCH /api/modules/:slug", () => {
     expect(body.module).toBeDefined();
   });
 
-  it("rejects missing author_email", async () => {
+  it("rejects unauthenticated updates even when the author email is known", async () => {
+    mockGetAuthenticatedRequestUser.mockResolvedValue(null);
+
     const req = makeRequest("http://localhost/api/modules/test-scanner", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description: "Updated" }),
+      body: JSON.stringify({ author_email: "test@example.com", description: "Updated" }),
     });
     const res = await PATCH(req, makeContext("test-scanner"));
     const body = await res.json();
 
-    expect(res.status).toBe(400);
-    expect(body.error).toContain("author_email");
+    expect(res.status).toBe(401);
+    expect(body.error).toContain("logged in");
+  });
+
+  it("rejects authenticated users who do not own the module", async () => {
+    mockGetAuthenticatedRequestUser.mockResolvedValue({
+      userId: "attacker",
+      email: "attacker@example.com",
+    });
+
+    const req = makeRequest("http://localhost/api/modules/test-scanner", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer attacker-token" },
+      body: JSON.stringify({ author_email: "test@example.com", description: "Hijacked" }),
+    });
+    const res = await PATCH(req, makeContext("test-scanner"));
+
+    expect(res.status).toBe(403);
   });
 
   it("rejects invalid JSON", async () => {
@@ -146,6 +175,10 @@ describe("PATCH /api/modules/:slug", () => {
 describe("DELETE /api/modules/:slug", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetAuthenticatedRequestUser.mockResolvedValue({
+      userId: "user-1",
+      email: "test@example.com",
+    });
   });
 
   it("deletes a module", async () => {
@@ -156,8 +189,9 @@ describe("DELETE /api/modules/:slug", () => {
       }),
     };
 
-    const req = makeRequest("http://localhost/api/modules/test-scanner?author_email=test@example.com", {
+    const req = makeRequest("http://localhost/api/modules/test-scanner", {
       method: "DELETE",
+      headers: { Authorization: "Bearer owner-token" },
     });
     const res = await DELETE(req, makeContext("test-scanner"));
     const body = await res.json();
@@ -166,15 +200,38 @@ describe("DELETE /api/modules/:slug", () => {
     expect(body.deleted).toBe(true);
   });
 
-  it("rejects missing author_email", async () => {
-    const req = makeRequest("http://localhost/api/modules/test-scanner", {
+  it("rejects unauthenticated deletes even when the author email is known", async () => {
+    mockGetAuthenticatedRequestUser.mockResolvedValue(null);
+
+    const req = makeRequest("http://localhost/api/modules/test-scanner?author_email=test@example.com", {
       method: "DELETE",
     });
     const res = await DELETE(req, makeContext("test-scanner"));
     const body = await res.json();
 
-    expect(res.status).toBe(400);
-    expect(body.error).toContain("author_email");
+    expect(res.status).toBe(401);
+    expect(body.error).toContain("logged in");
+  });
+
+  it("rejects authenticated users who do not own the module", async () => {
+    mockGetAuthenticatedRequestUser.mockResolvedValue({
+      userId: "attacker",
+      email: "attacker@example.com",
+    });
+    mockFromResponses = {
+      modules: createChainable({
+        data: { id: "mod-001", author_email: "test@example.com" },
+        error: null,
+      }),
+    };
+
+    const req = makeRequest("http://localhost/api/modules/test-scanner?author_email=test@example.com", {
+      method: "DELETE",
+      headers: { Authorization: "Bearer attacker-token" },
+    });
+    const res = await DELETE(req, makeContext("test-scanner"));
+
+    expect(res.status).toBe(403);
   });
 
   it("returns 404 for unknown slug", async () => {
@@ -182,8 +239,9 @@ describe("DELETE /api/modules/:slug", () => {
       modules: createChainable({ data: null, error: null }),
     };
 
-    const req = makeRequest("http://localhost/api/modules/nonexistent?author_email=test@example.com", {
+    const req = makeRequest("http://localhost/api/modules/nonexistent", {
       method: "DELETE",
+      headers: { Authorization: "Bearer owner-token" },
     });
     const res = await DELETE(req, makeContext("nonexistent"));
     const body = await res.json();
