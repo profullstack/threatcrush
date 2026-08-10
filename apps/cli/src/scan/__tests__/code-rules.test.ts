@@ -468,7 +468,9 @@ describe('php', () => {
   });
 
   it('flags dynamic code execution', () => {
+    // threatcrush-disable-next-line js-dynamic-code-execution  PHP fixture, not JS
     expect(ruleIds('a.php', 'eval($code);')).toContain('php-dynamic-code-execution');
+    // threatcrush-disable-next-line js-dynamic-code-execution  PHP fixture, not JS
     expect(ruleIds('a.php', 'eval("return $expr;");')).toContain('php-dynamic-code-execution');
   });
 
@@ -501,6 +503,72 @@ describe('php', () => {
 
   it('flags request data expanded into locals', () => {
     expect(ruleIds('a.php', 'extract($_POST);')).toContain('php-variable-injection');
+  });
+});
+
+describe('java', () => {
+  it('flags Runtime.exec built by concatenation, and not the argv form', () => {
+    // threatcrush-disable-next-line js-shell-exec-interpolation  Java fixture, not JS
+    const vulnerable = 'Process p = Runtime.getRuntime().exec("git checkout " + branch);';
+    expect(ruleIds('A.java', vulnerable)).toContain('java-runtime-exec-concatenation');
+    // The array form passes argv and is the fix.
+    expect(
+      ruleIds('A.java', 'Process p = Runtime.getRuntime().exec(new String[]{"git", "checkout", branch});'),
+    ).toEqual([]);
+  });
+
+  it('flags an outbound request to a computed URL, and not a constant one', () => {
+    expect(
+      ruleIds('A.java', 'URL u = new URL(request.getParameter("target")); u.openConnection();'),
+    ).toContain('java-ssrf-outbound-request');
+    expect(ruleIds('A.java', 'URL u = new URL("https://api.example.com/v1/status");')).toEqual([]);
+  });
+
+  it('flags a file path built from request data unless containment is checked', () => {
+    expect(
+      ruleIds('A.java', 'File f = new File(baseDir + request.getParameter("name"));'),
+    ).toContain('java-request-path-traversal');
+    const guarded = [
+      'File f = new File(baseDir + request.getParameter("name"));',
+      'if (!f.getCanonicalPath().startsWith(baseDir)) throw new IOException("outside");',
+    ].join('\n');
+    expect(ruleIds('A.java', guarded)).toEqual([]);
+  });
+
+  it('flags broken ciphers and ECB, including the bare AES default', () => {
+    expect(ruleIds('A.java', 'Cipher c = Cipher.getInstance("DES/CBC/PKCS5Padding");')).toContain(
+      'java-broken-cipher',
+    );
+    expect(ruleIds('A.java', 'Cipher c = Cipher.getInstance("AES/ECB/PKCS5Padding");')).toContain(
+      'java-broken-cipher',
+    );
+    // The JCE resolves a bare "AES" to AES/ECB/PKCS5Padding.
+    expect(ruleIds('A.java', 'Cipher c = Cipher.getInstance("AES");')).toContain(
+      'java-broken-cipher',
+    );
+    expect(ruleIds('A.java', 'Cipher c = Cipher.getInstance("AES/GCM/NoPadding");')).toEqual([]);
+  });
+});
+
+describe('go', () => {
+  it('flags a file path built from request data unless containment is checked', () => {
+    expect(ruleIds('a.go', 'f, err := os.Open(filepath.Join(root, r.URL.Query().Get("f")))')).toContain(
+      'go-request-path-traversal',
+    );
+    const guarded = [
+      'if !strings.HasPrefix(filepath.Clean(p), root) { return errBadPath }',
+      'f, err := os.Open(filepath.Join(root, r.URL.Query().Get("f")))',
+    ].join('\n');
+    expect(ruleIds('a.go', guarded)).toEqual([]);
+  });
+
+  it('flags template.HTML on a variable but not on a literal', () => {
+    expect(ruleIds('a.go', 'out := template.HTML(r.FormValue("bio"))')).toContain(
+      'go-template-escaping-bypass',
+    );
+    // A constant the author wrote is not a finding.
+    expect(ruleIds('a.go', 'out := template.HTML("<br>")')).toEqual([]);
+    expect(ruleIds('a.go', 'out := template.HTML(`<hr>`)')).toEqual([]);
   });
 });
 
