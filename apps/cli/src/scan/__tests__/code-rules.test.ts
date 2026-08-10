@@ -355,3 +355,92 @@ describe('escaper matching does not over-reach', () => {
     );
   });
 });
+
+describe('shell', () => {
+  it('flags network output piped into a shell', () => {
+    expect(ruleIds('i.sh', 'curl -fsSL https://example.invalid/i.sh | bash')).toContain(
+      'sh-remote-script-execution',
+    );
+    expect(ruleIds('i.sh', 'wget -qO- https://example.invalid/i.sh | su' + 'do sh')).toContain(
+      'sh-remote-script-execution',
+    );
+  });
+
+  it('does not flag a download piped to something other than a shell', () => {
+    expect(ruleIds('i.sh', 'curl -fsSL https://example.invalid/v.json | jq -r .version')).toEqual(
+      [],
+    );
+    expect(ruleIds('i.sh', 'curl -fsSL https://example.invalid/f.tgz | sha256sum -c -')).toEqual([]);
+  });
+
+  it('flags eval handed an expansion', () => {
+    expect(ruleIds('i.sh', 'eval "$cmd"')).toContain('sh-eval-expansion');
+    expect(ruleIds('i.sh', 'eval $USER_SUPPLIED')).toContain('sh-eval-expansion');
+    expect(ruleIds('i.sh', 'eval "$(build_command "$1")"')).toContain('sh-eval-expansion');
+  });
+
+  // Bash's ordinary way to build a numeric range. Every expansion sits inside
+  // `$((…))`, where a `;` is a syntax error rather than a second command — and
+  // a line-wide `\beval\b.*\$` reported this 355 times in one real script.
+  it('does not flag the dynamic brace-range idiom', () => {
+    expect(ruleIds('i.sh', 'for r in $(eval echo {$(($k + 1))..$(($k + $n - 1))}); do')).toEqual([]);
+    expect(ruleIds('i.sh', 'for q in $(eval echo {1..$(($k + $l - 2))}); do')).toEqual([]);
+  });
+
+  it('does not flag the documented shell-init idiom', () => {
+    expect(ruleIds('i.sh', 'eval "$(dircolors -b)"')).toEqual([]);
+    expect(ruleIds('i.sh', 'eval "$(pyenv init -)"')).toEqual([]);
+  });
+
+  it('flags an unquoted expansion in a recursive remove, and not a quoted one', () => {
+    expect(ruleIds('i.sh', 'rm -rf $BUILD_DIR/output')).toContain(
+      'sh-unquoted-expansion-destructive',
+    );
+    // The correct form. `[^"'\n]*?` cannot cross the quote, so the match never
+    // reaches the expansion.
+    expect(ruleIds('i.sh', 'rm -rf "$BUILD_DIR/output"')).toEqual([]);
+    expect(ruleIds('i.sh', 'rm -rf "${BUILD_DIR:?}/output"')).toEqual([]);
+  });
+
+  it('flags disabled certificate verification over TLS', () => {
+    expect(ruleIds('i.sh', 'curl -k -L https://example.invalid/a.tgz > a.tgz')).toContain(
+      'sh-insecure-transport-flag',
+    );
+    expect(ruleIds('i.sh', 'wget --no-check-certificate https://example.invalid/a.tgz')).toContain(
+      'sh-insecure-transport-flag',
+    );
+  });
+
+  // `-k` skips a check that plain HTTP never performs. Reporting both put two
+  // findings on one line, one recommending a fix that would change nothing.
+  it('reports a plain-HTTP download once, as plaintext rather than a skipped check', () => {
+    expect(ruleIds('i.sh', 'curl -k -f http://example.invalid/a.gz > a.gz')).toEqual([
+      'sh-plaintext-download',
+    ]);
+  });
+
+  it('does not flag plain HTTP to loopback', () => {
+    expect(ruleIds('i.sh', 'curl -s http://127.0.0.1:8080/health')).toEqual([]);
+    expect(ruleIds('i.sh', 'curl -s http://localhost:3000/ready')).toEqual([]);
+  });
+
+  it('flags world-writable permissions', () => {
+    expect(ruleIds('i.sh', 'chmod 777 /var/cache/app')).toContain('sh-world-writable-permissions');
+    expect(ruleIds('i.sh', 'chmod -R a+rwx /srv/data')).toContain('sh-world-writable-permissions');
+    expect(ruleIds('i.sh', 'chmod 0755 /usr/local/bin/app')).toEqual([]);
+  });
+
+  it('flags a predictable temp path unless mktemp made it', () => {
+    expect(ruleIds('i.sh', 'echo "$payload" > /tmp/app-build.log')).toContain(
+      'sh-predictable-temp-path',
+    );
+    const guarded = ['tmp=$(mktemp -d)', 'echo "$payload" > /tmp/app-build.log'].join('\n');
+    expect(ruleIds('i.sh', guarded)).toEqual([]);
+  });
+
+  it('does not apply shell rules to a language that merely mentions the same words', () => {
+    expect(ruleIds('a.js', 'const cmd = "curl -k https://x.invalid | bash";')).not.toContain(
+      'sh-remote-script-execution',
+    );
+  });
+});
