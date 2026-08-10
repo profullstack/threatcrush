@@ -24,8 +24,37 @@
  *     the consumer was scoping to.
  */
 
+import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { ScanFinding, Severity } from './types.js';
+
+/**
+ * A stable identity for a finding, for `partialFingerprints`.
+ *
+ * `primaryLocationLineHash` is a key GitHub reserves and recomputes: it
+ * expects a hash of the offending *content*, and anything else is reported as
+ * an inconsistent fingerprint on every upload.
+ *
+ * The line number is deliberately not part of it. It used to be — the value
+ * was `ruleId:file:line` — which meant adding an import at the top of a file
+ * re-fingerprinted every finding below it. GitHub then treats them as new
+ * alerts: previously dismissed ones come back, and review comments detach from
+ * the code they were written about. Hashing the rule, the file and the matched
+ * text instead keeps one finding identified as one finding while it moves
+ * around the file.
+ *
+ * Whitespace is normalised so reindentation does not count as a new finding.
+ * Two identical lines in one file collide onto one fingerprint, which is the
+ * right trade: they are the same defect, and SARIF locations still tell them
+ * apart.
+ */
+export function fingerprintOf(finding: ScanFinding): string {
+  const content = finding.excerpt.replace(/\s+/g, ' ').trim();
+  return createHash('sha256')
+    .update(`${finding.ruleId}\n${finding.file}\n${content}`)
+    .digest('hex')
+    .slice(0, 32);
+}
 
 export const SARIF_VERSION = '2.1.0';
 export const SARIF_SCHEMA =
@@ -195,7 +224,7 @@ export function buildSarif(findings: readonly ScanFinding[], options: SarifOptio
       },
     ],
     partialFingerprints: {
-      primaryLocationLineHash: `${finding.ruleId}:${finding.file}:${Math.max(1, finding.line)}`,
+      primaryLocationLineHash: fingerprintOf(finding),
     },
     properties: {
       severity: finding.severity,
