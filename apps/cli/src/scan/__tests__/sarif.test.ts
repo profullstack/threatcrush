@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSarif, sarifLevel, securitySeverity, toArtifactUri } from '../sarif.js';
+import { buildSarif, fingerprintOf, sarifLevel, securitySeverity, toArtifactUri } from '../sarif.js';
 import type { ScanFinding } from '../types.js';
 
 const finding = (overrides: Partial<ScanFinding> = {}): ScanFinding => ({
@@ -20,6 +20,44 @@ const finding = (overrides: Partial<ScanFinding> = {}): ScanFinding => ({
 const firstResult = (log: unknown): any => (log as any).runs[0].results[0];
 const uriOf = (log: unknown): string =>
   firstResult(log).locations[0].physicalLocation.artifactLocation.uri;
+
+/**
+ * `primaryLocationLineHash` is a key GitHub reserves and recomputes. It used to
+ * carry `ruleId:file:line`, which GitHub rejected as inconsistent on every
+ * upload and which changed whenever code above the finding moved — so dismissed
+ * alerts came back and review comments detached.
+ */
+describe('fingerprints', () => {
+  it('is a hash, not a readable triple', () => {
+    const value = fingerprintOf(finding());
+    expect(value).toMatch(/^[0-9a-f]{32}$/);
+    expect(value).not.toContain('secret-aws-access-key');
+    expect(value).not.toContain('23');
+  });
+
+  it('survives the finding moving to another line', () => {
+    expect(fingerprintOf(finding({ line: 23 }))).toBe(fingerprintOf(finding({ line: 891 })));
+  });
+
+  it('survives reindentation', () => {
+    const a = finding({ excerpt: 'foo(bar)' });
+    const b = finding({ excerpt: '      foo(bar)  ' });
+    expect(fingerprintOf(a)).toBe(fingerprintOf(b));
+  });
+
+  it('separates different rules, files and content', () => {
+    const base = fingerprintOf(finding());
+    expect(fingerprintOf(finding({ ruleId: 'secret-github-token' }))).not.toBe(base);
+    expect(fingerprintOf(finding({ file: 'other/creds.env' }))).not.toBe(base);
+    expect(fingerprintOf(finding({ excerpt: 'something else' }))).not.toBe(base);
+  });
+
+  it('is the value that reaches the SARIF document', () => {
+    const f = finding();
+    const log = buildSarif([f], { toolVersion: '1.0.0', base: '/repo', root: '/repo' });
+    expect(firstResult(log).partialFingerprints.primaryLocationLineHash).toBe(fingerprintOf(f));
+  });
+});
 
 describe('artifact URIs', () => {
   it('resolves finding paths against the scan root, not the working directory', () => {
