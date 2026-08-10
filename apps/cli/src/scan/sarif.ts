@@ -29,19 +29,36 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { ScanFinding, Severity } from './types.js';
 
 /**
- * A stable identity for a finding, for `partialFingerprints`.
+ * The key our fingerprint is published under.
  *
- * `primaryLocationLineHash` is a key GitHub reserves and recomputes: it
- * expects a hash of the offending *content*, and anything else is reported as
- * an inconsistent fingerprint on every upload.
+ * Deliberately *not* `primaryLocationLineHash`. That name is reserved: the
+ * CodeQL upload action computes its own value for it and logs
+ *
+ *     Calculated fingerprint of 13bfd14c5cc763c:1 for file debtap line 104,
+ *     but found existing inconsistent fingerprint value <ours>
+ *
+ * for every finding whose value differs from what it derived — which is any
+ * value we supply, whatever it contains. The first attempt at this replaced
+ * the old `ruleId:file:line` with a content hash and still logged the warning,
+ * because the collision is over the *key*, not the format.
+ *
+ * Namespacing it leaves GitHub to compute the fingerprint it wants while other
+ * SARIF consumers keep a stable identity from us. The version suffix is there
+ * so the hash input can change later without silently redefining what an
+ * existing value meant.
+ */
+const FINGERPRINT_KEY = 'threatcrush/contentHash/v1';
+
+/**
+ * A stable identity for a finding, for `partialFingerprints`.
  *
  * The line number is deliberately not part of it. It used to be — the value
  * was `ruleId:file:line` — which meant adding an import at the top of a file
- * re-fingerprinted every finding below it. GitHub then treats them as new
- * alerts: previously dismissed ones come back, and review comments detach from
- * the code they were written about. Hashing the rule, the file and the matched
- * text instead keeps one finding identified as one finding while it moves
- * around the file.
+ * re-fingerprinted every finding below it. A consumer that tracks findings by
+ * fingerprint then treats them as new: previously dismissed ones come back,
+ * and review comments detach from the code they were written about. Hashing
+ * the rule, the file and the matched text instead keeps one finding identified
+ * as one finding while it moves around the file.
  *
  * Whitespace is normalised so reindentation does not count as a new finding.
  * Two identical lines in one file collide onto one fingerprint, which is the
@@ -224,7 +241,7 @@ export function buildSarif(findings: readonly ScanFinding[], options: SarifOptio
       },
     ],
     partialFingerprints: {
-      primaryLocationLineHash: fingerprintOf(finding),
+      [FINGERPRINT_KEY]: fingerprintOf(finding),
     },
     properties: {
       severity: finding.severity,

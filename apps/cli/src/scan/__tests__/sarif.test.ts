@@ -52,10 +52,15 @@ describe('fingerprints', () => {
     expect(fingerprintOf(finding({ excerpt: 'something else' }))).not.toBe(base);
   });
 
-  it('is the value that reaches the SARIF document', () => {
+  it('is published under a namespaced key, not the reserved one', () => {
+    // `primaryLocationLineHash` is computed by GitHub's upload action, which
+    // logs an inconsistent-fingerprint warning for every finding when we also
+    // supply it — whatever value we put there.
     const f = finding();
     const log = buildSarif([f], { toolVersion: '1.0.0', base: '/repo', root: '/repo' });
-    expect(firstResult(log).partialFingerprints.primaryLocationLineHash).toBe(fingerprintOf(f));
+    const prints = firstResult(log).partialFingerprints;
+    expect(prints['threatcrush/contentHash/v1']).toBe(fingerprintOf(f));
+    expect(prints).not.toHaveProperty('primaryLocationLineHash');
   });
 });
 
