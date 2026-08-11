@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parseFailOn } from '../../commands/scan.js';
 import {
   collectSuppressions,
   languageOf,
   languageOfShebang,
   meetsFailThreshold,
   scanText,
-} from '../engine.js';
+} from '../text.js';
 import { detectTyposquat, editDistance, scanPackageJson, scanRequirementsTxt } from '../manifest-rules.js';
 import { isKnownPlaceholder, redactSecret } from '../secret-rules.js';
 import type { ScanFinding } from '../types.js';
@@ -130,12 +129,9 @@ describe('--fail-on', () => {
     expect(meetsFailThreshold([at('critical')], [])).toBe(false);
   });
 
-  it('rejects an unknown severity rather than silently ignoring it', () => {
-    // Silently accepting `--fail-on hihg` produces a gate that never fires,
-    // which looks exactly like a passing build.
-    expect(parseFailOn('critical,high')).toEqual(['critical', 'high']);
-    expect(() => parseFailOn('hihg')).toThrow(/unknown severity/);
-  });
+  // Parsing the flag itself is the CLI's job and is tested there — see
+  // apps/cli/src/commands/__tests__/scan.test.ts. This package has no opinion
+  // about argv.
 });
 
 describe('typosquat detection', () => {

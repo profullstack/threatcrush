@@ -36,6 +36,7 @@
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "@sentry/node": "^8.45.0",
+    "@threatcrush/scan": "workspace:*",
     "better-sqlite3": "^11.7.0",
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.11.0",

@@ -17,7 +17,11 @@ export default defineConfig({
   dts: false,
 
   external: ['better-sqlite3', 'blessed', 'blessed-contrib', 'react', 'react-blessed', 'react-blessed-contrib'],
-  noExternal: ['chalk', 'ora', '@iarna/toml', 'commander'],
+  // `@threatcrush/scan` is bundled, not externalised. It resolves to
+  // TypeScript source rather than a build output — see its package.json — so
+  // there is nothing for Node to require at runtime, and the published CLI
+  // must not gain a dependency on a package that is not published.
+  noExternal: ['chalk', 'ora', '@iarna/toml', 'commander', '@threatcrush/scan'],
 
   async onSuccess() {
     // Ship the systemd unit template alongside the compiled bundle.

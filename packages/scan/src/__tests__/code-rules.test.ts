@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CODE_RULES, proseLines } from '../code-rules.js';
-import { languageOf, scanText } from '../engine.js';
+import { languageOf, scanText } from '../text.js';
 import type { ScanLanguage } from '../types.js';
 
 /**
