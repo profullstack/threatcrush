@@ -10,7 +10,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ScanFinding, Severity } from '../types.js';
+import type { ScanFinding, Severity } from '../types';
 
 interface OsvVulnerability {
   id: string;

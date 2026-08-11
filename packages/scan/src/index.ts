@@ -11,13 +11,13 @@
  * writing SARIF — lives behind `@threatcrush/scan/node`.
  */
 
-export { CODE_RULES, evaluateRule, GENERIC_GUARD, proseLines, untrustedPatternFor } from './code-rules.js';
-export type { CodeRule } from './code-rules.js';
+export { CODE_RULES, evaluateRule, GENERIC_GUARD, proseLines, untrustedPatternFor } from './code-rules';
+export type { CodeRule } from './code-rules';
 
-export { scanPackageJson, scanRequirementsTxt, detectTyposquat, editDistance } from './manifest-rules.js';
-export type { ManifestFinding, SquatVerdict } from './manifest-rules.js';
+export { scanPackageJson, scanRequirementsTxt, detectTyposquat, editDistance } from './manifest-rules';
+export type { ManifestFinding, SquatVerdict } from './manifest-rules';
 
-export { isKnownPlaceholder, redactSecret, SECRET_RULES, SENSITIVE_FILES } from './secret-rules.js';
+export { isKnownPlaceholder, redactSecret, SECRET_RULES, SENSITIVE_FILES } from './secret-rules';
 
 export {
   collectSuppressions,
@@ -30,8 +30,8 @@ export {
   scanManifest,
   scanText,
   SKIP_DIRS,
-} from './text.js';
-export type { Suppressions } from './text.js';
+} from './text';
+export type { Suppressions } from './text';
 
-export { severityRank, SEVERITY_ORDER } from './types.js';
-export type { Confidence, ScanFinding, ScanLanguage, Severity } from './types.js';
+export { severityRank, SEVERITY_ORDER } from './types';
+export type { Confidence, ScanFinding, ScanLanguage, Severity } from './types';

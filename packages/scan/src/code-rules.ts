@@ -37,8 +37,8 @@
  * rule that would flag every session read in the codebase. See KNOWN_GAPS.
  */
 
-import type { Confidence, ScanLanguage, Severity } from './types.js';
-import { severityFor } from './types.js';
+import type { Confidence, ScanLanguage, Severity } from './types';
+import { severityFor } from './types';
 
 export interface CodeRule {
   id: string;

@@ -12,7 +12,7 @@ import {
   closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync,
 } from 'node:fs';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
-import { SENSITIVE_FILES } from '../secret-rules.js';
+import { SENSITIVE_FILES } from '../secret-rules';
 import {
   collectSuppressions,
   languageOf,
@@ -21,9 +21,9 @@ import {
   scanManifest,
   scanText,
   SKIP_DIRS,
-} from '../text.js';
-import type { ScanFinding, ScanLanguage } from '../types.js';
-import { severityRank } from '../types.js';
+} from '../text';
+import type { ScanFinding, ScanLanguage } from '../types';
+import { severityRank } from '../types';
 
 export interface ScanOptions {
   /** Skip files larger than this. Defaults to 1 MiB. */

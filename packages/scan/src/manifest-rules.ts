@@ -10,7 +10,7 @@
  * privileges. Both are visible in the manifest, before anything is fetched.
  */
 
-import type { Severity } from './types.js';
+import type { Severity } from './types';
 
 export interface ManifestFinding {
   ruleId: string;

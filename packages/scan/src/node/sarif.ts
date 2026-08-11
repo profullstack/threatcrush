@@ -26,7 +26,7 @@
 
 import { createHash } from 'node:crypto';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { ScanFinding, Severity } from '../types.js';
+import type { ScanFinding, Severity } from '../types';
 
 /**
  * The key our fingerprint is published under.

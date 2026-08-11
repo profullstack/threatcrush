@@ -6,10 +6,10 @@
  * filesystem exists: the CLI, the daemon, a server route.
  */
 
-export { scanPath } from './walk.js';
-export type { ScanOptions, ScanReport } from './walk.js';
+export { scanPath } from './walk';
+export type { ScanOptions, ScanReport } from './walk';
 
-export { scanDependencies } from './dependencies.js';
+export { scanDependencies } from './dependencies';
 
-export { buildSarif, fingerprintOf, sarifLevel, securitySeverity, toArtifactUri } from './sarif.js';
-export type { SarifOptions } from './sarif.js';
+export { buildSarif, fingerprintOf, sarifLevel, securitySeverity, toArtifactUri } from './sarif';
+export type { SarifOptions } from './sarif';

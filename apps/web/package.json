@@ -14,6 +14,7 @@
     "@profullstack/pluginstore": "^0.1.1",
     "@profullstack/stack": "^0.1.3",
     "@supabase/supabase-js": "^2.101.1",
+    "@threatcrush/scan": "workspace:*",
     "isomorphic-dompurify": "^3.12.0",
     "next": "16.2.2",
     "posthog-js": "^1.381.0",

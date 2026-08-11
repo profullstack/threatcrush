@@ -5,10 +5,10 @@ import {
   languageOfShebang,
   meetsFailThreshold,
   scanText,
-} from '../text.js';
-import { detectTyposquat, editDistance, scanPackageJson, scanRequirementsTxt } from '../manifest-rules.js';
-import { isKnownPlaceholder, redactSecret } from '../secret-rules.js';
-import type { ScanFinding } from '../types.js';
+} from '../text';
+import { detectTyposquat, editDistance, scanPackageJson, scanRequirementsTxt } from '../manifest-rules';
+import { isKnownPlaceholder, redactSecret } from '../secret-rules';
+import type { ScanFinding } from '../types';
 
 describe('language detection', () => {
   it('maps extensions and treats dotted env files as config', () => {
