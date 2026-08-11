@@ -790,7 +790,7 @@ describe('misconfiguration, weak crypto and injection', () => {
     expect(ruleIds('a.py', 'app.config["SECRET_KEY"] = secret_provider("session-key")')).toEqual([]);
   });
 
-  it('flags an LDAP filter built by interpolation unless it is escaped', () => {
+  it('flags an LDAP filter built by interpolation unless the value is escaped', () => {
     expect(ruleIds('a.py', 'f = f"(&(objectClass=person)(uid={account_name}))"')).toContain(
       'py-ldap-injection',
     );
@@ -801,9 +801,36 @@ describe('misconfiguration, weak crypto and injection', () => {
     expect(ruleIds('a.py', safe)).not.toContain('py-ldap-injection');
   });
 
-  it('flags an XPath expression built by interpolation', () => {
-    expect(ruleIds('a.py', 'expr = f"//user[name/text()={username}]"')).toContain('py-xpath-injection');
+  it('flags an unescaped filter even when the module imports an escaper', () => {
+    // The guard is an escaper *call*: a module-level `import escape_filter_chars`
+    // must not exonerate a filter that never calls it. (An earlier `/escap/i`
+    // guard was defeated exactly here.)
+    const src = [
+      'from ldap.filter import escape_filter_chars',
+      'f = f"(&(objectClass=person)(uid={account_name}))"',
+    ].join('\n');
+    expect(ruleIds('a.py', src)).toContain('py-ldap-injection');
+  });
+
+  it('flags an XPath expression with an inner quote around the interpolation', () => {
+    // The `"`-delimited f-string contains a `'`; a class that excluded both
+    // quotes stopped before the interpolation and missed it.
+    expect(ruleIds('a.py', "expr = f\"//user[name/text()='{username}']\"")).toContain(
+      'py-xpath-injection',
+    );
     expect(ruleIds('a.py', 'result = doc.xpath("//user[name=$n]", n=username)')).toEqual([]);
+  });
+
+  it('flags a NoSQL query built from request data', () => {
+    expect(ruleIds('a.js', 'return users.find(req.body.filter);')).toContain('js-nosql-injection');
+    expect(ruleIds('a.js', 'return users.find({ _id: sanitize(req.params.id) });')).toEqual([]);
+  });
+
+  it('flags a URL built from the Host header', () => {
+    expect(ruleIds('a.js', 'return `https://${req.headers.host}/reset?token=${token}`;')).toContain(
+      'js-host-header-trust',
+    );
+    expect(ruleIds('a.js', 'return `${config.baseUrl}/reset?token=${token}`;')).toEqual([]);
   });
 
   it('flags a fast hash on a password, not a slow KDF', () => {
