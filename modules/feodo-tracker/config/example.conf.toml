@@ -1,0 +1,6 @@
+[modules.feodo-tracker]
+enabled = true
+poll_interval_seconds = 900
+feed_url = "https://feodotracker.abuse.ch/downloads/ipblocklist.csv"
+emit_offline = false
+max_events_per_poll = 100
