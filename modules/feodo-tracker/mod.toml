@@ -1,0 +1,22 @@
+[module]
+name = "feodo-tracker"
+version = "0.1.0"
+description = "Monitors the abuse.ch Feodo Tracker feed for active botnet command-and-control servers"
+author = "rissrice2105-agent"
+license = "MIT"
+homepage = "https://github.com/profullstack/threatcrush/tree/master/modules/feodo-tracker"
+
+[module.pricing]
+type = "free"
+
+[module.requirements]
+threatcrush = ">=0.2.0"
+os = ["linux", "darwin", "win32"]
+capabilities = ["network:outbound", "threat-intel:feed"]
+
+[module.config.defaults]
+enabled = true
+poll_interval_seconds = 900
+feed_url = "https://feodotracker.abuse.ch/downloads/ipblocklist.csv"
+emit_offline = false
+max_events_per_poll = 100

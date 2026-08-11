@@ -1,0 +1,45 @@
+{
+  "name": "threatcrush-module-feodo-tracker",
+  "version": "0.1.0",
+  "description": "Emits defensive threat-intelligence events for active botnet C2 indicators from Feodo Tracker",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "author": "rissrice2105-agent",
+  "homepage": "https://threatcrush.com/store/feodo-tracker",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profullstack/threatcrush.git",
+    "directory": "modules/feodo-tracker"
+  },
+  "keywords": [
+    "threatcrush",
+    "threatcrush-module",
+    "feodo-tracker",
+    "botnet",
+    "command-and-control",
+    "threat-intelligence"
+  ],
+  "files": [
+    "dist",
+    "mod.toml",
+    "config",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@threatcrush/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
