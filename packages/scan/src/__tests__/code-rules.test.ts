@@ -745,3 +745,109 @@ describe('python weak crypto', () => {
     expect(ruleIds('a.py', 'def new_id():\n    return secrets.token_hex(16)')).toEqual([]);
   });
 });
+
+describe('misconfiguration, weak crypto and injection', () => {
+  it('flags debug mode enabled, not disabled', () => {
+    expect(ruleIds('a.py', 'app.config["DEBUG"] = True')).toContain('py-framework-debug-enabled');
+    expect(ruleIds('a.py', 'app.run(host="0.0.0.0", debug=True)')).toContain(
+      'py-framework-debug-enabled',
+    );
+    expect(ruleIds('a.py', 'app.config["DEBUG"] = False')).toEqual([]);
+  });
+
+  it('flags a wildcard CORS origin with credentials, not an explicit origin', () => {
+    expect(ruleIds('a.js', "app.use(cors({ origin: '*', credentials: true }));")).toContain(
+      'js-cors-wildcard-credentials',
+    );
+    expect(
+      ruleIds('a.js', "app.use(cors({ origin: 'https://app.example.com', credentials: true }));"),
+    ).toEqual([]);
+  });
+
+  it('flags a cookie set with secure:false', () => {
+    expect(ruleIds('a.js', "res.cookie('sid', v, { secure: false });")).toContain(
+      'js-cookie-insecure-flag',
+    );
+    expect(ruleIds('a.js', "res.cookie('sid', v, { secure: true, httpOnly: true });")).toEqual([]);
+  });
+
+  it('flags a hardcoded key literal in crypto code, not a runtime key', () => {
+    const vuln = ["const crypto = require('crypto');", "const key = Buffer.from('1111111111111111');"].join(
+      '\n',
+    );
+    expect(ruleIds('a.js', vuln)).toContain('js-hardcoded-crypto-key');
+    const safe = [
+      "const crypto = require('crypto');",
+      'const cipher = crypto.createCipheriv(alg, runtimeKey, iv);',
+    ].join('\n');
+    expect(ruleIds('a.js', safe)).not.toContain('js-hardcoded-crypto-key');
+  });
+
+  it('flags a hardcoded secret literal, not a provider call', () => {
+    expect(ruleIds('a.py', 'app.config["SECRET_KEY"] = "hardcoded-signing-secret"')).toContain(
+      'py-hardcoded-secret-key',
+    );
+    expect(ruleIds('a.py', 'app.config["SECRET_KEY"] = secret_provider("session-key")')).toEqual([]);
+  });
+
+  it('flags an LDAP filter built by interpolation unless it is escaped', () => {
+    expect(ruleIds('a.py', 'f = f"(&(objectClass=person)(uid={account_name}))"')).toContain(
+      'py-ldap-injection',
+    );
+    const safe = [
+      'escaped = escape_filter_chars(name)',
+      'f = f"(&(objectClass=person)(uid={escaped}))"',
+    ].join('\n');
+    expect(ruleIds('a.py', safe)).not.toContain('py-ldap-injection');
+  });
+
+  it('flags an XPath expression built by interpolation', () => {
+    expect(ruleIds('a.py', 'expr = f"//user[name/text()={username}]"')).toContain('py-xpath-injection');
+    expect(ruleIds('a.py', 'result = doc.xpath("//user[name=$n]", n=username)')).toEqual([]);
+  });
+
+  it('flags a fast hash on a password, not a slow KDF', () => {
+    expect(ruleIds('a.py', 'digest = hashlib.sha256(password_bytes).hexdigest()')).toContain(
+      'py-fast-password-hash',
+    );
+    const safe = [
+      'import hashlib',
+      'digest = hashlib.pbkdf2_hmac("sha256", password_bytes, salt, 200000)',
+    ].join('\n');
+    expect(ruleIds('a.py', safe)).not.toContain('py-fast-password-hash');
+  });
+
+  it('flags a plaintext password kept in a record', () => {
+    expect(
+      ruleIds('a.py', 'record = {"email": form["email"], "password": form["password"]}'),
+    ).toContain('py-plaintext-password-retained');
+    expect(ruleIds('a.py', 'record = {"email": form["email"], "password_hash": derived}')).toEqual([]);
+  });
+
+  it('flags == on a signature, not a length check or timingSafeEqual', () => {
+    expect(ruleIds('a.js', 'return expectedSignature === suppliedSignature;')).toContain(
+      'js-timing-unsafe-mac-compare',
+    );
+    expect(ruleIds('a.js', 'const ok = a.length === b.length;')).toEqual([]);
+    expect(
+      ruleIds('a.js', 'return crypto.timingSafeEqual(expectedSignature, suppliedSignature);'),
+    ).toEqual([]);
+  });
+
+  it('flags a static IV, not a random one', () => {
+    const vuln = ["const crypto = require('crypto');", 'const fixedIv = Buffer.alloc(16, 0);'].join('\n');
+    expect(ruleIds('a.js', vuln)).toContain('js-predictable-cipher-iv');
+    const safe = ["const crypto = require('crypto');", 'const iv = crypto.randomBytes(16);'].join('\n');
+    expect(ruleIds('a.js', safe)).not.toContain('js-predictable-cipher-iv');
+  });
+
+  it('flags mass assignment from the request body, not from an allow-list', () => {
+    expect(ruleIds('a.js', 'Object.assign(account, req.body);')).toContain('js-mass-assignment');
+    expect(ruleIds('a.js', 'Object.assign(account, allowed);')).toEqual([]);
+  });
+
+  it('flags a response header set straight from request input', () => {
+    expect(ruleIds('a.js', "res.setHeader('X-Name', req.query.name);")).toContain('js-header-injection');
+    expect(ruleIds('a.js', "res.setHeader('X-Name', sanitized);")).toEqual([]);
+  });
+});
