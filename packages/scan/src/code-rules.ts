@@ -1155,6 +1155,175 @@ export const CODE_RULES: readonly CodeRule[] = [
     pattern: /\btemplate\s*\.\s*(?:HTML|JS|CSS|HTMLAttr|URL|Srcset)\s*\(\s*(?!\s*[`"])/,
     needsContext: true,
   },
+
+  // ── Misconfiguration, weak crypto and the rest of the injection family ────
+  //
+  // Each of these is a defect the *line* shows — a debug flag left on, a
+  // wildcard CORS origin, a key literal, a fast password hash — so the safe
+  // counterpart in the corpus differs on something visible here, not three
+  // functions away. The classes that genuinely need whole-function reasoning
+  // (CSRF, IDOR, TOCTOU, missing authorization) are deliberately still absent;
+  // see KNOWN_GAPS.
+  {
+    id: 'py-framework-debug-enabled',
+    title: 'debug mode enabled',
+    consequence:
+      'Framework debug mode serves an interactive traceback console on any error — arbitrary code execution to whoever triggers it — and leaks source and configuration.',
+    cwe: 'CWE-489',
+    severity: 'high',
+    languages: ['python'],
+    pattern: /\bDEBUG['"\]]*\s*[=:]\s*True\b|\.\s*run\s*\([^)\n]*\bdebug\s*=\s*True\b/,
+    inherent: true,
+  },
+  {
+    id: 'js-cors-wildcard-credentials',
+    title: 'wildcard CORS origin with credentials',
+    consequence:
+      'A `*` origin combined with credentials lets any site read authenticated responses on the victim’s behalf: the browser attaches their cookies and hands the result to the attacker’s page.',
+    cwe: 'CWE-942',
+    severity: 'high',
+    languages: ['javascript', 'typescript'],
+    pattern:
+      /origin\s*:\s*['"`]\*['"`][^\n]*credentials\s*:\s*true|credentials\s*:\s*true[^\n]*origin\s*:\s*['"`]\*['"`]/,
+    inherent: true,
+  },
+  {
+    id: 'js-cookie-insecure-flag',
+    title: 'cookie set with Secure disabled',
+    consequence:
+      'Without Secure the cookie travels over plain HTTP, where anyone on the path reads it. A session cookie set this way is a session anyone can lift.',
+    cwe: 'CWE-614',
+    severity: 'medium',
+    languages: ['javascript', 'typescript'],
+    pattern: /\.\s*cookie\s*\([^\n]*\bsecure\s*:\s*false\b/i,
+  },
+  {
+    id: 'js-hardcoded-crypto-key',
+    title: 'hardcoded key material',
+    consequence:
+      'A key committed to source is a key everyone with the repo has. The encryption it backs protects nothing once the source is shared, forked or leaked.',
+    cwe: 'CWE-321',
+    severity: 'high',
+    languages: ['javascript', 'typescript'],
+    pattern: /\b(?:key|secret|iv|passphrase|salt|hmac)\w*\s*=\s*Buffer\s*\.\s*from\s*\(\s*['"`]/i,
+    fileRequires: /\bcrypto\b|createCipheriv|createDecipheriv|createHmac/,
+  },
+  {
+    id: 'py-hardcoded-secret-key',
+    title: 'hardcoded application secret',
+    consequence:
+      'A signing secret in source lets anyone with the code forge what it signs — session cookies, tokens, password-reset links.',
+    cwe: 'CWE-798',
+    severity: 'high',
+    languages: ['python'],
+    // Assigned a *string literal*. A value from a provider call (`os.environ`,
+    // `secret_provider(...)`) is the correct shape and starts with an
+    // identifier after the `=`, not a quote.
+    pattern:
+      /\b(?:SECRET_KEY|JWT_SECRET|SIGNING_KEY|SESSION_SECRET|PRIVATE_KEY)['"\]]*\s*[=:]\s*['"`][^'"`\n]{6,}/,
+  },
+  {
+    id: 'py-ldap-injection',
+    title: 'LDAP filter built by interpolation',
+    consequence:
+      'Unescaped input in an LDAP filter lets an attacker rewrite the query — widening a match, bypassing a check, or enumerating the directory.',
+    cwe: 'CWE-90',
+    severity: 'high',
+    languages: ['python'],
+    // An f-string whose content is an LDAP filter (`(&…` / `(|…`) with an
+    // interpolation. The safe form escapes, so the window carries an escaper.
+    pattern: /\bf['"][^'"\n]*\([&|][^'"\n]*\{[^}\n]+\}/,
+    guard: /escap/i,
+  },
+  {
+    id: 'py-xpath-injection',
+    title: 'XPath built by interpolation',
+    consequence:
+      'Unescaped input in an XPath expression lets an attacker rewrite the query and read nodes it was meant to exclude.',
+    cwe: 'CWE-643',
+    severity: 'high',
+    languages: ['python'],
+    pattern: /\bf['"][^'"\n]*(?:\/\/|\/\w+\[)[^'"\n]*\{[^}\n]+\}/,
+  },
+  {
+    id: 'py-fast-password-hash',
+    title: 'password hashed with a fast digest',
+    consequence:
+      'SHA-2 is built to be fast, which is exactly wrong for a password: a leaked hash is brute-forced at billions of guesses a second. Passwords need a slow, salted KDF (bcrypt, scrypt, argon2, PBKDF2).',
+    cwe: 'CWE-759',
+    severity: 'high',
+    languages: ['python'],
+    pattern:
+      /\bhashlib\s*\.\s*(?:sha224|sha256|sha384|sha512)\s*\([^)\n]*(?:password|passwd|passphrase|pwd)/i,
+    guard: /pbkdf2|scrypt|bcrypt|argon/i,
+  },
+  {
+    id: 'py-plaintext-password-retained',
+    title: 'plaintext password stored',
+    consequence:
+      'A record that keeps the password itself, not a hash, turns one database leak into every user’s credential — reused across every other site they log into.',
+    cwe: 'CWE-256',
+    severity: 'high',
+    languages: ['python'],
+    pattern: /['"]password['"]\s*:\s*(?:form|request|req|data|payload|body|params)\b/i,
+  },
+  {
+    id: 'js-timing-unsafe-mac-compare',
+    title: 'MAC or signature compared with ==',
+    consequence:
+      '`===` on a signature returns the moment a byte differs, so response time leaks how much of a forged signature is correct — enough to recover a valid one byte by byte. Use `crypto.timingSafeEqual`.',
+    cwe: 'CWE-208',
+    severity: 'medium',
+    languages: ['javascript', 'typescript'],
+    pattern:
+      /\b\w*(?:[Ss]ignature|[Hh]mac|[Dd]igest)\s*===?\s*\w|\w\s*===?\s*\w*(?:[Ss]ignature|[Hh]mac|[Dd]igest)\b/,
+    // Comparing `.length` is the *safe* preamble to a constant-time check, not
+    // the timing-unsafe value comparison this rule is about — and the
+    // `timingSafeEqual` that follows it sits forward of the line, out of the
+    // backward guard window.
+    lineGuard: /\.\s*length\b/,
+    guard: /timingSafeEqual/,
+  },
+  {
+    id: 'js-predictable-cipher-iv',
+    title: 'static initialization vector',
+    consequence:
+      'A fixed IV reused across encryptions leaks whether two plaintexts are equal and, in CBC/CTR, breaks confidentiality outright. The IV must be random per message.',
+    cwe: 'CWE-329',
+    severity: 'high',
+    languages: ['javascript', 'typescript'],
+    pattern: /\b\w*[Ii][Vv]\s*=\s*Buffer\s*\.\s*(?:alloc|from)\s*\(/,
+    fileRequires: /createCipheriv|\bcrypto\b/,
+    guard: /randomBytes|randomFill/,
+  },
+  // A rule for `Math.random().toString(36)` was tried and dropped: the exact
+  // shape generates security tokens *and* benign callback/correlation ids
+  // (Capacitor's native bridge uses it for the latter), with no line-visible
+  // signal between them. The credential-scoped `insecure-randomness-for-secret`
+  // above still catches the `token = …Math.random…` case; the bare shape is
+  // left alone rather than flagged on every id generator.
+  {
+    id: 'js-mass-assignment',
+    title: 'mass assignment from request data',
+    consequence:
+      'Copying the whole request body onto a record lets a caller set fields you never exposed — `isAdmin`, `role`, `balance` — because nothing stands between the input and the object.',
+    cwe: 'CWE-915',
+    severity: 'high',
+    languages: ['javascript', 'typescript'],
+    pattern:
+      /\bObject\s*\.\s*assign\s*\([^,\n]+,\s*(?:req|request|ctx)\s*\.\s*(?:body|query|params)\b/,
+  },
+  {
+    id: 'js-header-injection',
+    title: 'response header set from request input',
+    consequence:
+      'A CR/LF in the value splits the response — the attacker injects headers or a whole second response (cache poisoning, a forged Set-Cookie).',
+    cwe: 'CWE-113',
+    severity: 'high',
+    languages: ['javascript', 'typescript'],
+    pattern:
+      /\.\s*(?:setHeader|header|set)\s*\(\s*['"`][^'"`\n]+['"`]\s*,\s*(?:req|request|ctx)\s*\.\s*(?:query|body|params|headers)\b/,
+  },
 ];
 
 /**

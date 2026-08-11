@@ -35,12 +35,12 @@ env:
   TESTBED_REPO: profullstack/malware-test-prs
   TESTBED_REF: f9f4fce8c0bd5e0391eca83658055c040ef222e0
   # Floors, set just under the measured result at the pinned commit
-  # (TPR 71.3%, FPR 0%). The gap absorbs ordinary noise; a real regression —
+  # (TPR 79.8%, FPR 0%). The gap absorbs ordinary noise; a real regression —
   # a rule that stops firing, or one that starts flagging the control group —
   # moves the number past these and fails the job. Raise the floor with the
   # rate: each rule set that lands should ratchet it up, not leave slack a
   # regression could hide in.
-  MIN_TPR: '68'
+  MIN_TPR: '76'
   MAX_FPR: '2'
 
 jobs:
