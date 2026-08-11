@@ -1,0 +1,19 @@
+# ThreatCrush does not scan its own rule definitions or test fixtures.
+#
+# A scanner's detection patterns look like the vulnerable code they match, and
+# its test corpus is deliberately-vulnerable sample code. Scanning either
+# measures nothing and buries real findings in the product under dozens of
+# self-references — the tool detecting itself. Everything else in the repo is
+# still scanned.
+#
+# Globs are gitignore-flavoured: a bare name matches at any depth; a pattern
+# with a slash is anchored to the repo root. See @threatcrush/scan.
+
+# Test fixtures across the monorepo.
+__tests__
+
+# The rule definitions themselves.
+packages/scan/src/code-rules.ts
+packages/scan/src/secret-rules.ts
+packages/scan/src/manifest-rules.ts
+modules/code-scanner/src/**/rules.ts

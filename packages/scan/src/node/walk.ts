@@ -32,6 +32,151 @@ export interface ScanOptions {
   onFile?: (path: string) => void;
   /** Restrict to these rule categories. Defaults to all. */
   categories?: readonly ScanFinding['category'][];
+  /**
+   * Paths to skip, as globs over repository-relative POSIX paths.
+   *
+   * Merged with a `.threatcrushignore` file at the scan root, if present. The
+   * intended use is generated output, vendored trees, and — the case that
+   * prompted this — a scanner's own rule definitions and test fixtures, which
+   * are vulnerable-looking by design and otherwise dominate its self-scan.
+   *
+   * Excluding is not the same as finding nothing: the count of skipped paths
+   * is reported (`ScanReport.excluded`) and surfaced, so a scan silenced by a
+   * broad glob cannot be mistaken for a clean one.
+   */
+  exclude?: readonly string[];
+}
+
+/**
+ * Compile exclusion globs into one predicate over relative POSIX paths.
+ *
+ * gitignore-flavoured: `*` matches within a path segment, `**` across
+ * segments, `?` a single non-slash character. A pattern with no `/` matches by
+ * name at any depth — `__tests__` excludes every directory so named — while a
+ * pattern containing `/` is anchored to the scan root. Blank lines and `#`
+ * comments are ignored, so a `.threatcrushignore` file can be passed straight
+ * in. Exported for its own tests.
+ */
+export function compileExcludes(patterns: readonly string[]): (relPath: string) => boolean {
+  const matchers = patterns
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0 && !p.startsWith('#'))
+    .map(compilePattern);
+  if (matchers.length === 0) return () => false;
+  return (relPath) => {
+    const segs = relPath.split('/');
+    return matchers.some((m) => m(segs));
+  };
+}
+
+/**
+ * Matching is done segment by segment, in code, rather than by compiling the
+ * glob into one big regex.
+ *
+ * A cross-segment regex — `(?:[^/]+/)*` for depth, a dot-star for `**` — is the
+ * shape that backtracks quadratically on a path full of slashes, the
+ * polynomial-ReDoS CodeQL flags and this scanner has its own rule for. There is
+ * no way to feed a whole path through a single generated pattern without that
+ * risk. Splitting both the pattern and the path on `/` and walking them with a
+ * two-pointer (the classic `**` alignment) removes it entirely: each per-segment
+ * regex is a trivial `^…$` with a single quantifier and is tested against one
+ * bounded segment, never the whole path.
+ */
+const GLOBSTAR = Symbol('globstar');
+type SegMatcher = RegExp | typeof GLOBSTAR;
+
+function compilePattern(pattern: string): (segs: readonly string[]) => boolean {
+  // Trailing slashes are trimmed without a regex: `/\/+$/` is unanchored, so
+  // `replace` retries at every start position and is quadratic on a value that
+  // is all slashes — the very polynomial-ReDoS this file is avoiding.
+  const withoutLead = pattern.replace(/^\.?\//, '');
+  let end = withoutLead.length;
+  while (end > 0 && withoutLead[end - 1] === '/') end -= 1;
+  const p = withoutLead.slice(0, end);
+
+  // A pattern with no `/` matches by name at any depth: excluded if any single
+  // segment matches it.
+  if (!p.includes('/')) {
+    if (p === '**') return () => true;
+    const rx = segToRegExp(p);
+    return (segs) => segs.some((s) => rx.test(s));
+  }
+
+  const raw = p.split('/');
+  // A trailing `**` means "the contents of", so it must not match the directory
+  // itself — the path has to be strictly deeper than the leading parts.
+  const trailingGlobstar = raw[raw.length - 1] === '**';
+  const core = trailingGlobstar ? raw.slice(0, -1) : raw;
+  const parts: SegMatcher[] = core.map((s) => (s === '**' ? GLOBSTAR : segToRegExp(s)));
+
+  return (segs) => {
+    const end = matchPrefix(parts, segs);
+    if (end < 0) return false;
+    // `end` is where the pattern stopped; everything past it is the pruned
+    // subtree. A prefix match covers the path and all of its descendants;
+    // `dir/**` additionally requires at least one descendant.
+    return trailingGlobstar ? end < segs.length : true;
+  };
+}
+
+/** `*` within a segment, `?` one character; a segment contains no slash. */
+function segToRegExp(seg: string): RegExp {
+  let body = '';
+  for (let i = 0; i < seg.length; i += 1) {
+    const c = seg[i]!;
+    if (c === '*') {
+      // Collapse a run of `*` into one `[^/]*`; `[^/]*[^/]*` is two adjacent
+      // stars over the same characters, which backtracks quadratically.
+      while (seg[i + 1] === '*') i += 1;
+      body += '[^/]*';
+    } else if (c === '?') {
+      body += '[^/]';
+    } else {
+      body += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+  return new RegExp(`^${body}$`);
+}
+
+/**
+ * Align `parts` against a prefix of `segs`, `GLOBSTAR` consuming zero or more
+ * segments. Returns the index in `segs` where the match ends, or -1. A
+ * two-pointer with one backtrack point for the active globstar — O(segments),
+ * no catastrophic backtracking.
+ */
+function matchPrefix(parts: readonly SegMatcher[], segs: readonly string[]): number {
+  let pi = 0;
+  let si = 0;
+  let star = -1;
+  let starSi = -1;
+
+  while (pi < parts.length) {
+    const part = parts[pi]!;
+    if (part === GLOBSTAR) {
+      star = pi;
+      starSi = si;
+      pi += 1;
+    } else if (si < segs.length && part.test(segs[si]!)) {
+      pi += 1;
+      si += 1;
+    } else if (star !== -1 && starSi < segs.length) {
+      starSi += 1;
+      si = starSi;
+      pi = star + 1;
+    } else {
+      return -1;
+    }
+  }
+  return si;
+}
+
+/** The globs in a `.threatcrushignore` at `root`, or `[]` if there is none. */
+function readIgnoreFile(root: string): string[] {
+  try {
+    return readFileSync(join(root, '.threatcrushignore'), 'utf-8').split('\n');
+  } catch {
+    return [];
+  }
 }
 
 export interface ScanReport {
@@ -56,6 +201,12 @@ export interface ScanReport {
    * over an unread tree is the failure this scanner exists to avoid.
    */
   unreadable: string[];
+  /**
+   * How many paths an exclusion glob skipped — a pruned directory counts once,
+   * not per file inside it. Reported for the same reason `suppressed` is: a
+   * quiet scan produced by a broad `.threatcrushignore` is not a clean scan.
+   */
+  excluded: number;
 }
 
 export function scanPath(targetPath: string, options: ScanOptions = {}): ScanReport {
@@ -65,6 +216,7 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
   const unreadable: string[] = [];
   let filesScanned = 0;
   let suppressed = 0;
+  let excluded = 0;
 
   // A file target is not a degenerate directory target. `readdirSync` on a
   // file throws ENOTDIR, which the walker below treats as an unreadable
@@ -78,6 +230,11 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
     }
   })();
   const walkRoot = rootIsDirectory ? targetPath : dirname(targetPath);
+
+  // Exclusions come from both the caller and a committed `.threatcrushignore`,
+  // so a repository can carry its own ignore list without every invocation
+  // repeating `--exclude`. Compiled once for the whole walk.
+  const isExcluded = compileExcludes([...(options.exclude ?? []), ...readIgnoreFile(walkRoot)]);
 
   const scanFile = (fullPath: string, filename: string): void => {
     const relativePath = toRelative(walkRoot, fullPath);
@@ -169,13 +326,24 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
 
     for (const entry of entries) {
       const fullPath = join(currentPath, entry.name);
+      const relativePath = toRelative(walkRoot, fullPath);
 
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name)) continue;
+        // A directory match prunes the whole subtree and counts once, rather
+        // than descending it to skip each file — the point is not to read it.
+        if (isExcluded(relativePath)) {
+          excluded += 1;
+          continue;
+        }
         walk(fullPath);
         continue;
       }
       if (!entry.isFile()) continue;
+      if (isExcluded(relativePath)) {
+        excluded += 1;
+        continue;
+      }
 
       scanFile(fullPath, entry.name);
     }
@@ -183,6 +351,8 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
 
   if (rootIsDirectory) {
     walk(targetPath);
+  } else if (isExcluded(toRelative(walkRoot, targetPath))) {
+    excluded += 1;
   } else {
     scanFile(targetPath, basename(targetPath));
   }
@@ -195,7 +365,7 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
       a.line - b.line,
   );
 
-  return { findings: filtered, filesScanned, unreadable, suppressed, root: walkRoot };
+  return { findings: filtered, filesScanned, unreadable, suppressed, excluded, root: walkRoot };
 }
 
 /**

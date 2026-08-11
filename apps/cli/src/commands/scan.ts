@@ -34,6 +34,8 @@ export interface ScanCommandOptions {
    * discover the dependency mid-run.
    */
   dependencies?: boolean;
+  /** Globs to skip, merged with any `.threatcrushignore` at the scan root. */
+  exclude?: readonly string[];
 }
 
 interface ScanOutcome {
@@ -42,6 +44,7 @@ interface ScanOutcome {
   filesScanned: number;
   unreadable: string[];
   suppressed: number;
+  excluded: number;
   root: string;
 }
 
@@ -171,6 +174,7 @@ export async function scanCommand(
   try {
     let seen = 0;
     const report = scanPath(targetPath, {
+      exclude: options.exclude,
       onFile: () => {
         seen += 1;
         if (spinner) spinner.text = `Scanning files... (${seen} files)`;
@@ -186,6 +190,7 @@ export async function scanCommand(
       filesScanned: report.filesScanned,
       unreadable: report.unreadable,
       suppressed: report.suppressed,
+      excluded: report.excluded,
       root: report.root,
     };
   } catch (err) {
@@ -207,6 +212,14 @@ export async function scanCommand(
     if (options.verbose) {
       for (const path of outcome.unreadable) say(chalk.gray(`      ${path}`));
     }
+  }
+
+  if (outcome.excluded > 0) {
+    say(
+      chalk.gray(
+        `  · ${outcome.excluded} path(s) excluded by --exclude or .threatcrushignore`,
+      ),
+    );
   }
 
   if (outcome.suppressed > 0) {

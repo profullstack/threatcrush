@@ -254,6 +254,12 @@ program
     "prepend this to SARIF file URIs — use when the scan root is not the repository root",
   )
   .option("--deps", "also query OSV.dev for advisories against lockfile versions (network)")
+  .option(
+    "--exclude <glob>",
+    "skip paths matching this glob (repeatable); merged with a .threatcrushignore at the scan root",
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[],
+  )
   .option("-v, --verbose", "list the paths that could not be read")
   .action(async (targetPath: string, opts: {
     format?: string;
@@ -261,6 +267,7 @@ program
     failOn?: string;
     pathPrefix?: string;
     deps?: boolean;
+    exclude?: string[];
     verbose?: boolean;
   }) => {
     const format = (opts.format ?? "text").toLowerCase();
@@ -283,6 +290,7 @@ program
       failOn,
       pathPrefix: opts.pathPrefix,
       dependencies: opts.deps,
+      exclude: opts.exclude,
       verbose: opts.verbose,
     });
   });
