@@ -22,7 +22,7 @@
  * flag both.
  */
 
-import type { Severity } from './types.js';
+import type { Severity } from './types';
 
 export interface SecretRule {
   id: string;

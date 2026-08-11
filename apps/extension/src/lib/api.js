@@ -117,6 +117,29 @@ export async function scanUrl(url) {
   });
 }
 
+/**
+ * Run the code rules over a snippet.
+ *
+ * Server-side rather than bundling `@threatcrush/scan` into the extension.
+ * The rule set is the product and it changes often; shipping it inside an
+ * extension means every rule fix waits on a store review, and Chrome, Firefox
+ * and Safari each review on their own schedule. The endpoint updates when the
+ * web app deploys.
+ *
+ * `filename` is optional and only selects the language — the server never
+ * opens it.
+ */
+export async function scanCode(content, { filename, language } = {}) {
+  return request('/api/scan/code', {
+    method: 'POST',
+    body: JSON.stringify({
+      content,
+      ...(filename ? { filename } : {}),
+      ...(language ? { language } : {}),
+    }),
+  });
+}
+
 export default {
   login,
   signup,
@@ -130,4 +153,5 @@ export default {
   getModule,
   installModule,
   scanUrl,
+  scanCode,
 };

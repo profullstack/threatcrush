@@ -45,12 +45,24 @@ Consumers therefore transpile it themselves:
 
 - **CLI** — bundled by tsup via `noExternal`, so the published package stays
   self-contained and gains no dependency on an unpublished package.
-- **Next.js** (web) — add `transpilePackages: ['@threatcrush/scan']`.
-- **Vite** (desktop, extension) — works as-is; Vite transpiles linked workspace
-  sources by default.
+- **Next.js** (web) — `transpilePackages: ['@threatcrush/scan']`.
+- **Vite** — works as-is; Vite transpiles linked workspace sources by default.
 
-If this package is ever published standalone, add a build step and switch
-`exports` to `dist` with a `publishConfig` override. Nothing else needs to move.
+### Internal imports carry no file extension
+
+`import { … } from './types'`, not `'./types.js'`.
+
+Both tsconfigs here use `moduleResolution: "bundler"`, which makes that valid,
+and every consumer resolves it. The `.js` form does not survive contact with
+Turbopack: Next.js 16 builds with it by default, it does not rewrite `.js` to
+`.ts`, and it offers no `extensionAlias` escape hatch — so every internal
+import in this package resolved to nothing and the web build failed outright.
+A webpack `extensionAlias` fixes the same problem but is simply ignored under
+Turbopack.
+
+If this package is ever published standalone for Node consumers, add a build
+step, put the extensions back in the emitted output, and switch `exports` to
+`dist` behind a `publishConfig` override.
 
 ## Adding a rule
 

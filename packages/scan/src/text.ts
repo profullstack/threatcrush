@@ -14,11 +14,11 @@
  * and everything here works on strings that somebody else read.
  */
 
-import { CODE_RULES, evaluateRule, proseLines } from './code-rules.js';
-import { scanPackageJson, scanRequirementsTxt } from './manifest-rules.js';
-import { isKnownPlaceholder, redactSecret, SECRET_RULES, SENSITIVE_FILES } from './secret-rules.js';
-import type { ScanFinding, ScanLanguage, Severity } from './types.js';
-import { severityRank } from './types.js';
+import { CODE_RULES, evaluateRule, proseLines } from './code-rules';
+import { scanPackageJson, scanRequirementsTxt } from './manifest-rules';
+import { isKnownPlaceholder, redactSecret, SECRET_RULES, SENSITIVE_FILES } from './secret-rules';
+import type { ScanFinding, ScanLanguage, Severity } from './types';
+import { severityRank } from './types';
 
 /**
  * `extname` and `basename`, reimplemented in three lines each.

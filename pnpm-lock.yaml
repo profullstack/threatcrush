@@ -355,6 +355,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.101.1
         version: 2.101.1
+      '@threatcrush/scan':
+        specifier: workspace:*
+        version: link:../../packages/scan
       isomorphic-dompurify:
         specifier: ^3.12.0
         version: 3.12.0
