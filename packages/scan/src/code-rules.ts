@@ -1231,9 +1231,13 @@ export const CODE_RULES: readonly CodeRule[] = [
     severity: 'high',
     languages: ['python'],
     // An f-string whose content is an LDAP filter (`(&…` / `(|…`) with an
-    // interpolation. The safe form escapes, so the window carries an escaper.
-    pattern: /\bf['"][^'"\n]*\([&|][^'"\n]*\{[^}\n]+\}/,
-    guard: /escap/i,
+    // interpolation. One variant per quote so an inner `'` inside a `"`-string
+    // does not end the class early.
+    pattern: /\bf"[^"\n]*\([&|][^"\n]*\{[^}\n]+\}|\bf'[^'\n]*\([&|][^'\n]*\{[^}\n]+\}/,
+    // The guard is an escaper *call*, not the mere presence of `escape` — the
+    // module-level `from ldap.filter import escape_filter_chars` sits in every
+    // window and would otherwise exonerate the unescaped filter too.
+    guard: /\bescape\w*\s*\(/i,
   },
   {
     id: 'py-xpath-injection',
@@ -1243,7 +1247,10 @@ export const CODE_RULES: readonly CodeRule[] = [
     cwe: 'CWE-643',
     severity: 'high',
     languages: ['python'],
-    pattern: /\bf['"][^'"\n]*(?:\/\/|\/\w+\[)[^'"\n]*\{[^}\n]+\}/,
+    // Per-quote, so an inner `'` in a `"`-delimited f-string (`text()='{x}'`)
+    // does not truncate the match before the interpolation.
+    pattern:
+      /\bf"[^"\n]*(?:\/\/|\/\w+\[)[^"\n]*\{[^}\n]+\}|\bf'[^'\n]*(?:\/\/|\/\w+\[)[^'\n]*\{[^}\n]+\}/,
   },
   {
     id: 'py-fast-password-hash',
@@ -1324,6 +1331,37 @@ export const CODE_RULES: readonly CodeRule[] = [
     pattern:
       /\.\s*(?:setHeader|header|set)\s*\(\s*['"`][^'"`\n]+['"`]\s*,\s*(?:req|request|ctx)\s*\.\s*(?:query|body|params|headers)\b/,
   },
+  {
+    id: 'js-nosql-injection',
+    title: 'NoSQL query built from request data',
+    consequence:
+      'A request object passed straight to `find`/`update` lets the caller supply MongoDB operators — `{"$ne": null}`, `{"$gt": ""}`, `{"$where": "…"}` — turning a lookup into an authentication bypass or arbitrary query.',
+    cwe: 'CWE-943',
+    severity: 'high',
+    languages: ['javascript', 'typescript'],
+    pattern:
+      /\.\s*(?:find|findOne|findOneAndUpdate|updateOne|updateMany|update|deleteOne|deleteMany|remove|count|countDocuments|aggregate)\s*\(\s*(?:req|request|ctx)\s*\.\s*(?:body|query|params)\b/,
+  },
+  {
+    id: 'js-host-header-trust',
+    title: 'URL built from the Host header',
+    consequence:
+      'The Host header is attacker-controlled. Building a link from it — a password-reset URL above all — lets an attacker point the victim’s reset token at a domain they control.',
+    cwe: 'CWE-346',
+    severity: 'high',
+    languages: ['javascript', 'typescript'],
+    pattern:
+      /\$\{[^}\n]*\breq(?:uest)?\s*\.\s*(?:headers\s*\.\s*host|hostname|host)\b|['"`]\s*\+\s*req(?:uest)?\s*\.\s*(?:headers\s*\.\s*host|hostname)\b/,
+  },
+  // A recursive-merge prototype-pollution rule (`target[key] = source[key]`
+  // with no `__proto__` guard) was built and dropped. The bare copy-by-key is
+  // the safe allow-listed shape (`updates[field] = body[field]` over an
+  // `allowedFields` list) as often as the vulnerable one; whether it is a sink
+  // depends on where the key comes from and which of endless guard idioms
+  // filters it — a whole-function question this line-oriented engine does not
+  // answer. It flagged legitimate merges in Capacitor and in this repo's own
+  // web app. `js-prototype-pollution` still catches the explicit `__proto__`
+  // literal; the recursive-merge case is left to KNOWN_GAPS.
 ];
 
 /**
