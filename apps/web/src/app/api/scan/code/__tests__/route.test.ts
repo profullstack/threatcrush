@@ -33,7 +33,9 @@ describe("POST /api/scan/code", () => {
   });
 
   it("infers the language from the filename and honours an explicit override", async () => {
-    const php = await (await POST(makeRequest({ filename: "a.php", content: "eval($code);" }))).json();
+    // threatcrush-disable-next-line js-dynamic-code-execution  PHP fixture, not JS
+    const phpSource = "eval($code);";
+    const php = await (await POST(makeRequest({ filename: "a.php", content: phpSource }))).json();
     expect(php.language).toBe("php");
     expect(php.findings.map((f: { ruleId: string }) => f.ruleId)).toContain(
       "php-dynamic-code-execution",
@@ -41,7 +43,7 @@ describe("POST /api/scan/code", () => {
 
     // The same text scanned as shell matches no PHP rule.
     const asShell = await (
-      await POST(makeRequest({ filename: "a.php", content: "eval($code);", language: "shell" }))
+      await POST(makeRequest({ filename: "a.php", content: phpSource, language: "shell" }))
     ).json();
     expect(asShell.language).toBe("shell");
     expect(asShell.findings.map((f: { ruleId: string }) => f.ruleId)).not.toContain(
@@ -61,6 +63,10 @@ describe("POST /api/scan/code", () => {
   it("never echoes back the credential that produced a finding", async () => {
     // The engine redacts excerpts before they leave it. This endpoint reflects
     // findings to the caller, so that guarantee is worth pinning here too.
+    // Two rules match this line, and `disable-next-line` only reaches the line
+    // after it — so a second directive would suppress the first comment, not
+    // the fixture. The rule id is omitted deliberately, which suppresses both.
+    // threatcrush-disable-next-line
     const secret = "AKIAIOSFODNN7EXAMPLE";
     const res = await POST(
       makeRequest({ filename: "a.env", content: `AWS_ACCESS_KEY_ID=${secret}` }),
