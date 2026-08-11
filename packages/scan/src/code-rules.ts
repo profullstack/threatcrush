@@ -239,7 +239,28 @@ const EXFIL_SINK = /\bconsole\s*\.\s*(?:log|debug|info|warn|error)\s*\(|\bfetch\
  * as an argument) leaves a comma after the closing quote and matches none of
  * them — which is exactly how the safe counterparts stay unflagged.
  */
-const SQL_KEYWORDS = 'SELECT|INSERT\\s+INTO|INSERT|UPDATE|DELETE\\s+FROM|DELETE|DROP|UNION\\s+SELECT';
+// Each verb requires the clause that makes it SQL rather than an English word.
+//
+// The bare forms — `INSERT`, `UPDATE`, `DELETE`, `DROP`, a lone `SELECT` — were
+// the source of this rule's false positives: `\bINSERT\b` matches the `insert`
+// in a React key `` `insert-${i}` ``, and `\bUPDATE\b` matches `Update` in a
+// log line `` `Update finished in ${ms}ms` ``. Both read as SQL injection.
+//
+// Real SQL pairs the verb with structure — `SELECT … FROM`, `INSERT INTO`,
+// `UPDATE … SET`, `DELETE FROM`, `DROP TABLE`. Requiring it keeps every
+// injection shape the corpus and the unit tests exercise (all of which are
+// `SELECT … FROM` or `DELETE FROM`) while a verb standing alone as prose no
+// longer qualifies. The `SELECT`/`UPDATE` look-aheads stay inside one string
+// literal — the character class excludes quotes and backticks — so the clause
+// must live in the same statement, not merely somewhere later on the line.
+const SQL_KEYWORDS =
+  "SELECT\\b(?=[^`'\"\\n]*\\bFROM\\b)" +
+  "|INSERT\\s+INTO" +
+  "|UPDATE\\b(?=[^`'\"\\n]*\\bSET\\b)" +
+  "|DELETE\\s+FROM" +
+  "|DROP\\s+(?:TABLE|DATABASE|INDEX|VIEW|SCHEMA)" +
+  "|TRUNCATE\\s+TABLE" +
+  "|UNION\\s+SELECT";
 
 /**
  * A quoted string containing a SQL verb.

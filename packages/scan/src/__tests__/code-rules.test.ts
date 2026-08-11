@@ -58,6 +58,28 @@ describe('SQL injection', () => {
     expect(ruleIds('a.rb', `User.where("id = '#{id}'")`)).toContain('rb-sql-interpolation');
     expect(ruleIds('a.rb', `User.where('id = ?', params[:id])`)).toHaveLength(0);
   });
+
+  // A SQL verb is not SQL until it has the clause that makes it a statement.
+  // These are template literals whose only SQL-ness is an English word that
+  // happens to be a verb — real findings from ShortsStudio and capacitor.
+  it('does not read a verb-shaped English word as SQL', () => {
+    // `insert` in a React key; `INSERT` alone no longer qualifies — it needs INTO.
+    expect(ruleIds('a.jsx', 'key={`insert-${insertIndex}`}')).toHaveLength(0);
+    // `Update`/`Delete`/`drop` as prose or identifiers.
+    expect(ruleIds('a.js', 'log.info(`Update finished in ${ms}ms`);')).toHaveLength(0);
+    expect(ruleIds('a.js', 'const cls = `dropdown-${open ? "open" : "shut"}`;')).toHaveLength(0);
+    expect(ruleIds('a.ts', 'const label = `Delete ${count} items?`;')).toHaveLength(0);
+  });
+
+  it('still flags a genuine INSERT INTO and DROP TABLE built by interpolation', () => {
+    // The structured forms must survive — the fix narrows, it does not disable.
+    expect(ruleIds('a.js', 'db.query(`INSERT INTO users (name) VALUES (\'${name}\')`);')).toContain(
+      'sql-template-interpolation',
+    );
+    expect(ruleIds('a.js', 'db.query(`DROP TABLE ${table}`);')).toContain(
+      'sql-template-interpolation',
+    );
+  });
 });
 
 describe('command injection', () => {
