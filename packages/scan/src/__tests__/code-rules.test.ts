@@ -692,3 +692,56 @@ describe('language coverage', () => {
     expect(claimed.length).toBeGreaterThanOrEqual(7);
   });
 });
+
+describe('python weak crypto', () => {
+  it('flags a broken cipher and ECB mode, not a safe AES mode', () => {
+    expect(ruleIds('a.py', 'cipher = DES.new(DEMO_KEY_8, DES.MODE_ECB)')).toContain(
+      'py-broken-cipher',
+    );
+    expect(ruleIds('a.py', 'cipher = ARC4.new(DEMO_KEY_16)')).toContain('py-broken-cipher');
+    expect(ruleIds('a.py', 'cipher = AES.new(key, AES.MODE_ECB)')).toContain('py-broken-cipher');
+    expect(ruleIds('a.py', 'cipher = AES.new(key, AES.MODE_GCM)')).toEqual([]);
+  });
+
+  it('flags MD5/SHA-1 unless marked non-security', () => {
+    expect(ruleIds('a.py', 'digest = hashlib.md5(artifact).hexdigest()')).toContain('py-weak-hash');
+    expect(ruleIds('a.py', 'digest = hashlib.sha1(artifact).hexdigest()')).toContain('py-weak-hash');
+    // SHA-256 is fine; and `usedforsecurity=False` is Python's own opt-out.
+    expect(ruleIds('a.py', 'digest = hashlib.sha256(artifact).hexdigest()')).toEqual([]);
+    expect(ruleIds('a.py', 'key = hashlib.md5(url, usedforsecurity=False).hexdigest()')).toEqual([]);
+  });
+
+  it('flags a PRNG seeded from the clock, not a fixed reproducible seed', () => {
+    expect(ruleIds('a.py', 'random.seed(int(time.time()))')).toContain('py-predictable-random-seed');
+    expect(ruleIds('a.py', 'random.seed(datetime.now().timestamp())')).toContain(
+      'py-predictable-random-seed',
+    );
+    // A constant seed is deliberate reproducibility (tests, simulations).
+    expect(ruleIds('a.py', 'random.seed(42)')).toEqual([]);
+  });
+
+  it('still catches the same-line credential=random shape via the generic rule', () => {
+    // The role on the line is what the engine can see without trusting a name.
+    expect(ruleIds('a.py', 'token = "".join(random.choice(A) for _ in range(32))')).toContain(
+      'insecure-randomness-for-secret',
+    );
+  });
+
+  // Documented boundary, not an oversight: when the security role of a
+  // `random`-drawn value lives only in the enclosing function's name
+  // (`generate_session_id`, `generate_mfa_code`), it is out of reach. Guard
+  // windows deliberately exclude definition lines — a name is not evidence,
+  // the same reason a `def sanitize_…` does not count as sanitisation — so
+  // there is no line-level signal left to key on.
+  it('does not flag a bare random draw whose role is only in the function name', () => {
+    expect(ruleIds('a.py', 'def generate_session_id():\n    return "%x" % random.getrandbits(128)')).toEqual(
+      [],
+    );
+    expect(ruleIds('a.py', 'def pick_color():\n    return random.choice(PALETTE)')).toEqual([]);
+  });
+
+  it('does not flag the CSPRNG the fixture offers as the fix', () => {
+    expect(ruleIds('a.py', 'def new_token():\n    return secrets.token_urlsafe(32)')).toEqual([]);
+    expect(ruleIds('a.py', 'def new_id():\n    return secrets.token_hex(16)')).toEqual([]);
+  });
+});
