@@ -1,7 +1,10 @@
-# Managed by sh1pt Actions Fleet
-# pack: threatcrush-scan@1.1.0
-# install: sh1pt-actions-store
-# hash: sha256:8b7430185637af9aea9bef6223b7ed1754a7f1c5e0d78ad058d47832a1ac46d3
+# Derived from the sh1pt Actions Fleet pack threatcrush-scan@1.1.0, then
+# customised for this repository: it builds the CLI from the checkout instead
+# of installing @latest from npm, because this IS the ThreatCrush repository
+# and a self-scan must test the code in the pull request. The fleet hash is
+# removed deliberately so a drift check does not revert that customisation; the
+# reporting, SARIF handling and fail-closed logic below are unchanged from the
+# pack.
 name: threatcrush security scan
 
 on:
@@ -21,26 +24,34 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: pnpm/action-setup@v6
+
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
+          cache: "pnpm"
 
-      # An unretried `npm i -g` is a network call to a registry that decides
-      # whether a security gate runs at all. Retry before giving up; a
-      # transient registry blip is not a security signal and should not read
-      # like one.
-      - name: Install ThreatCrush
+      # This repository *is* ThreatCrush, so it scans itself with the code in
+      # the pull request — not with whatever `@latest` resolves to on npm.
+      #
+      # Installing the published package here was wrong twice over: a PR that
+      # broke the scanner would still pass its own gate (the gate ran the old,
+      # published code), and a broken *publish* took the gate down entirely —
+      # `workspace:*` in a shipped manifest made `npm install` fail with
+      # EUNSUPPORTEDPROTOCOL, so every PR's scan errored on a registry problem
+      # that had nothing to do with the diff. Building from the checkout removes
+      # the registry from the path completely.
+      #
+      # A shim puts the freshly built CLI on PATH as `threatcrush`, so every
+      # step below invokes it exactly as it would the global install.
+      - name: Build ThreatCrush from this checkout
         run: |
-          for attempt in 1 2 3; do
-            if npm install -g "@profullstack/threatcrush@latest"; then
-              exit 0
-            fi
-            delay=$((attempt * 10))
-            echo "::warning::ThreatCrush install attempt ${attempt}/3 failed; retrying in ${delay}s"
-            sleep "${delay}"
-          done
-          echo "::error::ThreatCrush install failed after 3 attempts"
-          exit 1
+          pnpm install --frozen-lockfile
+          pnpm --filter @profullstack/threatcrush build
+          mkdir -p "$HOME/.local/bin"
+          printf '#!/usr/bin/env bash\nexec node "%s/apps/cli/dist/index.js" "$@"\n' "$PWD" > "$HOME/.local/bin/threatcrush"
+          chmod +x "$HOME/.local/bin/threatcrush"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # Recorded into every run log so a release that changes the interface
       # shows up immediately, rather than silently scoring zero.
