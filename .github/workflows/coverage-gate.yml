@@ -1,0 +1,101 @@
+# Detection-coverage gate.
+#
+# Scores the CLI against the public testbed corpus at
+# profullstack/malware-test-prs — a catalog of vulnerable/safe line pairs
+# across seven languages — and fails if true-positive rate drops or
+# false-positive rate climbs.
+#
+# This is the number the rule set is actually tuned for. Unit tests prove a
+# rule fires on one hand-written line; this proves the whole set still catches
+# what it caught across 67 real cases, and — the half that matters more — still
+# stays silent on the 78 corrected implementations sitting beside them. A rule
+# change that trades a false positive for three misses passes every unit test
+# and fails here, which is the point.
+name: Coverage gate
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The corpus is pinned, not tracked to its default branch. A new test case
+  # added upstream lowers the true-positive rate until a rule here catches it —
+  # which is upstream's change breaking this repository's gate, exactly the
+  # spurious failure a pin exists to prevent. Bump this deliberately, in a PR
+  # whose diff is the rule that covers the new case.
+  TESTBED_REPO: profullstack/malware-test-prs
+  TESTBED_REF: f9f4fce8c0bd5e0391eca83658055c040ef222e0
+  # Floors, set just under the measured result at the pinned commit
+  # (TPR 65.9%, FPR 0%). The gap absorbs ordinary noise; a real regression —
+  # a rule that stops firing, or one that starts flagging the control group —
+  # moves the number past these and fails the job.
+  MIN_TPR: '60'
+  MAX_FPR: '2'
+
+jobs:
+  coverage:
+    name: Detection coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build CLI
+        run: pnpm --filter @profullstack/threatcrush build
+
+      - name: Check out the testbed corpus
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.TESTBED_REPO }}
+          ref: ${{ env.TESTBED_REF }}
+          path: testbed
+
+      - name: Scan the corpus
+        working-directory: testbed
+        run: |
+          node "$GITHUB_WORKSPACE/apps/cli/dist/index.js" scan vulns \
+            --format sarif --output "$GITHUB_WORKSPACE/testbed.sarif"
+
+          # Fail closed. An empty SARIF scores as 0% and would read as a total
+          # regression; distinguish "scanner produced nothing" from "scanner
+          # regressed" so the failure names the right cause.
+          if [ ! -s "$GITHUB_WORKSPACE/testbed.sarif" ]; then
+            echo "::error::The scan produced no SARIF — the corpus was not scored"
+            exit 1
+          fi
+
+      - name: Score against the catalog
+        working-directory: testbed
+        run: |
+          python3 scripts/validate-coverage.py \
+            --sarif "$GITHUB_WORKSPACE/testbed.sarif" \
+            --catalog vulns/VULNERABILITY_CATALOG.json \
+            --markdown "$GITHUB_STEP_SUMMARY" \
+            --min-tpr "${MIN_TPR}" \
+            --max-fpr "${MAX_FPR}"
