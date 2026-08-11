@@ -57,6 +57,24 @@ export interface CodeRule {
    */
   needsContext?: boolean;
   /**
+   * The construct *is* the defect, so its severity does not depend on context.
+   *
+   * The default model caps a finding at medium unless untrusted input is
+   * visible nearby, which is right for injection: `exec(cmd)` is only a
+   * vulnerability once `cmd` can be influenced. It is wrong for a whole class
+   * of rules where nothing nearby changes the answer. `curl -k` against HTTPS
+   * is a machine-in-the-middle hole whether or not a positional parameter
+   * appears six lines above it; DES is broken in every file that uses it.
+   *
+   * Marking those rules `inherent` reports them at confidence `evidence` and
+   * at their declared severity, the same treatment the credential rules get
+   * for the same reason — a committed AWS key is a committed AWS key.
+   *
+   * Do not reach for this to make a rule look important. It is for rules whose
+   * finding text would be identical no matter what surrounds the line.
+   */
+  inherent?: boolean;
+  /**
    * Extra evidence that must appear in the guard window for the rule to fire.
    * Used where the dangerous part is the *combination* — a base64 blob is
    * harmless until something executes it.
@@ -627,6 +645,7 @@ export const CODE_RULES: readonly CodeRule[] = [
   },
   {
     id: 'tls-verification-disabled',
+    inherent: true,
     title: 'TLS certificate verification disabled',
     consequence:
       'Every connection made this way is trivially interceptable; the encryption is decorative.',
@@ -737,6 +756,7 @@ export const CODE_RULES: readonly CodeRule[] = [
   // of privileged work actually happens, and they run as whoever invoked them.
   {
     id: 'sh-remote-script-execution',
+    inherent: true,
     title: 'network output piped into a shell',
     consequence:
       'Whatever that URL serves at the moment this runs is executed as the invoking user. There is no version, no signature, and no review — a compromise of the host, or anyone able to answer for it, is a compromise of every machine that runs the script.',
@@ -796,6 +816,7 @@ export const CODE_RULES: readonly CodeRule[] = [
   },
   {
     id: 'sh-insecure-transport-flag',
+    inherent: true,
     title: 'certificate verification disabled',
     consequence:
       'Anyone positioned between this host and the server can substitute the response. When the response is a package, a key or a script, that is remote code execution with the transport doing nothing to stop it.',
@@ -812,6 +833,7 @@ export const CODE_RULES: readonly CodeRule[] = [
   },
   {
     id: 'sh-plaintext-download',
+    inherent: true,
     title: 'download over plain HTTP',
     consequence:
       'The response arrives unauthenticated over a channel any intermediary can rewrite. Where the payload is an archive, a package list or a key, substituting it is straightforward and leaves nothing for the script to notice.',
@@ -825,6 +847,7 @@ export const CODE_RULES: readonly CodeRule[] = [
   },
   {
     id: 'sh-world-writable-permissions',
+    inherent: true,
     title: 'world-writable permissions',
     consequence:
       'Any local account can rewrite the file. If it is a script, a config or anything on a privileged path, the next process to read it runs someone else’s content.',
@@ -1012,6 +1035,7 @@ export const CODE_RULES: readonly CodeRule[] = [
   },
   {
     id: 'java-broken-cipher',
+    inherent: true,
     title: 'broken cipher or ECB mode',
     consequence:
       'DES, RC2, RC4 and Blowfish are broken or too small to rely on. ECB encrypts identical plaintext blocks to identical ciphertext blocks, so structure in the data survives encryption and is readable straight off the ciphertext.',
@@ -1215,6 +1239,25 @@ export interface RuleMatch {
  * Returns `null` when the rule does not apply, does not match, is guarded, or
  * needs context it cannot see.
  */
+/**
+ * Blank out single-quoted spans before looking for untrusted input.
+ *
+ * The shell performs no expansion inside single quotes, so a `$1` there is the
+ * two characters `$1` and never a positional parameter. Without this, an awk
+ * or sed program written inline — `gawk -F '=' '{print $2}'` — reads as
+ * attacker-controlled input.
+ *
+ * That was not theoretical. In `ralyodio/debtap` it escalated one `curl -k`
+ * line to `contextual`, and the ±6-line window carried the escalation to four
+ * neighbouring findings, so the same defect reported `high` on lines 103–111
+ * and `medium` on 113, 120 and 128 — decided entirely by distance from an awk
+ * one-liner. A `--fail-on high` gate would have caught five of eight identical
+ * problems.
+ */
+function withoutSingleQuoted(text: string): string {
+  return text.replace(/'[^'\n]*'/g, "''");
+}
+
 export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | null {
   if (rule.languages && !rule.languages.includes(ctx.language)) return null;
 
@@ -1238,9 +1281,18 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   if (guard && (guard.test(line) || guard.test(context))) return null;
 
   const untrusted = untrustedPatternFor(ctx.language);
-  const contextual = untrusted.test(line) || untrusted.test(context);
+  const probeLine = ctx.language === 'shell' ? withoutSingleQuoted(line) : line;
+  const probeContext = ctx.language === 'shell' ? withoutSingleQuoted(context) : context;
+  const contextual = untrusted.test(probeLine) || untrusted.test(probeContext);
   if (rule.needsContext && !contextual) return null;
 
-  const confidence: Confidence = contextual ? 'contextual' : 'pattern';
+  // `inherent` short-circuits the whole context question. See the field's
+  // documentation: for these rules the construct is the defect, so nearby
+  // input cannot make it worse and its absence cannot make it better.
+  const confidence: Confidence = rule.inherent
+    ? 'evidence'
+    : contextual
+      ? 'contextual'
+      : 'pattern';
   return { rule, confidence, severity: severityFor(rule.severity, confidence) };
 }

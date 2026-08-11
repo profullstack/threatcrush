@@ -446,6 +446,67 @@ describe('shell', () => {
   });
 });
 
+/**
+ * Severity must not depend on what happens to sit near a finding.
+ *
+ * Both halves of this came out of one file. `ralyodio/debtap` reported the
+ * same `curl -k` defect as `high` on some lines and `medium` on others,
+ * decided by distance from a `gawk '{print $1}'` one-liner: the awk field
+ * reference was read as a shell positional parameter, and the guard window
+ * spread that escalation to its neighbours.
+ */
+describe('severity is not decided by neighbouring code', () => {
+  const findings = (path: string, source: string) => scanText(path, source);
+
+  it('does not read an awk field reference as a shell positional parameter', () => {
+    // The shell expands nothing inside single quotes, so `$1` here is two
+    // characters. A rule that is *not* inherent must stay capped at medium.
+    const withAwk = [
+      "version=$(curl -s https://x.invalid | gawk -F '=' '{print $2}' | gawk '{print $1}')",
+      'eval "$cmd"',
+    ].join('\n');
+    const evalFinding = findings('a.sh', withAwk).find((f) => f.ruleId === 'sh-eval-expansion');
+    expect(evalFinding?.confidence).toBe('pattern');
+    expect(evalFinding?.severity).toBe('medium');
+  });
+
+  it('still escalates on a real positional parameter', () => {
+    // The exemption is for quoted text only — it must not become a way to hide
+    // genuine untrusted input.
+    const real = ['target="$1"', 'eval "$target"'].join('\n');
+    const evalFinding = findings('a.sh', real).find((f) => f.ruleId === 'sh-eval-expansion');
+    expect(evalFinding?.confidence).toBe('contextual');
+    expect(evalFinding?.severity).toBe('high');
+  });
+
+  it('reports an inherent rule at its declared severity either way', () => {
+    // `curl -k` against HTTPS is interceptable whatever surrounds it.
+    const bare = findings('a.sh', 'curl -k -L https://x.invalid/a.tgz > a.tgz')[0];
+    const nearInput = findings(
+      'a.sh',
+      ['target="$1"', 'curl -k -L https://x.invalid/a.tgz > a.tgz'].join('\n'),
+    ).find((f) => f.ruleId === 'sh-insecure-transport-flag');
+
+    expect(bare?.confidence).toBe('evidence');
+    expect(bare?.severity).toBe('high');
+    expect(nearInput?.severity).toBe(bare?.severity);
+  });
+
+  it('applies the same treatment to a broken cipher', () => {
+    const finding = findings('A.java', 'Cipher c = Cipher.getInstance("DES/CBC/PKCS5Padding");')[0];
+    expect(finding?.confidence).toBe('evidence');
+    expect(finding?.severity).toBe('high');
+  });
+
+  it('leaves context-dependent rules capped, so this is not a blanket escalation', () => {
+    // `js-unescaped-html-sink` is not inherent: a static assignment says
+    // nothing about attacker data, and it must still cap at medium.
+    const finding = findings('a.js', 'el.innerHTML = "<b>" + name + "</b>";')[0];
+    expect(finding?.confidence).toBe('pattern');
+    expect(finding?.severity).toBe('medium');
+  });
+});
+
 describe('php', () => {
   it('flags SQL built by interpolation and not a prepared statement', () => {
     expect(ruleIds('a.php', '$r = mysqli_query($db, "SELECT * FROM users WHERE id = $id");')).toContain(
