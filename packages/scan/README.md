@@ -64,6 +64,27 @@ If this package is ever published standalone for Node consumers, add a build
 step, put the extensions back in the emitted output, and switch `exports` to
 `dist` behind a `publishConfig` override.
 
+## Excluding paths
+
+`scanPath` (and the CLI's `threatcrush scan`) skips paths matching an exclusion
+glob, from either `--exclude <glob>` (repeatable) or a `.threatcrushignore`
+file at the scan root — the two are merged. Globs are gitignore-flavoured: a
+bare name (`__tests__`) matches at any depth, a pattern with a slash is
+anchored to the root, `*` stays within a segment and `**` crosses them.
+
+```
+# .threatcrushignore
+__tests__
+vendor
+dist/**
+```
+
+Excluding is not the same as finding nothing: `ScanReport.excluded` counts the
+skipped paths and the CLI prints it, so a scan quieted by a broad glob is not
+mistaken for a clean one. This repository ships a `.threatcrushignore` that
+excludes the scanner's own rule definitions and fixtures — vulnerable-looking
+by design — from its self-scan.
+
 ## Adding a rule
 
 Rules live in `src/code-rules.ts`, credentials in `src/secret-rules.ts`,

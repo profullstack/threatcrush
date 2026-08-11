@@ -32,6 +32,74 @@ export interface ScanOptions {
   onFile?: (path: string) => void;
   /** Restrict to these rule categories. Defaults to all. */
   categories?: readonly ScanFinding['category'][];
+  /**
+   * Paths to skip, as globs over repository-relative POSIX paths.
+   *
+   * Merged with a `.threatcrushignore` file at the scan root, if present. The
+   * intended use is generated output, vendored trees, and — the case that
+   * prompted this — a scanner's own rule definitions and test fixtures, which
+   * are vulnerable-looking by design and otherwise dominate its self-scan.
+   *
+   * Excluding is not the same as finding nothing: the count of skipped paths
+   * is reported (`ScanReport.excluded`) and surfaced, so a scan silenced by a
+   * broad glob cannot be mistaken for a clean one.
+   */
+  exclude?: readonly string[];
+}
+
+/**
+ * Compile exclusion globs into one predicate over relative POSIX paths.
+ *
+ * gitignore-flavoured: `*` matches within a path segment, `**` across
+ * segments, `?` a single non-slash character. A pattern with no `/` matches by
+ * name at any depth — `__tests__` excludes every directory so named — while a
+ * pattern containing `/` is anchored to the scan root. Blank lines and `#`
+ * comments are ignored, so a `.threatcrushignore` file can be passed straight
+ * in. Exported for its own tests.
+ */
+export function compileExcludes(patterns: readonly string[]): (relPath: string) => boolean {
+  const regexes = patterns
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0 && !p.startsWith('#'))
+    .map(globToRegExp);
+  if (regexes.length === 0) return () => false;
+  return (relPath) => regexes.some((rx) => rx.test(relPath));
+}
+
+function globToRegExp(pattern: string): RegExp {
+  const p = pattern.replace(/^\.?\//, '').replace(/\/+$/, '');
+  const anchored = p.includes('/');
+
+  let body = '';
+  for (let i = 0; i < p.length; i += 1) {
+    const c = p[i]!;
+    if (c === '*') {
+      if (p[i + 1] === '*') {
+        i += 1;
+        if (p[i + 1] === '/') i += 1;
+        body += '(?:.*/)?'; // `**` — zero or more whole segments
+      } else {
+        body += '[^/]*'; // `*` — within a single segment
+      }
+    } else if (c === '?') {
+      body += '[^/]';
+    } else {
+      body += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
+  }
+
+  // A directory match prunes its subtree, so allow an optional `/…` tail.
+  const tail = '(?:/.*)?$';
+  return anchored ? new RegExp(`^${body}${tail}`) : new RegExp(`(?:^|.*/)${body}${tail}`);
+}
+
+/** The globs in a `.threatcrushignore` at `root`, or `[]` if there is none. */
+function readIgnoreFile(root: string): string[] {
+  try {
+    return readFileSync(join(root, '.threatcrushignore'), 'utf-8').split('\n');
+  } catch {
+    return [];
+  }
 }
 
 export interface ScanReport {
@@ -56,6 +124,12 @@ export interface ScanReport {
    * over an unread tree is the failure this scanner exists to avoid.
    */
   unreadable: string[];
+  /**
+   * How many paths an exclusion glob skipped — a pruned directory counts once,
+   * not per file inside it. Reported for the same reason `suppressed` is: a
+   * quiet scan produced by a broad `.threatcrushignore` is not a clean scan.
+   */
+  excluded: number;
 }
 
 export function scanPath(targetPath: string, options: ScanOptions = {}): ScanReport {
@@ -65,6 +139,7 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
   const unreadable: string[] = [];
   let filesScanned = 0;
   let suppressed = 0;
+  let excluded = 0;
 
   // A file target is not a degenerate directory target. `readdirSync` on a
   // file throws ENOTDIR, which the walker below treats as an unreadable
@@ -78,6 +153,11 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
     }
   })();
   const walkRoot = rootIsDirectory ? targetPath : dirname(targetPath);
+
+  // Exclusions come from both the caller and a committed `.threatcrushignore`,
+  // so a repository can carry its own ignore list without every invocation
+  // repeating `--exclude`. Compiled once for the whole walk.
+  const isExcluded = compileExcludes([...(options.exclude ?? []), ...readIgnoreFile(walkRoot)]);
 
   const scanFile = (fullPath: string, filename: string): void => {
     const relativePath = toRelative(walkRoot, fullPath);
@@ -169,13 +249,24 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
 
     for (const entry of entries) {
       const fullPath = join(currentPath, entry.name);
+      const relativePath = toRelative(walkRoot, fullPath);
 
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name)) continue;
+        // A directory match prunes the whole subtree and counts once, rather
+        // than descending it to skip each file — the point is not to read it.
+        if (isExcluded(relativePath)) {
+          excluded += 1;
+          continue;
+        }
         walk(fullPath);
         continue;
       }
       if (!entry.isFile()) continue;
+      if (isExcluded(relativePath)) {
+        excluded += 1;
+        continue;
+      }
 
       scanFile(fullPath, entry.name);
     }
@@ -183,6 +274,8 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
 
   if (rootIsDirectory) {
     walk(targetPath);
+  } else if (isExcluded(toRelative(walkRoot, targetPath))) {
+    excluded += 1;
   } else {
     scanFile(targetPath, basename(targetPath));
   }
@@ -195,7 +288,7 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
       a.line - b.line,
   );
 
-  return { findings: filtered, filesScanned, unreadable, suppressed, root: walkRoot };
+  return { findings: filtered, filesScanned, unreadable, suppressed, excluded, root: walkRoot };
 }
 
 /**
