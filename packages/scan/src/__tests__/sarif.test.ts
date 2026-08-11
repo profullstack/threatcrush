@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildSarif, fingerprintOf, sarifLevel, securitySeverity, toArtifactUri } from '../sarif.js';
+import { buildSarif, fingerprintOf, sarifLevel, securitySeverity, toArtifactUri } from '../node/sarif.js';
 import type { ScanFinding } from '../types.js';
 
 const finding = (overrides: Partial<ScanFinding> = {}): ScanFinding => ({

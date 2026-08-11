@@ -1,0 +1,29 @@
+{
+  "name": "@threatcrush/scan",
+  "version": "0.7.0",
+  "description": "ThreatCrush scan rules and engine, shared by the CLI, web, desktop and extension.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "typescript": "^5.6.3",
+    "vitest": "^3.2.4"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profullstack/threatcrush.git",
+    "directory": "packages/scan"
+  },
+  "homepage": "https://threatcrush.com"
+}

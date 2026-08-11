@@ -5,11 +5,9 @@ import ora from 'ora';
 import { banner, logger } from '../core/logger.js';
 import type { RunResult, StructuredFinding } from '../core/run-result.js';
 import { summarize } from '../core/run-result.js';
-import { scanDependencies } from '../scan/dependencies.js';
-import { meetsFailThreshold, scanPath } from '../scan/engine.js';
-import { buildSarif } from '../scan/sarif.js';
-import type { ScanFinding, Severity } from '../scan/types.js';
-import { SEVERITY_ORDER } from '../scan/types.js';
+import { meetsFailThreshold, SEVERITY_ORDER } from '@threatcrush/scan';
+import type { ScanFinding, Severity } from '@threatcrush/scan';
+import { buildSarif, scanDependencies, scanPath } from '@threatcrush/scan/node';
 
 export type ScanFormat = 'text' | 'json' | 'sarif';
 

@@ -27,6 +27,9 @@ importers:
       '@sentry/node':
         specifier: ^8.45.0
         version: 8.55.1
+      '@threatcrush/scan':
+        specifier: workspace:*
+        version: link:../../packages/scan
       better-sqlite3:
         specifier: ^11.7.0
         version: 11.10.0
@@ -426,6 +429,18 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@2.6.1)(jsdom@29.1.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
+
+  packages/scan:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.19.17
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.19.17)(jiti@2.6.1)(jsdom@29.1.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
 packages:
@@ -9113,7 +9128,7 @@ snapshots:
 
   '@babel/highlight@7.25.9':
     dependencies:
-      '@babel/helper-validator-identifier': 7.28.5
+      '@babel/helper-validator-identifier': 7.29.7
       chalk: 2.4.2
       js-tokens: 4.0.0
       picocolors: 1.1.1
