@@ -90,6 +90,25 @@ describe('placeholders', () => {
     expect(scanText('a.env', 'DATABASE_URL=postgres://u:p@db.example.invalid:5432/app')).toHaveLength(1);
     expect(scanText('a.env', 'DATABASE_URL=postgres://db.example.invalid:5432/app')).toHaveLength(0);
   });
+
+  // Eight of the ten `high` findings on a 500-star Go repository were this one
+  // line, written in its README the way every driver documents a DSN.
+  it('exempts the metasyntactic credential pair in a DSN', () => {
+    expect(isKnownPlaceholder('postgres://user:pass@localhost/db')).toBe(true);
+    expect(
+      scanText('README.md', '  -c "postgres://user:password@localhost:5432/mydb?sslmode=disable"'),
+    ).toHaveLength(0);
+    expect(scanText('README.md', 'mysql://username:password@localhost/db')).toHaveLength(0);
+    expect(scanText('docs/setup.md', 'redis://admin:secret@localhost:6379')).toHaveLength(0);
+  });
+
+  // The exemption is the pair, never the username alone, or a scanner would go
+  // quiet on the most common real leak there is.
+  it('still flags a real password beside a common username', () => {
+    expect(scanText('a.env', 'DATABASE_URL=postgres://root:Xk9d2LmQpZ@db.internal/app')).toHaveLength(1);
+    expect(scanText('a.env', 'DATABASE_URL=postgres://user:Xk9d2LmQpZ@db.internal/app')).toHaveLength(1);
+    expect(scanText('a.env', 'DATABASE_URL=mongodb+srv://admin:s3cr3tP4ss@cluster.mongodb.net/db')).toHaveLength(1);
+  });
 });
 
 describe('inline suppression', () => {
