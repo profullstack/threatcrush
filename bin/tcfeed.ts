@@ -66,6 +66,19 @@ const num = (name: string, fallback: number): number => {
   return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
 };
 
+/**
+ * Read it if it is there. Asking whether it exists and then reading it is two
+ * answers about a file that only had to be true once, and the gap between them
+ * is somebody else's to fill.
+ */
+function readOr(file: string, fallback: string): string {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return fallback;
+  }
+}
+
 async function usable(command: string, args: string[]): Promise<boolean> {
   try {
     await run(command, args);
@@ -117,8 +130,9 @@ async function readFeed(sub: string, limit: number, cache: string): Promise<stri
   const stamp = path.join(cache, 'lastfetch');
   const gap = num('TCFEED_MIN_GAP', 120);
 
-  if (fs.existsSync(stamp)) {
-    const since = Math.floor(Date.now() / 1000) - Number(fs.readFileSync(stamp, 'utf8').trim());
+  const wroteAt = Number(readOr(stamp, '').trim());
+  if (wroteAt > 0) {
+    const since = Math.floor(Date.now() / 1000) - wroteAt;
     const waited = gap - since;
     if (waited > 0) {
       console.log(`tcfeed: last fetch was ${since}s ago, waiting ${waited}s for r/${sub}`);
@@ -318,9 +332,7 @@ async function main(): Promise<number> {
 
   fs.mkdirSync(path.join(cache, 'reports'), { recursive: true });
   const seenFile = path.join(cache, 'seen');
-  const seen = new Set(
-    fs.existsSync(seenFile) ? fs.readFileSync(seenFile, 'utf8').split('\n').filter(Boolean) : []
-  );
+  const seen = new Set(readOr(seenFile, '').split('\n').filter(Boolean));
   const remember = (repo: string) => {
     seen.add(repo);
     fs.appendFileSync(seenFile, `${repo}\n`);
