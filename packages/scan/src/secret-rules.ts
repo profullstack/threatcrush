@@ -200,6 +200,17 @@ const KNOWN_PLACEHOLDERS = [
   /\bYOUR_[A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD)\b/,
   /\b(?:xxx+|X{4,}|\*{4,}|<[a-z-]+>)\b/,
   /\bchangeme\b/i,
+  // The metasyntactic pair in a connection string, `postgres://user:pass@host`.
+  // This is not the AWS case above and the distinction is the whole reason it
+  // is allowed: `AKIAIOSFODNN7EXAMPLE` is a real credential *format* carrying a
+  // fake value, so it arrives by way of a pasted template. `user:pass` is the
+  // English words sitting where a credential goes, which is how every database
+  // driver writes its DSN in its own README, and nobody pastes that out of a
+  // secret manager.
+  //
+  // Both halves have to be metasyntactic. `root:hunter2@` is not exempt, since
+  // a real password beside a common username is the case this must not swallow.
+  /:\/\/(?:user(?:name)?|admin|root|dbuser|myuser):(?:pass(?:word|wd)?|secret|dbpass|mypassword)@/i,
 ];
 
 /**
