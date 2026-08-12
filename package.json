@@ -23,7 +23,8 @@
     "setup": "pnpm setup:hooks",
     "postinstall": "git config core.hooksPath .githooks && git config push.followTags true 2>/dev/null || true",
     "release": "node scripts/release.mjs",
-    "submit-packages": "npx tsx scripts/submit-packages.ts"
+    "submit-packages": "npx tsx scripts/submit-packages.ts",
+    "tcfeed": "npx tsx bin/tcfeed.ts"
   },
   "devDependencies": {
     "tsup": "^8.5.1",
