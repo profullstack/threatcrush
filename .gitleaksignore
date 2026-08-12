@@ -9,3 +9,7 @@ add7c66540ff3a0a53fecc435eb7ab802b187c43:packages/scan/src/__tests__/foreign-sup
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/cli/src/commands/harden.ts:generic-api-key:226
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/cli/src/commands/harden.ts:generic-api-key:233
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/web/public/sw.js:generic-api-key:8
+
+# A scanner's own test fixture, never an issued key. The line no longer exists
+# in the tree — it is assembled at runtime now — but history keeps it findable.
+add7c66540ff3a0a53fecc435eb7ab802b187c43:packages/scan/src/__tests__/foreign-suppression.test.ts:stripe-access-token:40

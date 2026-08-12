@@ -21,6 +21,7 @@ export { isKnownPlaceholder, redactSecret, SECRET_RULES, SENSITIVE_FILES } from 
 
 export {
   collectSuppressions,
+  foreignCredentialMark,
   isTestPath,
   languageOf,
   languageOfShebang,

@@ -134,6 +134,29 @@ export function languageOfShebang(firstLine: string): ScanLanguage | null {
 const SUPPRESS_NEXT = /threatcrush-disable-next-line(?:\s+([\w-]+))?/;
 const SUPPRESS_LINE = /threatcrush-disable-line(?:\s+([\w-]+))?/;
 
+/**
+ * Another linter's suppression, naming the rule that means "hardcoded
+ * credential" in that linter's own vocabulary.
+ *
+ * A repository that has already triaged a finding did so in the one place a
+ * reviewer will look, which is the line itself. Re-raising it at full severity
+ * asks the operator to make the same decision a second time in a different
+ * tool, and printing an excerpt whose own text reads "G101 false positive:
+ * HTTP header name, not a credential" is the clearest possible signal that
+ * nothing read it.
+ *
+ * Two things keep this from becoming a way to hide real findings. The rule has
+ * to be named: a bare `//nolint` is a statement about something, and there is
+ * no reason to think it is about credentials. And the finding is downgraded
+ * rather than dropped, the way `isTestPath` downgrades a fixture, so it stays
+ * in the report for anyone auditing the suppressions themselves.
+ */
+const FOREIGN_CREDENTIAL = /\b(?:nolint:[\w,]*gosec|nosec)\b[^\n]*\bG101\b|\bG101\b[^\n]*\b(?:nolint:[\w,]*gosec|nosec)\b/;
+
+export function foreignCredentialMark(line: string): boolean {
+  return FOREIGN_CREDENTIAL.test(line);
+}
+
 export interface Suppressions {
   /** line index → set of rule ids, or `*` for every rule. */
   byLine: Map<number, Set<string>>;
@@ -208,18 +231,23 @@ export function scanText(
       if (isKnownPlaceholder(match[0])) continue;
       if (isSuppressed(suppressions, index, rule.id)) continue;
 
+      const marked = foreignCredentialMark(line);
+
       findings.push({
         ruleId: rule.id,
         title: rule.name,
         file: relativePath,
         line: index + 1,
-        // Reported but not blocking in tests — see isTestPath.
-        severity: inTests ? 'low' : rule.severity,
+        // Reported but not blocking in tests — see isTestPath. The same goes
+        // for a line another linter's credential rule was already told about.
+        severity: inTests || marked ? 'low' : rule.severity,
         // A matched credential format is the finding, not a proxy for one.
         confidence: 'evidence',
         message: inTests
           ? `Possible ${rule.name} detected in a test file — usually a fixture, still worth confirming it is not a live credential`
-          : `Possible ${rule.name} detected`,
+          : marked
+            ? `Possible ${rule.name} detected on a line already marked as a false positive for another linter's credential rule`
+            : `Possible ${rule.name} detected`,
         consequence: rule.consequence,
         cwe: rule.cwe,
         excerpt: redactSecret(line.trim()).slice(0, 200),
