@@ -1,3 +1,10 @@
+# A scanner's own test fixture on the branch behind #108, never an issued key.
+# CI checks out every ref, so gitleaks reads that branch from here too and this
+# pull request cannot go green without saying so. #108 carries the same line at
+# the foot of this file — deliberately in a different place, so the two merge
+# without conflicting — and whichever lands second can drop the duplicate.
+add7c66540ff3a0a53fecc435eb7ab802b187c43:packages/scan/src/__tests__/foreign-suppression.test.ts:stripe-access-token:40
+
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/cli/src/commands/harden.ts:generic-api-key:219
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/cli/src/commands/harden.ts:generic-api-key:226
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/cli/src/commands/harden.ts:generic-api-key:233
