@@ -721,7 +721,7 @@ async function gh(args: string[]): Promise<string> {
 async function prTarget(
   repo: string,
   me: string
-): Promise<{ base: string; hasIssues: boolean } | string> {
+): Promise<{ base: string; hasIssues: boolean; issue: string } | string> {
   let about: {
     isArchived: boolean;
     isFork: boolean;
@@ -790,9 +790,21 @@ async function prTarget(
       '{items: [.items[] | {html_url, state}]}',
     ]).catch(() => '{"items":[]}')
   ) as { items: { html_url: string; state: string }[] };
-  if (raised.items.length > 0) {
-    return `already asked — issue ${raised.items[0].state}, ${raised.items[0].html_url}`;
-  }
+
+  // Reaching here means the check above found no pull request in any state, so
+  // an issue on its own says which of two things happened.
+  //
+  // Closed: they answered, and the answer was no. That is exactly what the
+  // issue is for and it must never be followed by a pull request.
+  //
+  // Open: the pair was interrupted between the two calls. GitHub returned 502s
+  // for a stretch this afternoon and two repositories ended up with an issue
+  // that says "I am opening a pull request alongside this so the diff is there
+  // to read" and no pull request — a promise made to a maintainer and then not
+  // kept. Finishing it is not a second ask; it is the first one, completed.
+  const answered = raised.items.find((one) => one.state === 'closed');
+  if (answered) return `already asked — issue closed, ${answered.html_url}`;
+  const standing = raised.items.find((one) => one.state === 'open');
 
   // Cheap name check now; the authoritative one greps the tree after cloning.
   // A repository that already scans with threatcrush does not need this.
@@ -806,7 +818,12 @@ async function prTarget(
     // fine — it is not a reason to skip.
   }
 
-  return { base: about.defaultBranchRef.name, hasIssues: about.hasIssuesEnabled };
+  return {
+    base: about.defaultBranchRef.name,
+    hasIssues: about.hasIssuesEnabled,
+    // Carried out so the run finishes the pair rather than asking twice.
+    issue: standing?.html_url ?? '',
+  };
 }
 
 const PR_TITLE = 'ci: scan pull requests for credentials and injection with ThreatCrush';
@@ -1485,8 +1502,10 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
     // An issue that could not be opened — a repository that takes them through
     // a template this cannot fill, an account rate-limited on issues alone —
     // is a reason to ask on the other channel, not to give up on the repo.
-    let issue = '';
-    if (noIssue) {
+    let issue = target.issue;
+    if (issue) {
+      console.log(`· ${repo} — finishing ${issue}, which has no request yet`);
+    } else if (noIssue) {
       // Nothing: the caller asked for the diff on its own.
     } else if (!target.hasIssues) {
       console.log(`· ${repo} — issues are disabled here, so the request is the only channel`);
