@@ -1,9 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com";
+import { NextRequest, NextResponse } from "next/server";
+import { createOAuthCookieStorage } from "@/lib/oauth-cookie-storage";
+import { safeRedirectPath } from "@/lib/safe-redirect";
 
 /**
  * GET /api/auth/github
@@ -12,11 +10,27 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const ref = searchParams.get("ref") || "";
-  const next = searchParams.get("next") || "/account";
+  const nextPath = safeRedirectPath(searchParams.get("next"));
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com";
 
-  const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return NextResponse.json({ error: "Supabase is not configured" }, { status: 500 });
+  }
 
-  const redirectTo = `${APP_URL}/api/auth/callback?ref=${encodeURIComponent(ref)}&next=${encodeURIComponent(next)}`;
+  const { storage, applyVerifierCookies } = createOAuthCookieStorage(request.cookies);
+  const sb = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      flowType: "pkce",
+      storage,
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+
+  const redirectTo = `${appUrl}/api/auth/callback?ref=${encodeURIComponent(ref)}&next=${encodeURIComponent(nextPath)}`;
 
   const { data, error } = await sb.auth.signInWithOAuth({
     provider: "github",
@@ -30,5 +44,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error?.message || "OAuth failed" }, { status: 500 });
   }
 
-  return NextResponse.redirect(data.url);
+  const response = NextResponse.redirect(data.url);
+  applyVerifierCookies(response, new URL(appUrl).protocol === "https:");
+  return response;
 }
