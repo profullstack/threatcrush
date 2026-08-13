@@ -3,11 +3,20 @@
  * tcfeed — find repositories worth a look, scan each one, and print a
  * shortlist worth reading.
  *
- * Two sources, merged and deduplicated: the newest posts on a subreddit, and
- * GitHub's own repository search sorted by most recently updated. Either is
- * allowed to fail on its own — reddit refuses this address often enough that
- * making it fatal meant a whole run produced nothing on an afternoon when the
- * search was answering perfectly.
+ * Three sources, merged and deduplicated: the newest posts on a subreddit,
+ * GitHub's own repository search sorted by most recently updated, and any RSS
+ * or Atom feeds you have added. Each is allowed to fail on its own — reddit
+ * refuses this address often enough that making it fatal meant a whole run
+ * produced nothing on an afternoon when the others were answering perfectly.
+ *
+ *   tcfeed rss add https://leaddev.com/feed
+ *   tcfeed rss list
+ *   tcfeed rss remove https://leaddev.com/feed
+ *
+ * The feed list is OPML, at ~/.moshcode/feeds.opml, because every reader
+ * imports and exports that format and because moshcode's `/save` copies that
+ * directory to your account — so the list arrives on the next machine without
+ * this being the only place it lives.
  *
  * The scan reports, and that is all the scan does. It does not fork anything
  * and it does not open pull requests off its own findings. Four repositories
@@ -44,6 +53,8 @@
  *                   form: `stars:>1000 stars:<10000` does not AND, and
  *                   `starts` is a free-text search for the word. Both return
  *                   results rather than an error — see searchRepos()
+ *   TCFEED_OPML     the feed list, default ~/.moshcode/feeds.opml
+ *   TCFEED_RSS_PAUSE seconds between feed fetches, default 1
  *   TC_BIN          the scanner, default whatever `threatcrush` resolves to
  *   TCFEED_CACHE    where seen repos and reports live, default ~/.cache/tcfeed
  *
@@ -228,6 +239,194 @@ function reposIn(body: string): string[] {
   }
 
   return [...found].sort();
+}
+
+/* ------------------------------------------------------------------ *
+ * rss — a list of feeds, kept as OPML
+ * ------------------------------------------------------------------ */
+
+/**
+ * OPML, and under ~/.moshcode, for one reason each.
+ *
+ * OPML because a feed list is the one thing in this program somebody already
+ * has somewhere else: every reader imports and exports it, so the list can
+ * arrive from one and leave for another without this becoming the only place
+ * it exists.
+ *
+ * Under ~/.moshcode because that is the directory moshcode's `/save` copies to
+ * the account, and a feed list is exactly the sort of thing that should follow
+ * a person to their next machine. The server there validates shape rather than
+ * filenames — no `..`, no leading slash, 32 files, 256KB — so it accepts this
+ * without anything being deployed; only moshcode's own SYNCED_FILES has to
+ * name it. Nothing here depends on moshcode being installed: the file is
+ * created on demand, and TCFEED_OPML moves it anywhere.
+ */
+const opmlPath = (): string =>
+  process.env.TCFEED_OPML || path.join(os.homedir(), '.moshcode', 'feeds.opml');
+
+/**
+ * The xmlUrl of every outline, in file order.
+ *
+ * Matched rather than parsed. A feed list is a flat list of attributes and the
+ * alternative is an XML dependency for the sake of one of them; what this
+ * cannot do is understand nested outlines, which readers use for folders, so
+ * they flatten to their feeds and the folder is lost on rewrite. Attribute
+ * order and quoting style vary between readers, hence both quote characters.
+ */
+function feedsIn(opml: string): string[] {
+  const found: string[] = [];
+  for (const [, url] of opml.matchAll(/xmlUrl\s*=\s*["']([^"']+)["']/gi)) {
+    const trimmed = url.trim();
+    if (trimmed && !found.includes(trimmed)) found.push(trimmed);
+  }
+  return found;
+}
+
+/** Undo the five entities an attribute value can carry. */
+const unescapeXml = (value: string): string =>
+  value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+
+/** And redo them. `&` last on the way out, first on the way in, or it doubles. */
+const escapeXml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const readFeeds = (): string[] => feedsIn(readOr(opmlPath(), '')).map(unescapeXml);
+
+/**
+ * Written whole rather than edited in place, so the file is always something a
+ * reader will open even after this has had a turn at it.
+ */
+function writeFeeds(urls: string[]): void {
+  const file = opmlPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const outlines = urls
+    .map((url) => {
+      // The host is a serviceable title when nothing supplied one, and a feed
+      // whose URL will not parse is not a feed this is going to fetch either.
+      let title = url;
+      try {
+        title = new URL(url).hostname.replace(/^www\./, '');
+      } catch {
+        /* keep the URL as the title */
+      }
+      return `    <outline type="rss" text="${escapeXml(title)}" xmlUrl="${escapeXml(url)}"/>`;
+    })
+    .join('\n');
+
+  fs.writeFileSync(
+    file,
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<opml version="2.0">\n` +
+      `  <head>\n    <title>tcfeed</title>\n  </head>\n` +
+      `  <body>\n${outlines}${outlines ? '\n' : ''}  </body>\n` +
+      `</opml>\n`
+  );
+}
+
+/**
+ * `tcfeed rss` — add, list and remove, and that is the whole surface.
+ *
+ * Nothing validates that a URL is a feed by fetching it. A feed that is down
+ * this minute is still a feed, and refusing to record it because of one
+ * request is worse than recording it and saying so at the next scan.
+ */
+async function rssCommand(argv: string[]): Promise<number> {
+  const [action, ...rest] = argv.filter((arg) => !arg.startsWith('-'));
+  const urls = readFeeds();
+
+  if (!action || action === 'list') {
+    if (urls.length === 0) {
+      console.log(`no feeds yet — ${opmlPath()}`);
+      console.log('  tcfeed rss add https://example.com/feed');
+      return 0;
+    }
+    for (const url of urls) console.log(`· ${url}`);
+    console.log('');
+    console.log(`${urls.length} feed${urls.length === 1 ? '' : 's'} — ${opmlPath()}`);
+    return 0;
+  }
+
+  if (action === 'add') {
+    if (rest.length === 0) {
+      console.error('usage: tcfeed rss add https://example.com/feed');
+      return 1;
+    }
+    const added: string[] = [];
+    for (const url of rest) {
+      // http(s) only. A feed list is fetched with curl, and `file://` in it
+      // would make a shared OPML read this machine's disk.
+      if (!/^https?:\/\//i.test(url)) {
+        console.error(`tcfeed: not an http(s) URL: ${url}`);
+        return 1;
+      }
+      if (urls.includes(url)) {
+        console.log(`· ${url} — already there`);
+        continue;
+      }
+      urls.push(url);
+      added.push(url);
+    }
+    if (added.length > 0) {
+      writeFeeds(urls);
+      for (const url of added) console.log(`· ${url} — added`);
+    }
+    return 0;
+  }
+
+  if (action === 'remove' || action === 'rm') {
+    if (rest.length === 0) {
+      console.error('usage: tcfeed rss remove https://example.com/feed');
+      return 1;
+    }
+    const kept = urls.filter((url) => !rest.includes(url));
+    if (kept.length === urls.length) {
+      console.error(`tcfeed: not in the list: ${rest.join(', ')}`);
+      console.error('  tcfeed rss list');
+      return 1;
+    }
+    writeFeeds(kept);
+    for (const url of rest) console.log(`· ${url} — removed`);
+    return 0;
+  }
+
+  console.error(`tcfeed: unknown — rss ${action}`);
+  console.error('usage: tcfeed rss [list] | rss add <url> ... | rss remove <url> ...');
+  return 1;
+}
+
+/**
+ * Every feed, fetched and concatenated for reposIn() to read.
+ *
+ * The bodies are joined rather than parsed. reposIn() already looks for
+ * repository links anywhere in a document, which is the only thing wanted from
+ * a feed, and it works the same on RSS, Atom and the HTML some of them serve
+ * by mistake — none of which a feed parser would agree about.
+ *
+ * A feed that fails is named and skipped. One dead blog must not be the reason
+ * a scan produced nothing.
+ */
+async function readRss(urls: string[], pause: number): Promise<{ body: string; broke: string[] }> {
+  const bodies: string[] = [];
+  const broke: string[] = [];
+
+  for (const [index, url] of urls.entries()) {
+    if (index > 0 && pause > 0) await sleep(pause);
+    const { code, body } = await ask(url);
+    if (code === '200' && body) bodies.push(body);
+    else broke.push(`${url} (HTTP ${code || 'none'})`);
+  }
+
+  return { body: bodies.join('\n'), broke };
 }
 
 /**
@@ -1114,11 +1313,13 @@ async function main(): Promise<number> {
     console.log('       tcfeed pr owner/name [...] [--dry-run]  install the scan workflow');
     console.log('       tcfeed pr --all [--dry-run]             the last scan, worst first');
     console.log('       tcfeed check [owner/name ...] [--fix]   how are the open requests doing');
+    console.log('       tcfeed rss [list|add|remove] [url ...]   feeds to read alongside reddit');
     return 0;
   }
 
   if (argument === 'pr') return prCommand(process.argv.slice(3), cache);
   if (argument === 'check') return checkCommand(process.argv.slice(3));
+  if (argument === 'rss') return rssCommand(process.argv.slice(3));
 
   if (argument === '--forget') {
     fs.rmSync(path.join(cache, 'seen'), { force: true });
@@ -1177,33 +1378,53 @@ async function main(): Promise<number> {
     }
   }
 
+  const feeds = readFeeds();
+  const fromRss: string[] = [];
+  if (feeds.length > 0) {
+    const { body, broke: dead } = await readRss(feeds, num('TCFEED_RSS_PAUSE', 1));
+    fromRss.push(...reposIn(body));
+    // Named individually rather than counted. "3 feeds failed" is a number to
+    // shrug at; the URL is something to go and fix.
+    for (const why of dead) broke.push(`rss ${why}`);
+  }
+
   for (const why of broke) console.log(`tcfeed: ${why}`);
 
-  if (fromReddit.length === 0 && fromSearch.length === 0) {
-    // Both empty is only an error if both were *asked*. A run with the search
-    // turned off and a quiet feed has simply found nothing today.
+  if (fromReddit.length === 0 && fromSearch.length === 0 && fromRss.length === 0) {
+    // Empty is only an error if something that was asked also broke. Every
+    // source quiet and none of them failing is a slow day, not a fault.
     if (broke.length > 0) {
       console.error('tcfeed: no source answered');
       return 1;
     }
-    console.log('tcfeed: neither source mentioned a repository');
+    console.log('tcfeed: no source mentioned a repository');
     return 0;
   }
 
   // Deduplicated across sources, because a repository trending on reddit is
   // exactly the kind that also turns up in a search sorted by recent activity,
-  // and cloning it twice in one run is the one thing worth avoiding here.
+  // or in the week's newsletter, and cloning it twice in one run is the one
+  // thing worth avoiding here.
   const seenInThisRun = new Set<string>();
-  const repos = [...fromReddit, ...fromSearch].filter((repo) => {
+  const repos = [...fromReddit, ...fromSearch, ...fromRss].filter((repo) => {
     if (seenInThisRun.has(repo)) return false;
     seenInThisRun.add(repo);
     return true;
   });
 
-  const overlap = fromReddit.length + fromSearch.length - repos.length;
+  // "in both" no longer holds with three sources, and a source contributing
+  // nothing is worth seeing — a feed that has stopped mentioning repositories
+  // looks identical to one nobody added until its zero is on the screen.
+  const overlap = fromReddit.length + fromSearch.length + fromRss.length - repos.length;
+  const parts = [
+    `${fromReddit.length} from r/${sub}`,
+    `${fromSearch.length} from search (${query})`,
+  ];
+  if (feeds.length > 0)
+    parts.push(`${fromRss.length} from ${feeds.length} feed${feeds.length === 1 ? '' : 's'}`);
   console.log(
-    `tcfeed: ${repos.length} to consider — ${fromReddit.length} from r/${sub}, ` +
-      `${fromSearch.length} from search (${query})${overlap > 0 ? `, ${overlap} in both` : ''}`
+    `tcfeed: ${repos.length} to consider — ${parts.join(', ')}` +
+      (overlap > 0 ? `, ${overlap} seen more than once` : '')
   );
 
   // A run is capped and paced. One invocation that clones ninety repositories
