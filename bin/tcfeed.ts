@@ -839,11 +839,12 @@ const alongsideCodeql = [
  * workflow, discloses who wrote the workflow, and says it will not be sent
  * twice. Everything past that is the maintainer's call.
  */
-const prBody = (spec: string, issue: string): string =>
+const prBody = (spec: string, issue: string, ran: string): string =>
   [
     'Adds a pull-request workflow that scans the diff for hardcoded credentials,',
     'injection, SSRF and unsafe deserialisation. Results go to the Security tab as',
     'SARIF and to a comment on the pull request.',
+    ...(ran ? [ran] : []),
     '',
     // The diff exists so the question in the issue can be answered by reading
     // it rather than imagining it. Which of the two gets closed is the
@@ -950,6 +951,99 @@ async function budget(me: string): Promise<{ allowed: number; note: string }> {
   return { allowed: Math.max(0, room), note };
 }
 
+interface ScanJson {
+  filesScanned: number;
+  summary: Record<string, number>;
+  findings: { severity: string; confidence: string; ruleId: string }[];
+}
+
+/**
+ * Run the scanner over the tree we just cloned, and describe what it did.
+ *
+ * This exists because of the single most damning number in the whole
+ * experiment: of 24 open requests, **none** had ever run a scan. Nineteen sat
+ * at "waiting for the maintainer to approve the run" and five had no runs at
+ * all, because GitHub withholds workflow runs from first-time contributors.
+ * So every maintainer who looked saw a pending or red check and no output
+ * whatsoever. The offer was "here is a scanner for your pull requests" and the
+ * demonstration had never once executed. That explains nine straight declines
+ * far better than any wording did.
+ *
+ * What it must not become is the thing prBody() has always refused to be.
+ * Quoting findings at somebody as if they were defects is the fastest way to
+ * be ignored, and this project's own sample says why: every such claim in it
+ * was false. So this reports *what the run did* — files, time, counts, and the
+ * confidence tier the CLI itself assigns — and states plainly that none of it
+ * is a claim. `confidence: pattern` means a regex matched. That is a fact
+ * about the scanner, not about their code, and it is the honest half of what a
+ * maintainer wanted to see.
+ *
+ * Failure is silence. A scan that breaks, hangs or takes too long omits the
+ * section rather than blocking the request or, worse, guessing at a number.
+ */
+async function demo(dir: string, spec: string): Promise<string> {
+  const seconds = num('TCFEED_DEMO_TIMEOUT', 120);
+  if (seconds <= 0) return '';
+
+  const began = Date.now();
+  const said = await run('npx', ['--yes', spec, 'scan', dir, '--format', 'json'], {
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: seconds * 1000,
+  })
+    // Exit 1 is "findings at or above --fail-on", which is a result and not a
+    // failure. The JSON is on stdout either way; only an empty stdout is a
+    // genuine miss.
+    .then(({ stdout }) => stdout)
+    .catch((error: { stdout?: string }) => error.stdout ?? '');
+
+  let scan: ScanJson;
+  try {
+    scan = JSON.parse(said) as ScanJson;
+    if (typeof scan.filesScanned !== 'number' || !Array.isArray(scan.findings)) return '';
+  } catch {
+    return '';
+  }
+
+  const took = ((Date.now() - began) / 1000).toFixed(1);
+  const order = ['critical', 'high', 'medium', 'low', 'info'];
+  const counted = order
+    .filter((name) => (scan.summary?.[name] ?? 0) > 0)
+    .map((name) => `${scan.summary[name]} ${name}`)
+    .join(', ');
+
+  const evidence = scan.findings.filter((one) => one.confidence === 'evidence').length;
+  const pattern = scan.findings.length - evidence;
+
+  return [
+    '',
+    '### What it does on this repository',
+    '',
+    '```',
+    `${spec} scan .`,
+    `${scan.filesScanned} files in ${took}s — ${scan.findings.length} finding(s)` +
+      (counted ? `: ${counted}` : ''),
+    ...(scan.findings.length > 0
+      ? [`confidence: ${evidence} evidence, ${pattern} pattern`]
+      : []),
+    '```',
+    '',
+    ...(scan.findings.length === 0
+      ? ['Nothing flagged. That is the whole report — the comment on a pull request']
+      : [
+          '**None of that is a claim about your code, and I have not verified any of it.**',
+          '`confidence: pattern` means a regex matched and nothing more; expect false',
+          'positives in that tier. It is here because the check on this pull request may',
+        ]),
+    ...(scan.findings.length === 0
+      ? ['would say the same.']
+      : [
+          'never run at all — GitHub withholds workflow runs from first-time contributors,',
+          'and across 24 open requests elsewhere not one has been approved. Rather than ask',
+          'you to approve a run to find out what it produces, that is what it produces.',
+        ]),
+  ].join('\n');
+}
+
 const ISSUE_TITLE = 'Would you take a pull-request security scan workflow?';
 
 /**
@@ -992,7 +1086,10 @@ const issueBody = (spec: string): string =>
     'Disclosure: I maintain [ThreatCrush](https://github.com/profullstack/threatcrush).',
     'It is free and MIT, and the workflow installs it from npm — nothing here phones',
     'home. I am opening a pull request alongside this so the diff is there to read if',
-    'you want it, and it can be closed and this discussed instead.',
+    'you want it, and it can be closed and this discussed instead. That pull request',
+    'also carries the output of an actual run against this repository, so the thing',
+    'being offered can be judged without enabling anything: GitHub withholds workflow',
+    'runs from first-time contributors, so the check on it may never run by itself.',
     '',
     'If this is not something you want, saying so is the right answer and I will not',
     'ask again.',
@@ -1076,6 +1173,10 @@ async function openPr(
       if (stdout.trim()) return `already scans with threatcrush (${stdout.trim().split('\n')[0]})`;
     }
 
+    // Scanned before our own files are written, so the report describes their
+    // repository rather than the workflow this is about to add to it.
+    const ran = await demo(src, spec);
+
     await git(['checkout', '--quiet', '-b', PR_BRANCH]);
     for (const file of files) {
       const full = path.join(src, file.destination);
@@ -1089,7 +1190,7 @@ async function openPr(
       const { stdout } = await git(['show', '--stat', '--oneline', 'HEAD']);
       console.log(`\n--- ${repo} (dry run, nothing pushed) — base ${base}`);
       console.log(stdout.trimEnd());
-      console.log(`\n${PR_TITLE}\n\n${prBody(spec, issue)}`);
+      console.log(`\n${PR_TITLE}\n\n${prBody(spec, issue, ran)}`);
       return 'dry run';
     }
 
@@ -1182,7 +1283,7 @@ async function openPr(
       '--title',
       PR_TITLE,
       '--body',
-      prBody(spec, issue),
+      prBody(spec, issue, ran),
     ]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
