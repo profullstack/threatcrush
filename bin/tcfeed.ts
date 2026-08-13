@@ -751,9 +751,22 @@ async function prTarget(
   // Asked once. The pull request says "closing it is the right answer and I
   // will not send another", and this is the line that keeps that true — state
   // is `all`, so a closed request counts. Nothing about "no" expires.
-  const asked = JSON.parse(
-    await gh(['api', `repos/${repo}/pulls?state=all&head=${me}:${PR_BRANCH}&per_page=1`])
-  ) as { html_url: string; state: string }[];
+  //
+  // A 404 here is not an error to propagate. GitHub returns one for the pulls
+  // endpoint of a repository that has pull requests turned off — haproxy does,
+  // because it takes patches on a mailing list — and the repository itself
+  // answers normally, so nothing earlier catches it. Unguarded, that one repo
+  // threw out of prTarget, past the loop's try around openPr, and ended the
+  // whole run: a batch of sixteen stopped after three and said nothing about
+  // the thirteen it never reached.
+  const said = await gh([
+    'api',
+    `repos/${repo}/pulls?state=all&head=${me}:${PR_BRANCH}&per_page=1`,
+  ]).catch((error: unknown) => (/404|Not Found/i.test(why(error)) ? '404' : ''));
+  if (said === '404') return 'does not accept pull requests';
+  if (!said) return 'could not read its pull requests';
+
+  const asked = JSON.parse(said) as { html_url: string; state: string }[];
   if (asked.length > 0) return `already asked — ${asked[0].state}, ${asked[0].html_url}`;
 
   // The same promise, on the other channel. Now that the question goes as an
@@ -1448,7 +1461,19 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
   let opened = 0;
   const landed: { repo: string; pr: string }[] = [];
   for (const repo of repos) {
-    const target = await prTarget(repo, me);
+    // Belt as well as braces. Every known way prTarget can fail now returns a
+    // reason rather than throwing, but it makes a dozen API calls against
+    // repositories nobody here controls, and the failure mode when one of them
+    // surprises it is losing the rest of the batch silently. One repository is
+    // allowed to be unreadable; a run is not allowed to end because of it.
+    let target: Awaited<ReturnType<typeof prTarget>>;
+    try {
+      target = await prTarget(repo, me);
+    } catch (error) {
+      console.log(`· ${repo} — skipped: could not read it (${why(error)})`);
+      continue;
+    }
+
     if (typeof target === 'string') {
       console.log(`· ${repo} — skipped: ${target}`);
       continue;
