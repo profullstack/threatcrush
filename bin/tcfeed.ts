@@ -40,9 +40,10 @@
  *   TCFEED_PAUSE    seconds between clones, default 1
  *   TCFEED_SUB      subreddit, default coolgithubprojects
  *   TCFEED_GH       results taken from the search, default 25, 0 turns it off
- *   TCFEED_GH_QUERY the search, default `stars:>1000`. The qualifier is
- *                   `stars`; `starts` is a free-text search that returns
- *                   repositories with no stars at all and looks like it worked
+ *   TCFEED_GH_QUERY the search, default `stars:1000..10000`. Use the `a..b`
+ *                   form: `stars:>1000 stars:<10000` does not AND, and
+ *                   `starts` is a free-text search for the word. Both return
+ *                   results rather than an error — see searchRepos()
  *   TC_BIN          the scanner, default whatever `threatcrush` resolves to
  *   TCFEED_CACHE    where seen repos and reports live, default ~/.cache/tcfeed
  *
@@ -232,24 +233,37 @@ function reposIn(body: string): string[] {
  * The other source: GitHub's own repository search, newest activity first.
  *
  * This is the API behind
- * https://github.com/search?q=stars:>1000&type=repositories&s=updated&o=desc,
+ * https://github.com/search?q=stars:1000..10000&type=repositories&s=updated&o=desc,
  * asked through gh so it uses the token already on this machine — the HTML
  * page is rate-limited hard for anyone not signed in, and parsing it would be
  * a scraper of a page that changes shape without warning.
  *
- * `stars:>1000` — more than a thousand, sorted by most recently pushed. The
- * qualifier is `stars`, and it is worth being careful about: `starts:>1000` is
- * not an error, it is a *free-text search* for the word, and it quietly
- * returns repositories with no stars at all. A query that is wrong in that
- * direction looks like it worked.
+ * `stars:1000..10000` — a thousand to ten thousand, sorted by most recently
+ * pushed. Two traps live in that one string, and both produce a result rather
+ * than an error, which is why they are written down here:
+ *
+ *   `starts:1000..10000`        the qualifier is `stars`. Misspelt, GitHub
+ *                               does not reject it — it becomes a free-text
+ *                               search for the word and returns repositories
+ *                               with no stars at all.
+ *
+ *   `stars:>1000 stars:<10000`  two range qualifiers on one field do not AND.
+ *                               This form returned meilisearch at 58,955
+ *                               stars, comfortably outside the bound it
+ *                               appears to state. The `a..b` form is the one
+ *                               that actually restricts both ends.
+ *
+ * The upper bound earns its place. Without it the band is dominated by
+ * monorepos that the TOO_BIG_KB check throws away after cloning decides they
+ * are too large: measured over twenty results, `stars:>1000` yielded twelve
+ * scannable repositories against eight discarded, where `stars:1000..10000`
+ * yields fourteen against six.
  *
  * Override with TCFEED_GH_QUERY, which takes any GitHub search qualifier.
  *
  * Archived and forked repositories are dropped here rather than left for
  * metadata() to reject one HTTP call later, because the search already knows.
- * Size is not filtered here — the search has no qualifier for it — so the
- * TOO_BIG_KB check downstream does more work with this query than the feed
- * ever gave it: a repository with this many stars is often a monorepo.
+ * Size is not, because the search has no qualifier for it.
  */
 async function searchRepos(query: string, limit: number): Promise<string[]> {
   const { stdout } = await run(
@@ -1089,7 +1103,7 @@ async function main(): Promise<number> {
     broke.push(`reddit: ${(error as Error).message}`);
   }
 
-  const query = process.env.TCFEED_GH_QUERY ?? 'stars:>1000';
+  const query = process.env.TCFEED_GH_QUERY ?? 'stars:1000..10000';
   const searchWanted = num('TCFEED_GH', 25);
   if (searchWanted > 0 && query) {
     try {
