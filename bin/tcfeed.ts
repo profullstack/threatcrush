@@ -661,16 +661,45 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
 /**
  * The subcommand.
  *
- * Repositories are named as arguments and never read from the table. That is
- * the whole design: the scan produces a list, a person reads the list, and a
- * person types the names of the ones worth asking. There is no flag that turns
- * the table into pull requests, because bulk unsolicited pull requests are
- * against GitHub's acceptable use policy regardless of how good the workflow
- * is, and an account that sends them stops being able to send anything.
+ * Repositories are named as arguments, or taken from the last scan with
+ * --all — worst first, so a cap takes the top of the table rather than an
+ * arbitrary slice of it.
+ *
+ * --all used to be the one flag this deliberately did not have, and the rails
+ * around it are now the point. Bulk unsolicited pull requests are against
+ * GitHub's acceptable use policy however good the workflow is, and an account
+ * that sends them stops being able to send anything. So: TCFEED_PR_MAX still
+ * bounds a run and says out loud how many it left behind, TCFEED_PR_PAUSE
+ * spaces the ones it does open, a repository already asked is never asked
+ * twice whatever its answer was, and --all means the run whose table is still
+ * on the screen rather than every repository the cache has ever seen.
+ *
+ * None of which makes the pull requests wanted. The first maintainer to answer
+ * one closed it.
  */
-async function prCommand(argv: string[]): Promise<number> {
+async function prCommand(argv: string[], cache: string): Promise<number> {
   const dryRun = argv.includes('--dry-run') || argv.includes('-n');
-  const repos = argv.filter((arg) => !arg.startsWith('-'));
+  const all = argv.includes('--all');
+  const named = argv.filter((arg) => !arg.startsWith('-'));
+
+  if (all && named.length > 0) {
+    console.error('tcfeed: --all takes the last run, so naming repositories with it is');
+    console.error('  ambiguous. Use one or the other.');
+    return 1;
+  }
+
+  // --all is the table from the run whose output is still on the screen, worst
+  // first — not every repository ever scanned. The cache holds months of them
+  // and none of that was being looked at when --all was typed.
+  let repos = named;
+  if (all) {
+    repos = readOr(path.join(cache, 'lastrun'), '').split('\n').filter(Boolean);
+    if (repos.length === 0) {
+      console.error('tcfeed: no last run to take. Run a scan first — --all is the table');
+      console.error('  it prints, and there has not been one since this cache was made.');
+      return 1;
+    }
+  }
 
   const wrong = repos.filter((repo) => !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo));
   if (wrong.length > 0) {
@@ -679,16 +708,27 @@ async function prCommand(argv: string[]): Promise<number> {
   }
   if (repos.length === 0) {
     console.error('usage: tcfeed pr owner/name [owner/name ...] [--dry-run]');
-    console.error('  Names are typed, never taken from the table. Read the report first.');
+    console.error('       tcfeed pr --all [--dry-run]');
+    console.error('  --all is the last scan, worst first. Read the reports first.');
     return 1;
   }
 
   const max = num('TCFEED_PR_MAX', 3);
-  if (repos.length > max) {
+  if (!all && repos.length > max) {
     console.error(`tcfeed: ${repos.length} repositories in one run, and the cap is ${max}.`);
     console.error('  This is a typo guard, not a throughput problem. Raise TCFEED_PR_MAX if');
     console.error('  you meant it, but read every report first — that is what the cap is for.');
     return 1;
+  }
+
+  // Named repositories were typed and refusing them is right; --all was one
+  // word and refusing it is only annoying, so the cap throttles instead. What
+  // it must not do is throttle silently: a run that quietly did three of
+  // twenty-five reads as a run that did all of them.
+  if (all && repos.length > max) {
+    console.log(`tcfeed: ${repos.length} in the last run, taking the worst ${max}.`);
+    console.log(`  ${repos.slice(max).length} left for a later run, or raise TCFEED_PR_MAX.`);
+    repos = repos.slice(0, max);
   }
 
   for (const tool of ['git', 'gh', 'grep']) {
@@ -723,6 +763,12 @@ async function prCommand(argv: string[]): Promise<number> {
   // run before it has forked anything.
   render(fs.readFileSync(path.join(packDir(), 'workflow.yml'), 'utf8'), packInputs());
 
+  // Paced, and only between requests that actually opened. Forking, pushing
+  // and opening in a tight loop is the shape GitHub's abuse detection watches
+  // for, and being throttled mid-run leaves half a fork behind. A skip costs
+  // nothing and waits for nothing.
+  const pause = num('TCFEED_PR_PAUSE', 20);
+
   let opened = 0;
   for (const repo of repos) {
     const target = await prTarget(repo, me);
@@ -730,6 +776,8 @@ async function prCommand(argv: string[]): Promise<number> {
       console.log(`· ${repo} — skipped: ${target}`);
       continue;
     }
+
+    if (opened > 0 && !dryRun && pause > 0) await sleep(pause);
 
     try {
       const result = await openPr(repo, me, target.base, dryRun);
@@ -1018,6 +1066,18 @@ async function checkCommand(argv: string[]): Promise<number> {
   return 0;
 }
 
+/**
+ * Worst first: a critical outranks any number of highs, and highs break the
+ * tie. One ordering, used by the table and by `pr --all`, so "the top ones"
+ * means the same thing whether it is read off the screen or off the file — two
+ * rankings that drift is the sort of bug nobody notices until the wrong
+ * repository has already been written to.
+ */
+const ranked = (rows: Row[]): Row[] => {
+  const worst = (row: Row) => row.critical * 1000 + row.high;
+  return [...rows].sort((a, b) => worst(b) - worst(a));
+};
+
 function table(rows: Row[]): void {
   const columns = [9, 6, 8, 7, 7];
   const line = (cells: string[]) =>
@@ -1026,8 +1086,7 @@ function table(rows: Row[]): void {
   console.log('');
   console.log(line(['CRITICAL', 'HIGH', 'MEDIUM', 'TOTAL', 'STARS', 'REPO']));
 
-  const worst = (row: Row) => row.critical * 1000 + row.high;
-  for (const row of [...rows].sort((a, b) => worst(b) - worst(a))) {
+  for (const row of ranked(rows)) {
     console.log(
       line([
         String(row.critical),
@@ -1049,11 +1108,12 @@ async function main(): Promise<number> {
     console.log('usage: tcfeed [count]                          scan the newest posts');
     console.log('       tcfeed --forget                         make everything look new again');
     console.log('       tcfeed pr owner/name [...] [--dry-run]  install the scan workflow');
+    console.log('       tcfeed pr --all [--dry-run]             the last scan, worst first');
     console.log('       tcfeed check [owner/name ...] [--fix]   how are the open requests doing');
     return 0;
   }
 
-  if (argument === 'pr') return prCommand(process.argv.slice(3));
+  if (argument === 'pr') return prCommand(process.argv.slice(3), cache);
   if (argument === 'check') return checkCommand(process.argv.slice(3));
 
   if (argument === '--forget') {
@@ -1195,6 +1255,22 @@ async function main(): Promise<number> {
   }
 
   table(rows);
+
+  // The table, worst first, for `pr --all` to read. Written rather than
+  // recomputed because --all must mean the run whose output is on the screen:
+  // a second scan between looking and acting would otherwise change what "all"
+  // referred to without anybody saying so.
+  //
+  // Only scanned repositories reach `rows` — the archived, the gone and the
+  // too-big were skipped further up and were never candidates — so the file
+  // cannot offer --all something the scan itself declined to clone.
+  fs.writeFileSync(
+    path.join(cache, 'lastrun'),
+    `${ranked(rows)
+      .map((row) => row.repo)
+      .join('\n')}\n`
+  );
+
   console.log('');
   console.log(`reports: ${path.join(cache, 'reports')}`);
   console.log('Read one before acting on it. Most of these are false positives, and a');
@@ -1203,6 +1279,7 @@ async function main(): Promise<number> {
   console.log('To install the scan workflow in one of them instead:');
   console.log('  tcfeed pr owner/name --dry-run   # see exactly what would be opened');
   console.log('  tcfeed pr owner/name');
+  console.log(`  tcfeed pr --all --dry-run        # the ${rows.length} above, worst first`);
   return 0;
 }
 
