@@ -73,7 +73,7 @@
  *   TCFEED_PR_MAX   repositories one `pr` run may open against, default 20
  *   TCFEED_PR_PAUSE seconds between requests that open, default 20
  *   TCFEED_PR_STANDING  unanswered requests allowed to stand at once, default 30
- *   TCFEED_PR_PER_DAY   requests opened in a rolling 24 hours, default 10
+ *   TCFEED_PR_PER_DAY   requests opened in a rolling 24 hours, default 20
  *   TCFEED_NODE     nodeVersion input, default 20
  *   TCFEED_SPEC     threatcrushPackageSpec input, default @latest
  *   TCFEED_FAIL_ON  failOn input, default empty, meaning report-only
@@ -915,7 +915,10 @@ const prBody = (spec: string, issue: string): string =>
  */
 async function budget(me: string): Promise<{ allowed: number; note: string }> {
   const standingCap = num('TCFEED_PR_STANDING', 30);
-  const dailyCap = num('TCFEED_PR_PER_DAY', 10);
+  // 20, matching TCFEED_PR_MAX: one full --all run is a day's sending. A
+  // number below the run cap would mean the headline command could never
+  // complete in one go, which reads as a bug rather than as a budget.
+  const dailyCap = num('TCFEED_PR_PER_DAY', 20);
 
   const count = async (extra: string): Promise<number> => {
     const said = await gh([
