@@ -1719,11 +1719,98 @@ async function pushFix(repo: string, me: string, remedy: Remedy): Promise<string
 }
 
 /**
+ * Bring one open request's files up to the current pack.
+ *
+ * The pack is read live from sh1pt precisely so a corrected workflow reaches
+ * repositories, and until this existed that was only true of requests not yet
+ * sent. Thirty-three went out carrying `npm install -g "…@latest"`, the pack
+ * was fixed an hour later, and all twenty-four still open kept shipping the
+ * defective version to anyone who looked.
+ *
+ * Three separate reviewers found it independently, which is as clear a signal
+ * as this is going to get: SonarCloud failed a quality gate on it
+ * (githubactions:S8543), CodeRabbit scored a request Moderate for "an unpinned
+ * scanner with access to a write-scoped job", and Haven's maintainer declined
+ * on exactly that ground —
+ *
+ *   whoever can publish that package can run code in this repository's CI
+ *   from that point on, forever, without a further PR
+ *
+ * — while noting the project hash-pins thirteen tarballs in its ffmpeg stack
+ * alone. That is not a maintainer being difficult; that is a maintainer
+ * applying their own published bar to us and finding us under it.
+ *
+ * Written against the contents API rather than a clone because the open
+ * requests include seastar and lightning, and cloning a kernel-sized
+ * repository to rewrite two files under .github is minutes of transfer for a
+ * diff that fits on a screen. It also cannot accidentally carry anything else
+ * along with it, which on somebody else's review is the more important half.
+ */
+async function refreshOne(repo: string, me: string, spec: string): Promise<string> {
+  const open = JSON.parse(
+    await gh(['api', `repos/${repo}/pulls?state=open&head=${me}:${PR_BRANCH}&per_page=1`])
+  ) as { number: number }[];
+  if (open.length === 0) return 'no open request';
+
+  const pack = packDir();
+  const inputs = packInputs(spec);
+  const want = [
+    {
+      path: OUR_WORKFLOW,
+      content: render(fs.readFileSync(path.join(pack, 'workflow.yml'), 'utf8'), inputs),
+    },
+    {
+      path: '.github/scripts/threatcrush-to-sarif.py',
+      content: fs.readFileSync(path.join(pack, 'threatcrush-to-sarif.py'), 'utf8'),
+    },
+  ];
+
+  const fork = `${me}/${repo.split('/')[1]}`;
+  const changed: string[] = [];
+
+  for (const file of want) {
+    const said = await gh([
+      'api',
+      `repos/${fork}/contents/${file.path}?ref=${PR_BRANCH}`,
+      '--jq',
+      '{sha: .sha, content: .content}',
+    ]).catch(() => '');
+    if (!said) return `cannot read ${file.path} on ${fork}`;
+
+    const have = JSON.parse(said) as { sha: string; content: string };
+    // The API wraps base64 at 60 columns; decoding without stripping the
+    // newlines yields a string that never equals the file and rewrites both
+    // files on every run.
+    const current = Buffer.from(have.content.replace(/\n/g, ''), 'base64').toString('utf8');
+    if (current === file.content) continue;
+
+    await gh([
+      'api',
+      '-X',
+      'PUT',
+      `repos/${fork}/contents/${file.path}`,
+      '-f',
+      `message=ci: update the ThreatCrush scan workflow to the reviewed pack`,
+      '-f',
+      `content=${Buffer.from(file.content, 'utf8').toString('base64')}`,
+      '-f',
+      `sha=${have.sha}`,
+      '-f',
+      `branch=${PR_BRANCH}`,
+    ]);
+    changed.push(path.basename(file.path));
+  }
+
+  return changed.length === 0 ? 'already current' : `updated ${changed.join(', ')}`;
+}
+
+/**
  * The subcommand. With no arguments it reads every repository this has an open
  * request on, which is the list it is entitled to act on and no wider.
  */
 async function checkCommand(argv: string[]): Promise<number> {
   const fix = argv.includes('--fix');
+  const refresh = argv.includes('--refresh');
   const named = argv.filter((arg) => !arg.startsWith('-'));
 
   for (const tool of ['git', 'gh']) {
@@ -1759,7 +1846,21 @@ async function checkCommand(argv: string[]): Promise<number> {
     return 0;
   }
 
+  // Resolved once, and only when it is going to be used: --refresh is the only
+  // path that renders the pack, and `check` should keep working on a machine
+  // that has no sh1pt checkout beside it.
+  const spec = refresh ? await resolveSpec() : '';
+
   for (const repo of repos) {
+    if (refresh) {
+      try {
+        console.log(`· ${repo} — ${await refreshOne(repo, me, spec)}`);
+      } catch (error) {
+        console.log(`· ${repo} — could not refresh: ${why(error)}`);
+      }
+      continue;
+    }
+
     try {
       await checkOne(repo, me, fix);
     } catch (error) {
@@ -1821,6 +1922,7 @@ async function main(): Promise<number> {
     console.log('         --no-issue   skip the question, open the request alone');
     console.log('         --no-follow  skip waiting on their checks afterwards');
     console.log('       tcfeed check [owner/name ...] [--fix]   how are the open requests doing');
+    console.log('         --refresh    bring open requests up to the current pack');
     console.log('       tcfeed rss [list|add|remove] [url ...]   feeds to read alongside reddit');
     return 0;
   }
