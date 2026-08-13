@@ -717,6 +717,83 @@ async function gh(args: string[]): Promise<string> {
   return stdout.trim();
 }
 
+/**
+ * Scanners whose presence makes this offer redundant.
+ *
+ * Deliberately narrow: only tools that overlap what `threatcrush scan` does,
+ * which is secrets and code-level patterns. A repository running one of these
+ * has the ground covered and asking is a waste of their afternoon and ours.
+ *
+ * Not on this list, on purpose:
+ *
+ *   dependabot   updates dependencies. It does not read the code.
+ *   zizmor       audits the workflows themselves, not the application.
+ *   osv-scanner  advisories against a lockfile, which is a different question.
+ *
+ * Including those would have skipped repositories with no code scanning at
+ * all, which is exactly who this is for.
+ */
+const SCANNERS: [string, RegExp][] = [
+  ['CodeQL', /codeql/i],
+  ['TruffleHog', /trufflehog/i],
+  ['Semgrep', /semgrep/i],
+  ['Snyk', /\bsnyk\b/i],
+  ['Gitleaks', /gitleaks/i],
+  ['SonarQube', /sonar(cloud|qube|source)/i],
+  ['Bandit', /\bbandit\b/i],
+];
+
+/**
+ * Is this repository already covered?
+ *
+ * By file contents, not file names. A survey of the repositories this had
+ * open requests against found ten already running a scanner, and several of
+ * them hid it in a `ci.yml` that says nothing about it in the name —
+ * inspektor-gadget runs CodeQL, semgrep and zizmor out of files called none
+ * of those things.
+ *
+ * What it cannot see is a GitHub App. TruffleHog's hosted product, cubic and
+ * Snyk's app leave no workflow file, and one maintainer declined with
+ * "we already have trufflehog, codeql, cubic, vet and a linter" against a
+ * repository whose workflows mention none of them. So this is a filter that
+ * removes obvious waste, not a guarantee, and it must never be described as
+ * one.
+ *
+ * Bounded at thirty files: a repository with more workflows than that has a
+ * CI story already, and reading all of them to prove it is a lot of API calls
+ * to reach the same answer.
+ */
+async function alreadyScanned(repo: string, names: { name: string }[]): Promise<string> {
+  if (process.env.TCFEED_SKIP_SCANNED === '0') return '';
+
+  const found = new Set<string>();
+  for (const [label, pattern] of SCANNERS) {
+    if (names.some((entry) => pattern.test(entry.name))) found.add(label);
+  }
+  if (found.size > 0) return [...found].join(' and ');
+
+  for (const entry of names.slice(0, 30)) {
+    const body = await gh([
+      'api',
+      `repos/${repo}/contents/.github/workflows/${entry.name}`,
+      '--jq',
+      '.content',
+    ])
+      // The API wraps its base64 at 60 columns; decoding without stripping the
+      // newlines yields a string that matches nothing.
+      .then((said) => Buffer.from(said.replace(/\n/g, ''), 'base64').toString('utf8'))
+      .catch(() => '');
+
+    for (const [label, pattern] of SCANNERS) {
+      if (pattern.test(body)) found.add(label);
+    }
+    // One is enough to make the point; the rest is detail nobody reads.
+    if (found.size > 0) break;
+  }
+
+  return [...found].join(' and ');
+}
+
 /** Everything about the target that decides whether to ask at all. */
 async function prTarget(
   repo: string,
@@ -813,6 +890,9 @@ async function prTarget(
       await gh(['api', `repos/${repo}/contents/.github/workflows`])
     ) as { name: string }[];
     if (names.some((entry) => /threatcrush/i.test(entry.name))) return 'already has the workflow';
+
+    const covered = await alreadyScanned(repo, names);
+    if (covered) return `already scans with ${covered}`;
   } catch {
     // No .github/workflows at all. That is a repository with no CI, which is
     // fine — it is not a reason to skip.
