@@ -640,11 +640,43 @@ function packDir(): string {
   );
 }
 
+/**
+ * The version the workflow installs, resolved once per run.
+ *
+ * An exact version rather than `@latest`, because `@latest` in a file
+ * committed to somebody else's repository means their security gate installs
+ * whatever was published overnight, from a job holding `pull-requests: write`
+ * and `security-events: write`. Static analysis says so out loud —
+ * SonarQube's githubactions:S8543 failed our own workflow on the one
+ * repository that ran it, alongside S6505 for the missing --ignore-scripts.
+ *
+ * Resolved at ask time rather than hardcoded so each request pins whatever is
+ * current that day; from then on the repository moves when it decides to,
+ * which is the only thing a pin is for.
+ */
+let pinned = '';
+async function resolveSpec(): Promise<string> {
+  const told = process.env.TCFEED_SPEC;
+  if (told) return told;
+  if (pinned) return pinned;
+
+  const { stdout } = await run('npm', ['view', '@profullstack/threatcrush', 'version']);
+  const version = stdout.trim();
+  // A pin this could not resolve is the one case where carrying on is worse
+  // than stopping: the fallback would be `@latest`, which is the exact string
+  // this exists to keep out of other people's repositories.
+  if (!/^\d+\.\d+\.\d+/.test(version)) {
+    throw new Error(`npm did not name a version to pin (got ${JSON.stringify(version)})`);
+  }
+  pinned = `@profullstack/threatcrush@${version}`;
+  return pinned;
+}
+
 /** The pack's inputs, at the defaults its own manifest documents. */
-const packInputs = (): Record<string, string> => ({
+const packInputs = (spec: string): Record<string, string> => ({
   scanPath: '.',
   nodeVersion: process.env.TCFEED_NODE || '20',
-  threatcrushPackageSpec: process.env.TCFEED_SPEC || '@profullstack/threatcrush@latest',
+  threatcrushPackageSpec: spec,
   // Empty, and this is the one input that must not be "improved" on the way
   // into somebody else's repository. A first install on a codebase with a
   // backlog either reports or blocks, and the one that blocks gets deleted the
@@ -721,6 +753,39 @@ async function prTarget(repo: string, me: string): Promise<{ base: string } | st
 const PR_TITLE = 'ci: scan pull requests for credentials and injection with ThreatCrush';
 
 /**
+ * The CodeQL answer, because "we already get this from GitHub" is the reason
+ * maintainers actually give, and saying nothing about it reads as not having
+ * an answer.
+ *
+ * It says *different*, never *better*, and the restraint is deliberate. It is
+ * not better at what CodeQL does: CodeQL is semantic dataflow analysis and
+ * most of this is pattern matching, which our own output admits every time it
+ * prints `confidence: pattern` next to a finding. Told "we'll likely try
+ * CodeQL first" by somebody who has read both, an overclaim here is checkable
+ * on the spot and loses the rest of the paragraph with it.
+ *
+ * So: two differences that are true, dated, and verifiable by the reader
+ * without taking our word for anything, and then the offer to be closed.
+ */
+const alongsideCodeql = [
+  '**This is not a CodeQL replacement, and it is worth saying where it differs.**',
+  'CodeQL does semantic dataflow analysis and is better at it than this is — a',
+  'repository already running it is not missing much by closing this. Two gaps it',
+  'does fill:',
+  '',
+  '- Code scanning and secret scanning are free on public repositories, but need',
+  '  paid GitHub Code Security / Secret Protection on private ones. This is MIT and',
+  '  free on both, so the same gate can run across a mixed set of repositories.',
+  '- CodeQL analyses a fixed set of languages, and among compiled ones it analyses',
+  "  only the language with the most source files unless it's explicitly configured",
+  '  otherwise. In a polyglot repository the rest goes unscanned by default; this',
+  '  reads every file it is pointed at.',
+  '',
+  'It is additive and report-only, so running both costs a few CI minutes and',
+  'changes nothing else.',
+];
+
+/**
  * Written to be easy to say no to. It quotes no findings and asserts nothing
  * about the code — a pull request that opens with "your repo has 30 high
  * severity issues" is a claim the sender has not verified, and in this
@@ -728,11 +793,13 @@ const PR_TITLE = 'ci: scan pull requests for credentials and injection with Thre
  * workflow, discloses who wrote the workflow, and says it will not be sent
  * twice. Everything past that is the maintainer's call.
  */
-const prBody = (): string =>
+const prBody = (spec: string): string =>
   [
     'Adds a pull-request workflow that scans the diff for hardcoded credentials,',
     'injection, SSRF and unsafe deserialisation. Results go to the Security tab as',
     'SARIF and to a comment on the pull request.',
+    '',
+    ...alongsideCodeql,
     '',
     "**It is report-only.** `failOn` is empty, so it annotates and never fails a build.",
     'A repository with pre-existing findings should get a report on its first install,',
@@ -749,6 +816,13 @@ const prBody = (): string =>
     'so contributor code never executes with your secrets in scope. The SARIF upload',
     'is `continue-on-error` and degrades quietly where code scanning is unavailable.',
     '',
+    `The CLI is pinned to \`${spec}\` and installed with`,
+    '`--ignore-scripts`, and checkout runs with `persist-credentials: false`. A',
+    "scanner that installs a floating version, runs its dependencies' lifecycle",
+    'scripts and leaves a token in `.git/config` is asking you to trust more than it',
+    'is worth, and none of that is needed to read a diff. Bump the pin whenever you',
+    'like — nothing here updates itself.',
+    '',
     'Disclosure: I maintain [ThreatCrush](https://github.com/profullstack/threatcrush).',
     'It is free and MIT, and the workflow installs it from npm — nothing here phones',
     'home. If this is not something you want, closing it is the right answer, and I',
@@ -764,7 +838,8 @@ const prBody = (): string =>
  */
 async function openPr(repo: string, me: string, base: string, dryRun: boolean): Promise<string> {
   const pack = packDir();
-  const inputs = packInputs();
+  const spec = await resolveSpec();
+  const inputs = packInputs(spec);
   const files = [
     {
       destination: '.github/workflows/threatcrush-scan.yml',
@@ -816,7 +891,7 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
       const { stdout } = await git(['show', '--stat', '--oneline', 'HEAD']);
       console.log(`\n--- ${repo} (dry run, nothing pushed) — base ${base}`);
       console.log(stdout.trimEnd());
-      console.log(`\n${PR_TITLE}\n\n${prBody()}`);
+      console.log(`\n${PR_TITLE}\n\n${prBody(spec)}`);
       return 'dry run';
     }
 
@@ -909,7 +984,7 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
       '--title',
       PR_TITLE,
       '--body',
-      prBody(),
+      prBody(spec),
     ]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -1021,8 +1096,10 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
   }
 
   // Read once, so a pack that cannot be found or cannot be rendered stops the
-  // run before it has forked anything.
-  render(fs.readFileSync(path.join(packDir(), 'workflow.yml'), 'utf8'), packInputs());
+  // run before it has forked anything. Resolving the pin here too means a
+  // registry that will not name a version stops the run at the same point,
+  // rather than after the first fork.
+  render(fs.readFileSync(path.join(packDir(), 'workflow.yml'), 'utf8'), packInputs(await resolveSpec()));
 
   // Paced, and only between requests that actually opened. Forking, pushing
   // and opening in a tight loop is the shape GitHub's abuse detection watches
