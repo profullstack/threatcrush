@@ -35,8 +35,17 @@
  * asserted about the code. See the block above openPr() for what that
  * distinction rests on and where the line is.
  *
+ * It is cold outreach, so it goes in the order cold outreach is owed. An
+ * issue asks the question, the pull request follows so the diff is there to
+ * read rather than imagine, and when everything is open it waits for their
+ * checks and fixes what it recognises as its own mess. The first batch of six
+ * was closed six times, once with "please open an issue about this first for
+ * discussion" and once by a maintainer's own scanner finding a real fault in
+ * the workflow — this order is what those two answers cost.
+ *
  *   npx tsx bin/tcfeed.ts pr owner/name --dry-run
  *   npx tsx bin/tcfeed.ts pr owner/name
+ *   npx tsx bin/tcfeed.ts pr --all              # ask, offer, watch, fix
  *
  * It throttles itself, because reddit throttles the address rather than the
  * account and one impatient afternoon costs everything on this machine the
@@ -707,16 +716,26 @@ async function gh(args: string[]): Promise<string> {
 }
 
 /** Everything about the target that decides whether to ask at all. */
-async function prTarget(repo: string, me: string): Promise<{ base: string } | string> {
+async function prTarget(
+  repo: string,
+  me: string
+): Promise<{ base: string; hasIssues: boolean } | string> {
   let about: {
     isArchived: boolean;
     isFork: boolean;
     visibility: string;
+    hasIssuesEnabled: boolean;
     defaultBranchRef: { name: string } | null;
   };
   try {
     about = JSON.parse(
-      await gh(['repo', 'view', repo, '--json', 'isArchived,isFork,visibility,defaultBranchRef'])
+      await gh([
+        'repo',
+        'view',
+        repo,
+        '--json',
+        'isArchived,isFork,visibility,hasIssuesEnabled,defaultBranchRef',
+      ])
     );
   } catch {
     return 'gone, renamed or not visible';
@@ -735,6 +754,31 @@ async function prTarget(repo: string, me: string): Promise<{ base: string } | st
   ) as { html_url: string; state: string }[];
   if (asked.length > 0) return `already asked — ${asked[0].state}, ${asked[0].html_url}`;
 
+  // The same promise, on the other channel. Now that the question goes as an
+  // issue, a repository that answered the issue and never got a pull request —
+  // because it said no, which is the answer the issue is for — has no pull
+  // request for the check above to find. Without this, "no" on an issue is
+  // followed by the whole thing again on the next run, which is exactly the
+  // behaviour asking first was meant to avoid.
+  //
+  // Searched by title rather than by label or body: nothing here can put a
+  // label on somebody else's repository, and the title is the one field this
+  // program controls and never varies.
+  const raised = JSON.parse(
+    await gh([
+      'api',
+      '-XGET',
+      'search/issues',
+      '-f',
+      `q=repo:${repo} author:${me} type:issue in:title "${ISSUE_TITLE}"`,
+      '--jq',
+      '{items: [.items[] | {html_url, state}]}',
+    ]).catch(() => '{"items":[]}')
+  ) as { items: { html_url: string; state: string }[] };
+  if (raised.items.length > 0) {
+    return `already asked — issue ${raised.items[0].state}, ${raised.items[0].html_url}`;
+  }
+
   // Cheap name check now; the authoritative one greps the tree after cloning.
   // A repository that already scans with threatcrush does not need this.
   try {
@@ -747,7 +791,7 @@ async function prTarget(repo: string, me: string): Promise<{ base: string } | st
     // fine — it is not a reason to skip.
   }
 
-  return { base: about.defaultBranchRef.name };
+  return { base: about.defaultBranchRef.name, hasIssues: about.hasIssuesEnabled };
 }
 
 const PR_TITLE = 'ci: scan pull requests for credentials and injection with ThreatCrush';
@@ -793,12 +837,24 @@ const alongsideCodeql = [
  * workflow, discloses who wrote the workflow, and says it will not be sent
  * twice. Everything past that is the maintainer's call.
  */
-const prBody = (spec: string): string =>
+const prBody = (spec: string, issue: string): string =>
   [
     'Adds a pull-request workflow that scans the diff for hardcoded credentials,',
     'injection, SSRF and unsafe deserialisation. Results go to the Security tab as',
     'SARIF and to a comment on the pull request.',
     '',
+    // The diff exists so the question in the issue can be answered by reading
+    // it rather than imagining it. Which of the two gets closed is the
+    // maintainer's choice, and saying so costs nothing.
+    ...(issue
+      ? [
+          'Opened alongside the question in',
+          `${issue}, which is the place to say no or ask for`,
+          'changes. This is only the diff, so it is there to read rather than imagine —',
+          'closing either one is a fine answer.',
+          '',
+        ]
+      : []),
     ...alongsideCodeql,
     '',
     "**It is report-only.** `failOn` is empty, so it annotates and never fails a build.",
@@ -829,6 +885,77 @@ const prBody = (spec: string): string =>
     'will not send another.',
   ].join('\n');
 
+const ISSUE_TITLE = 'Would you take a pull-request security scan workflow?';
+
+/**
+ * The question that goes first.
+ *
+ * capstone's maintainer closed the pull request with "please open an issue
+ * about this first for discussion", and that is the standard courtesy for an
+ * unsolicited CI change: a pull request arrives as a decision already made and
+ * a diff to review, an issue arrives as a question. Two of the other closes
+ * were project-direction answers — "not planned for now", "not intending to
+ * integrate" — that an issue would have got without anyone reading a diff.
+ *
+ * So it describes, links, and asks. It quotes no findings and names no
+ * severity, for the same reason the pull request body does not: a claim about
+ * somebody's code that the sender has not verified is the fastest way to be
+ * ignored, and in this project's own sample every such claim was false.
+ */
+const issueBody = (spec: string): string =>
+  [
+    'Hello — would a pull-request security scan be useful here, or is this',
+    'already covered?',
+    '',
+    'The offer is one workflow that scans each pull request diff for hardcoded',
+    'credentials, injection, SSRF and unsafe deserialisation, and writes results to',
+    'the Security tab as SARIF plus a comment on the pull request. It is report-only',
+    "(`failOn` empty), so it annotates and never fails a build — a first install on a",
+    'repository with a backlog should produce a report, not a blocked pull request.',
+    '',
+    ...alongsideCodeql,
+    '',
+    'How it is wired, since this is the part worth objecting to:',
+    '',
+    '- runs on `pull_request`, not `pull_request_target`, so contributor code never',
+    '  executes with your secrets in scope',
+    `- installs a pinned \`${spec}\` with \`--ignore-scripts\``,
+    '- `contents: read`, `pull-requests: write`, `security-events: write`, and',
+    '  `persist-credentials: false` on checkout',
+    '- two files, both under `.github/`; nothing else in the tree is touched',
+    '',
+    'Disclosure: I maintain [ThreatCrush](https://github.com/profullstack/threatcrush).',
+    'It is free and MIT, and the workflow installs it from npm — nothing here phones',
+    'home. I am opening a pull request alongside this so the diff is there to read if',
+    'you want it, and it can be closed and this discussed instead.',
+    '',
+    'If this is not something you want, saying so is the right answer and I will not',
+    'ask again.',
+  ].join('\n');
+
+/**
+ * Ask. Cheap next to openPr — no fork, no clone, no push — which is most of
+ * why it goes first.
+ */
+async function openIssue(repo: string, spec: string, dryRun: boolean): Promise<string> {
+  if (dryRun) {
+    console.log(`\n--- ${repo} (dry run, nothing opened)`);
+    console.log(`\n${ISSUE_TITLE}\n\n${issueBody(spec)}`);
+    return 'dry run';
+  }
+
+  return await gh([
+    'issue',
+    'create',
+    '--repo',
+    repo,
+    '--title',
+    ISSUE_TITLE,
+    '--body',
+    issueBody(spec),
+  ]);
+}
+
 /**
  * Open one. Forks, branches off *upstream's* head rather than the fork's,
  * writes the pack, pushes and asks.
@@ -836,7 +963,13 @@ const prBody = (spec: string): string =>
  * Upstream's head matters: a fork left over from a year ago is a year behind,
  * and a pull request built on it arrives carrying a year of reverts.
  */
-async function openPr(repo: string, me: string, base: string, dryRun: boolean): Promise<string> {
+async function openPr(
+  repo: string,
+  me: string,
+  base: string,
+  issue: string,
+  dryRun: boolean
+): Promise<string> {
   const pack = packDir();
   const spec = await resolveSpec();
   const inputs = packInputs(spec);
@@ -891,7 +1024,7 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
       const { stdout } = await git(['show', '--stat', '--oneline', 'HEAD']);
       console.log(`\n--- ${repo} (dry run, nothing pushed) — base ${base}`);
       console.log(stdout.trimEnd());
-      console.log(`\n${PR_TITLE}\n\n${prBody(spec)}`);
+      console.log(`\n${PR_TITLE}\n\n${prBody(spec, issue)}`);
       return 'dry run';
     }
 
@@ -984,7 +1117,7 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
       '--title',
       PR_TITLE,
       '--body',
-      prBody(spec),
+      prBody(spec, issue),
     ]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -1013,6 +1146,11 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
 async function prCommand(argv: string[], cache: string): Promise<number> {
   const dryRun = argv.includes('--dry-run') || argv.includes('-n');
   const all = argv.includes('--all');
+  // Both default on, and both are escapes rather than opt-ins: asking first
+  // and cleaning up after are the courtesies, so they should be what happens
+  // when nobody types anything.
+  const noIssue = argv.includes('--no-issue');
+  const noFollow = argv.includes('--no-follow');
   const named = argv.filter((arg) => !arg.startsWith('-'));
 
   if (all && named.length > 0) {
@@ -1043,6 +1181,12 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
     console.error('usage: tcfeed pr owner/name [owner/name ...] [--dry-run]');
     console.error('       tcfeed pr --all [--dry-run]');
     console.error('  --all is the last scan, worst first. Read the reports first.');
+    console.error('');
+    console.error('  Each repository gets an issue asking the question, then the pull');
+    console.error('  request so the diff is there to read. When every one is open it');
+    console.error('  waits for their checks and fixes what it recognises as its own.');
+    console.error('    --no-issue   the diff alone, no question first');
+    console.error('    --no-follow  open them and stop; `tcfeed check --fix` does the rest');
     return 1;
   }
 
@@ -1099,7 +1243,8 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
   // run before it has forked anything. Resolving the pin here too means a
   // registry that will not name a version stops the run at the same point,
   // rather than after the first fork.
-  render(fs.readFileSync(path.join(packDir(), 'workflow.yml'), 'utf8'), packInputs(await resolveSpec()));
+  const spec = await resolveSpec();
+  render(fs.readFileSync(path.join(packDir(), 'workflow.yml'), 'utf8'), packInputs(spec));
 
   // Paced, and only between requests that actually opened. Forking, pushing
   // and opening in a tight loop is the shape GitHub's abuse detection watches
@@ -1108,6 +1253,7 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
   const pause = num('TCFEED_PR_PAUSE', 20);
 
   let opened = 0;
+  const landed: { repo: string; pr: string }[] = [];
   for (const repo of repos) {
     const target = await prTarget(repo, me);
     if (typeof target === 'string') {
@@ -1117,21 +1263,152 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
 
     if (opened > 0 && !dryRun && pause > 0) await sleep(pause);
 
+    // The question first, and its failure is not the pull request's failure.
+    // An issue that could not be opened — a repository that takes them through
+    // a template this cannot fill, an account rate-limited on issues alone —
+    // is a reason to ask on the other channel, not to give up on the repo.
+    let issue = '';
+    if (noIssue) {
+      // Nothing: the caller asked for the diff on its own.
+    } else if (!target.hasIssues) {
+      console.log(`· ${repo} — issues are disabled here, so the request is the only channel`);
+    } else {
+      try {
+        issue = await openIssue(repo, spec, dryRun);
+        if (issue.startsWith('http')) console.log(`· ${repo} — asked ${issue}`);
+      } catch (error) {
+        console.log(`· ${repo} — issue failed: ${why(error)}`);
+      }
+    }
+
     try {
-      const result = await openPr(repo, me, target.base, dryRun);
+      const result = await openPr(repo, me, target.base, issue, dryRun);
       console.log(`· ${repo} — ${result}`);
-      if (result.startsWith('http')) opened++;
+      if (result.startsWith('http')) {
+        opened++;
+        landed.push({ repo, pr: result });
+      }
     } catch (error) {
       console.log(`· ${repo} — failed: ${why(error)}`);
     }
   }
 
+  // Every request opened, then every request watched — rather than watching
+  // each one before opening the next. CI on the first repository runs while
+  // the rest are still being opened, so by the time this loop reaches them
+  // most have already settled and the wait is nearly free. Watching inline
+  // would serialise a ten-minute wait behind every single request.
+  if (!dryRun && !noFollow && landed.length > 0) {
+    console.log('');
+    console.log(`Watching ${landed.length} for red checks. Ctrl-C is safe — nothing is`);
+    console.log('half-done, and `tcfeed check --fix` picks up exactly where this stops.');
+    for (const { repo, pr } of landed) await followUp(repo, me, pr);
+  }
+
   if (!dryRun && opened > 0) {
     console.log('');
-    console.log(`${opened} opened. Watch them: a maintainer who says no gets no second request,`);
-    console.log('and the closed pull request is what makes that automatic.');
+    console.log(`${opened} opened. A maintainer who says no gets no second request, on either`);
+    console.log('channel — the closed request and the answered issue are both remembered.');
   }
   return 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * follow — wait for the checks, then fix what is ours
+ * ------------------------------------------------------------------ */
+
+interface CheckRow {
+  name: string;
+  bucket: string;
+  link: string;
+}
+
+/**
+ * Wait for a request's checks to stop moving.
+ *
+ * `gh pr checks` rather than the Actions API, because the two failures that
+ * mattered most in the first batch came from neither: SonarCloud and
+ * CodeRabbit report as check runs from an app, and a poll that only reads
+ * `actions/runs` sees a clean pull request while the maintainer is looking at
+ * a red X. It exits non-zero whenever anything is failing or pending, so the
+ * exit code is deliberately ignored and only the JSON is read.
+ */
+async function settle(repo: string, pr: string): Promise<CheckRow[] | string> {
+  const number = pr.split('/').pop() ?? '';
+  const every = num('TCFEED_FOLLOW_POLL', 30);
+  const limit = num('TCFEED_FOLLOW_WAIT', 900);
+
+  for (let waited = 0; ; waited += every) {
+    const said = await run('gh', [
+      'pr',
+      'checks',
+      number,
+      '--repo',
+      repo,
+      '--json',
+      'name,bucket,link',
+    ])
+      .then(({ stdout }) => stdout)
+      .catch((error: { stdout?: string }) => error.stdout ?? '');
+
+    let rows: CheckRow[] = [];
+    try {
+      rows = JSON.parse(said || '[]') as CheckRow[];
+    } catch {
+      return 'could not read the checks';
+    }
+
+    // No checks at all is an answer, not a wait. A repository with no CI never
+    // grows a check run, and polling one for fifteen minutes is fifteen
+    // minutes of nothing.
+    if (rows.length === 0) return [];
+    if (rows.every((row) => row.bucket !== 'pending')) return rows;
+    if (waited >= limit) return `still running after ${Math.round(limit / 60)}m`;
+    await sleep(every);
+  }
+}
+
+/**
+ * One request, from red to as-fixed-as-this-is-allowed-to-make-it.
+ *
+ * The division of labour is the same one `check` has always drawn and it is
+ * the important part: this fixes the file it added and nothing else. A red
+ * check that belongs to the repository is reported with its link and left
+ * alone, because a stranger's failing test on a branch that only added files
+ * under .github is their business.
+ *
+ * The one thing the first batch changed is the wording. "not ours, left
+ * alone" was wrong often enough to be worth retiring: SonarCloud failed
+ * AudioMuse-AI's gate *on our file*, and calling that theirs would have hidden
+ * the single most useful review the batch received. When the branch adds only
+ * our two files, a third-party scanner failing is at least as likely to be
+ * judging them as anything else, and it says so.
+ */
+async function followUp(repo: string, me: string, pr: string): Promise<void> {
+  const rows = await settle(repo, pr);
+  if (typeof rows === 'string') {
+    console.log(`· ${repo} — ${rows}; \`tcfeed check --fix\` later`);
+    return;
+  }
+
+  const bad = rows.filter((row) => row.bucket === 'fail');
+  if (bad.length === 0) {
+    console.log(`· ${repo} — ${rows.length === 0 ? 'no checks' : `${rows.length} green`}`);
+    return;
+  }
+
+  for (const row of bad) {
+    console.log(`· ${repo} — ${row.name} failed`);
+    if (row.link) console.log(`    ${row.link}`);
+  }
+  console.log('    the branch adds only .github/workflows/threatcrush-scan.yml and');
+  console.log('    .github/scripts/threatcrush-to-sarif.py, so a scanner failing here may');
+  console.log('    well be judging those — read it before assuming it is theirs.');
+
+  // The remedy table, unchanged and still deliberately short. It patches only
+  // what it recognises and prints the rest for a person, which is the line
+  // this must not cross on somebody else's review.
+  await checkOne(repo, me, true);
 }
 
 /* ------------------------------------------------------------------ *
@@ -1258,9 +1535,14 @@ async function checkOne(repo: string, me: string, fix: boolean): Promise<void> {
   }
 
   for (const entry of badTheirs) {
-    // Reported and never touched. Their tests failing on our branch is their
-    // suite meeting a commit, and the commit only added files under .github.
-    console.log(`    theirs: ${entry.name} failed — not ours, left alone`);
+    // Reported and never touched — but no longer called "not ours". The
+    // commit adds two files and nothing else, so their suite failing on it is
+    // usually their suite meeting a commit, and occasionally their scanner
+    // reading our workflow and being right about it. SonarCloud failed
+    // AudioMuse-AI's gate on our file with a C security rating; both findings
+    // were fair, and a line that said "not ours" would have buried the most
+    // useful review the first batch got.
+    console.log(`    theirs: ${entry.name} failed — their check, worth reading before dismissing`);
   }
 
   if (badOurs.length === 0) {
@@ -1445,8 +1727,10 @@ async function main(): Promise<number> {
   if (argument === '-h' || argument === '--help') {
     console.log('usage: tcfeed [count]                          scan the newest posts');
     console.log('       tcfeed --forget                         make everything look new again');
-    console.log('       tcfeed pr owner/name [...] [--dry-run]  install the scan workflow');
+    console.log('       tcfeed pr owner/name [...] [--dry-run]  ask, then offer the workflow');
     console.log('       tcfeed pr --all [--dry-run]             the last scan, worst first');
+    console.log('         --no-issue   skip the question, open the request alone');
+    console.log('         --no-follow  skip waiting on their checks afterwards');
     console.log('       tcfeed check [owner/name ...] [--fix]   how are the open requests doing');
     console.log('       tcfeed rss [list|add|remove] [url ...]   feeds to read alongside reddit');
     return 0;
@@ -1636,9 +1920,9 @@ async function main(): Promise<number> {
   console.log('Read one before acting on it. Most of these are false positives, and a');
   console.log('pull request about a finding is something you write, not something this sends.');
   console.log('');
-  console.log('To install the scan workflow in one of them instead:');
-  console.log('  tcfeed pr owner/name --dry-run   # see exactly what would be opened');
-  console.log('  tcfeed pr owner/name');
+  console.log('To ask about the scan workflow in one of them instead:');
+  console.log('  tcfeed pr owner/name --dry-run   # the issue and the diff, opening nothing');
+  console.log('  tcfeed pr owner/name             # issue, request, then watch their checks');
   console.log(`  tcfeed pr --all --dry-run        # the ${rows.length} above, worst first`);
   return 0;
 }
