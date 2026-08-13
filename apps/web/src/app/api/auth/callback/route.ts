@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     auth: {
       flowType: "pkce",
       storage,
-      persistSession: false,
+      persistSession: true,
       autoRefreshToken: false,
       detectSessionInUrl: false,
     },

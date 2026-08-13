@@ -86,7 +86,7 @@ describe("GET /api/auth/github", () => {
     expect(response.headers.get("location")).toBe("https://github.com/login/oauth/authorize");
     expect(authOptions).toMatchObject({
       flowType: "pkce",
-      persistSession: false,
+      persistSession: true,
       autoRefreshToken: false,
       detectSessionInUrl: false,
     });

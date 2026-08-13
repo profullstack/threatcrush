@@ -115,7 +115,7 @@ describe("GET /api/auth/callback", () => {
     const authOptions = mocks.clientOptions?.auth as Record<string, unknown>;
 
     expect(mocks.clientKey).toBe("anon-key");
-    expect(authOptions).toMatchObject({ flowType: "pkce", persistSession: false });
+    expect(authOptions).toMatchObject({ flowType: "pkce", persistSession: true });
     expect(mocks.exchangeCodeForSession).toHaveBeenCalledWith("oauth-code");
     expect(mocks.profileInsert).toHaveBeenCalledWith(
       expect.objectContaining({
