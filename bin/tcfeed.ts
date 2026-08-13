@@ -1,7 +1,13 @@
 #!/usr/bin/env -S npx tsx
 /**
- * tcfeed — read the newest posts on a subreddit, find the repositories they
- * link, scan each one, and print a shortlist worth reading.
+ * tcfeed — find repositories worth a look, scan each one, and print a
+ * shortlist worth reading.
+ *
+ * Two sources, merged and deduplicated: the newest posts on a subreddit, and
+ * GitHub's own repository search sorted by most recently updated. Either is
+ * allowed to fail on its own — reddit refuses this address often enough that
+ * making it fatal meant a whole run produced nothing on an afternoon when the
+ * search was answering perfectly.
  *
  * The scan reports, and that is all the scan does. It does not fork anything
  * and it does not open pull requests off its own findings. Four repositories
@@ -33,6 +39,10 @@
  *   TCFEED_MAX      repos cloned per run, default 20
  *   TCFEED_PAUSE    seconds between clones, default 1
  *   TCFEED_SUB      subreddit, default coolgithubprojects
+ *   TCFEED_GH       results taken from the search, default 25, 0 turns it off
+ *   TCFEED_GH_QUERY the search, default `stars:>1000`. The qualifier is
+ *                   `stars`; `starts` is a free-text search that returns
+ *                   repositories with no stars at all and looks like it worked
  *   TC_BIN          the scanner, default whatever `threatcrush` resolves to
  *   TCFEED_CACHE    where seen repos and reports live, default ~/.cache/tcfeed
  *
@@ -216,6 +226,59 @@ function reposIn(body: string): string[] {
   }
 
   return [...found].sort();
+}
+
+/**
+ * The other source: GitHub's own repository search, newest activity first.
+ *
+ * This is the API behind
+ * https://github.com/search?q=stars:>1000&type=repositories&s=updated&o=desc,
+ * asked through gh so it uses the token already on this machine — the HTML
+ * page is rate-limited hard for anyone not signed in, and parsing it would be
+ * a scraper of a page that changes shape without warning.
+ *
+ * `stars:>1000` — more than a thousand, sorted by most recently pushed. The
+ * qualifier is `stars`, and it is worth being careful about: `starts:>1000` is
+ * not an error, it is a *free-text search* for the word, and it quietly
+ * returns repositories with no stars at all. A query that is wrong in that
+ * direction looks like it worked.
+ *
+ * Override with TCFEED_GH_QUERY, which takes any GitHub search qualifier.
+ *
+ * Archived and forked repositories are dropped here rather than left for
+ * metadata() to reject one HTTP call later, because the search already knows.
+ * Size is not filtered here — the search has no qualifier for it — so the
+ * TOO_BIG_KB check downstream does more work with this query than the feed
+ * ever gave it: a repository with this many stars is often a monorepo.
+ */
+async function searchRepos(query: string, limit: number): Promise<string[]> {
+  const { stdout } = await run(
+    'gh',
+    [
+      'search',
+      'repos',
+      query,
+      '--sort',
+      'updated',
+      '--order',
+      'desc',
+      '--limit',
+      String(limit),
+      '--json',
+      'fullName,isArchived,isFork',
+    ],
+    { maxBuffer: 32 * 1024 * 1024 }
+  );
+
+  const found = JSON.parse(stdout) as {
+    fullName: string;
+    isArchived: boolean;
+    isFork: boolean;
+  }[];
+
+  return found
+    .filter((entry) => !entry.isArchived && !entry.isFork && entry.fullName)
+    .map((entry) => entry.fullName);
 }
 
 async function metadata(
@@ -1010,19 +1073,60 @@ async function main(): Promise<number> {
     fs.appendFileSync(seenFile, `${repo}\n`);
   };
 
-  let body: string;
+  // Two sources, and either one is allowed to fail.
+  //
+  // Reddit refuses this address often enough that making it fatal meant a run
+  // produced nothing on an afternoon when the other source was answering
+  // perfectly. Whichever source came back is scanned; only losing both is an
+  // error, and a source that failed says so rather than looking empty.
+  const fromReddit: string[] = [];
+  const fromSearch: string[] = [];
+  const broke: string[] = [];
+
   try {
-    body = await readFeed(sub, limit, cache);
+    fromReddit.push(...reposIn(await readFeed(sub, limit, cache)));
   } catch (error) {
-    console.error(`tcfeed: ${(error as Error).message}`);
-    return 1;
+    broke.push(`reddit: ${(error as Error).message}`);
   }
 
-  const repos = reposIn(body);
-  if (repos.length === 0) {
-    console.log('tcfeed: the feed mentioned no repositories');
+  const query = process.env.TCFEED_GH_QUERY ?? 'stars:>1000';
+  const searchWanted = num('TCFEED_GH', 25);
+  if (searchWanted > 0 && query) {
+    try {
+      fromSearch.push(...(await searchRepos(query, searchWanted)));
+    } catch (error) {
+      broke.push(`github search: ${(error as Error).message}`);
+    }
+  }
+
+  for (const why of broke) console.log(`tcfeed: ${why}`);
+
+  if (fromReddit.length === 0 && fromSearch.length === 0) {
+    // Both empty is only an error if both were *asked*. A run with the search
+    // turned off and a quiet feed has simply found nothing today.
+    if (broke.length > 0) {
+      console.error('tcfeed: no source answered');
+      return 1;
+    }
+    console.log('tcfeed: neither source mentioned a repository');
     return 0;
   }
+
+  // Deduplicated across sources, because a repository trending on reddit is
+  // exactly the kind that also turns up in a search sorted by recent activity,
+  // and cloning it twice in one run is the one thing worth avoiding here.
+  const seenInThisRun = new Set<string>();
+  const repos = [...fromReddit, ...fromSearch].filter((repo) => {
+    if (seenInThisRun.has(repo)) return false;
+    seenInThisRun.add(repo);
+    return true;
+  });
+
+  const overlap = fromReddit.length + fromSearch.length - repos.length;
+  console.log(
+    `tcfeed: ${repos.length} to consider — ${fromReddit.length} from r/${sub}, ` +
+      `${fromSearch.length} from search (${query})${overlap > 0 ? `, ${overlap} in both` : ''}`
+  );
 
   // A run is capped and paced. One invocation that clones ninety repositories
   // back to back is a scraper, and the point of this is a shortlist to read
