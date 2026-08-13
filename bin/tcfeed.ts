@@ -72,8 +72,8 @@
  *   TCFEED_PACK     the action pack directory, default ../sh1pt/packages/…
  *   TCFEED_PR_MAX   repositories one `pr` run may open against, default 20
  *   TCFEED_PR_PAUSE seconds between requests that open, default 20
- *   TCFEED_PR_STANDING  unanswered requests allowed to stand at once, default 30
- *   TCFEED_PR_PER_DAY   requests opened in a rolling 24 hours, default 20
+ *   TCFEED_PR_STANDING  unanswered requests allowed to stand at once, default 200
+ *   TCFEED_PR_PER_DAY   requests opened in a rolling 24 hours, default 100
  *   TCFEED_NODE     nodeVersion input, default 20
  *   TCFEED_SPEC     threatcrushPackageSpec input, default @latest
  *   TCFEED_FAIL_ON  failOn input, default empty, meaning report-only
@@ -935,21 +935,32 @@ const prBody = (spec: string, issue: string, ran: string): string =>
  * Two numbers, because they fail differently:
  *
  *   standing  unanswered requests sitting in other people's repositories. The
- *             footprint. 33 open requests is what "bulk" looks like to a
- *             human reading the account, whenever they were sent.
- *   perDay    requests opened in a rolling 24 hours. The velocity. 33 in one
- *             afternoon reads as automation even if the total is modest.
+ *             footprint — what "bulk" looks like to a human reading the
+ *             account, whenever they were sent.
+ *   perDay    requests opened in a rolling 24 hours. The velocity. Thirty in
+ *             one afternoon reads as automation even if the total is modest.
+ *
+ * The defaults are backstops against a runaway loop, not a pace. They were
+ * briefly set near normal use — 30 and 20 — and every ordinary run hit them,
+ * which taught the operator to raise both with an environment variable and
+ * stopped either number meaning anything at all. A limit that fires constantly
+ * is not consulted, it is routed around, and the one that fires on the
+ * thousandth request of a broken loop is worth more than the one that fires on
+ * the twenty-first of a deliberate afternoon.
+ *
+ * So: high enough that a person doing this on purpose never sees them, low
+ * enough that a bug cannot empty the whole feed into strangers' repositories
+ * overnight. Whether any given afternoon is defensible under GitHub's
+ * acceptable use policy is a judgement, and it stays with whoever typed the
+ * command.
  *
  * Counted with search/issues total_count rather than by listing, because
  * listing caps at 100 and a budget that silently undercounts once the number
  * gets interesting is worse than no budget at all.
  */
 async function budget(me: string): Promise<{ allowed: number; note: string }> {
-  const standingCap = num('TCFEED_PR_STANDING', 30);
-  // 20, matching TCFEED_PR_MAX: one full --all run is a day's sending. A
-  // number below the run cap would mean the headline command could never
-  // complete in one go, which reads as a bug rather than as a budget.
-  const dailyCap = num('TCFEED_PR_PER_DAY', 20);
+  const standingCap = num('TCFEED_PR_STANDING', 200);
+  const dailyCap = num('TCFEED_PR_PER_DAY', 100);
 
   const count = async (extra: string): Promise<number> => {
     const said = await gh([
