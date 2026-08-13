@@ -50,7 +50,8 @@
  * and for `pr`:
  *
  *   TCFEED_PACK     the action pack directory, default ../sh1pt/packages/…
- *   TCFEED_PR_MAX   repositories one `pr` run may open against, default 3
+ *   TCFEED_PR_MAX   repositories one `pr` run may open against, default 20
+ *   TCFEED_PR_PAUSE seconds between requests that open, default 20
  *   TCFEED_NODE     nodeVersion input, default 20
  *   TCFEED_SPEC     threatcrushPackageSpec input, default @latest
  *   TCFEED_FAIL_ON  failOn input, default empty, meaning report-only
@@ -713,7 +714,10 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
     return 1;
   }
 
-  const max = num('TCFEED_PR_MAX', 3);
+  // 20, matching TCFEED_MAX: a scan takes twenty repositories at a time, so a
+  // cap below that guaranteed every --all run left something behind and had to
+  // be run again to finish what it started.
+  const max = num('TCFEED_PR_MAX', 20);
   if (!all && repos.length > max) {
     console.error(`tcfeed: ${repos.length} repositories in one run, and the cap is ${max}.`);
     console.error('  This is a typo guard, not a throughput problem. Raise TCFEED_PR_MAX if');
@@ -723,8 +727,8 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
 
   // Named repositories were typed and refusing them is right; --all was one
   // word and refusing it is only annoying, so the cap throttles instead. What
-  // it must not do is throttle silently: a run that quietly did three of
-  // twenty-five reads as a run that did all of them.
+  // it must not do is throttle silently: a run that quietly did some of the
+  // table reads exactly like a run that did all of it.
   if (all && repos.length > max) {
     console.log(`tcfeed: ${repos.length} in the last run, taking the worst ${max}.`);
     console.log(`  ${repos.slice(max).length} left for a later run, or raise TCFEED_PR_MAX.`);
