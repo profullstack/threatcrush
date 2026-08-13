@@ -118,6 +118,39 @@ function readOr(file: string, fallback: string): string {
   }
 }
 
+/**
+ * Why a command failed, in one line, taking the line that says something.
+ *
+ * execFile builds `message` as "Command failed: <the entire command>" and puts
+ * the actual complaint on the lines after it, so reading the first line of the
+ * message reports the command back at you and drops the reason. `gh pr create`
+ * failing against a repository that refuses pull requests from this account
+ * printed the title, the head ref and the first line of the body, and not one
+ * word about permissions; the cause took a manual re-run to find.
+ *
+ * stderr is where the tools here put their reasons, so it is preferred, and
+ * its last meaningful line is the complaint — gh writes progress above it.
+ * git's advice is dropped first: it ends with "hint: See the 'Note about
+ * fast-forwards'", which is three lines below the "! [rejected]" that says
+ * what actually happened, so taking the last line literally reports the
+ * footnote instead of the failure.
+ */
+function why(error: unknown): string {
+  const meaningful = (lines: string[]) =>
+    lines.filter((line) => line.trim() && !/^(hint:|To https?:|remote:\s*$)/.test(line.trim()));
+
+  const stderr = String((error as { stderr?: string })?.stderr ?? '').trim();
+  if (stderr) {
+    const said = meaningful(stderr.split('\n'));
+    if (said.length > 0) return said[said.length - 1].trim();
+  }
+  const message = String((error as Error)?.message ?? error ?? 'unknown');
+  const lines = message.split('\n').filter((line) => line.trim());
+  // Past the "Command failed: …" preamble when there is anything past it.
+  const useful = lines.find((line) => !/^Command failed:/.test(line));
+  return (useful ?? lines[0] ?? 'unknown').trim();
+}
+
 async function usable(command: string, args: string[]): Promise<boolean> {
   try {
     await run(command, args);
@@ -795,7 +828,7 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
     // broken invocation surface, three steps later, as "not a fork of".
     const forkFailed = await run('gh', ['repo', 'fork', repo, '--clone=false'])
       .then(() => '')
-      .catch((error: Error) => error.message.split('\n')[0]);
+      .catch((error: unknown) => why(error));
 
     // gh names the fork after the upstream unless that name is taken, in which
     // case it silently picks another and the push below would land somewhere
@@ -828,6 +861,29 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
 
     // gh's credential helper applied per command, so this works whether or not
     // `gh auth setup-git` was ever run, and the token stays out of argv.
+    //
+    // Forced, and only this far into the function. Getting here means prTarget
+    // found no request on this repository in any state, so a branch already
+    // sitting on the fork is debris from a run that pushed and then failed to
+    // ask — the earlier attempt against a repository that refuses pull
+    // requests from this account left exactly that. Unforced, the leftover is
+    // permanent: the new branch is built from a fresh clone of upstream and is
+    // no descendant of it, so every later attempt is rejected as a
+    // non-fast-forward and the repository can never be asked at all.
+    //
+    // What is overwritten is a branch on our own fork, named by this program,
+    // with no pull request pointing at it. The lease is pinned to the SHA the
+    // fork actually has rather than left bare: bare --force-with-lease needs a
+    // remote-tracking ref to compare against, and pushing to a URL never
+    // creates one, so it refuses every time with "failed to push some refs"
+    // and reads exactly like the rejection it was meant to replace.
+    const standing = await gh([
+      'api',
+      `repos/${fork}/branches/${PR_BRANCH}`,
+      '--jq',
+      '.commit.sha',
+    ]).catch(() => '');
+
     await git([
       '-c',
       'credential.helper=',
@@ -835,6 +891,8 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
       'credential.helper=!gh auth git-credential',
       'push',
       '--quiet',
+      // Nothing there is the ordinary case, and a plain push is right for it.
+      ...(standing ? [`--force-with-lease=${PR_BRANCH}:${standing}`] : []),
       `https://github.com/${fork}.git`,
       `HEAD:${PR_BRANCH}`,
     ]);
@@ -987,7 +1045,7 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
       console.log(`· ${repo} — ${result}`);
       if (result.startsWith('http')) opened++;
     } catch (error) {
-      console.log(`· ${repo} — failed: ${(error as Error).message.split('\n')[0]}`);
+      console.log(`· ${repo} — failed: ${why(error)}`);
     }
   }
 
@@ -1257,7 +1315,7 @@ async function checkCommand(argv: string[]): Promise<number> {
     try {
       await checkOne(repo, me, fix);
     } catch (error) {
-      console.log(`· ${repo} — could not check: ${(error as Error).message.split('\n')[0]}`);
+      console.log(`· ${repo} — could not check: ${why(error)}`);
     }
   }
 
