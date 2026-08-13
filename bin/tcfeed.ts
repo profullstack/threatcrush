@@ -72,6 +72,8 @@
  *   TCFEED_PACK     the action pack directory, default ../sh1pt/packages/…
  *   TCFEED_PR_MAX   repositories one `pr` run may open against, default 20
  *   TCFEED_PR_PAUSE seconds between requests that open, default 20
+ *   TCFEED_PR_STANDING  unanswered requests allowed to stand at once, default 30
+ *   TCFEED_PR_PER_DAY   requests opened in a rolling 24 hours, default 10
  *   TCFEED_NODE     nodeVersion input, default 20
  *   TCFEED_SPEC     threatcrushPackageSpec input, default @latest
  *   TCFEED_FAIL_ON  failOn input, default empty, meaning report-only
@@ -885,6 +887,66 @@ const prBody = (spec: string, issue: string): string =>
     'will not send another.',
   ].join('\n');
 
+/**
+ * How many requests may be opened right now, and why not more.
+ *
+ * TCFEED_PR_MAX bounds a run. Nothing bounded the account, and on the first
+ * day that mattered: 33 unsolicited pull requests went out in a single day
+ * across 33 strangers' repositories, 25 of them still unanswered days later.
+ * Each run was individually within its cap and the total was nowhere near
+ * defensible, which is the difference between a per-run cap and a budget.
+ *
+ * prCommand's own docstring already said what this costs — bulk unsolicited
+ * pull requests are against GitHub's acceptable use policy however good the
+ * workflow is, and an account that sends them stops being able to send
+ * anything — so this is that paragraph made executable rather than advisory.
+ *
+ * Two numbers, because they fail differently:
+ *
+ *   standing  unanswered requests sitting in other people's repositories. The
+ *             footprint. 33 open requests is what "bulk" looks like to a
+ *             human reading the account, whenever they were sent.
+ *   perDay    requests opened in a rolling 24 hours. The velocity. 33 in one
+ *             afternoon reads as automation even if the total is modest.
+ *
+ * Counted with search/issues total_count rather than by listing, because
+ * listing caps at 100 and a budget that silently undercounts once the number
+ * gets interesting is worse than no budget at all.
+ */
+async function budget(me: string): Promise<{ allowed: number; note: string }> {
+  const standingCap = num('TCFEED_PR_STANDING', 30);
+  const dailyCap = num('TCFEED_PR_PER_DAY', 10);
+
+  const count = async (extra: string): Promise<number> => {
+    const said = await gh([
+      'api',
+      '-XGET',
+      'search/issues',
+      '-f',
+      `q=type:pr author:${me} in:title "${PR_TITLE}" ${extra}`,
+      '--jq',
+      '.total_count',
+    ]);
+    const total = Number(said.trim());
+    // A budget that cannot count is not a budget. Refusing here costs one run;
+    // guessing zero would open the floodgates on exactly the failure this is
+    // meant to catch.
+    if (!Number.isFinite(total)) throw new Error(`could not count requests (got ${said.trim()})`);
+    return total;
+  };
+
+  const standing = await count('state:open');
+  // A rolling day, not "since midnight": the point is velocity, and midnight
+  // resets it to zero for an account that sent thirty at 23:00.
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 19) + 'Z';
+  const today = await count(`created:>=${since}`);
+
+  const room = Math.min(standingCap - standing, dailyCap - today);
+  const note =
+    `${standing} unanswered of ${standingCap}, ${today} opened in the last day of ${dailyCap}`;
+  return { allowed: Math.max(0, room), note };
+}
+
 const ISSUE_TITLE = 'Would you take a pull-request security scan workflow?';
 
 /**
@@ -1140,8 +1202,13 @@ async function openPr(
  * twice whatever its answer was, and --all means the run whose table is still
  * on the screen rather than every repository the cache has ever seen.
  *
- * None of which makes the pull requests wanted. The first maintainer to answer
- * one closed it.
+ * All of which bounded the run and none of which bounded the account, so 33
+ * went out in one day and 25 were still unanswered days later. budget() is the
+ * rail that was missing: standing footprint and rolling velocity, checked
+ * before anything opens.
+ *
+ * None of which makes the pull requests wanted. Seven maintainers have answered
+ * so far and all seven closed it.
  */
 async function prCommand(argv: string[], cache: string): Promise<number> {
   const dryRun = argv.includes('--dry-run') || argv.includes('-n');
@@ -1245,6 +1312,28 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
   // rather than after the first fork.
   const spec = await resolveSpec();
   render(fs.readFileSync(path.join(packDir(), 'workflow.yml'), 'utf8'), packInputs(spec));
+
+  // The account's budget, after the run's own cap and before anything is
+  // opened. A dry run is exempt because it opens nothing; it still prints the
+  // standing, which is the number worth seeing before deciding to send.
+  const { allowed, note } = await budget(me);
+  console.log(`standing: ${note}`);
+  if (!dryRun) {
+    if (allowed === 0) {
+      console.error('');
+      console.error('tcfeed: no room to send. Nothing was opened.');
+      console.error('  `tcfeed check` shows where the open ones stand; the budget frees up as');
+      console.error('  they are answered, and the rolling day frees up on its own.');
+      console.error('  TCFEED_PR_STANDING and TCFEED_PR_PER_DAY raise it if you mean to.');
+      return 1;
+    }
+    if (repos.length > allowed) {
+      // Said out loud, for the same reason the --all cap says it: a run that
+      // quietly did four of twenty reads exactly like a run that did twenty.
+      console.log(`  room for ${allowed} this run; ${repos.length - allowed} left for later.`);
+      repos = repos.slice(0, allowed);
+    }
+  }
 
   // Paced, and only between requests that actually opened. Forking, pushing
   // and opening in a tight loop is the shape GitHub's abuse detection watches
