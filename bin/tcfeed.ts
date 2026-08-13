@@ -510,7 +510,15 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
       return 'dry run';
     }
 
-    await run('gh', ['repo', 'fork', repo, '--clone=false', '--remote=false']).catch(() => undefined);
+    // No --remote flag: gh rejects it outright when a repository argument is
+    // given ("unsupported when a repository argument is provided") and prints
+    // its help instead of forking. The failure is kept rather than discarded,
+    // because forking something already forked is a no-op worth ignoring and
+    // every other reason to fail is worth reading — swallowing both made a
+    // broken invocation surface, three steps later, as "not a fork of".
+    const forkFailed = await run('gh', ['repo', 'fork', repo, '--clone=false'])
+      .then(() => '')
+      .catch((error: Error) => error.message.split('\n')[0]);
 
     // gh names the fork after the upstream unless that name is taken, in which
     // case it silently picks another and the push below would land somewhere
@@ -521,11 +529,25 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
     for (let attempt = 1; attempt <= 10 && !parent; attempt++) {
       // Forking is asynchronous; the repository exists before it has content.
       if (attempt > 1) await sleep(3);
-      parent = await gh(['repo', 'view', fork, '--json', 'parent', '--jq', '.parent.nameWithOwner'])
-        .catch(() => '');
+      // Composed from owner.login and name rather than read off
+      // `.parent.nameWithOwner`, which does not exist: gh returns the parent
+      // as `{id, name, owner}` only. Asking for the field that is not there
+      // yields null, which is never equal to the repo, so every fork looked
+      // like somebody else's and nothing was ever pushed.
+      parent = await gh([
+        'repo',
+        'view',
+        fork,
+        '--json',
+        'parent',
+        '--jq',
+        '.parent | select(.) | .owner.login + "/" + .name',
+      ]).catch(() => '');
     }
-    if (parent !== repo)
+    if (parent !== repo) {
+      if (forkFailed) return `could not fork: ${forkFailed}`;
       return `${fork} is not a fork of ${repo}${parent ? ` (it forks ${parent})` : ''} — fork it by hand`;
+    }
 
     // gh's credential helper applied per command, so this works whether or not
     // `gh auth setup-git` was ever run, and the token stays out of argv.
@@ -649,6 +671,276 @@ async function prCommand(argv: string[]): Promise<number> {
   return 0;
 }
 
+/* ------------------------------------------------------------------ *
+ * check — did the request break, and was it us
+ * ------------------------------------------------------------------ */
+
+/** The file we add. A run from any other file is somebody else's CI. */
+const OUR_WORKFLOW = '.github/workflows/threatcrush-scan.yml';
+
+/**
+ * What a failure has to look like before this touches anything.
+ *
+ * The table is short on purpose and it is allowed to stay short. Every entry
+ * is a failure mode that has been reproduced and whose fix has been checked;
+ * anything that does not match is printed for a person to read rather than
+ * guessed at. Pushing a speculative fix onto a stranger's pull request is
+ * worse than leaving it red — red is honest, and a wrong commit on somebody
+ * else's review is a second thing for them to work out.
+ */
+interface Remedy {
+  id: string;
+  when: RegExp;
+  /** null means the file is fine and the run was unlucky: re-run, do not patch. */
+  patch: ((workflow: string) => string) | null;
+  why: string;
+}
+
+const REMEDIES: Remedy[] = [
+  {
+    id: 'registry',
+    // The install step already retries three times. Reaching this means the
+    // registry was unreachable for the whole window, which says nothing about
+    // the workflow and everything about npm that minute.
+    when: /ThreatCrush install failed after 3 attempts|npm error code (ETIMEDOUT|ECONNRESET|EAI_AGAIN|E429|E503)/i,
+    patch: null,
+    why: 'the npm registry was unreachable, not a fault in the workflow',
+  },
+  {
+    id: 'runner',
+    when: /The (runner has received a shutdown signal|operation was canceled)|Received request to deprovision/i,
+    patch: null,
+    why: 'the runner went away mid-job',
+  },
+  {
+    id: 'native-build',
+    // better-sqlite3 falls through to a source build wherever no prebuilt
+    // matches the runtime, and then wants a toolchain the runner may not have.
+    // --ignore-scripts skips a native build only the daemon needs, which is
+    // what this project's own install instructions have always said.
+    when: /gyp ERR!|node-gyp rebuild|not found: make|prebuild-install\b.*\bfail/i,
+    patch: (workflow) =>
+      workflow.replace(
+        /npm install -g "([^"]+)"/,
+        'npm install -g --ignore-scripts "$1"'
+      ),
+    why: 'better-sqlite3 tried a source build; --ignore-scripts skips one only the daemon needs',
+  },
+];
+
+interface RunRow {
+  id: number;
+  name: string;
+  path: string;
+  status: string;
+  conclusion: string | null;
+}
+
+/**
+ * One repository's standing. Ours and theirs are separated by the workflow
+ * *path*, not by the job name — a job called "security" in somebody's ci.yml
+ * is theirs, and a red one there is not an invitation to open their editor.
+ */
+async function checkOne(repo: string, me: string, fix: boolean): Promise<void> {
+  const open = JSON.parse(
+    await gh(['api', `repos/${repo}/pulls?state=open&head=${me}:${PR_BRANCH}&per_page=1`])
+  ) as { number: number; head: { sha: string }; mergeable_state?: string }[];
+
+  if (open.length === 0) {
+    console.log(`· ${repo} — no open request`);
+    return;
+  }
+
+  const pr = open[0];
+  const state = await gh([
+    'api',
+    `repos/${repo}/pulls/${pr.number}`,
+    '--jq',
+    '.mergeable_state',
+  ]).catch(() => 'unknown');
+
+  // Both sides of the same commit. Pushing the branch to the fork sets off
+  // whatever the upstream repository runs on push — on the fork, under our
+  // account — and those runs never appear against the upstream repository at
+  // all. Looking only upstream misses exactly the red X that gets noticed,
+  // because the fork is where the notification mail comes from.
+  const fork = `${me}/${repo.split('/')[1]}`;
+  const runs: RunRow[] = [];
+  for (const where of [repo, fork]) {
+    const said = await gh([
+      'api',
+      `repos/${where}/actions/runs?head_sha=${pr.head.sha}&per_page=100`,
+    ]).catch(() => '{"workflow_runs":[]}');
+    runs.push(...((JSON.parse(said) as { workflow_runs: RunRow[] }).workflow_runs ?? []));
+  }
+
+  const ours = runs.filter((entry) => entry.path === OUR_WORKFLOW);
+  const theirs = runs.filter((entry) => entry.path !== OUR_WORKFLOW);
+  const badTheirs = theirs.filter((entry) => entry.conclusion === 'failure');
+  const badOurs = ours.filter((entry) => entry.conclusion === 'failure');
+  // `action_required` arrives as a conclusion on a completed run, not as a
+  // status. Read as a status it never matches, and a request waiting on a
+  // maintainer reads as one with nothing to say.
+  const waiting = ours.filter(
+    (entry) => entry.status === 'action_required' || entry.conclusion === 'action_required'
+  );
+
+  console.log(`· ${repo} #${pr.number} — ${state}`);
+
+  if (waiting.length > 0) {
+    // Not a failure and not fixable from this side. GitHub withholds workflow
+    // runs on a first-time contributor's pull request until a maintainer
+    // approves them, which is the usual reason a request sits with no checks.
+    console.log('    ours: waiting for the maintainer to approve the run');
+  }
+
+  for (const entry of badTheirs) {
+    // Reported and never touched. Their tests failing on our branch is their
+    // suite meeting a commit, and the commit only added files under .github.
+    console.log(`    theirs: ${entry.name} failed — not ours, left alone`);
+  }
+
+  if (badOurs.length === 0) {
+    if (waiting.length === 0 && badTheirs.length === 0)
+      console.log(`    ours: ${ours.map((e) => e.conclusion ?? e.status).join(', ') || 'no runs'}`);
+    return;
+  }
+
+  for (const entry of badOurs) {
+    const log = await run('gh', ['run', 'view', String(entry.id), '--repo', repo, '--log-failed'])
+      .then(({ stdout }) => stdout)
+      .catch(() => '');
+
+    const remedy = REMEDIES.find((candidate) => candidate.when.test(log));
+    if (!remedy) {
+      console.log(`    ours: ${entry.name} failed, and this does not recognise why.`);
+      console.log(`      gh run view ${entry.id} --repo ${repo} --log-failed`);
+      for (const line of log.trimEnd().split('\n').slice(-4)) console.log(`      | ${line.slice(-160)}`);
+      continue;
+    }
+
+    console.log(`    ours: ${remedy.id} — ${remedy.why}`);
+    if (!fix) {
+      console.log('      --fix would ' + (remedy.patch ? 'push a fix' : 're-run it'));
+      continue;
+    }
+
+    if (!remedy.patch) {
+      await run('gh', ['run', 'rerun', String(entry.id), '--repo', repo, '--failed']);
+      console.log('      re-run');
+      continue;
+    }
+
+    console.log(`      ${await pushFix(repo, me, remedy)}`);
+  }
+}
+
+/**
+ * Apply a remedy to the branch the request is already on. Pushing to it
+ * updates the open pull request, which is the whole point: a second request
+ * for the same thing is the spam the first one promised not to be.
+ */
+async function pushFix(repo: string, me: string, remedy: Remedy): Promise<string> {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tcfeed-fix-'));
+  const src = path.join(tmp, 'src');
+  const git = (args: string[]) => run('git', ['-C', src, ...args]);
+  const fork = `${me}/${repo.split('/')[1]}`;
+
+  try {
+    await run('git', [
+      'clone',
+      '--quiet',
+      '--depth',
+      '1',
+      '--branch',
+      PR_BRANCH,
+      `https://github.com/${fork}.git`,
+      src,
+    ]);
+
+    const full = path.join(src, OUR_WORKFLOW);
+    const before = fs.readFileSync(full, 'utf8');
+    const after = remedy.patch!(before);
+    // A remedy that matched the log but changes nothing in the file has not
+    // understood the failure. Say so rather than pushing an empty commit.
+    if (after === before) return `${remedy.id} matched the log but changed nothing — left alone`;
+
+    fs.writeFileSync(full, after);
+    await git(['add', OUR_WORKFLOW]);
+    await git(['commit', '--quiet', '-m', `ci: ${remedy.why}`]);
+    await git([
+      '-c',
+      'credential.helper=',
+      '-c',
+      'credential.helper=!gh auth git-credential',
+      'push',
+      '--quiet',
+      `https://github.com/${fork}.git`,
+      `HEAD:${PR_BRANCH}`,
+    ]);
+    return 'pushed';
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The subcommand. With no arguments it reads every repository this has an open
+ * request on, which is the list it is entitled to act on and no wider.
+ */
+async function checkCommand(argv: string[]): Promise<number> {
+  const fix = argv.includes('--fix');
+  const named = argv.filter((arg) => !arg.startsWith('-'));
+
+  for (const tool of ['git', 'gh']) {
+    if (!(await usable(tool, ['--version']))) {
+      console.error(`tcfeed: missing ${tool}`);
+      return 1;
+    }
+  }
+
+  const me = await gh(['api', 'user', '--jq', '.login']).catch(() => '');
+  if (!me) {
+    console.error('tcfeed: gh is not logged in');
+    return 1;
+  }
+
+  let repos = named;
+  if (repos.length === 0) {
+    // Found by searching for the requests themselves rather than by keeping a
+    // list on disk. A file would drift the first time one was opened by hand.
+    const found = JSON.parse(
+      await gh([
+        'api',
+        `search/issues?q=${encodeURIComponent(`is:pr is:open author:${me} head:${PR_BRANCH}`)}&per_page=100`,
+        '--jq',
+        '[.items[].repository_url]',
+      ])
+    ) as string[];
+    repos = [...new Set(found.map((url) => url.replace(/^.*\/repos\//, '')))].sort();
+  }
+
+  if (repos.length === 0) {
+    console.log('tcfeed: no open requests');
+    return 0;
+  }
+
+  for (const repo of repos) {
+    try {
+      await checkOne(repo, me, fix);
+    } catch (error) {
+      console.log(`· ${repo} — could not check: ${(error as Error).message.split('\n')[0]}`);
+    }
+  }
+
+  if (!fix) {
+    console.log('');
+    console.log('Nothing was changed. `tcfeed check --fix` acts on the failures marked ours;');
+    console.log('failures marked theirs are never touched, whatever --fix says.');
+  }
+  return 0;
+}
+
 function table(rows: Row[]): void {
   const columns = [9, 6, 8, 7, 7];
   const line = (cells: string[]) =>
@@ -680,10 +972,12 @@ async function main(): Promise<number> {
     console.log('usage: tcfeed [count]                          scan the newest posts');
     console.log('       tcfeed --forget                         make everything look new again');
     console.log('       tcfeed pr owner/name [...] [--dry-run]  install the scan workflow');
+    console.log('       tcfeed check [owner/name ...] [--fix]   how are the open requests doing');
     return 0;
   }
 
   if (argument === 'pr') return prCommand(process.argv.slice(3));
+  if (argument === 'check') return checkCommand(process.argv.slice(3));
 
   if (argument === '--forget') {
     fs.rmSync(path.join(cache, 'seen'), { force: true });
