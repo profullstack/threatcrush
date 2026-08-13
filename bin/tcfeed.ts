@@ -510,7 +510,15 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
       return 'dry run';
     }
 
-    await run('gh', ['repo', 'fork', repo, '--clone=false', '--remote=false']).catch(() => undefined);
+    // No --remote flag: gh rejects it outright when a repository argument is
+    // given ("unsupported when a repository argument is provided") and prints
+    // its help instead of forking. The failure is kept rather than discarded,
+    // because forking something already forked is a no-op worth ignoring and
+    // every other reason to fail is worth reading — swallowing both made a
+    // broken invocation surface, three steps later, as "not a fork of".
+    const forkFailed = await run('gh', ['repo', 'fork', repo, '--clone=false'])
+      .then(() => '')
+      .catch((error: Error) => error.message.split('\n')[0]);
 
     // gh names the fork after the upstream unless that name is taken, in which
     // case it silently picks another and the push below would land somewhere
@@ -521,11 +529,25 @@ async function openPr(repo: string, me: string, base: string, dryRun: boolean): 
     for (let attempt = 1; attempt <= 10 && !parent; attempt++) {
       // Forking is asynchronous; the repository exists before it has content.
       if (attempt > 1) await sleep(3);
-      parent = await gh(['repo', 'view', fork, '--json', 'parent', '--jq', '.parent.nameWithOwner'])
-        .catch(() => '');
+      // Composed from owner.login and name rather than read off
+      // `.parent.nameWithOwner`, which does not exist: gh returns the parent
+      // as `{id, name, owner}` only. Asking for the field that is not there
+      // yields null, which is never equal to the repo, so every fork looked
+      // like somebody else's and nothing was ever pushed.
+      parent = await gh([
+        'repo',
+        'view',
+        fork,
+        '--json',
+        'parent',
+        '--jq',
+        '.parent | select(.) | .owner.login + "/" + .name',
+      ]).catch(() => '');
     }
-    if (parent !== repo)
+    if (parent !== repo) {
+      if (forkFailed) return `could not fork: ${forkFailed}`;
       return `${fork} is not a fork of ${repo}${parent ? ` (it forks ${parent})` : ''} — fork it by hand`;
+    }
 
     // gh's credential helper applied per command, so this works whether or not
     // `gh auth setup-git` was ever run, and the token stays out of argv.
