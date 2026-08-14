@@ -55,6 +55,8 @@
  *
  *   TCFEED_MIN_GAP  seconds between feed fetches, default 120
  *   TCFEED_MAX      repos cloned per run, default 20
+ *   TCFEED_MIN_STARS floor a repository must clear to reach the table,
+ *                   default 5, 0 turns it off — see the gate in feedCommand()
  *   TCFEED_PAUSE    seconds between clones, default 1
  *   TCFEED_SUB      subreddit, default coolgithubprojects
  *   TCFEED_GH       results taken from the search, default 25, 0 turns it off
@@ -2324,6 +2326,7 @@ async function main(): Promise<number> {
   // rather than a mirror of the feed.
   const max = num('TCFEED_MAX', 20);
   const pause = num('TCFEED_PAUSE', 1);
+  const MIN_STARS = num('TCFEED_MIN_STARS', 5);
   const rows: Row[] = [];
   let scanned = 0;
 
@@ -2349,6 +2352,21 @@ async function main(): Promise<number> {
     }
     if (about.sizeKb > TOO_BIG_KB) {
       console.log(`· ${repo} (too big)`);
+      remember(repo);
+      continue;
+    }
+    // Nine of the seventeen repositories asked in one batch had under fifteen
+    // stars and several had none, where our request arrived as issue #1 in a
+    // repository nobody has looked at yet. That is the least likely thing here
+    // to be read at all, and it is the shape of activity the acceptable use
+    // policy is least forgiving about. Placed above the scan so a repository
+    // under the floor is never cloned.
+    //
+    // Remembered rather than left to be reconsidered: a star count can change
+    // where `archived` cannot, but re-deciding it every run costs one of the
+    // twenty slots each time and crowds out candidates that would be scanned.
+    if (about.stars < MIN_STARS) {
+      console.log(`· ${repo} (${about.stars} ${about.stars === 1 ? 'star' : 'stars'})`);
       remember(repo);
       continue;
     }
