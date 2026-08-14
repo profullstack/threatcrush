@@ -5,6 +5,9 @@ import { TEST_MODULE } from "@/__tests__/helpers/supabase-mock";
 
 const mockUpdate = vi.fn();
 const mockInsert = vi.fn();
+// TC-24: the download count is now incremented by an atomic RPC rather than
+// read-modify-write, so it returns the new value directly.
+const mockRpc = vi.fn();
 let moduleLookupResult: { data: unknown; error: unknown } = {
   data: {
     id: "mod-001",
@@ -22,6 +25,7 @@ let moduleLookupResult: { data: unknown; error: unknown } = {
 
 vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
+    rpc: mockRpc,
     from: (table: string) => {
       if (table === "modules") {
         return {
@@ -64,6 +68,7 @@ function makeContext(slug: string) {
 describe("POST /api/modules/:slug/install", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRpc.mockResolvedValue({ data: 43, error: null });
     moduleLookupResult = {
       data: {
         id: "mod-001",
@@ -80,7 +85,7 @@ describe("POST /api/modules/:slug/install", () => {
     };
   });
 
-  it("increments download count", async () => {
+  it("increments download count atomically via RPC", async () => {
     const req = makeRequest({ platform: "linux" });
     const res = await POST(req, makeContext("test-scanner"));
     const body = await res.json();
@@ -88,6 +93,11 @@ describe("POST /api/modules/:slug/install", () => {
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.downloads).toBe(43);
+    expect(mockRpc).toHaveBeenCalledWith("increment_module_downloads", {
+      p_module_id: "mod-001",
+    });
+    // The old read-modify-write path must be gone.
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   it("returns git install info from the marketplace module record", async () => {

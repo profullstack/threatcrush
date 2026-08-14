@@ -85,6 +85,37 @@ export async function POST(
       return NextResponse.json({ error: "Invalid action_type" }, { status: 400 });
     }
 
+    // TC-20: server_id and detection_id came straight from the body and were
+    // never checked against this org, so an admin of one org could queue a
+    // remediation against another org's server.
+    const { data: server } = await admin.from("servers")
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("id", server_id)
+      .maybeSingle();
+
+    if (!server) {
+      return NextResponse.json(
+        { error: "Server not found in this organization" },
+        { status: 404 },
+      );
+    }
+
+    if (detection_id) {
+      const { data: detection } = await admin.from("detections")
+        .select("id")
+        .eq("organization_id", orgId)
+        .eq("id", detection_id)
+        .maybeSingle();
+
+      if (!detection) {
+        return NextResponse.json(
+          { error: "Detection not found in this organization" },
+          { status: 404 },
+        );
+      }
+    }
+
     // Check allowlist — never block allowlisted IPs
     if (action_type === "block") {
       const { data: allowlisted } = await admin.from("allowlists")

@@ -73,14 +73,17 @@ function resetMocks(overrides: {
   makeAdmin(overrides);
 }
 
+import { NextRequest } from "next/server";
 import { POST } from "@/app/api/auth/verify-phone/route";
 
 function makeRequest(body: unknown, headers?: Record<string, string>) {
-  return new Request("http://localhost/api/auth/verify-phone", {
+  // A real NextRequest, not a cast Request: the route reads req.cookies for the
+  // signup grant, which a plain Request does not have.
+  return new NextRequest("http://localhost/api/auth/verify-phone", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
-  }) as unknown as import("next/server").NextRequest;
+  });
 }
 
 describe("POST /api/auth/verify-phone", () => {
@@ -89,7 +92,7 @@ describe("POST /api/auth/verify-phone", () => {
   });
 
   it("accepts valid 6-digit code", async () => {
-    const req = makeRequest({ code: "123456", email: "test@example.com" });
+    const req = makeRequest({ code: "123456" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -99,7 +102,7 @@ describe("POST /api/auth/verify-phone", () => {
   });
 
   it("rejects non-6-digit code", async () => {
-    const req = makeRequest({ code: "12345", email: "test@example.com" });
+    const req = makeRequest({ code: "12345" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -108,7 +111,7 @@ describe("POST /api/auth/verify-phone", () => {
   });
 
   it("rejects missing code", async () => {
-    const req = makeRequest({ email: "test@example.com" });
+    const req = makeRequest({});
     const res = await POST(req);
     const body = await res.json();
 
@@ -136,7 +139,7 @@ describe("POST /api/auth/verify-phone", () => {
       },
     });
 
-    const req = makeRequest({ code: "123456", email: "test@example.com" });
+    const req = makeRequest({ code: "123456" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -155,7 +158,7 @@ describe("POST /api/auth/verify-phone", () => {
       },
     });
 
-    const req = makeRequest({ code: "123456", email: "test@example.com" });
+    const req = makeRequest({ code: "123456" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -170,7 +173,7 @@ describe("POST /api/auth/verify-phone", () => {
   it("handles database select error", async () => {
     resetMocks({ selectError: { message: "DB error" } });
 
-    const req = makeRequest({ code: "123456", email: "test@example.com" });
+    const req = makeRequest({ code: "123456" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -181,7 +184,7 @@ describe("POST /api/auth/verify-phone", () => {
   it("handles database update error", async () => {
     resetMocks({ updateError: { message: "DB error" } });
 
-    const req = makeRequest({ code: "123456", email: "test@example.com" });
+    const req = makeRequest({ code: "123456" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -190,7 +193,7 @@ describe("POST /api/auth/verify-phone", () => {
   });
 
   it("response shape matches contract", async () => {
-    const req = makeRequest({ code: "123456", email: "test@example.com" });
+    const req = makeRequest({ code: "123456" });
     const res = await POST(req);
     const body = await res.json();
 

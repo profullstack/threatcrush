@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
   // Check credit deposits (usage top-ups).
   const { data: creditRow } = await supabase
     .from('credit_deposits')
-    .select('id, user_id, email, amount_usd')
+    .select('id, user_id, email, amount_usd, status')
     .eq('coinpay_payment_id', paymentId)
     .maybeSingle();
 
@@ -95,7 +95,12 @@ export async function POST(request: NextRequest) {
     return handleLicenseWebhook(supabase, licenseRow, data, eventType, paymentId);
   }
 
-  // Fall back to waitlist (legacy unsigned path).
+  // TC-09: the waitlist branch used to accept unsigned callbacks, so anyone who
+  // could guess or observe a payment id could mark a waitlist row paid. Every
+  // branch now requires a valid signature.
+  if (!signatureValid) {
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+  }
   return handleWaitlistWebhook(supabase, data, eventType, paymentId);
 }
 
@@ -149,9 +154,23 @@ async function handleFundingWebhook(
   return NextResponse.json({ received: true });
 }
 
+/**
+ * TC-10: nothing guarded against replayed or out-of-order webhook delivery. A
+ * late `payment.expired` arriving after `payment.forwarded` would flip a paid
+ * deposit back to expired. Once a payment has settled, only another settled
+ * state may overwrite it.
+ */
+const SETTLED_STATUSES = new Set(['confirmed', 'forwarded']);
+
+function isStatusRegression(current: unknown, next: string): boolean {
+  return typeof current === 'string'
+    && SETTLED_STATUSES.has(current)
+    && !SETTLED_STATUSES.has(next);
+}
+
 async function handleCreditDepositWebhook(
   supabase: ReturnType<typeof getSupabase>,
-  creditRow: { id: string; user_id: string; email: string; amount_usd: unknown },
+  creditRow: { id: string; user_id: string; email: string; amount_usd: unknown; status?: unknown },
   data: CoinpayWebhookPayload['data'],
   eventType: string,
   paymentId: string,
@@ -177,13 +196,22 @@ async function handleCreditDepositWebhook(
       return NextResponse.json({ received: true, ignored: eventType });
   }
 
+  if (isStatusRegression(creditRow.status, nextStatus)) {
+    console.warn(
+      `[coinpay webhook] ignoring out-of-order ${eventType} for already-settled deposit ${paymentId}`,
+    );
+    return NextResponse.json({ received: true, ignored: 'stale event' });
+  }
+
   const update: Record<string, unknown> = {
     status: nextStatus,
     updated_at: now,
   };
   if (nextStatus === 'confirmed' || nextStatus === 'forwarded') {
     update.confirmed_at = now;
-    console.log(`[coinpay webhook] Crediting $${creditRow.amount_usd} to ${creditRow.email} (status: ${nextStatus})`);
+    // TC-26: the deposit amount and account email used to be logged in the
+    // clear on every settlement.
+    console.log(`[coinpay webhook] crediting deposit ${creditRow.id} (status: ${nextStatus})`);
   }
 
   const { error } = await supabase

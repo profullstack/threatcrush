@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import ScrollReveal from "@/components/ScrollReveal";
+import { authHeaders } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
 
 interface ModuleMeta {
@@ -65,7 +66,7 @@ export default function PublishClient() {
     try {
       const res = await fetch("/api/modules/fetch-meta", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           url: webUrl || undefined,
           git_url: gitUrl || undefined,

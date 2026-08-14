@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { resolveUserId, sha256 } from "@/lib/phone-verification";
+import { SIGNUP_GRANT_COOKIE } from "@/lib/signup-grant";
 
 const MAX_ATTEMPTS = 5;
 
@@ -8,13 +9,15 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const code: string | undefined = body.code;
-    const email: string | undefined = body.email;
     if (!code || !/^\d{6}$/.test(code)) {
       return NextResponse.json({ error: "Enter the 6-digit code" }, { status: 400 });
     }
 
     const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    const userId = await resolveUserId({ bearerToken: token, email });
+    const userId = await resolveUserId({
+      bearerToken: token,
+      grantToken: req.cookies.get(SIGNUP_GRANT_COOKIE)?.value,
+    });
     if (!userId) {
       return NextResponse.json({ error: "Could not identify user" }, { status: 401 });
     }

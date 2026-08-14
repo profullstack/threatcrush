@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { authHeaders, getAccessToken, setAccessToken } from "@/lib/auth-client";
+import { authHeaders, setAccessToken } from "@/lib/auth-client";
 
 function VerifyContent() {
   const searchParams = useSearchParams();
@@ -45,21 +45,13 @@ function VerifyContent() {
     }
   }, []);
 
-  // Check current verification status. Works with either a Bearer token
-  // (post email-confirm) or an email query param (right after signup).
+  // Check current verification status. Works with either a Bearer token (post
+  // email-confirm) or the HttpOnly signup grant cookie set at signup — the
+  // ?email= parameter is display-only now and no longer authorizes anything.
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const url = getAccessToken()
-          ? "/api/auth/check"
-          : emailParam
-          ? `/api/auth/check?email=${encodeURIComponent(emailParam)}`
-          : null;
-        if (!url) {
-          setCheckingStatus(false);
-          return;
-        }
-        const res = await fetch(url, { headers: authHeaders() });
+        const res = await fetch("/api/auth/check", { headers: authHeaders() });
         if (res.ok) {
           const data = await res.json();
           setEmailVerified(!!data.email_verified);
@@ -109,7 +101,7 @@ function VerifyContent() {
       const res = await fetch("/api/auth/send-phone-code", {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ phone: phoneToUse, email: emailParam || undefined }),
+        body: JSON.stringify({ phone: phoneToUse }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -130,7 +122,9 @@ function VerifyContent() {
   // net for users who land here directly. We rely on the server-side cooldown
   // to dedupe back-to-back sends.
   useEffect(() => {
-    if (phoneParam && !phoneVerified && !smsSent && (getAccessToken() || emailParam)) {
+    // The signup grant is an HttpOnly cookie, so we cannot test for identity
+    // here — just attempt the send and let the server 401 if there is none.
+    if (phoneParam && !phoneVerified && !smsSent) {
       handleSendPhoneCode(phoneParam);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,7 +161,7 @@ function VerifyContent() {
       const res = await fetch("/api/auth/verify-phone", {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ code: phoneCode, email: emailParam || undefined }),
+        body: JSON.stringify({ code: phoneCode }),
       });
 
       const data = await res.json();

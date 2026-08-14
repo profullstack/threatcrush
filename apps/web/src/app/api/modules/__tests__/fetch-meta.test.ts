@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock supabase (used by captureScreenshot)
+const mockGetUser = vi.fn();
+
+// Mock supabase (used by captureScreenshot and the auth gate)
 vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
+    auth: { getUser: mockGetUser },
     storage: {
       from: () => ({
         upload: vi.fn().mockResolvedValue({ error: null }),
@@ -12,12 +15,23 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }));
 
+// The guard does real DNS lookups; its own behaviour is covered in
+// ssrf-guard.test.ts. Here it just forwards to the stubbed global fetch so the
+// existing per-call mock sequences keep describing what this route does.
+vi.mock("@/lib/ssrf-guard", () => ({
+  safeFetch: (url: string, init?: RequestInit) => fetch(url, init),
+}));
+
 import { POST } from "@/app/api/modules/fetch-meta/route";
 
-function makeRequest(body: unknown) {
+function makeRequest(body: unknown, headers: Record<string, string> = {}) {
   return new Request("http://localhost/api/modules/fetch-meta", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      authorization: "Bearer test-token",
+      ...headers,
+    },
     body: JSON.stringify(body),
   }) as unknown as import("next/server").NextRequest;
 }
@@ -25,8 +39,28 @@ function makeRequest(body: unknown) {
 describe("POST /api/modules/fetch-meta", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-123" } } });
     // Reset global fetch mock
     vi.stubGlobal("fetch", vi.fn());
+  });
+
+  // TC-08: this endpoint was an open server-side fetch primitive.
+  it("rejects an unauthenticated caller", async () => {
+    const req = new Request("http://localhost/api/modules/fetch-meta", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: "https://example.com" }),
+    }) as unknown as import("next/server").NextRequest;
+
+    const res = await POST(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects a caller whose token does not resolve to a user", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const res = await POST(makeRequest({ url: "https://example.com" }));
+    expect(res.status).toBe(401);
   });
 
   it("rejects when no url or git_url provided", async () => {
@@ -41,11 +75,10 @@ describe("POST /api/modules/fetch-meta", () => {
   it("rejects invalid JSON", async () => {
     const req = new Request("http://localhost/api/modules/fetch-meta", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", authorization: "Bearer test-token" },
       body: "not json",
     }) as unknown as import("next/server").NextRequest;
     const res = await POST(req);
-    const body = await res.json();
 
     expect(res.status).toBe(400);
   });

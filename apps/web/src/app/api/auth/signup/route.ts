@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import { randomInt } from "node:crypto";
 import { issuePhoneCode } from "@/lib/phone-verification";
+import { setSignupGrantCookie } from "@/lib/signup-grant";
 
 function generateReferralCode(): string {
+  // TC-30: Math.random() is not a CSPRNG, and referral codes are guessable
+  // credentials for attributing payouts.
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
   let code = "";
   for (let i = 0; i < 8; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += chars.charAt(randomInt(0, chars.length));
   }
   return code;
 }
@@ -94,14 +98,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      user: { id: userId, email },
-      referral_code: userReferralCode,
-      needs_email_verification: true,
-      needs_phone_verification: !!phone,
-      sms_sent,
-      sms_error,
-    });
+    // signUp() returns no session while email confirmation is pending, so hand
+    // the verify page a signed grant instead. It is the only thing that lets
+    // that page poll status and verify a phone without a Bearer token.
+    return setSignupGrantCookie(
+      NextResponse.json({
+        user: { id: userId, email },
+        referral_code: userReferralCode,
+        needs_email_verification: true,
+        needs_phone_verification: !!phone,
+        sms_sent,
+        sms_error,
+      }),
+      { userId, email },
+    );
   } catch (err) {
     console.error("Signup error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

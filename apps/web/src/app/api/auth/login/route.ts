@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import { setSignupGrantCookie } from "@/lib/signup-grant";
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,6 +25,27 @@ export async function POST(req: NextRequest) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
+      // The password was right but the address is still unconfirmed. Supabase
+      // withholds a session here, so without a grant the user could never
+      // finish phone verification from a new browser. Correct credentials are
+      // proof enough to re-issue one.
+      if (error.code === "email_not_confirmed") {
+        const admin = getSupabaseAdmin();
+        const { data: pending } = await admin
+          .from("user_profiles")
+          .select("id")
+          .eq("email", email.toLowerCase().trim())
+          .maybeSingle();
+        if (pending?.id) {
+          return setSignupGrantCookie(
+            NextResponse.json(
+              { error: error.message, needs_email_verification: true },
+              { status: 401 },
+            ),
+            { userId: pending.id, email },
+          );
+        }
+      }
       return NextResponse.json({ error: error.message }, { status: 401 });
     }
 

@@ -8,6 +8,7 @@ import { banner, logger } from '../core/logger.js';
 import { discoverModules } from '../core/module-loader.js';
 import { PATHS, ensureRuntimeDirs } from '../daemon/paths.js';
 import { findRunningDaemon } from '../daemon/pidfile.js';
+import { listTrustedModules, trustModule, untrustModule } from '../daemon/module-trust.js';
 
 const API_URL = process.env.THREATCRUSH_API_URL || 'https://threatcrush.com';
 
@@ -54,6 +55,18 @@ function validateManifest(modPath: string): { ok: boolean; error?: string; name?
   } catch (err) {
     return { ok: false, error: `Invalid mod.toml: ${(err as Error).message}` };
   }
+}
+
+/**
+ * Installing is not the same as authorizing. threatcrushd runs as root and will
+ * not import an untrusted module (TC-32), so say so plainly rather than letting
+ * the operator wonder why nothing happened.
+ */
+function printTrustRequired(name: string): void {
+  console.log();
+  console.log(chalk.yellow(`  ! ${name} is installed but NOT trusted, so threatcrushd will not load it.`));
+  console.log(chalk.dim('    Review the module source, then run:'));
+  console.log(chalk.dim(`      ${chalk.white(`threatcrush modules trust ${name}`)}`));
 }
 
 function notifyDaemonIfRunning(): void {
@@ -147,6 +160,7 @@ export async function modulesInstallCommand(source: string): Promise<void> {
       spinner.fail(`Copy failed: ${(err as Error).message}`);
       return;
     }
+    printTrustRequired(check.name!);
     notifyDaemonIfRunning();
     console.log();
     return;
@@ -186,6 +200,7 @@ export async function modulesInstallCommand(source: string): Promise<void> {
       return;
     }
     spinner.succeed(`Installed ${chalk.white(check.name!)} v${check.version} → ${dest}`);
+    printTrustRequired(check.name!);
     notifyDaemonIfRunning();
     console.log();
     return;
@@ -297,6 +312,7 @@ export async function modulesInstallCommand(source: string): Promise<void> {
     return;
   }
 
+  printTrustRequired(mod.slug);
   notifyDaemonIfRunning();
   console.log();
 }
@@ -327,6 +343,9 @@ export async function modulesRemoveCommand(name: string): Promise<void> {
 
   try {
     rmSync(target, { recursive: true, force: true });
+    // Drop the trust record too, so reinstalling under the same name has to be
+    // re-approved rather than inheriting the old decision.
+    untrustModule(name);
     console.log(chalk.green(`  ✓ Removed ${name} from ${dir}\n`));
   } catch (err) {
     console.log(chalk.red(`  ✗ Failed to remove: ${(err as Error).message}\n`));
@@ -334,6 +353,78 @@ export async function modulesRemoveCommand(name: string): Promise<void> {
   }
 
   notifyDaemonIfRunning();
+}
+
+export async function modulesTrustCommand(name: string): Promise<void> {
+  banner();
+
+  console.log(chalk.green.bold('  Trust Module'));
+  console.log(chalk.gray('  ' + '─'.repeat(50)));
+  console.log();
+
+  const dir = modulesDir();
+  let target: string;
+  try {
+    target = moduleDestination(dir, name);
+  } catch (err) {
+    console.log(chalk.red(`  x ${(err as Error).message}\n`));
+    return;
+  }
+  if (!existsSync(target)) {
+    console.log(chalk.yellow(`  ! No module named "${name}" in ${dir}\n`));
+    return;
+  }
+
+  const check = validateManifest(target);
+  if (!check.ok) {
+    console.log(chalk.red(`  ✗ ${check.error}\n`));
+    return;
+  }
+
+  const record = trustModule(name, target, target);
+  console.log(chalk.green(`  ✓ Trusted ${chalk.white(name)} v${check.version}`));
+  console.log(chalk.dim(`    digest ${record.digest.slice(0, 16)}…`));
+  console.log(
+    chalk.dim('    threatcrushd will refuse to load it again if its contents change.\n'),
+  );
+  notifyDaemonIfRunning();
+}
+
+export async function modulesUntrustCommand(name: string): Promise<void> {
+  banner();
+
+  console.log(chalk.green.bold('  Revoke Module Trust'));
+  console.log(chalk.gray('  ' + '─'.repeat(50)));
+  console.log();
+
+  if (untrustModule(name)) {
+    console.log(chalk.green(`  ✓ Revoked trust for ${chalk.white(name)}\n`));
+    notifyDaemonIfRunning();
+  } else {
+    console.log(chalk.yellow(`  ! ${name} was not trusted\n`));
+  }
+}
+
+export async function modulesTrustedCommand(): Promise<void> {
+  banner();
+
+  console.log(chalk.green.bold('  Trusted Modules'));
+  console.log(chalk.gray('  ' + '─'.repeat(50)));
+  console.log();
+
+  const trusted = Object.entries(listTrustedModules());
+  if (trusted.length === 0) {
+    console.log(chalk.yellow('  No modules are trusted.'));
+    console.log(chalk.dim('  Installed modules stay dormant until you run:'));
+    console.log(chalk.dim(`    ${chalk.white('threatcrush modules trust <name>')}\n`));
+    return;
+  }
+
+  for (const [name, record] of trusted) {
+    console.log(`  ${chalk.white(name)}  ${chalk.dim(record.digest.slice(0, 16) + '…')}`);
+    console.log(chalk.dim(`    trusted ${record.trustedAt}`));
+  }
+  console.log();
 }
 
 export async function modulesCommand(opts: { action?: string; name?: string }): Promise<void> {
@@ -370,10 +461,31 @@ export async function modulesCommand(opts: { action?: string; name?: string }): 
       }
       await modulesRemoveCommand(opts.name);
       break;
+    case 'trust':
+      if (!opts.name) {
+        banner();
+        console.log(chalk.red('  Module name required.'));
+        console.log(chalk.gray('  Usage: threatcrush modules trust <name>\n'));
+        return;
+      }
+      await modulesTrustCommand(opts.name);
+      break;
+    case 'untrust':
+      if (!opts.name) {
+        banner();
+        console.log(chalk.red('  Module name required.'));
+        console.log(chalk.gray('  Usage: threatcrush modules untrust <name>\n'));
+        return;
+      }
+      await modulesUntrustCommand(opts.name);
+      break;
+    case 'trusted':
+      await modulesTrustedCommand();
+      break;
     default:
       banner();
       console.log(chalk.yellow(`  Unknown action: ${action}`));
-      console.log(chalk.gray('  Available actions: list, install, remove\n'));
+      console.log(chalk.gray('  Available actions: list, install, remove, trust, untrust, trusted\n'));
       await modulesListCommand();
       break;
   }

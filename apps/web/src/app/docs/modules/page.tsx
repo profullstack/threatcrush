@@ -58,7 +58,7 @@ const apiEndpoints: Array<{
   { method: "POST",   path: "/api/modules/{slug}/install",        auth: "none",   purpose: "Install info + increment download count" },
   { method: "GET",    path: "/api/modules/{slug}/review",         auth: "none",   purpose: "List reviews (paginated)" },
   { method: "POST",   path: "/api/modules/{slug}/review",         auth: "email",  purpose: "Create / update your review (one per email)" },
-  { method: "POST",   path: "/api/modules/fetch-meta",            auth: "none",   purpose: "Probe URL or GitHub repo for prefilled meta" },
+  { method: "POST",   path: "/api/modules/fetch-meta",            auth: "bearer", purpose: "Probe URL or GitHub repo for prefilled meta" },
 ];
 
 const boilerplates = [

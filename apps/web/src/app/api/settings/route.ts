@@ -92,7 +92,10 @@ export async function GET(request: NextRequest) {
     secrets = {};
   }
 
-  const includeSecretValues = new URL(request.url).searchParams.get("includeSecretValues") === "1";
+  // TC-14: `includeSecretValues=1` returned every decrypted secret at once, so
+  // one stolen token or one XSS payload emptied the whole vault in a single
+  // request. Callers reveal one key at a time, so the API only serves one.
+  const revealSecret = new URL(request.url).searchParams.get("revealSecret");
   const response: {
     plain: Record<string, unknown>;
     secrets: ReturnType<typeof secretStatus>;
@@ -106,7 +109,9 @@ export async function GET(request: NextRequest) {
     lastUpdatedAt: row?.updated_at || null,
   };
 
-  if (includeSecretValues) response.secretValues = secrets;
+  if (revealSecret && Object.prototype.hasOwnProperty.call(secrets, revealSecret)) {
+    response.secretValues = { [revealSecret]: secrets[revealSecret] };
+  }
 
   return NextResponse.json(response);
 }

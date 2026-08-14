@@ -74,11 +74,29 @@ describe("/api/settings", () => {
   });
 
   it("returns secret values only for an explicit reveal request", async () => {
-    const res = await GET(request(undefined, "http://localhost/api/settings?includeSecretValues=1"));
+    const res = await GET(
+      request(undefined, "http://localhost/api/settings?revealSecret=AI_GATEWAY_API_KEY"),
+    );
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.secretValues).toEqual({ AI_GATEWAY_API_KEY: "vck_test_secret" });
+  });
+
+  // TC-14: one request used to hand back every decrypted secret at once.
+  it("no longer dumps every secret via includeSecretValues", async () => {
+    const res = await GET(request(undefined, "http://localhost/api/settings?includeSecretValues=1"));
+    const body = await res.json();
+
+    expect(body.secretValues).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("vck_test_secret");
+  });
+
+  it("ignores a reveal request for an unknown key", async () => {
+    const res = await GET(request(undefined, "http://localhost/api/settings?revealSecret=NOPE"));
+    const body = await res.json();
+
+    expect(body.secretValues).toBeUndefined();
   });
 
   it("merges plain settings and encrypts updated secrets", async () => {

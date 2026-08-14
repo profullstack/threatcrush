@@ -56,19 +56,23 @@ vi.mock("@/lib/auth-sync", () => ({
   syncEmailVerifiedIfConfirmed: (...args: unknown[]) => mockSyncEmailVerified(...args),
 }));
 
+import { NextRequest } from "next/server";
 import { GET } from "@/app/api/auth/check/route";
+import { issueSignupGrant, SIGNUP_GRANT_COOKIE } from "@/lib/signup-grant";
 
-function makeRequest(token?: string, searchParams?: Record<string, string>) {
+function makeRequest(
+  token?: string,
+  opts: { searchParams?: Record<string, string>; grantCookie?: string } = {},
+) {
   const headers: Record<string, string> = {};
   if (token) headers["authorization"] = `Bearer ${token}`;
-  const params = new URLSearchParams(searchParams).toString();
+  if (opts.grantCookie) headers["cookie"] = `${SIGNUP_GRANT_COOKIE}=${opts.grantCookie}`;
+  const params = new URLSearchParams(opts.searchParams).toString();
   const url = params
     ? `http://localhost/api/auth/check?${params}`
     : "http://localhost/api/auth/check";
-  const req = new Request(url, { headers }) as unknown as import("next/server").NextRequest;
-  // Next.js adds nextUrl from the URL
-  (req as unknown as Record<string, unknown>).nextUrl = new URL(url);
-  return req;
+  // A real NextRequest, not a cast Request: the route reads req.cookies.
+  return new NextRequest(url, { headers });
 }
 
 describe("GET /api/auth/check", () => {
@@ -182,6 +186,53 @@ describe("GET /api/auth/check", () => {
 
     expect(res.status).toBe(401);
     expect(body.error).toContain("Not authenticated");
+  });
+
+  // TC-02: ?email= used to be accepted as identity, turning this endpoint into
+  // an unauthenticated profile dump and account-existence oracle.
+  it("ignores ?email= and returns 401 without a session or grant", async () => {
+    resetMocks({
+      getUserResult: { data: { user: null } },
+      getSessionResult: { data: { session: null } },
+    });
+
+    mockAdminSelect.mockClear();
+
+    const req = makeRequest(undefined, { searchParams: { email: "victim@example.com" } });
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(body.error).toContain("Not authenticated");
+    expect(mockAdminSelect).not.toHaveBeenCalled();
+  });
+
+  it("accepts a valid signup grant cookie when there is no session", async () => {
+    process.env.SIGNUP_GRANT_SECRET = "test-secret";
+    resetMocks({
+      getUserResult: { data: { user: null } },
+      getSessionResult: { data: { session: null } },
+    });
+
+    const grantCookie = issueSignupGrant({ userId: "user-123", email: "user@example.com" });
+    const res = await GET(makeRequest(undefined, { grantCookie }));
+
+    expect(res.status).toBe(200);
+    expect(mockAdminEq).toHaveBeenCalledWith("id", "user-123");
+    delete process.env.SIGNUP_GRANT_SECRET;
+  });
+
+  it("rejects a forged signup grant cookie", async () => {
+    process.env.SIGNUP_GRANT_SECRET = "test-secret";
+    resetMocks({
+      getUserResult: { data: { user: null } },
+      getSessionResult: { data: { session: null } },
+    });
+
+    const res = await GET(makeRequest(undefined, { grantCookie: "v1.deadbeef.deadbeef" }));
+
+    expect(res.status).toBe(401);
+    delete process.env.SIGNUP_GRANT_SECRET;
   });
 
   it("response shape matches contract", async () => {

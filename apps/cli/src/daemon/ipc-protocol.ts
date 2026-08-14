@@ -8,7 +8,8 @@ export type IpcRequest =
   | { id: number; method: 'counters' }
   | { id: number; method: 'module_list' }
   | { id: number; method: 'subscribe'; params: { channels: Array<'event' | 'module'> } }
-  | { id: number; method: 'shutdown' };
+  // `token` is the root-only daemon control token (TC-33).
+  | { id: number; method: 'shutdown'; params?: { token?: string } };
 
 export interface IpcResponse<T = unknown> {
   id: number;
