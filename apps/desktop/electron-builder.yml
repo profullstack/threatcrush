@@ -29,6 +29,15 @@ linux:
   desktop:
     Name: ThreatCrush
     StartupWMClass: ThreatCrush
+deb:
+  # Both scripts *replace* electron-builder's stock templates rather than
+  # extending them, so they re-implement the update-alternatives, mime and
+  # desktop-database steps verbatim. They exist to fix the sandbox setup, which
+  # the stock postinst gets wrong on Ubuntu 24.04+ — see the comment in
+  # after-install.sh. Re-check both against app-builder-lib's templates when
+  # bumping electron-builder.
+  afterInstall: resources/after-install.sh
+  afterRemove: resources/after-remove.sh
 mac:
   target:
     - dmg
