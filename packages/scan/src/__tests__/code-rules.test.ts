@@ -146,6 +146,16 @@ describe('guard windows', () => {
     expect(ruleIds('a.py', source)).toContain('redos-nested-quantifier');
   });
 
+  it('does not read a C pointer cast as a nested quantifier', () => {
+    // `(void *)*memptr64` is a cast followed by a dereference, and it matches
+    // the quantifier pattern character for character: `(`, text, `*`, `)`, `*`.
+    // Unscoped, the rule turned every one of these into a ReDoS finding — its
+    // only hit across inspektor-gadget's 1186 files was this line of eBPF C.
+    const source = 'if (bpf_probe_read_user(&addr, sizeof(void *), (void *)*memptr64))';
+    expect(ruleIds('program.bpf.c', source)).toHaveLength(0);
+    expect(ruleIds('deref.c', 'x = *(char *)*p;')).toHaveLength(0);
+  });
+
   it('looks forward for XML hardening, which is configured after construction', () => {
     const hardened = [
       'DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();',
