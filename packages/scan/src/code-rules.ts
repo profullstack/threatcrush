@@ -771,6 +771,20 @@ export const CODE_RULES: readonly CodeRule[] = [
       'Catastrophic backtracking: a crafted input of a few dozen characters pins a CPU core for minutes.',
     cwe: 'CWE-1333',
     severity: 'medium',
+    // Scoped, because unscoped this rule reads C as if it were a regex.
+    //
+    // `(void *)*memptr64` — a cast to a pointer type, then a dereference — is
+    // the single most ordinary line in a C file, and it matches the first
+    // alternative exactly: `(`, some text, `*`, `)`, `*`. Every `*(char *)*p`
+    // in a codebase became a ReDoS finding. Caught on inspektor-gadget, where
+    // the rule's one and only hit across 1186 files was a `bpf_probe_read_user`
+    // call in an eBPF C program.
+    //
+    // Scoping is the fix rather than a cleverer pattern: C has no regex
+    // literals, so there is nothing here for the rule to find no matter how
+    // the pattern is written. `other` also covers C++, Rust and Zig, which
+    // share the cast-then-deref spelling.
+    languages: ['javascript', 'typescript', 'python', 'ruby', 'go', 'java', 'php'],
     pattern: /\([^)\n]*[+*]\s*\)\s*[+*]|\([^)\n]*\{\d+,\}\s*\)\s*[+*{]/,
   },
 
