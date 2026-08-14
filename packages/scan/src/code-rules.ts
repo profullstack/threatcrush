@@ -37,6 +37,7 @@
  * rule that would flag every session read in the codebase. See KNOWN_GAPS.
  */
 
+import { NODE_RULES } from './node-rules';
 import type { Confidence, ScanLanguage, Severity } from './types';
 import { severityFor } from './types';
 
@@ -206,7 +207,20 @@ export const GENERIC_GUARD =
   // The identifier must END at the escaper (with at most a known output-context
   // suffix). An earlier, looser form also matched `describe(`, which would have
   // silenced findings across every test file in every repository.
-  /\ballow(?:ed|list|_list|ed_hosts)?\b|\bwhitelist\b|\b\w{0,6}[Ee]sc(?:ape)?(?:[Hh]tml|HTML|[Xx]ml|XML|[Ss]ql|[Aa]ttr|[Jj]s|[Uu]ri|[Uu]rl)?\s*\(|\bhtml_escape\b|\bhtmlspecialchars\s*\(|\bsanitiz\w*\b|\bencoded\b|\brealpath\b|\bcommonpath\b|\bresolve\(\)\.startsWith\b|\bprocess\.env\b|\bos\.environ\b|\bgetenv\b|\bENV\s*\[|setObjectInputFilter|ObjectInputFilter/i;
+  // The `Access-Control-` lookbehind is not a nicety. This regex is
+  // case-insensitive, and `Access-Control-Allow-Origin` contains the word
+  // "Allow" followed by a non-word character — so the CORS header name matched
+  // the allow-list heuristic. Because the guard is tested against an 8-line
+  // *window*, one header line silently disabled every guardable rule near it:
+  // in a four-line Express error handler, the header on one line suppressed
+  // both the `none`-algorithm JWT finding and the returned stack trace below
+  // it. The failure mode is the dangerous kind — not fewer findings, none, and
+  // indistinguishable from clean code.
+  //
+  // Scoped to the header prefix rather than to a bare `allow(?!-)`, because
+  // this guard also runs over `.yml` and `.conf` files, where `allow-list:`
+  // and `allowed-hosts:` are ordinary keys that should still guard.
+  /(?<!Access-Control-)\ballow(?:ed|list|_list|ed_hosts)?\b|\bwhitelist\b|\b\w{0,6}[Ee]sc(?:ape)?(?:[Hh]tml|HTML|[Xx]ml|XML|[Ss]ql|[Aa]ttr|[Jj]s|[Uu]ri|[Uu]rl)?\s*\(|\bhtml_escape\b|\bhtmlspecialchars\s*\(|\bsanitiz\w*\b|\bencoded\b|\brealpath\b|\bcommonpath\b|\bresolve\(\)\.startsWith\b|\bprocess\.env\b|\bos\.environ\b|\bgetenv\b|\bENV\s*\[|setObjectInputFilter|ObjectInputFilter/i;
 
 /** Evidence that an XML parser factory has been hardened against XXE. */
 const XXE_GUARD =
@@ -1362,6 +1376,12 @@ export const CODE_RULES: readonly CodeRule[] = [
   // answer. It flagged legitimate merges in Capacitor and in this repo's own
   // web app. `js-prototype-pollution` still catches the explicit `__proto__`
   // literal; the recursive-merge case is left to KNOWN_GAPS.
+
+  // Node-ecosystem classes — vm2, Electron, JWT, archive extraction, headless
+  // browsers — are kept in their own table because each has to know which
+  // package it is looking at before it can claim anything. Folded in here so
+  // there stays exactly one rule list for every consumer to iterate.
+  ...NODE_RULES,
 ];
 
 /**

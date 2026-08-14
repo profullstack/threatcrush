@@ -12,6 +12,7 @@ import {
   closeSync, fstatSync, openSync, readdirSync, readFileSync, readSync, statSync,
 } from 'node:fs';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
+import { ControlAudit } from '../controls';
 import { SENSITIVE_FILES } from '../secret-rules';
 import {
   collectSuppressions,
@@ -45,6 +46,14 @@ export interface ScanOptions {
    * broad glob cannot be mistaken for a clean one.
    */
   exclude?: readonly string[];
+  /**
+   * Also report security controls the tree has no evidence of.
+   *
+   * Opt-in, because an absence is a weaker claim than a present defect and
+   * this one is answered from the whole tree rather than from a line — see
+   * `../controls.ts`. Silently produces nothing when the tree serves no HTTP.
+   */
+  missingControls?: boolean;
 }
 
 /**
@@ -213,6 +222,7 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
   const maxFileBytes = options.maxFileBytes ?? 1024 * 1024;
   const allowed = options.categories ? new Set(options.categories) : null;
   const findings: ScanFinding[] = [];
+  const controls = new ControlAudit();
   const unreadable: string[] = [];
   let filesScanned = 0;
   let suppressed = 0;
@@ -306,6 +316,11 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
     options.onFile?.(relativePath);
     suppressed += collectSuppressions(text.split('\n')).count;
 
+    // Observed before the per-file rules run, and unconditionally: the audit
+    // keeps four booleans, so the cost of always collecting is nil, and
+    // gating it on the option would make the evidence depend on flag order.
+    controls.observe(relativePath, text);
+
     const fileFindings = [
       ...scanText(relativePath, text, declared ?? languageOf(filename)),
       ...(isManifest ? scanManifest(relativePath, filename, text) : []),
@@ -356,6 +371,10 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
   } else {
     scanFile(targetPath, basename(targetPath));
   }
+
+  // After the walk, because the question is "anywhere in this tree" and only
+  // the last file can settle it.
+  if (options.missingControls) findings.push(...controls.findings());
 
   const filtered = allowed ? findings.filter((f) => allowed.has(f.category)) : findings;
   filtered.sort(

@@ -36,6 +36,16 @@ export interface ScanCommandOptions {
   dependencies?: boolean;
   /** Globs to skip, merged with any `.threatcrushignore` at the scan root. */
   exclude?: readonly string[];
+  /**
+   * Also report security controls the tree shows no evidence of — headers,
+   * CSRF, rate limiting, body size limits.
+   *
+   * Off by default, and deliberately so. Every other finding points at a line;
+   * these point at an absence, which a reverse proxy or a gateway may already
+   * be covering from outside the repository. Opt-in keeps a normal scan made
+   * only of things that are actually there.
+   */
+  missingControls?: boolean;
 }
 
 interface ScanOutcome {
@@ -175,6 +185,7 @@ export async function scanCommand(
     let seen = 0;
     const report = scanPath(targetPath, {
       exclude: options.exclude,
+      missingControls: options.missingControls,
       onFile: () => {
         seen += 1;
         if (spinner) spinner.text = `Scanning files... (${seen} files)`;
