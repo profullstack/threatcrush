@@ -740,8 +740,37 @@ const packInputs = (spec: string, integrity: string): Record<string, string> => 
   // backlog either reports or blocks, and the one that blocks gets deleted the
   // same day. Report-only is the version that survives long enough to be read.
   failOn: process.env.TCFEED_FAIL_ON ?? '',
-  uploadSarif: 'true',
+  ...outputs(),
 });
+
+/**
+ * Which reporting outputs the offered workflow enables, and therefore which
+ * permissions it asks for.
+ *
+ * Both write scopes exist to serve an optional feature. Asking for them
+ * unconditionally — including in the configuration where both features are
+ * off — is what makes "least privilege" a claim rather than a description,
+ * and SAG declined partly on "an externally maintained CLI ... together with
+ * PR and security-reporting permissions".
+ *
+ * TCFEED_LEAST_PRIVILEGE=1 offers the version that asks for `contents: read`
+ * and nothing else. Findings go to the job summary and the SARIF artifact,
+ * both of which need no write scope. It is not the default: the Security tab
+ * is where a scanner's output belongs, and a repository that wants it should
+ * not have to ask. But it is now one variable away for the repositories that
+ * will not grant a third party write access on a first install, and that is a
+ * real answer to a real objection rather than a paragraph about trust.
+ */
+function outputs(): Record<string, string> {
+  if (process.env.TCFEED_LEAST_PRIVILEGE === '1') {
+    return { uploadSarif: 'false', commentOnPr: 'false', extraPermissions: '' };
+  }
+  return {
+    uploadSarif: 'true',
+    commentOnPr: 'true',
+    extraPermissions: '  pull-requests: write\n  security-events: write',
+  };
+}
 
 /**
  * Substitution, narrow on purpose. `{{name}}` and nothing else: GitHub's own
