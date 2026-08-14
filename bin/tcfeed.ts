@@ -2208,7 +2208,10 @@ async function checkCommand(argv: string[]): Promise<number> {
     }
   }
 
-  if (!fix) {
+  // Only for the read-only pass. --refresh writes, so telling its operator
+  // nothing was changed is false — it said so at the end of a run that had
+  // just pushed a commit to forty-four repositories.
+  if (!fix && !refresh) {
     console.log('');
     console.log('Nothing was changed. `tcfeed check --fix` acts on the failures marked ours;');
     console.log('failures marked theirs are never touched, whatever --fix says.');
