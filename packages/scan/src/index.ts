@@ -14,6 +14,14 @@
 export { CODE_RULES, evaluateRule, GENERIC_GUARD, proseLines, untrustedPatternFor } from './code-rules';
 export type { CodeRule } from './code-rules';
 
+export { NODE_RULES } from './node-rules';
+
+export { evaluateTemplateRules, TEMPLATE_EXTENSIONS, TEMPLATE_RULES } from './template-rules';
+export type { TemplateMatch, TemplateRule } from './template-rules';
+
+export { ControlAudit, SECURITY_CONTROLS } from './controls';
+export type { SecurityControl } from './controls';
+
 export { scanPackageJson, scanRequirementsTxt, detectTyposquat, editDistance } from './manifest-rules';
 export type { ManifestFinding, SquatVerdict } from './manifest-rules';
 

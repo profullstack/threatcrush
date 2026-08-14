@@ -260,6 +260,10 @@ program
     (value: string, previous: string[]) => [...previous, value],
     [] as string[],
   )
+  .option(
+    "--missing-controls",
+    "also report security controls the tree shows no evidence of (headers, CSRF, rate limiting, body size limits)",
+  )
   .option("-v, --verbose", "list the paths that could not be read")
   .action(async (targetPath: string, opts: {
     format?: string;
@@ -268,6 +272,7 @@ program
     pathPrefix?: string;
     deps?: boolean;
     exclude?: string[];
+    missingControls?: boolean;
     verbose?: boolean;
   }) => {
     const format = (opts.format ?? "text").toLowerCase();
@@ -291,6 +296,7 @@ program
       pathPrefix: opts.pathPrefix,
       dependencies: opts.deps,
       exclude: opts.exclude,
+      missingControls: opts.missingControls,
       verbose: opts.verbose,
     });
   });

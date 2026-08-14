@@ -17,6 +17,7 @@
 import { CODE_RULES, evaluateRule, proseLines } from './code-rules';
 import { scanPackageJson, scanRequirementsTxt } from './manifest-rules';
 import { isKnownPlaceholder, redactSecret, SECRET_RULES, SENSITIVE_FILES } from './secret-rules';
+import { evaluateTemplateRules, TEMPLATE_EXTENSIONS } from './template-rules';
 import type { ScanFinding, ScanLanguage, Severity } from './types';
 import { severityRank } from './types';
 
@@ -55,6 +56,11 @@ export const SCAN_EXTENSIONS = new Set([
   '.yml', '.yaml', '.json', '.toml', '.ini', '.cfg', '.conf', '.env',
   '.sh', '.bash', '.zsh', '.tf', '.hcl', '.xml', '.properties', '.gradle',
   '.txt', '.md', '.sql', '.erb', '.ejs', '.vue', '.svelte',
+  // Template files, so the engine in `template-rules.ts` has something to
+  // read. Sourced from the rules themselves rather than repeated here: an
+  // engine added there becomes scannable without a second edit that could be
+  // forgotten, which is how a rule ends up quietly never firing.
+  ...TEMPLATE_EXTENSIONS,
 ]);
 
 const LANGUAGE_BY_EXTENSION: Record<string, ScanLanguage> = {
@@ -280,6 +286,31 @@ export function scanText(
       });
     }
   });
+
+  // ── Template output ────────────────────────────────────────────────────
+  //
+  // Keyed on the extension rather than on `language`, because the extension is
+  // what names the engine and the engine is what decides which syntax skips
+  // escaping. This runs *in addition to* the code rules above, so a `.vue`
+  // file is checked both as JavaScript and as a template.
+  for (const match of evaluateTemplateRules(extensionOf(relativePath), lines)) {
+    const index = match.line - 1;
+    if (isSuppressed(suppressions, index, match.rule.id)) continue;
+
+    findings.push({
+      ruleId: match.rule.id,
+      title: match.rule.title,
+      file: relativePath,
+      line: match.line,
+      severity: match.severity,
+      confidence: 'pattern',
+      message: `${match.rule.title} (${match.rule.cwe})`,
+      consequence: match.rule.consequence,
+      cwe: match.rule.cwe,
+      excerpt: (lines[index] ?? '').trim().slice(0, 200),
+      category: 'code',
+    });
+  }
 
   return findings;
 }
