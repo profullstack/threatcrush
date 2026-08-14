@@ -1016,39 +1016,6 @@ async function prTarget(
 const PR_TITLE = 'ci: scan pull requests for credentials and injection with ThreatCrush';
 
 /**
- * The CodeQL answer, because "we already get this from GitHub" is the reason
- * maintainers actually give, and saying nothing about it reads as not having
- * an answer.
- *
- * It says *different*, never *better*, and the restraint is deliberate. It is
- * not better at what CodeQL does: CodeQL is semantic dataflow analysis and
- * most of this is pattern matching, which our own output admits every time it
- * prints `confidence: pattern` next to a finding. Told "we'll likely try
- * CodeQL first" by somebody who has read both, an overclaim here is checkable
- * on the spot and loses the rest of the paragraph with it.
- *
- * So: two differences that are true, dated, and verifiable by the reader
- * without taking our word for anything, and then the offer to be closed.
- */
-const alongsideCodeql = [
-  '**This is not a CodeQL replacement, and it is worth saying where it differs.**',
-  'CodeQL does semantic dataflow analysis and is better at it than this is — a',
-  'repository already running it is not missing much by closing this. Two gaps it',
-  'does fill:',
-  '',
-  '- Code scanning and secret scanning are free on public repositories, but need',
-  '  paid GitHub Code Security / Secret Protection on private ones. This is MIT and',
-  '  free on both, so the same gate can run across a mixed set of repositories.',
-  '- CodeQL analyses a fixed set of languages, and among compiled ones it analyses',
-  "  only the language with the most source files unless it's explicitly configured",
-  '  otherwise. In a polyglot repository the rest goes unscanned by default; this',
-  '  reads every file it is pointed at.',
-  '',
-  'It is additive and report-only, so running both costs a few CI minutes and',
-  'changes nothing else.',
-];
-
-/**
  * Written to be easy to say no to. It quotes no findings and asserts nothing
  * about the code — a pull request that opens with "your repo has 30 high
  * severity issues" is a claim the sender has not verified, and in this
@@ -1056,60 +1023,31 @@ const alongsideCodeql = [
  * workflow, discloses who wrote the workflow, and says it will not be sent
  * twice. Everything past that is the maintainer's call.
  */
-const prBody = (spec: string, issue: string, ran: string): string =>
+const prBody = (spec: string, issue: string): string =>
   [
-    'Adds a pull-request workflow that scans the diff for hardcoded credentials,',
-    'injection, SSRF and unsafe deserialisation. Results go to the Security tab as',
-    'SARIF and to a comment on the pull request.',
-    ...(ran ? [ran] : []),
+    'Adds one workflow. On each pull request it scans the checked-out repository for',
+    'hardcoded credentials, injection, SSRF and unsafe deserialisation, and writes',
+    'findings to the Security tab and a comment.',
     '',
-    // The diff exists so the question in the issue can be answered by reading
-    // it rather than imagining it. Which of the two gets closed is the
-    // maintainer's choice, and saying so costs nothing.
-    ...(issue
-      ? [
-          'Opened alongside the question in',
-          `${issue}, which is the place to say no or ask for`,
-          'changes. This is only the diff, so it is there to read rather than imagine —',
-          'closing either one is a fine answer.',
-          '',
-        ]
-      : []),
-    ...alongsideCodeql,
+    '- `.github/workflows/threatcrush-scan.yml`',
+    '- `.github/scripts/threatcrush-to-sarif.py` — SARIF shim for older CLI versions',
     '',
-    "**It is report-only.** `failOn` is empty, so it annotates and never fails a build.",
-    'A repository with pre-existing findings should get a report on its first install,',
-    'not a blocked pull request — a gate that fires on everything gets switched off',
-    'within a day. Tighten it to `critical,high` in the workflow once any backlog is',
-    'triaged.',
+    '**Report-only.** `failOn` is empty, so findings never fail the build. An install',
+    'or scan failure does fail the job: a scanner that reports clean when it did not',
+    'run is worse than no scanner.',
     '',
-    '- `.github/workflows/threatcrush-scan.yml` — the workflow',
-    '- `.github/scripts/threatcrush-to-sarif.py` — a compatibility shim for CLI versions',
-    '  older than native SARIF output; unused once the installed CLI can emit it itself',
+    // Said plainly because it was said wrongly for sixty-nine requests. scanPath
+    // is ".", and "scans the diff" was in every one of them.
+    '**Scope:** it scans the whole checked-out repository, not only the diff.',
     '',
-    'Permissions are least-privilege (`contents: read`, `pull-requests: write`,',
-    '`security-events: write`). It runs on `pull_request`, not `pull_request_target`,',
-    'so contributor code never executes with your secrets in scope. The SARIF upload',
-    'is `continue-on-error` and degrades quietly where code scanning is unavailable.',
+    `**Supply chain.** Pinned to \`${spec}\`; the tarball is hashed and checked against`,
+    'a value in the workflow before install (`npm view` it yourself), installed with',
+    '`--ignore-scripts`, actions pinned to commit SHAs, and it runs on `pull_request`',
+    'rather than `pull_request_target`.',
+    ...(issue ? ['', `Asked first in ${issue}.`] : []),
     '',
-    `The CLI is pinned to \`${spec}\`, and the workflow does not install it on the`,
-    "registry's word. It downloads that tarball, hashes it, checks the SHA-512",
-    'against a value committed in the workflow file, and refuses to install on a',
-    'mismatch. A pinned version says which release to fetch; it does not say the',
-    'bytes are the ones that release was published with, and the party answering the',
-    'first question is the party serving the bytes. You can check the pinned hash',
-    `against the registry yourself with \`npm view ${spec} dist.integrity\`.`,
-    '',
-    'It installs with `--ignore-scripts`, and checkout runs with',
-    "`persist-credentials: false`. A scanner that installs a floating version, runs",
-    "its dependencies' lifecycle scripts and leaves a token in `.git/config` is",
-    'asking you to trust more than it is worth, and none of that is needed to read a',
-    'diff. Bump the pin and its hash together whenever you like — nothing here',
-    'updates itself.',
-    '',
-    'Disclosure: I maintain [ThreatCrush](https://github.com/profullstack/threatcrush).',
-    'It is free and MIT, and the workflow installs it from npm — nothing here phones',
-    'home. If this is not something you want, closing it is the right answer, and I',
+    'Disclosure: I maintain [ThreatCrush](https://github.com/profullstack/threatcrush);',
+    'MIT and free. Written with AI assistance. Closing this is a fine answer and I',
     'will not send another.',
   ].join('\n');
 
@@ -1193,93 +1131,6 @@ interface ScanJson {
   findings: { severity: string; confidence: string; ruleId: string }[];
 }
 
-/**
- * Run the scanner over the tree we just cloned, and describe what it did.
- *
- * This exists because of the single most damning number in the whole
- * experiment: of 24 open requests, **none** had ever run a scan. Nineteen sat
- * at "waiting for the maintainer to approve the run" and five had no runs at
- * all, because GitHub withholds workflow runs from first-time contributors.
- * So every maintainer who looked saw a pending or red check and no output
- * whatsoever. The offer was "here is a scanner for your pull requests" and the
- * demonstration had never once executed. That explains nine straight declines
- * far better than any wording did.
- *
- * What it must not become is the thing prBody() has always refused to be.
- * Quoting findings at somebody as if they were defects is the fastest way to
- * be ignored, and this project's own sample says why: every such claim in it
- * was false. So this reports *what the run did* — files, time, counts, and the
- * confidence tier the CLI itself assigns — and states plainly that none of it
- * is a claim. `confidence: pattern` means a regex matched. That is a fact
- * about the scanner, not about their code, and it is the honest half of what a
- * maintainer wanted to see.
- *
- * Failure is silence. A scan that breaks, hangs or takes too long omits the
- * section rather than blocking the request or, worse, guessing at a number.
- */
-async function demo(dir: string, spec: string): Promise<string> {
-  const seconds = num('TCFEED_DEMO_TIMEOUT', 120);
-  if (seconds <= 0) return '';
-
-  const began = Date.now();
-  const said = await run('npx', ['--yes', spec, 'scan', dir, '--format', 'json'], {
-    maxBuffer: 64 * 1024 * 1024,
-    timeout: seconds * 1000,
-  })
-    // Exit 1 is "findings at or above --fail-on", which is a result and not a
-    // failure. The JSON is on stdout either way; only an empty stdout is a
-    // genuine miss.
-    .then(({ stdout }) => stdout)
-    .catch((error: { stdout?: string }) => error.stdout ?? '');
-
-  let scan: ScanJson;
-  try {
-    scan = JSON.parse(said) as ScanJson;
-    if (typeof scan.filesScanned !== 'number' || !Array.isArray(scan.findings)) return '';
-  } catch {
-    return '';
-  }
-
-  const took = ((Date.now() - began) / 1000).toFixed(1);
-  const order = ['critical', 'high', 'medium', 'low', 'info'];
-  const counted = order
-    .filter((name) => (scan.summary?.[name] ?? 0) > 0)
-    .map((name) => `${scan.summary[name]} ${name}`)
-    .join(', ');
-
-  const evidence = scan.findings.filter((one) => one.confidence === 'evidence').length;
-  const pattern = scan.findings.length - evidence;
-
-  return [
-    '',
-    '### What it does on this repository',
-    '',
-    '```',
-    `${spec} scan .`,
-    `${scan.filesScanned} files in ${took}s — ${scan.findings.length} finding(s)` +
-      (counted ? `: ${counted}` : ''),
-    ...(scan.findings.length > 0
-      ? [`confidence: ${evidence} evidence, ${pattern} pattern`]
-      : []),
-    '```',
-    '',
-    ...(scan.findings.length === 0
-      ? ['Nothing flagged. That is the whole report — the comment on a pull request']
-      : [
-          '**None of that is a claim about your code, and I have not verified any of it.**',
-          '`confidence: pattern` means a regex matched and nothing more; expect false',
-          'positives in that tier. It is here because the check on this pull request may',
-        ]),
-    ...(scan.findings.length === 0
-      ? ['would say the same.']
-      : [
-          'never run at all — GitHub withholds workflow runs from first-time contributors,',
-          'and across 24 open requests elsewhere not one has been approved. Rather than ask',
-          'you to approve a run to find out what it produces, that is what it produces.',
-        ]),
-  ].join('\n');
-}
-
 const ISSUE_TITLE = 'Would you take a pull-request security scan workflow?';
 
 /**
@@ -1299,36 +1150,21 @@ const ISSUE_TITLE = 'Would you take a pull-request security scan workflow?';
  */
 const issueBody = (spec: string): string =>
   [
-    'Hello — would a pull-request security scan be useful here, or is this',
-    'already covered?',
+    'Would a pull-request security scan be useful here, or is this already covered?',
     '',
-    'The offer is one workflow that scans each pull request diff for hardcoded',
-    'credentials, injection, SSRF and unsafe deserialisation, and writes results to',
-    'the Security tab as SARIF plus a comment on the pull request. It is report-only',
-    "(`failOn` empty), so it annotates and never fails a build — a first install on a",
-    'repository with a backlog should produce a report, not a blocked pull request.',
+    'One workflow. On each pull request it scans the checked-out repository for',
+    'hardcoded credentials, injection, SSRF and unsafe deserialisation, and writes',
+    'findings to the Security tab. Report-only — findings never fail the build.',
     '',
-    ...alongsideCodeql,
+    `Two files under \`.github/\`, a pinned \`${spec}\` whose tarball is hashed before`,
+    'install, and `pull_request` rather than `pull_request_target`.',
     '',
-    'How it is wired, since this is the part worth objecting to:',
+    'A pull request is open alongside this with the diff, if reading it is easier',
+    'than discussing it.',
     '',
-    '- runs on `pull_request`, not `pull_request_target`, so contributor code never',
-    '  executes with your secrets in scope',
-    `- installs a pinned \`${spec}\` with \`--ignore-scripts\``,
-    '- `contents: read`, `pull-requests: write`, `security-events: write`, and',
-    '  `persist-credentials: false` on checkout',
-    '- two files, both under `.github/`; nothing else in the tree is touched',
-    '',
-    'Disclosure: I maintain [ThreatCrush](https://github.com/profullstack/threatcrush).',
-    'It is free and MIT, and the workflow installs it from npm — nothing here phones',
-    'home. I am opening a pull request alongside this so the diff is there to read if',
-    'you want it, and it can be closed and this discussed instead. That pull request',
-    'also carries the output of an actual run against this repository, so the thing',
-    'being offered can be judged without enabling anything: GitHub withholds workflow',
-    'runs from first-time contributors, so the check on it may never run by itself.',
-    '',
-    'If this is not something you want, saying so is the right answer and I will not',
-    'ask again.',
+    'Disclosure: I maintain [ThreatCrush](https://github.com/profullstack/threatcrush);',
+    'MIT and free. Written with AI assistance. Closing this is a fine answer and I',
+    'will not ask again.',
   ].join('\n');
 
 /**
@@ -1409,10 +1245,6 @@ async function openPr(
       if (stdout.trim()) return `already scans with threatcrush (${stdout.trim().split('\n')[0]})`;
     }
 
-    // Scanned before our own files are written, so the report describes their
-    // repository rather than the workflow this is about to add to it.
-    const ran = await demo(src, spec);
-
     await git(['checkout', '--quiet', '-b', PR_BRANCH]);
     for (const file of files) {
       const full = path.join(src, file.destination);
@@ -1435,7 +1267,7 @@ async function openPr(
       const { stdout } = await git(['show', '--stat', '--oneline', 'HEAD']);
       console.log(`\n--- ${repo} (dry run, nothing pushed) — base ${base}`);
       console.log(stdout.trimEnd());
-      console.log(`\n${PR_TITLE}\n\n${prBody(spec, issue, ran)}`);
+      console.log(`\n${PR_TITLE}\n\n${prBody(spec, issue)}`);
       return 'dry run';
     }
 
@@ -1528,7 +1360,7 @@ async function openPr(
       '--title',
       PR_TITLE,
       '--body',
-      prBody(spec, issue, ran),
+      prBody(spec, issue),
     ]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
