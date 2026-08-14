@@ -1564,7 +1564,22 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
         issue = await openIssue(repo, spec, dryRun);
         if (issue.startsWith('http')) console.log(`· ${repo} — asked ${issue}`);
       } catch (error) {
-        console.log(`· ${repo} — issue failed: ${why(error)}`);
+        const reason = why(error);
+        // A repository that has restricted interactions to prior contributors
+        // has said no to everybody it has not met, in advance and in general.
+        // The request will be refused on exactly the same ground, so stop here
+        // rather than fork it, clone it, push a branch and find out — which is
+        // what mempool/mempool cost before this existed.
+        //
+        // Detected from the refusal because it cannot be asked in advance:
+        // GET /repos/{owner}/{repo}/interaction-limits needs admin rights on
+        // the repository and answers 403 for restricted and unrestricted
+        // repositories alike, so it cannot tell the two apart from outside.
+        if (/interactions?\s+on\s+this\s+repository\s+ha(?:ve|s)\s+been\s+restricted/i.test(reason)) {
+          console.log(`· ${repo} — skipped: restricted to prior contributors`);
+          continue;
+        }
+        console.log(`· ${repo} — issue failed: ${reason}`);
       }
     }
 
