@@ -744,6 +744,37 @@ const SCANNERS: [string, RegExp][] = [
 ];
 
 /**
+ * The `Signed-off-by` trailer for a commit made through the contents API.
+ *
+ * The clone paths get this from `git commit --signoff`. The refresh path never
+ * runs git, so without this it puts an unsigned commit onto a request that had
+ * already satisfied a DCO check and breaks it on our own initiative.
+ *
+ * Read out of git's configuration so it agrees with what the clone paths sign,
+ * falling back to the account behind the token — which is who the API records
+ * as the committer regardless. An identity with only half of it present is
+ * worse than none: the trailer looks right and fails the check anyway.
+ */
+let signedBy = '';
+async function signoff(): Promise<string> {
+  if (signedBy) return signedBy;
+
+  const configured = async (key: string): Promise<string> =>
+    run('git', ['config', key]).then(
+      ({ stdout }) => stdout.trim(),
+      () => '',
+    );
+
+  const name = (await configured('user.name')) || (await gh(['api', 'user', '--jq', '.name']).catch(() => '')).trim();
+  const email =
+    (await configured('user.email')) || (await gh(['api', 'user', '--jq', '.email']).catch(() => '')).trim();
+
+  if (!name || !email) return '';
+  signedBy = `Signed-off-by: ${name} <${email}>`;
+  return signedBy;
+}
+
+/**
  * Is this repository already covered?
  *
  * By file contents, not file names. A survey of the repositories this had
@@ -1305,7 +1336,16 @@ async function openPr(
       fs.writeFileSync(full, file.content);
     }
     await git(['add', ...files.map((file) => file.destination)]);
-    await git(['commit', '--quiet', '-m', 'ci: add the ThreatCrush security scan workflow']);
+    // --signoff, because a repository running the DCO check blocks the request
+    // outright and the only remedy is rewriting the commit. Cheap to always
+    // add, and it is a true statement either way: this is our own work.
+    await git([
+      'commit',
+      '--quiet',
+      '--signoff',
+      '-m',
+      'ci: add the ThreatCrush security scan workflow',
+    ]);
 
     if (dryRun) {
       const { stdout } = await git(['show', '--stat', '--oneline', 'HEAD']);
@@ -1940,7 +1980,7 @@ async function pushFix(repo: string, me: string, remedy: Remedy): Promise<string
 
     fs.writeFileSync(full, after);
     await git(['add', OUR_WORKFLOW]);
-    await git(['commit', '--quiet', '-m', `ci: ${remedy.why}`]);
+    await git(['commit', '--quiet', '--signoff', '-m', `ci: ${remedy.why}`]);
     await git([
       '-c',
       'credential.helper=',
@@ -2006,6 +2046,7 @@ async function refreshOne(repo: string, me: string, spec: string): Promise<strin
 
   const fork = `${me}/${repo.split('/')[1]}`;
   const changed: string[] = [];
+  const trailer = await signoff();
 
   for (const file of want) {
     const said = await gh([
@@ -2029,7 +2070,9 @@ async function refreshOne(repo: string, me: string, spec: string): Promise<strin
       'PUT',
       `repos/${fork}/contents/${file.path}`,
       '-f',
-      `message=ci: update the ThreatCrush scan workflow to the reviewed pack`,
+      `message=ci: update the ThreatCrush scan workflow to the reviewed pack${
+        trailer ? `\n\n${trailer}` : ''
+      }`,
       '-f',
       `content=${Buffer.from(file.content, 'utf8').toString('base64')}`,
       '-f',
