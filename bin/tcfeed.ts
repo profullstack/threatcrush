@@ -77,7 +77,11 @@
  *   TCFEED_PR_STANDING  unanswered requests allowed to stand at once, default 200
  *   TCFEED_PR_PER_DAY   requests opened in a rolling 24 hours, default 100
  *   TCFEED_NODE     nodeVersion input, default 20
- *   TCFEED_SPEC     threatcrushPackageSpec input, default @latest
+ *   TCFEED_SPEC     threatcrushPackageSpec input, default the version npm
+ *                   names today. Setting it also makes the integrity hash
+ *                   best-effort: a spec pointing at a tarball or a local build
+ *                   has no dist.integrity to read, and the pack treats an empty
+ *                   hash as "no check" — see resolveIntegrity()
  *   TCFEED_FAIL_ON  failOn input, default empty, meaning report-only
  */
 
@@ -685,11 +689,52 @@ async function resolveSpec(): Promise<string> {
   return pinned;
 }
 
+/**
+ * The hash of the tarball that spec names, for the workflow to check before
+ * it installs anything.
+ *
+ * The pin says which release to fetch. It does not say the bytes are the ones
+ * that release was published with, and the party answering "which version" is
+ * the party serving the bytes. Haven's maintainer drew exactly that line when
+ * they asked for "exact version + integrity hash" rather than accepting the
+ * pin as the answer, and they were right to.
+ *
+ * Read from the registry's own `dist.integrity`, which `npm pack` reproduces
+ * byte for byte — verified against 0.11.0 — so the workflow compares to a
+ * published digest rather than to a repack of one.
+ *
+ * Fails loudly for a spec this resolved itself, quietly for one the caller
+ * chose. TCFEED_SPEC pointing at a tarball or a local build has no registry
+ * entry to read, and refusing to render on that would break a legitimate use;
+ * the pack treats an empty hash as "no check" and says so in the job log.
+ */
+const integrities = new Map<string, string>();
+async function resolveIntegrity(spec: string): Promise<string> {
+  const held = integrities.get(spec);
+  if (held !== undefined) return held;
+
+  const said = await run('npm', ['view', spec, 'dist.integrity'])
+    .then(({ stdout }) => stdout.trim())
+    .catch(() => '');
+
+  // Anything that is not an SRI hash is not a hash. A half-read line pinned
+  // into a stranger's workflow fails their build closed on every run, which is
+  // a worse outcome than not pinning one at all.
+  const hash = /^sha512-[A-Za-z0-9+/]+=*$/.test(said) ? said : '';
+  if (!hash && !process.env.TCFEED_SPEC) {
+    throw new Error(`npm did not name an integrity hash for ${spec} (got ${JSON.stringify(said)})`);
+  }
+
+  integrities.set(spec, hash);
+  return hash;
+}
+
 /** The pack's inputs, at the defaults its own manifest documents. */
-const packInputs = (spec: string): Record<string, string> => ({
+const packInputs = (spec: string, integrity: string): Record<string, string> => ({
   scanPath: '.',
   nodeVersion: process.env.TCFEED_NODE || '20',
   threatcrushPackageSpec: spec,
+  threatcrushIntegrity: integrity,
   // Empty, and this is the one input that must not be "improved" on the way
   // into somebody else's repository. A first install on a codebase with a
   // backlog either reports or blocks, and the one that blocks gets deleted the
@@ -1288,7 +1333,7 @@ async function openPr(
 ): Promise<string> {
   const pack = packDir();
   const spec = await resolveSpec();
-  const inputs = packInputs(spec);
+  const inputs = packInputs(spec, await resolveIntegrity(spec));
   const files = [
     {
       destination: '.github/workflows/threatcrush-scan.yml',
@@ -1574,11 +1619,14 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
   }
 
   // Read once, so a pack that cannot be found or cannot be rendered stops the
-  // run before it has forked anything. Resolving the pin here too means a
-  // registry that will not name a version stops the run at the same point,
-  // rather than after the first fork.
+  // run before it has forked anything. Resolving the pin and its hash here too
+  // means a registry that will not name either stops the run at the same
+  // point, rather than after the first fork.
   const spec = await resolveSpec();
-  render(fs.readFileSync(path.join(packDir(), 'workflow.yml'), 'utf8'), packInputs(spec));
+  render(
+    fs.readFileSync(path.join(packDir(), 'workflow.yml'), 'utf8'),
+    packInputs(spec, await resolveIntegrity(spec))
+  );
 
   // The account's budget, after the run's own cap and before anything is
   // opened. A dry run is exempt because it opens nothing; it still prints the
@@ -2034,7 +2082,7 @@ async function refreshOne(repo: string, me: string, spec: string): Promise<strin
   if (open.length === 0) return 'no open request';
 
   const pack = packDir();
-  const inputs = packInputs(spec);
+  const inputs = packInputs(spec, await resolveIntegrity(spec));
   const want = [
     {
       path: OUR_WORKFLOW,
