@@ -116,6 +116,15 @@ export async function POST(
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
     }
 
+    // TC-07: an admin could grant `owner` to a second account they controlled
+    // and then remove the real owner. Only an owner may create another owner.
+    if (role === "owner" && membership.role !== "owner") {
+      return NextResponse.json(
+        { error: "Only an owner can assign the owner role" },
+        { status: 403 },
+      );
+    }
+
     // Find user by email
     const { data: targetUser, error: userError } = await getSupabaseAdmin()
       .from("user_profiles")

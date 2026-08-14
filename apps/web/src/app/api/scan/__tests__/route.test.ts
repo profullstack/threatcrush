@@ -33,7 +33,7 @@ describe("POST /api/scan", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("Scanning internal addresses is not allowed");
+    expect(body.error).toBe("Requests to internal addresses are not allowed");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -44,7 +44,7 @@ describe("POST /api/scan", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("Scanning internal addresses is not allowed");
+    expect(body.error).toBe("Requests to internal addresses are not allowed");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -86,7 +86,7 @@ describe("POST /api/scan", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("Scanning internal addresses is not allowed");
+    expect(body.error).toBe("Requests to internal addresses are not allowed");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

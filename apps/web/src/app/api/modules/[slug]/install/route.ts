@@ -66,12 +66,12 @@ export async function POST(
 
   const user = await getAuthenticatedRequestUser(request);
 
-  // Increment download count
-  const newCount = (mod.downloads || 0) + 1;
-  await sb
-    .from("modules")
-    .update({ downloads: newCount, updated_at: new Date().toISOString() })
-    .eq("id", mod.id);
+  // TC-24: incrementing in JS and writing the result back loses concurrent
+  // installs. The RPC does it in one atomic statement.
+  const { data: incremented } = await sb.rpc("increment_module_downloads", {
+    p_module_id: mod.id,
+  });
+  const newCount = typeof incremented === "number" ? incremented : (mod.downloads || 0) + 1;
 
   // Log the install
   await sb.from("module_installs").insert({

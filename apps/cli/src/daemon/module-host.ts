@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import TOML from '@iarna/toml';
 import type { EventBus } from './event-bus.js';
 import { PATHS } from './paths.js';
+import { verifyModuleTrust } from './module-trust.js';
 import { LogWatcher } from './watchers/log-watcher.js';
 import { JournalWatcher } from './watchers/journal-watcher.js';
 import { NetworkMonitor } from '../modules/network-monitor/index.js';
@@ -187,6 +188,17 @@ export class ModuleHost {
     if (!entrypoint) {
       hosted.status = 'loaded';
       hosted.detail = 'no built entrypoint found; run npm install && npm run build in the module directory';
+      return;
+    }
+
+    // TC-32: this daemon runs as root, so importing a marketplace module is
+    // handing it the machine. Nothing loads without an explicit local trust
+    // decision and an unchanged content digest.
+    const trust = verifyModuleTrust(hosted.name, hosted.path!);
+    if (!trust.ok) {
+      hosted.status = 'error';
+      hosted.detail = `refusing to load: ${trust.reason}`;
+      this.bus.announceModule(hosted.name, 'error', hosted.detail);
       return;
     }
 

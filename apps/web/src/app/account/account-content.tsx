@@ -232,7 +232,7 @@ export default function AccountContent() {
     setRevealingAiGatewayKey(true);
     try {
       if (!profile?.id) throw new Error("Account profile is still loading");
-      const res = await fetch("/api/settings?includeSecretValues=1", {
+      const res = await fetch("/api/settings?revealSecret=AI_GATEWAY_API_KEY", {
         headers: authHeaders(),
         cache: "no-store",
       });

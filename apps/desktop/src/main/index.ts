@@ -19,7 +19,13 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon: join(__dirname, '../../resources/icon.png') } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      // TC-37: sandbox was off, so renderer XSS or a compromised dependency ran
+      // with full Node privileges. The preload only uses contextBridge and
+      // ipcRenderer, both available in a sandboxed preload.
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true
     }
   })
 
@@ -134,9 +140,26 @@ ipcMain.handle('daemon-status', async () => {
   }
 })
 
+/**
+ * TC-37: this handler forwarded any method the renderer named straight to the
+ * daemon, so renderer XSS meant daemon control. Only the read-only methods the
+ * UI actually needs are forwarded; `shutdown` is deliberately absent.
+ */
+const ALLOWED_DAEMON_METHODS = new Set([
+  'ping',
+  'status',
+  'recent_events',
+  'top_sources',
+  'counters',
+  'module_list'
+])
+
 ipcMain.handle('daemon-request', async (_event, method: string, params?: Record<string, unknown>) => {
   if (!daemon || !daemon.isConnected()) {
     return { ok: false, error: 'not connected' }
+  }
+  if (typeof method !== 'string' || !ALLOWED_DAEMON_METHODS.has(method)) {
+    return { ok: false, error: `method not allowed: ${String(method)}` }
   }
   try {
     const result = await daemon.request(method, params)

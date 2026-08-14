@@ -63,13 +63,18 @@ export async function installServiceCommand(): Promise<void> {
 // and we want module installs / config edits to be writable by `adm` group
 // members (same boundary used for log read access and IPC socket access).
 function ensureSystemDirs(): void {
-  const dirs: Array<{ path: string; sticky?: boolean }> = [
-    { path: '/etc/threatcrush' },
-    { path: '/etc/threatcrush/modules', sticky: true },
-    { path: '/etc/threatcrush/threatcrushd.conf.d' },
-    { path: '/var/log/threatcrush' },
-    { path: '/var/lib/threatcrush' },
-    { path: '/var/run/threatcrush' },
+  // Only the config side is group-writable. The runtime dirs used to be 0775
+  // adm as well, which meant an adm member could replace files the daemon
+  // relies on for its own authorization — including the control token that now
+  // gates `shutdown` (TC-33). They are root-owned; adm still needs no more than
+  // traverse-and-read there.
+  const dirs: Array<{ path: string; groupWritable: boolean; sticky?: boolean }> = [
+    { path: '/etc/threatcrush', groupWritable: true },
+    { path: '/etc/threatcrush/modules', groupWritable: true, sticky: true },
+    { path: '/etc/threatcrush/threatcrushd.conf.d', groupWritable: true },
+    { path: '/var/log/threatcrush', groupWritable: false },
+    { path: '/var/lib/threatcrush', groupWritable: false },
+    { path: '/var/run/threatcrush', groupWritable: false },
   ];
   let admGid: number | null = null;
   try {
@@ -78,16 +83,17 @@ function ensureSystemDirs(): void {
     // adm group not present — leave permissions as root-only
   }
 
-  for (const { path, sticky } of dirs) {
+  for (const { path, groupWritable, sticky } of dirs) {
     try { mkdirSync(path, { recursive: true }); } catch {}
-    if (admGid !== null) {
-      try {
+    try {
+      if (groupWritable && admGid !== null) {
         // 2775 = setgid + group writable; setgid makes new files inherit `adm`.
-        // 0775 for the non-module dirs.
         chmodSync(path, sticky ? 0o2775 : 0o775);
         execSync(`chgrp adm ${path}`, { stdio: 'ignore' });
-      } catch { /* best-effort */ }
-    }
+      } else {
+        chmodSync(path, 0o755);
+      }
+    } catch { /* best-effort */ }
   }
   console.log(chalk.green('  ✓ Runtime dirs prepared (group `adm` may install modules / edit config without sudo).'));
 }

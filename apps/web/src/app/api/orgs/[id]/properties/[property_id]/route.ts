@@ -99,7 +99,23 @@ export async function PATCH(
         updates.next_run_at = null;
       }
     }
-    if ("next_run_at" in body) updates.next_run_at = body.next_run_at;
+    // TC-22: an arbitrary past timestamp made the scheduler fire this property
+    // on every tick, which is a free way to run scans continuously.
+    if ("next_run_at" in body) {
+      if (body.next_run_at === null) {
+        updates.next_run_at = null;
+      } else {
+        const when = new Date(body.next_run_at);
+        if (Number.isNaN(when.getTime())) {
+          return NextResponse.json({ error: "next_run_at must be a valid timestamp" }, { status: 400 });
+        }
+        // Small tolerance so a client clock a little behind ours still works.
+        if (when.getTime() < Date.now() - 60_000) {
+          return NextResponse.json({ error: "next_run_at must be in the future" }, { status: 400 });
+        }
+        updates.next_run_at = when.toISOString();
+      }
+    }
     if (typeof body.last_run_status === "string") updates.last_run_status = body.last_run_status;
     if ("last_run_at" in body) updates.last_run_at = body.last_run_at;
 

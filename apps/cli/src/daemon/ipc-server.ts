@@ -2,6 +2,7 @@ import { createServer, Server, Socket } from 'node:net';
 import { existsSync, unlinkSync } from 'node:fs';
 import type { ThreatEvent } from '../types/events.js';
 import { PATHS } from './paths.js';
+import { issueControlToken, tokensMatch } from './control-token.js';
 import { bus } from './event-bus.js';
 import { getRecentEvents, getTopSources, getEventCount, getThreatCount } from '../core/state.js';
 import type {
@@ -25,6 +26,7 @@ export class IpcServer {
   private nextClientId = 1;
   private startedAt = new Date();
   private counters = { events: 0, threats: 0, alerts: 0 };
+  private controlToken = '';
 
   constructor(
     private version: string,
@@ -46,6 +48,9 @@ export class IpcServer {
   }
 
   async start(): Promise<void> {
+    // Rotated per start, so a token leaked from a previous run is useless.
+    this.controlToken = issueControlToken();
+
     if (existsSync(PATHS.socket)) {
       try { unlinkSync(PATHS.socket); } catch {}
     }
@@ -180,6 +185,15 @@ export class IpcServer {
         return this.send(client, { id: req.id, ok: true, result: { subscribed: [...client.subscriptions] } });
 
       case 'shutdown':
+        // TC-33: reads are open to the adm group by design; stopping the
+        // security daemon is not. Requires the root-only control token.
+        if (!tokensMatch(this.controlToken, (req as { params?: { token?: unknown } }).params?.token)) {
+          return this.send(client, {
+            id: req.id,
+            ok: false,
+            error: 'shutdown requires the daemon control token (run as root, or use systemctl)',
+          });
+        }
         this.send(client, { id: req.id, ok: true, result: 'shutting down' });
         setTimeout(() => process.emit('SIGTERM' as NodeJS.Signals), 50);
         return;

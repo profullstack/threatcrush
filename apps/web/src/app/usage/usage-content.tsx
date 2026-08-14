@@ -163,7 +163,9 @@ export default function UsageContent() {
         return;
       }
       try {
-        const res = await fetch(`/api/usage/payment-status/${paymentId}`);
+        const res = await fetch(`/api/usage/payment-status/${paymentId}`, {
+          headers: authHeaders(),
+        });
         if (res.ok) {
           const data = await res.json();
           setPaymentStatus((prev) => prev ? { ...prev, status: data.status } : null);

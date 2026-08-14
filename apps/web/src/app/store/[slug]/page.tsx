@@ -6,6 +6,7 @@ import ScrollReveal from "@/components/ScrollReveal";
 import { authHeaders } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
 import { decryptClientSecret, encryptClientSecret, isE2ESecret } from "@/lib/client-secret-crypto";
+import { renderSimpleMarkdown } from "@/lib/simple-markdown";
 import type { PluginConfigField } from "@profullstack/pluginstore";
 
 interface Module {
@@ -77,34 +78,12 @@ function StarRating({ rating, size = "sm" }: { rating: number; size?: string }) 
 }
 
 function SimpleMarkdown({ content }: { content: string }) {
-  // Very basic markdown rendering: headers, bold, code blocks, links, lists
-  const lines = content.split("\n");
-  const html = lines
-    .map((line) => {
-      // Headers
-      if (line.startsWith("### ")) return `<h3 class="text-lg font-bold text-white mt-6 mb-2">${line.slice(4)}</h3>`;
-      if (line.startsWith("## ")) return `<h2 class="text-xl font-bold text-white mt-8 mb-3">${line.slice(3)}</h2>`;
-      if (line.startsWith("# ")) return `<h1 class="text-2xl font-bold text-white mt-8 mb-4">${line.slice(2)}</h1>`;
-      // Code blocks (inline)
-      let processed = line.replace(/`([^`]+)`/g, '<code class="bg-tc-darker px-1.5 py-0.5 rounded text-tc-green text-xs font-mono">$1</code>');
-      // Bold
-      processed = processed.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-white font-bold">$1</strong>');
-      // Links
-      processed = processed.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="text-tc-green hover:underline">$1</a>');
-      // List items
-      if (processed.startsWith("- ") || processed.startsWith("* ")) {
-        return `<li class="ml-4 text-tc-text-dim text-sm leading-relaxed list-disc">${processed.slice(2)}</li>`;
-      }
-      // Empty line
-      if (!processed.trim()) return '<br/>';
-      return `<p class="text-tc-text-dim text-sm leading-relaxed">${processed}</p>`;
-    })
-    .join("\n");
-
+  // long_description is author-supplied; renderSimpleMarkdown escapes it before
+  // building any markup (TC-04 / TC-39).
   return (
     <div
       className="prose-tc"
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: renderSimpleMarkdown(content) }}
     />
   );
 }
@@ -278,7 +257,7 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
     setConfigError(null);
     setRevealingSecrets((state) => ({ ...state, [key]: true }));
     try {
-      const res = await fetch("/api/settings?includeSecretValues=1", {
+      const res = await fetch(`/api/settings?revealSecret=${encodeURIComponent(key)}`, {
         headers: authHeaders(),
         cache: "no-store",
       });

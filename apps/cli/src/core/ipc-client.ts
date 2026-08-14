@@ -1,6 +1,7 @@
 import { createConnection, Socket } from 'node:net';
 import { existsSync } from 'node:fs';
 import { resolveClientSocket } from '../daemon/paths.js';
+import { readControlToken } from '../daemon/control-token.js';
 import type {
   IpcRequest,
   IpcResponse,
@@ -112,7 +113,10 @@ export class IpcClient {
   }
 
   async shutdown(): Promise<void> {
-    await this.request('shutdown');
+    // Readable only by root (system mode) or the owning user (user mode). When
+    // it is null the daemon rejects the call and `stop` falls back to SIGTERM,
+    // which the OS gates the same way.
+    await this.request('shutdown', { token: readControlToken() });
   }
 
   private onData(chunk: string): void {

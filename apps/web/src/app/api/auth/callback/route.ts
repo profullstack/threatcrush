@@ -1,14 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
+import { randomInt } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createOAuthCookieStorage } from "@/lib/oauth-cookie-storage";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 function generateReferralCode(): string {
+  // TC-30: referral codes attribute payouts, so they come from a CSPRNG.
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let code = "";
   for (let i = 0; i < 8; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[randomInt(0, chars.length)];
   }
   return code;
 }

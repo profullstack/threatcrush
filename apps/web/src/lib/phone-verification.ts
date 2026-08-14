@@ -2,6 +2,7 @@ import "server-only";
 import { createHash, randomInt } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { sendTelnyxSms } from "@/lib/telnyx";
+import { verifySignupGrant } from "@/lib/signup-grant";
 
 export const CODE_TTL_SECONDS = 10 * 60;
 export const RESEND_COOLDOWN_SECONDS = 30;
@@ -83,14 +84,17 @@ export async function issuePhoneCode(opts: {
 }
 
 /**
- * Resolve a user_id either from a Supabase auth Bearer token or, as a
- * fallback, from an email address via user_profiles. The signup flow
- * with email-confirmation enabled does NOT return a session token, so
- * the verify page has no choice but to look up the user by email.
+ * Resolve a user_id from a Supabase auth Bearer token or, when the signup flow
+ * has not produced a session yet, from a signed signup grant cookie.
+ *
+ * This used to fall back to a bare `email` parameter, which meant anyone who
+ * knew an address could drive the phone-verification flow for that account
+ * (TC-05). The grant carries the user id itself and is signed, so it cannot be
+ * forged or pointed at another account.
  */
 export async function resolveUserId(opts: {
   bearerToken?: string | null;
-  email?: string | null;
+  grantToken?: string | null;
 }): Promise<string | null> {
   const admin = getSupabaseAdmin();
 
@@ -99,14 +103,8 @@ export async function resolveUserId(opts: {
     if (user?.id) return user.id;
   }
 
-  if (opts.email) {
-    const { data: profile } = await admin
-      .from("user_profiles")
-      .select("id")
-      .eq("email", opts.email.toLowerCase().trim())
-      .maybeSingle();
-    if (profile?.id) return profile.id;
-  }
+  const grant = verifySignupGrant(opts.grantToken);
+  if (grant) return grant.userId;
 
   return null;
 }

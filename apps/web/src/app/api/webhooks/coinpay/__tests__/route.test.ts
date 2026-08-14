@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createHmac } from "node:crypto";
 
 // ─── Mock setup ───
 // The coinpay route creates its own supabase client via createClient directly.
@@ -92,17 +93,36 @@ vi.mock("@supabase/supabase-js", () => ({
 
 import { POST } from "@/app/api/webhooks/coinpay/route";
 
-function makeRequest(body: unknown) {
+const WEBHOOK_SECRET = "test-webhook-secret";
+
+/**
+ * Real signature, not a mocked verifier: TC-09 was specifically about a branch
+ * that skipped this check, so the tests should exercise the genuine one.
+ */
+function signBody(rawBody: string): string {
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const sig = createHmac("sha256", WEBHOOK_SECRET)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex");
+  return `t=${timestamp},v1=${sig}`;
+}
+
+function makeRequest(body: unknown, opts: { signed?: boolean } = {}) {
+  const rawBody = JSON.stringify(body);
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (opts.signed !== false) headers["x-coinpay-signature"] = signBody(rawBody);
+
   return new Request("http://localhost/api/webhooks/coinpay", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers,
+    body: rawBody,
   }) as unknown as import("next/server").NextRequest;
 }
 
 describe("POST /api/webhooks/coinpay", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.COINPAY_WEBHOOK_SECRET = WEBHOOK_SECRET;
     resetMocks();
   });
 
@@ -117,6 +137,38 @@ describe("POST /api/webhooks/coinpay", () => {
     expect(res.status).toBe(200);
     expect(body.ok).toBe(true);
     expect(body.email).toBe("user@example.com");
+  });
+
+  // TC-09: the waitlist branch used to be reachable with no signature at all,
+  // so anyone who knew a payment id could mark a waitlist row paid.
+  it("rejects an unsigned waitlist callback", async () => {
+    const req = makeRequest(
+      { type: "payment.confirmed", data: { payment_id: "pay-001", status: "confirmed" } },
+      { signed: false },
+    );
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(body.error).toContain("Invalid signature");
+  });
+
+  it("rejects a waitlist callback with a forged signature", async () => {
+    const rawBody = JSON.stringify({
+      type: "payment.confirmed",
+      data: { payment_id: "pay-001", status: "confirmed" },
+    });
+    const req = new Request("http://localhost/api/webhooks/coinpay", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-coinpay-signature": `t=${Math.floor(Date.now() / 1000)},v1=${"00".repeat(32)}`,
+      },
+      body: rawBody,
+    }) as unknown as import("next/server").NextRequest;
+
+    const res = await POST(req);
+    expect(res.status).toBe(401);
   });
 
   it("rejects missing payment_id", async () => {

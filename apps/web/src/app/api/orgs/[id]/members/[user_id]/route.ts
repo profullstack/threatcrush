@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
+/** True when targetUserId is an owner and the only one the org has. */
+async function isLastOwner(orgId: string, targetUserId: string): Promise<boolean> {
+  const { data: owners } = await getSupabaseAdmin()
+    .from("organization_members")
+    .select("user_id")
+    .eq("org_id", orgId)
+    .eq("role", "owner");
+
+  if (!owners) return false;
+  return owners.length === 1 && owners[0].user_id === targetUserId;
+}
+
 // PATCH /api/orgs/[id]/members/[user_id] — Update member role
 export async function PATCH(
   req: NextRequest,
@@ -38,6 +50,14 @@ export async function PATCH(
 
     if (!["owner", "admin", "member"].includes(role)) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    }
+
+    // TC-12: demoting the last owner leaves an org nobody can administer.
+    if (role !== "owner" && (await isLastOwner(orgId, targetUserId))) {
+      return NextResponse.json(
+        { error: "Cannot demote the last owner. Promote another owner first." },
+        { status: 400 },
+      );
     }
 
     const { data: updatedMember, error: updateError } = await getSupabaseAdmin()
@@ -108,6 +128,34 @@ export async function DELETE(
 
     if (!membership || !["owner", "admin"].includes(membership.role)) {
       return NextResponse.json({ error: "Not authorized to remove members" }, { status: 403 });
+    }
+
+    const { data: target } = await getSupabaseAdmin()
+      .from("organization_members")
+      .select("role")
+      .eq("org_id", orgId)
+      .eq("user_id", targetUserId)
+      .single();
+
+    if (!target) {
+      return NextResponse.json({ error: "Member not found" }, { status: 404 });
+    }
+
+    // An admin removing the owner is the same escalation as an admin minting
+    // one (TC-07), just from the other end.
+    if (target.role === "owner" && membership.role !== "owner") {
+      return NextResponse.json(
+        { error: "Only an owner can remove another owner" },
+        { status: 403 },
+      );
+    }
+
+    // TC-12: never leave the org without an owner.
+    if (await isLastOwner(orgId, targetUserId)) {
+      return NextResponse.json(
+        { error: "Cannot remove the last owner. Assign another owner first." },
+        { status: 400 },
+      );
     }
 
     const { error: deleteError } = await getSupabaseAdmin()

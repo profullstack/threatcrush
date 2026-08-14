@@ -13,14 +13,17 @@ import { issuePhoneCode, resolveUserId, CODE_TTL_SECONDS } from "@/lib/phone-ver
 const mockIssuePhoneCode = vi.mocked(issuePhoneCode);
 const mockResolveUserId = vi.mocked(resolveUserId);
 
+import { NextRequest } from "next/server";
 import { POST } from "@/app/api/auth/send-phone-code/route";
 
 function makeRequest(body: unknown, headers?: Record<string, string>) {
-  return new Request("http://localhost/api/auth/send-phone-code", {
+  // A real NextRequest, not a cast Request: the route reads req.cookies for the
+  // signup grant, which a plain Request does not have.
+  return new NextRequest("http://localhost/api/auth/send-phone-code", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
-  }) as unknown as import("next/server").NextRequest;
+  });
 }
 
 describe("POST /api/auth/send-phone-code", () => {
@@ -31,7 +34,7 @@ describe("POST /api/auth/send-phone-code", () => {
   });
 
   it("sends OTP to valid phone number", async () => {
-    const req = makeRequest({ phone: "+1234567890", email: "test@example.com" });
+    const req = makeRequest({ phone: "+1234567890" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -46,7 +49,7 @@ describe("POST /api/auth/send-phone-code", () => {
   });
 
   it("rejects missing phone", async () => {
-    const req = makeRequest({ email: "test@example.com" });
+    const req = makeRequest({});
     const res = await POST(req);
     const body = await res.json();
 
@@ -57,7 +60,7 @@ describe("POST /api/auth/send-phone-code", () => {
   it("rejects when user cannot be identified", async () => {
     mockResolveUserId.mockResolvedValue(null);
 
-    const req = makeRequest({ phone: "+1234567890", email: "unknown@example.com" });
+    const req = makeRequest({ phone: "+1234567890" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -70,7 +73,7 @@ describe("POST /api/auth/send-phone-code", () => {
     (err as Error & { status?: number }).status = 400;
     mockIssuePhoneCode.mockRejectedValue(err);
 
-    const req = makeRequest({ phone: "+1234567890", email: "test@example.com" });
+    const req = makeRequest({ phone: "+1234567890" });
     const res = await POST(req);
     const body = await res.json();
 
@@ -81,7 +84,7 @@ describe("POST /api/auth/send-phone-code", () => {
   it("handles internal error", async () => {
     mockIssuePhoneCode.mockRejectedValue(new Error("Network failure"));
 
-    const req = makeRequest({ phone: "+1234567890", email: "test@example.com" });
+    const req = makeRequest({ phone: "+1234567890" });
     const res = await POST(req);
     const body = await res.json();
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomBytes } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let supabase: SupabaseClient | undefined;
@@ -19,7 +20,9 @@ const PRICE_FULL = 499;
 const PRICE_REFERRAL = 399;
 
 function generateReferralCode(): string {
-  return Math.random().toString(36).substring(2, 10);
+  // TC-30: Math.random() is not a CSPRNG. A referral code decides who gets paid
+  // and unlocks the discounted price, so it must not be predictable.
+  return randomBytes(6).toString("base64url");
 }
 
 export async function POST(request: NextRequest) {

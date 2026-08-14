@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { safeFetch } from "@/lib/ssrf-guard";
 
 /**
  * POST /api/modules/fetch-meta
@@ -9,6 +10,18 @@ import { getSupabaseAdmin } from "@/lib/supabase";
  * Merges both sources: GitHub data preferred, web data fills gaps.
  */
 export async function POST(request: NextRequest) {
+  // This drives the "publish a module" form, so it is only ever called by a
+  // signed-in author. It used to be open to anyone, which handed the world an
+  // authenticated-looking fetch primitive (TC-08).
+  const token = request.headers.get("authorization")?.replace("Bearer ", "");
+  if (!token) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  const { data: { user } } = await getSupabaseAdmin().auth.getUser(token);
+  if (!user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
   let body: { url?: string; git_url?: string };
   try {
     body = await request.json();
@@ -93,29 +106,39 @@ interface GitHubMeta {
 
 // ─── Web Metadata Fetcher ───
 
+const EMPTY_WEB_META: WebMeta = {
+  title: "",
+  description: "",
+  logo_url: "",
+  banner_url: "",
+  screenshot_url: "",
+  tags: [],
+};
+
 async function fetchWebMeta(url: string): Promise<WebMeta> {
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(url);
   } catch {
-    return { title: "", description: "", logo_url: "", banner_url: "", screenshot_url: "", tags: [] };
+    return EMPTY_WEB_META;
   }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const res = await fetch(url, {
+    // safeFetch rejects internal targets and re-checks every redirect hop, so a
+    // public host cannot bounce us into the private network (TC-08).
+    const res = await safeFetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; threatcrush-bot/1.0; +https://threatcrush.com)",
         Accept: "text/html,application/xhtml+xml",
       },
       signal: controller.signal,
-      redirect: "follow",
     });
     clearTimeout(timeout);
 
-    if (!res.ok) return { title: "", description: "", logo_url: "", banner_url: "", screenshot_url: "", tags: [] };
+    if (!res.ok) return EMPTY_WEB_META;
 
     const html = (await res.text()).substring(0, 200000);
 
@@ -141,12 +164,13 @@ async function fetchWebMeta(url: string): Promise<WebMeta> {
       `${parsedUrl.origin}/favicon.png`,
     ];
 
+    // TC-40: these four probes turned one request into five. They stay, but
+    // each goes through the same guard as the main fetch.
     for (const candidate of logoCandidates) {
       try {
-        const logoRes = await fetch(candidate, {
+        const logoRes = await safeFetch(candidate, {
           method: "HEAD",
           signal: AbortSignal.timeout(3000),
-          redirect: "follow",
         });
         if (logoRes.ok) {
           logo_url = candidate;
@@ -195,7 +219,7 @@ async function fetchWebMeta(url: string): Promise<WebMeta> {
 
     return { title, description, logo_url, banner_url, screenshot_url, tags };
   } catch {
-    return { title: "", description: "", logo_url: "", banner_url: "", screenshot_url: "", tags: [] };
+    return EMPTY_WEB_META;
   } finally {
     clearTimeout(timeout);
   }
@@ -322,7 +346,8 @@ async function captureScreenshot(url: string): Promise<string> {
       const screenshotUrl = data?.data?.screenshot?.url || data?.screenshot?.url;
       if (!screenshotUrl) return "";
 
-      const imgRes = await fetch(screenshotUrl, { signal: AbortSignal.timeout(10000) });
+      // The screenshot URL comes back from a third party — guard it too.
+      const imgRes = await safeFetch(screenshotUrl, { signal: AbortSignal.timeout(10000) });
       if (!imgRes.ok) return "";
       imageBuffer = Buffer.from(await imgRes.arrayBuffer());
     }

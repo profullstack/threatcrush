@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { issuePhoneCode, resolveUserId, CODE_TTL_SECONDS } from "@/lib/phone-verification";
+import { SIGNUP_GRANT_COOKIE } from "@/lib/signup-grant";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const rawPhone: string | undefined = body.phone;
-    const email: string | undefined = body.email;
     if (!rawPhone) {
       return NextResponse.json({ error: "Phone is required" }, { status: 400 });
     }
 
     const token = req.headers.get("authorization")?.replace("Bearer ", "");
-    const userId = await resolveUserId({ bearerToken: token, email });
+    const userId = await resolveUserId({
+      bearerToken: token,
+      grantToken: req.cookies.get(SIGNUP_GRANT_COOKIE)?.value,
+    });
     if (!userId) {
       return NextResponse.json({ error: "Could not identify user" }, { status: 401 });
     }
