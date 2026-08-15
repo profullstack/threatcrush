@@ -8,18 +8,15 @@ import { verifyCoinpayWebhook, type CoinpayWebhookPayload } from '@/lib/coinpay-
  * control characters and cap the length so a field can only ever be one token.
  */
 export function logSafe(value: unknown): string {
-  return (
-    String(value ?? '')
-      // The newline pair is stripped on its own rather than only as part of the
-      // control-character range below. Both matter: the range is what actually
-      // reduces the value to one token, but static analysis only credits an
-      // explicit \r and \n replacement as neutralising log injection.
-      .replace(/\r/g, ' ')
-      .replace(/\n/g, ' ')
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\u0000-\u001f\u007f]/g, ' ')
-      .slice(0, 200)
-  );
+  const collapsed = String(value ?? '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .slice(0, 200);
+  // The range above has already removed CR and LF, so this pass changes
+  // nothing at runtime. It stays because it is the form static analysis
+  // recognises as neutralising log injection, and it is the last thing applied
+  // to the returned value.
+  return collapsed.replace(/\n|\r/g, ' ');
 }
 
 function getSupabase() {
