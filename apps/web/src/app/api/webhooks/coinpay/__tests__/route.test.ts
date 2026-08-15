@@ -91,7 +91,7 @@ vi.mock("@supabase/supabase-js", () => ({
   }),
 }));
 
-import { POST } from "@/app/api/webhooks/coinpay/route";
+import { POST, logSafe } from "@/app/api/webhooks/coinpay/route";
 
 const WEBHOOK_SECRET = "test-webhook-secret";
 
@@ -254,5 +254,26 @@ describe("POST /api/webhooks/coinpay", () => {
         ok: true,
       })
     );
+  });
+});
+
+// TC-46: a CRLF in a webhook field could forge an extra log line and fake a
+// settlement in an audit trail.
+describe("logSafe", () => {
+  it("collapses newlines so a value cannot forge a log line", () => {
+    expect(logSafe("pay-001\n[coinpay webhook] credited 999999")).toBe(
+      "pay-001 [coinpay webhook] credited 999999",
+    );
+    expect(logSafe("a\r\nb")).toBe("a  b");
+  });
+
+  it("strips other control characters", () => {
+    expect(logSafe("a\u0000b\u001fc\u007fd")).toBe("a b c d");
+  });
+
+  it("caps length and handles nullish input", () => {
+    expect(logSafe("x".repeat(500))).toHaveLength(200);
+    expect(logSafe(null)).toBe("");
+    expect(logSafe(undefined)).toBe("");
   });
 });

@@ -7,11 +7,19 @@ import { verifyCoinpayWebhook, type CoinpayWebhookPayload } from '@/lib/coinpay-
  * whole extra entry — enough to fake a settlement in an audit trail. Strip the
  * control characters and cap the length so a field can only ever be one token.
  */
-function logSafe(value: unknown): string {
-  return String(value ?? '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f]/g, ' ')
-    .slice(0, 200);
+export function logSafe(value: unknown): string {
+  return (
+    String(value ?? '')
+      // The newline pair is stripped on its own rather than only as part of the
+      // control-character range below. Both matter: the range is what actually
+      // reduces the value to one token, but static analysis only credits an
+      // explicit \r and \n replacement as neutralising log injection.
+      .replace(/\r/g, ' ')
+      .replace(/\n/g, ' ')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .slice(0, 200)
+  );
 }
 
 function getSupabase() {
