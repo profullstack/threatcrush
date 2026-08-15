@@ -1,6 +1,8 @@
 import "server-only";
 import { isIP } from "net";
 import dns from "dns/promises";
+import http from "node:http";
+import https from "node:https";
 
 /**
  * Shared SSRF guard for every endpoint that fetches a user-supplied URL.
@@ -10,11 +12,16 @@ import dns from "dns/promises";
  * services (TC-08), and its four logo probes amplified that into five requests
  * per call (TC-40).
  *
- * Residual risk: a host whose DNS record flips between the check and the
- * connection (DNS rebinding, TC-21) can still slip through, because Node's
- * fetch resolves the name again itself. Closing that needs a dispatcher that
- * connects to a pinned address.
+ * TC-21 (DNS rebinding) is closed by safeFetch: the name is resolved once, the
+ * resulting address is checked, and the socket is then pinned to that exact
+ * address. Validating with `fetch()` alone is not enough, because fetch does
+ * its own second resolution — a record that flips in between would be honoured.
  */
+
+/** `new URL("http://[::1]/").hostname` keeps the brackets; sockets want them off. */
+function unbracket(hostname: string): string {
+  return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+}
 
 export function isBlockedAddress(address: string): boolean {
   const version = isIP(address);
@@ -61,9 +68,7 @@ export function isBlockedAddress(address: string): boolean {
 
 export async function isPrivateIP(hostname: string): Promise<boolean> {
   try {
-    const lookupHost = hostname.startsWith("[") && hostname.endsWith("]")
-      ? hostname.slice(1, -1)
-      : hostname;
+    const lookupHost = unbracket(hostname);
     const addresses = isIP(lookupHost)
       ? [{ address: lookupHost }]
       : await dns.lookup(lookupHost, { all: true });
@@ -72,6 +77,38 @@ export async function isPrivateIP(hostname: string): Promise<boolean> {
     // If DNS resolution fails, fail closed (treat as non-resolvable / potentially malicious)
     return true;
   }
+}
+
+/**
+ * Validate a URL and return the single address the request must be pinned to.
+ *
+ * Rejects if *any* returned address is blocked, not just the one we pick: a
+ * hostname answering with both a public and a private address is exactly the
+ * shape a rebinding attack takes, so there is no safe address to choose.
+ */
+export async function resolveSafeAddress(url: URL): Promise<string> {
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("URL must be http or https");
+  }
+
+  const host = unbracket(url.hostname);
+  let addresses: string[];
+
+  if (isIP(host)) {
+    addresses = [host];
+  } else {
+    try {
+      addresses = (await dns.lookup(host, { all: true })).map((entry) => entry.address);
+    } catch {
+      throw new Error("Requests to internal addresses are not allowed");
+    }
+  }
+
+  if (addresses.length === 0 || addresses.some(isBlockedAddress)) {
+    throw new Error("Requests to internal addresses are not allowed");
+  }
+
+  return addresses[0];
 }
 
 export async function validateExternalHttpUrl(url: URL): Promise<void> {
@@ -95,11 +132,125 @@ export async function isSafeExternalUrl(url: string): Promise<boolean> {
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 3;
+const REQUEST_TIMEOUT_MS = 10_000;
+/** Nothing this guard fetches (HTML <head>, favicons) is legitimately larger. */
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+/** Statuses the Response constructor forbids a body on. */
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+function toHeaderRecord(headers: HeadersInit | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!headers) return out;
+  if (headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      out[key] = value;
+    });
+  } else if (Array.isArray(headers)) {
+    for (const [key, value] of headers) out[key] = value;
+  } else {
+    Object.assign(out, headers);
+  }
+  return out;
+}
+
+/**
+ * A dns.lookup replacement that ignores the hostname and always answers with
+ * the address we already validated. This is what actually closes TC-21.
+ */
+function pinnedLookup(address: string) {
+  const family = isIP(address);
+  return (
+    _hostname: string,
+    options: { all?: boolean } | ((...args: never[]) => void),
+    callback?: (...args: never[]) => void,
+  ) => {
+    const done = (typeof options === "function" ? options : callback) as (
+      err: NodeJS.ErrnoException | null,
+      addressOrList: unknown,
+      family?: number,
+    ) => void;
+    const wantsAll = typeof options === "object" && options !== null && options.all === true;
+    if (wantsAll) done(null, [{ address, family }]);
+    else done(null, address, family);
+  };
+}
+
+function requestPinned(url: URL, init: RequestInit, address: string): Promise<Response> {
+  const isHttps = url.protocol === "https:";
+  const transport = isHttps ? https : http;
+  const hostname = unbracket(url.hostname);
+  const headers = toHeaderRecord(init.headers);
+  if (!Object.keys(headers).some((key) => key.toLowerCase() === "host")) {
+    headers.host = url.host;
+  }
+
+  return new Promise<Response>((resolve, reject) => {
+    const req = transport.request(
+      {
+        protocol: url.protocol,
+        hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: `${url.pathname}${url.search}`,
+        method: (init.method || "GET").toUpperCase(),
+        headers,
+        // Certificates are still checked against the real name, not the IP.
+        servername: isHttps && !isIP(hostname) ? hostname : undefined,
+        lookup: pinnedLookup(address) as never,
+        timeout: REQUEST_TIMEOUT_MS,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let total = 0;
+
+        res.on("data", (chunk: Buffer) => {
+          total += chunk.length;
+          if (total > MAX_RESPONSE_BYTES) {
+            res.destroy();
+            reject(new Error("Response too large"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+
+        res.on("error", reject);
+        res.on("end", () => {
+          const status = res.statusCode ?? 502;
+          const outHeaders = new Headers();
+          for (const [key, value] of Object.entries(res.headers)) {
+            if (Array.isArray(value)) value.forEach((one) => outHeaders.append(key, one));
+            else if (value != null) outHeaders.append(key, String(value));
+          }
+          const body = NULL_BODY_STATUSES.has(status) ? null : Buffer.concat(chunks);
+          resolve(new Response(body as BodyInit | null, { status, headers: outHeaders }));
+        });
+      },
+    );
+
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy(new Error("Request timed out"));
+    });
+
+    const body = init.body;
+    if (body != null) {
+      if (typeof body === "string" || Buffer.isBuffer(body) || body instanceof Uint8Array) {
+        req.write(body);
+      } else {
+        req.destroy();
+        reject(new Error("Unsupported request body for a pinned request"));
+        return;
+      }
+    }
+    req.end();
+  });
+}
 
 /**
  * fetch() that validates the target — and every redirect hop — against the
- * guard above. Redirects must be followed manually: `redirect: "follow"` would
- * let a public host bounce us straight to 169.254.169.254.
+ * guard above, then connects to the address it validated.
+ *
+ * Redirects are followed manually: `redirect: "follow"` would let a public host
+ * bounce us straight to 169.254.169.254 without a second check.
  */
 export async function safeFetch(
   rawUrl: string,
@@ -109,9 +260,8 @@ export async function safeFetch(
   let current = new URL(rawUrl);
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    await validateExternalHttpUrl(current);
-
-    const res = await fetch(current.href, { ...init, redirect: "manual" });
+    const address = await resolveSafeAddress(current);
+    const res = await requestPinned(current, init, address);
 
     if (!REDIRECT_STATUSES.has(res.status)) return res;
 

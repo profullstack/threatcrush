@@ -1,17 +1,55 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { EventEmitter } from "node:events";
 
 const mockLookup = vi.fn();
+const mockHttpsRequest = vi.fn();
+const mockHttpRequest = vi.fn();
 
 vi.mock("dns/promises", () => ({
   default: { lookup: (...args: unknown[]) => mockLookup(...args) },
+}));
+vi.mock("node:https", () => ({
+  default: { request: (...args: unknown[]) => mockHttpsRequest(...args) },
+}));
+vi.mock("node:http", () => ({
+  default: { request: (...args: unknown[]) => mockHttpRequest(...args) },
 }));
 
 import {
   isBlockedAddress,
   isPrivateIP,
   validateExternalHttpUrl,
+  resolveSafeAddress,
   safeFetch,
 } from "@/lib/ssrf-guard";
+
+interface FakeResponseSpec {
+  status: number;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+/** Stands in for http(s).request: hands back the scripted response on end(). */
+function scriptRequest(spec: FakeResponseSpec) {
+  return (_options: unknown, callback: (res: unknown) => void) => {
+    const req = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    req.write = vi.fn();
+    req.destroy = vi.fn();
+    req.setTimeout = vi.fn();
+    req.end = () => {
+      const res = new EventEmitter() as EventEmitter & Record<string, unknown>;
+      res.statusCode = spec.status;
+      res.headers = spec.headers ?? {};
+      res.destroy = vi.fn();
+      callback(res);
+      queueMicrotask(() => {
+        if (spec.body) res.emit("data", Buffer.from(spec.body));
+        res.emit("end");
+      });
+    };
+    return req;
+  };
+}
 
 describe("isBlockedAddress", () => {
   it("blocks loopback, private, link-local and multicast IPv4", () => {
@@ -104,6 +142,30 @@ describe("validateExternalHttpUrl", () => {
   });
 });
 
+describe("resolveSafeAddress", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("returns the resolved address for a public host", async () => {
+    mockLookup.mockResolvedValue([{ address: "93.184.216.34" }]);
+    expect(await resolveSafeAddress(new URL("https://example.com"))).toBe("93.184.216.34");
+  });
+
+  // A name answering with both a public and a private address is the shape of a
+  // rebinding attack, so there is no address here that is safe to pick.
+  it("rejects when ANY resolved address is private", async () => {
+    mockLookup.mockResolvedValue([{ address: "93.184.216.34" }, { address: "169.254.169.254" }]);
+    await expect(resolveSafeAddress(new URL("https://rebind.example"))).rejects.toThrow(
+      "internal addresses",
+    );
+  });
+
+  it("rejects a non-http protocol", async () => {
+    await expect(resolveSafeAddress(new URL("file:///etc/passwd"))).rejects.toThrow(
+      "http or https",
+    );
+  });
+});
+
 describe("safeFetch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -111,56 +173,81 @@ describe("safeFetch", () => {
   });
 
   it("refuses an internal target outright", async () => {
-    vi.stubGlobal("fetch", vi.fn());
     await expect(safeFetch("http://169.254.169.254/latest/meta-data/")).rejects.toThrow(
       "internal addresses",
     );
-    expect(fetch).not.toHaveBeenCalled();
+    expect(mockHttpRequest).not.toHaveBeenCalled();
+    expect(mockHttpsRequest).not.toHaveBeenCalled();
+  });
+
+  // TC-21: validating the name then letting the client resolve it a second time
+  // leaves a window where the record can flip. The socket must be pinned to the
+  // address that was actually checked.
+  it("pins the connection to the validated address", async () => {
+    mockHttpsRequest.mockImplementation(scriptRequest({ status: 200 }));
+
+    await safeFetch("https://example.com/path?q=1");
+
+    const options = mockHttpsRequest.mock.calls[0][0] as {
+      hostname: string;
+      servername?: string;
+      lookup: (h: string, o: unknown, cb: (e: unknown, a: unknown, f?: number) => void) => void;
+    };
+
+    // Cert validation still keyed to the real name, not the IP.
+    expect(options.hostname).toBe("example.com");
+    expect(options.servername).toBe("example.com");
+
+    // The pinned lookup ignores whatever the DNS layer would say next time.
+    const single = vi.fn();
+    options.lookup("example.com", {}, single);
+    expect(single).toHaveBeenCalledWith(null, "93.184.216.34", 4);
+
+    const all = vi.fn();
+    options.lookup("example.com", { all: true }, all);
+    expect(all).toHaveBeenCalledWith(null, [{ address: "93.184.216.34", family: 4 }]);
   });
 
   // A public host that 302s to the metadata service is the classic bypass of a
-  // check-then-`redirect: "follow"` implementation.
+  // check-then-follow implementation.
   it("re-validates redirect hops instead of following them blindly", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      status: 302,
-      headers: new Headers({ location: "http://169.254.169.254/latest/meta-data/" }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
+    mockHttpsRequest.mockImplementation(
+      scriptRequest({
+        status: 302,
+        headers: { location: "http://169.254.169.254/latest/meta-data/" },
+      }),
+    );
 
     await expect(safeFetch("https://example.com")).rejects.toThrow("internal addresses");
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("never passes redirect:follow to fetch", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ status: 200, headers: new Headers() });
-    vi.stubGlobal("fetch", mockFetch);
-
-    await safeFetch("https://example.com");
-    expect(mockFetch.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
+    expect(mockHttpsRequest).toHaveBeenCalledTimes(1);
+    // The internal hop was never dialled.
+    expect(mockHttpRequest).not.toHaveBeenCalled();
   });
 
   it("follows a public redirect and returns the final response", async () => {
-    const mockFetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        status: 301,
-        headers: new Headers({ location: "https://example.com/final" }),
-      })
-      .mockResolvedValueOnce({ status: 200, headers: new Headers() });
-    vi.stubGlobal("fetch", mockFetch);
+    mockHttpsRequest
+      .mockImplementationOnce(
+        scriptRequest({ status: 301, headers: { location: "https://example.com/final" } }),
+      )
+      .mockImplementationOnce(scriptRequest({ status: 200, body: "ok" }));
 
     const res = await safeFetch("https://example.com");
     expect(res.status).toBe(200);
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(await res.text()).toBe("ok");
+    expect(mockHttpsRequest).toHaveBeenCalledTimes(2);
   });
 
   it("gives up on a redirect loop", async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
-      status: 302,
-      headers: new Headers({ location: "https://example.com/loop" }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
+    mockHttpsRequest.mockImplementation(
+      scriptRequest({ status: 302, headers: { location: "https://example.com/loop" } }),
+    );
 
     await expect(safeFetch("https://example.com")).rejects.toThrow("Too many redirects");
+  });
+
+  it("does not attach a body to a 204 response", async () => {
+    mockHttpsRequest.mockImplementation(scriptRequest({ status: 204 }));
+    const res = await safeFetch("https://example.com");
+    expect(res.status).toBe(204);
   });
 });
