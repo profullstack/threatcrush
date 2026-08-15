@@ -185,6 +185,12 @@ function requestPinned(url: URL, init: RequestInit, address: string): Promise<Re
   }
 
   return new Promise<Response>((resolve, reject) => {
+    const signal = init.signal;
+    if (signal?.aborted) {
+      reject(new Error("Request aborted"));
+      return;
+    }
+
     const req = transport.request(
       {
         protocol: url.protocol,
@@ -231,6 +237,15 @@ function requestPinned(url: URL, init: RequestInit, address: string): Promise<Re
       req.destroy(new Error("Request timed out"));
     });
 
+    // Callers pass their own deadline (AbortSignal.timeout, an AbortController).
+    // REQUEST_TIMEOUT_MS is a ceiling, not a replacement for it — without this
+    // a caller asking for 5s would silently get 10s.
+    if (signal) {
+      const onAbort = () => req.destroy(new Error("Request aborted"));
+      signal.addEventListener("abort", onAbort, { once: true });
+      req.on("close", () => signal.removeEventListener("abort", onAbort));
+    }
+
     const body = init.body;
     if (body != null) {
       if (typeof body === "string" || Buffer.isBuffer(body) || body instanceof Uint8Array) {
@@ -251,6 +266,9 @@ function requestPinned(url: URL, init: RequestInit, address: string): Promise<Re
  *
  * Redirects are followed manually: `redirect: "follow"` would let a public host
  * bounce us straight to 169.254.169.254 without a second check.
+ *
+ * `init.redirect: "manual"` returns the 3xx response untouched, for callers that
+ * want to inspect or refuse the hop themselves.
  */
 export async function safeFetch(
   rawUrl: string,
@@ -258,12 +276,13 @@ export async function safeFetch(
   maxRedirects = MAX_REDIRECTS,
 ): Promise<Response> {
   let current = new URL(rawUrl);
+  const manual = init.redirect === "manual";
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
     const address = await resolveSafeAddress(current);
     const res = await requestPinned(current, init, address);
 
-    if (!REDIRECT_STATUSES.has(res.status)) return res;
+    if (manual || !REDIRECT_STATUSES.has(res.status)) return res;
 
     const location = res.headers.get("location");
     if (!location) return res;
