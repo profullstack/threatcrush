@@ -33,10 +33,15 @@ export function escapeHtml(input: string): string {
 export function sanitizeUrl(rawUrl: string): string {
   // The URL arrives HTML-escaped; decode the entities the escaper introduced so
   // the protocol check sees the same string the browser eventually would.
+  //
+  // `&amp;` must be decoded LAST. Decoding it first re-forms entities out of
+  // text that was never an entity: escaping the literal string `&#39;` yields
+  // `&amp;#39;`, which an ampersand-first pass would collapse all the way to
+  // `'` — decoding one level too far.
   const candidate = rawUrl
-    .replace(/&amp;/g, "&")
     .replace(/&#39;/g, "'")
     .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
     .trim();
 
   // Relative links are fine and have no protocol to check.

@@ -109,8 +109,17 @@ export async function GET(request: NextRequest) {
     lastUpdatedAt: row?.updated_at || null,
   };
 
-  if (revealSecret && Object.prototype.hasOwnProperty.call(secrets, revealSecret)) {
-    response.secretValues = { [revealSecret]: secrets[revealSecret] };
+  // The hasOwnProperty check already excludes inherited keys; naming the
+  // prototype-manipulating keys explicitly keeps that true no matter what a
+  // future `secrets` loader decides to put on the object.
+  const PROTO_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+  if (
+    revealSecret &&
+    !PROTO_KEYS.has(revealSecret) &&
+    Object.prototype.hasOwnProperty.call(secrets, revealSecret)
+  ) {
+    response.secretValues = Object.fromEntries([[revealSecret, secrets[revealSecret]]]);
   }
 
   return NextResponse.json(response);

@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyCoinpayWebhook, type CoinpayWebhookPayload } from '@/lib/coinpay-client';
 
+/**
+ * Webhook fields land in log lines, and a value containing CRLF can forge a
+ * whole extra entry — enough to fake a settlement in an audit trail. Strip the
+ * control characters and cap the length so a field can only ever be one token.
+ */
+export function logSafe(value: unknown): string {
+  const collapsed = String(value ?? '')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .slice(0, 200);
+  // The range above has already removed CR and LF, so this pass changes
+  // nothing at runtime. It stays because it is the form static analysis
+  // recognises as neutralising log injection, and it is the last thing applied
+  // to the returned value.
+  return collapsed.replace(/\n|\r/g, ' ');
+}
+
 function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,7 +47,7 @@ export async function POST(request: NextRequest) {
   }
 
   console.log('[coinpay webhook] received', {
-    type: payload.type,
+    type: logSafe(payload.type),
     signed: signatureValid,
   });
 
@@ -77,7 +94,11 @@ export async function POST(request: NextRequest) {
       console.warn('[coinpay webhook] credit deposit - invalid signature, skipping');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
-    console.log('[coinpay webhook] processing credit deposit', { paymentId, eventType, status: data.status });
+    console.log('[coinpay webhook] processing credit deposit', {
+      paymentId: logSafe(paymentId),
+      eventType: logSafe(eventType),
+      status: logSafe(data.status),
+    });
     return handleCreditDepositWebhook(supabase, creditRow, data, eventType, paymentId);
   }
 
@@ -192,13 +213,13 @@ async function handleCreditDepositWebhook(
       nextStatus = 'failed';
       break;
     default:
-      console.log(`[coinpay webhook] ignoring event type: ${eventType}`);
+      console.log(`[coinpay webhook] ignoring event type: ${logSafe(eventType)}`);
       return NextResponse.json({ received: true, ignored: eventType });
   }
 
   if (isStatusRegression(creditRow.status, nextStatus)) {
     console.warn(
-      `[coinpay webhook] ignoring out-of-order ${eventType} for already-settled deposit ${paymentId}`,
+      `[coinpay webhook] ignoring out-of-order ${logSafe(eventType)} for already-settled deposit ${logSafe(paymentId)}`,
     );
     return NextResponse.json({ received: true, ignored: 'stale event' });
   }
@@ -223,7 +244,7 @@ async function handleCreditDepositWebhook(
     console.error('[coinpay webhook] credit deposit update failed:', JSON.stringify(error));
     return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
   }
-  console.log(`[coinpay webhook] credit_deposits updated: ${paymentId} -> ${nextStatus}`);
+  console.log(`[coinpay webhook] credit_deposits updated: ${logSafe(paymentId)} -> ${nextStatus}`);
   return NextResponse.json({ received: true });
 }
 
@@ -273,7 +294,7 @@ async function handleLicenseWebhook(
       return NextResponse.json({ error: 'License activation failed' }, { status: 500 });
     }
 
-    console.log(`[coinpay webhook] License activated for ${licenseRow.email}`);
+    console.log(`[coinpay webhook] License activated for purchase ${logSafe(licenseRow.id)}`);
   }
 
   return NextResponse.json({ received: true, status });
@@ -290,7 +311,7 @@ async function handleWaitlistWebhook(
     !['payment.confirmed', 'payment.forwarded'].includes(eventType) &&
     !['confirmed', 'forwarded'].includes(status as string)
   ) {
-    console.log(`[coinpay webhook] Ignoring waitlist event: ${eventType} / ${status}`);
+    console.log(`[coinpay webhook] Ignoring waitlist event: ${logSafe(eventType)} / ${logSafe(status)}`);
     return NextResponse.json({ ok: true });
   }
 
@@ -301,7 +322,7 @@ async function handleWaitlistWebhook(
     .maybeSingle();
 
   if (!entry) {
-    console.warn(`[coinpay webhook] No funding or waitlist row for ${paymentId}`);
+    console.warn(`[coinpay webhook] No funding or waitlist row for ${logSafe(paymentId)}`);
     return NextResponse.json({ ok: true });
   }
 

@@ -29,6 +29,17 @@ describe("sanitizeUrl", () => {
   it("drops protocol-relative URLs", () => {
     expect(sanitizeUrl("//attacker.example")).toBe("#");
   });
+
+  // Decoding `&amp;` before the other entities would turn the escaped form of a
+  // literal `&#39;` back into an apostrophe — one decode level too far.
+  it("does not double-decode entities", () => {
+    expect(sanitizeUrl(escapeHtml("https://example.com/?a=&#39;"))).toBe(
+      "https://example.com/?a=&amp;#39;",
+    );
+    expect(sanitizeUrl(escapeHtml("https://example.com/?a=1&b=2"))).toBe(
+      "https://example.com/?a=1&amp;b=2",
+    );
+  });
 });
 
 describe("renderSimpleMarkdown", () => {
