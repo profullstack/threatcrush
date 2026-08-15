@@ -250,4 +250,25 @@ describe("safeFetch", () => {
     const res = await safeFetch("https://example.com");
     expect(res.status).toBe(204);
   });
+
+  it("returns the 3xx untouched when the caller asks for manual redirects", async () => {
+    mockHttpsRequest.mockImplementation(
+      scriptRequest({ status: 302, headers: { location: "https://example.com/next" } }),
+    );
+
+    const res = await safeFetch("https://example.com", { redirect: "manual" });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://example.com/next");
+    // The hop is the caller's to decide on, so we must not have taken it.
+    expect(mockHttpsRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects immediately when the caller's signal is already aborted", async () => {
+    mockHttpsRequest.mockImplementation(scriptRequest({ status: 200, body: "ok" }));
+
+    await expect(
+      safeFetch("https://example.com", { signal: AbortSignal.abort() }),
+    ).rejects.toThrow("Request aborted");
+    expect(mockHttpsRequest).not.toHaveBeenCalled();
+  });
 });

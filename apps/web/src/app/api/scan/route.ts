@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { validateExternalHttpUrl } from "@/lib/ssrf-guard";
+import { safeFetch, validateExternalHttpUrl } from "@/lib/ssrf-guard";
 
 const SECURITY_HEADERS = [
   {
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
 
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: "GET",
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; ThreatCrush-Scanner/1.0; +https://threatcrush.com)",
@@ -163,8 +163,10 @@ export async function POST(request: NextRequest) {
 
 async function checkExists(url: string): Promise<boolean> {
   try {
-    await validateExternalHttpUrl(new URL(url));
-    const res = await fetch(url, {
+    // safeFetch validates and pins in one step. Validating separately and then
+    // handing the hostname to a second resolution is the rebinding window
+    // TC-21 was about.
+    const res = await safeFetch(url, {
       method: "HEAD",
       signal: AbortSignal.timeout(5000),
       redirect: "manual",
