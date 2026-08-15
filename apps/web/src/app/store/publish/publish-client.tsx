@@ -109,7 +109,7 @@ export default function PublishClient() {
     try {
       const res = await fetch("/api/modules", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           name,
           display_name: displayName || name,
