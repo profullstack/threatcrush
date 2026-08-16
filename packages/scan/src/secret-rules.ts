@@ -33,6 +33,20 @@ export interface SecretRule {
   cwe: string;
   /** What an attacker does with it. */
   consequence: string;
+  /**
+   * Does this rule key on a *keyword* rather than on an issued format?
+   *
+   * `AKIA…` and `ghp_…` are minted by a vendor: nobody types one by accident,
+   * so a match is a credential wherever it appears — including in a test, where
+   * it is reported at `low` but still reported. The keyword-shaped rules are
+   * the opposite. `password = '…'` fires on the *variable name*, and the value
+   * beside it in a test file is a fixture in overwhelming proportion.
+   *
+   * Only rules marked here are eligible for the test-fixture exemption in
+   * `isTestFixtureValue`. The distinction is the whole reason that exemption is
+   * safe: it can never silence a vendor-issued key.
+   */
+  keywordShaped?: boolean;
 }
 
 export const SECRET_RULES: readonly SecretRule[] = [
@@ -150,6 +164,7 @@ export const SECRET_RULES: readonly SecretRule[] = [
     severity: 'medium',
     cwe: 'CWE-798',
     consequence: 'Session or service identity until it expires — and committed tokens are usually long-lived.',
+    keywordShaped: true,
   },
   {
     id: 'secret-generic-api-key',
@@ -161,6 +176,7 @@ export const SECRET_RULES: readonly SecretRule[] = [
     severity: 'high',
     cwe: 'CWE-798',
     consequence: 'Whatever the third-party service lets the key do, for as long as it stays valid.',
+    keywordShaped: true,
   },
   {
     id: 'secret-generic-credential',
@@ -169,6 +185,7 @@ export const SECRET_RULES: readonly SecretRule[] = [
     severity: 'high',
     cwe: 'CWE-798',
     consequence: 'A password in source is a password in every clone, fork and CI cache of that source.',
+    keywordShaped: true,
   },
   {
     id: 'secret-hex-token',
@@ -177,6 +194,7 @@ export const SECRET_RULES: readonly SecretRule[] = [
     severity: 'medium',
     cwe: 'CWE-798',
     consequence: 'Signing secrets and session keys are usually hex; a leaked one forges anything they sign.',
+    keywordShaped: true,
   },
 ];
 
@@ -224,6 +242,116 @@ const KNOWN_PLACEHOLDERS = [
  */
 export function isKnownPlaceholder(text: string): boolean {
   return KNOWN_PLACEHOLDERS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * Is the matched value a variable reference rather than a literal?
+ *
+ * The highest-volume false positive outside test files, and the one that needs
+ * no judgement to dismiss: a value made entirely of an expansion holds nothing.
+ *
+ *     SUPABASE_ACCESS_TOKEN="${SUPABASE_ACCESS_TOKEN:-}"
+ *     TWILIO_AUTH_TOKEN="${TWILIO_AUTH_TOKEN:-}"
+ *
+ * Those two lines are the canonical shape of a script that *refuses* to default
+ * a secret — the `:-` with an empty right-hand side exists precisely so the
+ * script fails when the variable is unset. Reporting them as hardcoded
+ * credentials flags the remediation as the defect.
+ *
+ * The one thing this must not swallow is an expansion with a real fallback.
+ * `${DB_PASSWORD:-hunter2}` *is* a hardcoded credential — it is the default the
+ * process runs with — so a literal on the right of `:-` disqualifies the value.
+ * A fallback that is itself another variable carries no literal and stays
+ * exempt.
+ */
+export function isVariableReference(value: string): boolean {
+  const trimmed = value.trim();
+
+  // `${NAME}`, `${NAME:-}`, `${NAME:-$OTHER}` — shell parameter expansion, and
+  // the same syntax a JavaScript template literal uses.
+  const braced = /^\$\{\s*([A-Za-z_][\w.]*)\s*(?::?[-=+?]([\s\S]*))?\}$/.exec(trimmed);
+  if (braced) {
+    const fallback = braced[2];
+    if (fallback === undefined || fallback.trim() === '') return true;
+    return /^\$\{?[A-Za-z_][\w.]*\}?$/.test(fallback.trim());
+  }
+
+  return (
+    /^\$[A-Za-z_]\w*$/.test(trimmed) || // $VAR
+    /^\$\([\s\S]*\)$/.test(trimmed) || // $(command substitution)
+    /^%[A-Za-z_]\w*%$/.test(trimmed) || // %VAR% on Windows
+    /^\{\{[\s\S]*\}\}$/.test(trimmed) || // {{ template }}
+    /^#\{[\s\S]*\}$/.test(trimmed) || // #{ruby}
+    /^<%=?[\s\S]*%>$/.test(trimmed) // <%= erb %>
+  );
+}
+
+/** Stems that announce a value as scaffolding rather than material. */
+const FIXTURE_STEMS = [
+  'test', 'mock', 'fake', 'dummy', 'stub', 'sample', 'example', 'placeholder',
+  'fixture', 'invalid', 'expired', 'forged', 'bogus', 'notreal', 'nonexistent',
+  'changeme', 'foobar', 'lorem',
+];
+
+/**
+ * Words that appear in every declaration and say nothing about the value.
+ *
+ * Without this, `const` in the key and any value containing the letters
+ * "const" would agree, and more usefully: a keyword shared by all declarations
+ * is not evidence that the value echoes the *name*.
+ */
+const KEY_NOISE = new Set(['const', 'this', 'return', 'await', 'async', 'expect', 'value']);
+
+/** Alphabetic runs, splitting snake_case, kebab-case and camelCase alike. */
+function words(text: string): string[] {
+  return text
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[^A-Za-z]+/g, ' ')
+    .toLowerCase()
+    .split(' ')
+    .filter(Boolean);
+}
+
+/**
+ * In a test file, does this value describe itself as a fixture?
+ *
+ * Applied only to `keywordShaped` rules and only under `isTestPath`, which is
+ * what keeps it from being the generous allow-list the header warns about. Two
+ * signals, both read off the value rather than off the variable holding it:
+ *
+ *   1. A word of it begins with a fixture stem — `test-token`,
+ *      `mock-session-token`, `testpassword123`, `forgedToken`. Matching a stem
+ *      at the start of a *word* rather than anywhere in the string is what
+ *      keeps `latest` and `contest` from reading as "test".
+ *   2. It repeats a word from its own key — `access_token: 'access-token'`,
+ *      `const password = 'mySecurePassword123'`, `testGPGPassword:
+ *      'gpgPassword456'`. A credential that spells out the word "password" is
+ *      a description of one, not one.
+ *
+ * The second signal is capped at 48 characters, and that cap is load-bearing.
+ * Base64 is dense enough that a long blob contains a four-letter word by
+ * accident — a 200-character service JWT would eventually "echo" any key you
+ * put beside it and exempt itself. Real credentials are long and fixtures are
+ * short, so the cap costs nothing and closes the hole.
+ *
+ * What stays reported, deliberately: a value with neither signal. In the
+ * corpus this was written against that left four findings out of seventy-nine,
+ * one of them a real Supabase service JWT pasted into a debug script — which
+ * is exactly the one worth a human's attention.
+ */
+export function isTestFixtureValue(line: string, value: string): boolean {
+  const valueWords = words(value);
+  if (valueWords.some((word) => FIXTURE_STEMS.some((stem) => word.startsWith(stem)))) return true;
+
+  if (value.length > 48) return false;
+
+  const valueAt = line.lastIndexOf(value);
+  const key = valueAt === -1 ? line : line.slice(0, valueAt);
+  const flattened = valueWords.join('');
+
+  return words(key)
+    .filter((word) => word.length >= 4 && !KEY_NOISE.has(word))
+    .some((word) => flattened.includes(word));
 }
 
 /**

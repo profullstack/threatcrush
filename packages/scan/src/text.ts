@@ -16,7 +16,14 @@
 
 import { CODE_RULES, evaluateRule, proseLines } from './code-rules';
 import { scanPackageJson, scanRequirementsTxt } from './manifest-rules';
-import { isKnownPlaceholder, redactSecret, SECRET_RULES, SENSITIVE_FILES } from './secret-rules';
+import {
+  isKnownPlaceholder,
+  isTestFixtureValue,
+  isVariableReference,
+  redactSecret,
+  SECRET_RULES,
+  SENSITIVE_FILES,
+} from './secret-rules';
 import { evaluateTemplateRules, TEMPLATE_EXTENSIONS } from './template-rules';
 import type { ScanFinding, ScanLanguage, Severity } from './types';
 import { severityRank } from './types';
@@ -236,6 +243,18 @@ export function scanText(
       if (!match) continue;
       if (isKnownPlaceholder(match[0])) continue;
       if (isSuppressed(suppressions, index, rule.id)) continue;
+
+      // The value the rule actually captured, falling back to the whole match
+      // for the vendor-prefixed rules, which have no capture group because the
+      // format *is* the value.
+      const value = match[1] ?? match[0];
+
+      // An expansion is not a literal, in a test file or anywhere else.
+      if (isVariableReference(value)) continue;
+
+      // Fixtures, and only in files that are fixtures by construction. See
+      // `isTestFixtureValue` for why this cannot reach a vendor-issued key.
+      if (inTests && rule.keywordShaped && isTestFixtureValue(line, value)) continue;
 
       const marked = foreignCredentialMark(line);
 
