@@ -341,11 +341,22 @@ export const CODE_RULES: readonly CodeRule[] = [
     // The tail is what distinguishes assembly from parameterisation. A bound
     // query leaves a comma after the closing quote (`"… = $1", [id]`) and
     // matches none of these.
+    //
+    // The clause alternative anchors the keyword to the *start* of the
+    // concatenated fragment, because that is where a clause being appended
+    // actually sits: `sql + "WHERE id = " + id`, `sql + " ORDER BY " + col`.
+    //
+    // Allowing it anywhere in the fragment made the rule read English. `WHERE`
+    // and `SET` are ordinary words, and without a leading `\b` they were not
+    // even required to be whole ones — "any`where`" and "sub`set`" both
+    // matched. A help string reading "lists them anywhere" was reported as
+    // critical SQL injection, which is the kind of finding that teaches a team
+    // the scanner is not worth reading.
     pattern: new RegExp(
       `${SQL_STRING}\\s*\\+|` +
         `${SQL_STRING}\\s*%\\s*[\\w(]|` +
         `${SQL_STRING}\\s*\\.\\s*format\\s*\\(|` +
-        '\\+\\s*(?:"[^"\\n]*|\'[^\'\\n]*)(?:WHERE|ORDER\\s+BY|VALUES|SET)\\b',
+        '\\+\\s*(?:"|\')\\s*\\b(?:WHERE|ORDER\\s+BY|VALUES|SET)\\b',
       'i',
     ),
   },
@@ -362,6 +373,25 @@ export const CODE_RULES: readonly CodeRule[] = [
         `\\bf'[^'\\n]*(?:${SQL_KEYWORDS})\\b[^'\\n]*\\{`,
       'i',
     ),
+    /**
+     * Interpolating a column list is not interpolating a value.
+     *
+     *     const COLS = `tld, user_id, owner_email, price_usd`;
+     *     get(`SELECT ${COLS} FROM moshpit_tlds WHERE tld = ?`, [tld]);
+     *
+     * That query *is* parameterised: every value the caller supplies rides a
+     * `?`, and the only thing spliced into the text is a constant written a
+     * few lines up. Naming the column list once instead of repeating it in
+     * fourteen queries is ordinary hygiene, and it is the shape this rule met
+     * most often in practice — one repository produced eighteen findings this
+     * way and not one of them could be injected into.
+     *
+     * The guard resolves the interpolations rather than trusting the shape, so
+     * the moment a query mixes a constant with anything else —
+     * `` `SELECT ${COLS} FROM t WHERE id = ${req.query.id}` `` — it is reported
+     * again. `interpolationsAreConstant` requires *every* `${…}` to resolve.
+     */
+    constantInterpolationGuard: true,
   },
   {
     id: 'sql-format-call',
@@ -495,19 +525,44 @@ export const CODE_RULES: readonly CodeRule[] = [
     cwe: 'CWE-79',
     severity: 'high',
     languages: ['javascript', 'typescript'],
-    pattern:
-      /\bdangerouslySetInnerHTML\s*=|\.\s*(?:innerHTML|outerHTML)\s*=\s*(?!\s*['"`]\s*['"`]\s*;?\s*$)|\bdocument\s*\.\s*write(?:ln)?\s*\(|\.\s*insertAdjacentHTML\s*\(/,
     /**
-     * A whole-statement assignment of a string with no interpolation and no
-     * concatenation carries no data, so it cannot carry attacker data. This
-     * was the single largest source of noise: a codebase that builds its UI
-     * with innerHTML reports every static heading and spinner as XSS, and a
-     * rule that flags 40 safe lines to catch one real one gets switched off.
+     * The assignment alternative carries its own exemption, as a lookahead, so
+     * that it is decided per assignment rather than per line.
      *
-     * Line-scoped on purpose — see `lineGuard`.
+     * A whole-statement assignment of a string with no interpolation and no
+     * concatenation carries no data, so it cannot carry attacker data. This was
+     * the single largest source of noise: a codebase that builds its UI with
+     * innerHTML reports every static heading and spinner as XSS, and a rule
+     * that flags 40 safe lines to catch one real one gets switched off.
+     *
+     * Two things this has to get right, and a `lineGuard` could get neither:
+     *
+     * A statement ends at its semicolon, not at the newline. Anchoring to `$`
+     * held the exemption for `el.innerHTML = '';` alone on a line and dropped
+     * it the moment anything followed:
+     *
+     *     function hide() { out.hidden = true; out.innerHTML = ''; rendered = null; }
+     *
+     * — the same assignment, clearing a node, reported as high-severity XSS
+     * because two neighbours shared its line.
+     *
+     * And an exemption must not become a line-wide amnesty. A guard is tested
+     * against the whole line, so one safe clear would exonerate a real sink
+     * beside it:
+     *
+     *     a.innerHTML = ''; b.innerHTML = userInput;
+     *
+     * As a lookahead the regex decides at each `=` it reaches, so the first
+     * assignment is exempt and the second is still reported.
+     *
+     * The whitespace after `=` is matched *inside* the lookahead rather than
+     * before it. Left outside, `\s*` backtracks to zero width, the lookahead
+     * then starts on the space instead of the quote, fails to see a literal,
+     * and the negative lookahead succeeds — reinstating every finding the
+     * exemption was written to remove.
      */
-    lineGuard:
-      /(?:innerHTML|outerHTML)\s*=\s*(?:'[^'\\]*'|"[^"\\]*"|`[^`$\\]*`)\s*;?\s*$/,
+    pattern:
+      /\bdangerouslySetInnerHTML\s*=|\.\s*(?:innerHTML|outerHTML)\s*=(?!\s*(?:'[^'\\\n]*'|"[^"\\\n]*"|`[^`$\\\n]*`)\s*(?:;|$))|\bdocument\s*\.\s*write(?:ln)?\s*\(|\.\s*insertAdjacentHTML\s*\(/,
   },
   {
     id: 'java-html-writer-concatenation',
