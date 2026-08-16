@@ -268,6 +268,87 @@ describe('shell execution whose interpolations are file constants', () => {
   });
 });
 
+// The three classes below come from a second scan, of `moshcoder/moshcode`:
+// 53 findings, none of which named a defect. These are the 15 that were rule
+// bugs rather than judgement calls.
+
+describe('SQL whose only interpolation is a column-list constant', () => {
+  // Eighteen findings in one repository, not one of them injectable. Naming a
+  // column list once instead of repeating it in fourteen queries is hygiene.
+  it('does not flag a parameterised query that names its columns once', () => {
+    const source = [
+      'const COLS = `tld, user_id, owner_email, price_usd`;',
+      'export async function getTld(tld) {',
+      '  return get(`SELECT ${COLS} FROM moshpit_tlds WHERE tld = ?`, [tld]);',
+      '}',
+    ].join('\n');
+    expect(ruleIds('src/moshpit.mjs', source)).toEqual([]);
+  });
+
+  it('still flags a constant spliced alongside a value that is not one', () => {
+    const source = [
+      'const COLS = `id, email`;',
+      'db.query(`SELECT ${COLS} FROM users WHERE id = ${req.query.id}`);',
+    ].join('\n');
+    expect(ruleIds('src/moshpit.mjs', source)).toContain('sql-template-interpolation');
+  });
+});
+
+describe('English prose read as an appended SQL clause', () => {
+  // Verbatim help text from moshcode's CLI schema, reported as *critical* SQL
+  // injection. `WHERE` and `SET` are ordinary words, and with no leading
+  // boundary they were not even required to be whole ones.
+  it('does not flag prose that merely contains a clause keyword', () => {
+    expect(
+      ruleIds('src/cli-schema.mjs', '  + "no switcher under the no-tmux fallback, where Ctrl-] detaches instead.",'),
+    ).toEqual([]);
+    expect(
+      ruleIds('src/cli-schema.mjs', '  + "Playing needs a real terminal — moshcode games lists them anywhere."'),
+    ).toEqual([]);
+    expect(
+      ruleIds('src/cli-schema.mjs', '  + "With none, a default set is read instead — moshcode news sources lists it. "'),
+    ).toEqual([]);
+  });
+
+  it('still flags a clause genuinely appended to a query', () => {
+    // A clause being appended leads its fragment, which is what the narrowed
+    // alternative keys on.
+    expect(ruleIds('src/db.mjs', 'sql = sql + "WHERE id = " + id;')).toContain(
+      'sql-string-concatenation',
+    );
+    expect(ruleIds('src/db.mjs', 'sql = sql + " ORDER BY " + col;')).toContain(
+      'sql-string-concatenation',
+    );
+  });
+});
+
+describe('a constant HTML assignment that shares its line', () => {
+  // A statement ends at its semicolon, not at the newline. Clearing a node is
+  // the same assignment whether or not two neighbours sit beside it.
+  it('does not flag a constant assignment followed by another statement', () => {
+    expect(
+      ruleIds('src/routes/moshpit.mjs', "function hide() { out.hidden = true; out.innerHTML = ''; rendered = null; }"),
+    ).toEqual([]);
+    expect(ruleIds('src/routes/moshpit.mjs', "el.innerHTML = '<b>hi</b>'; el.hidden = false;")).toEqual(
+      [],
+    );
+  });
+
+  it('still flags a live assignment sharing a line with a constant one', () => {
+    // The exemption must not become a line-wide amnesty — the failure mode the
+    // previous `lineGuard` had by construction.
+    expect(ruleIds('src/routes/moshpit.mjs', "a.innerHTML = ''; b.innerHTML = userInput;")).toContain(
+      'js-unescaped-html-sink',
+    );
+  });
+
+  it('still flags an unescaped interpolation', () => {
+    expect(ruleIds('src/routes/moshpit.mjs', 'el.innerHTML = `<b>${name}</b>`;')).toContain(
+      'js-unescaped-html-sink',
+    );
+  });
+});
+
 describe('findings this triage deliberately left alone', () => {
   // Suppressing these would be the scanner talking itself out of real classes.
   it('still reports a nested quantifier, a lifecycle script and a live HTML sink', () => {
