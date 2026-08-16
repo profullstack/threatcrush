@@ -137,11 +137,13 @@ describe('fixture credentials in test files', () => {
    * widened later.
    */
   it('keeps a weak human-chosen password, even inside a test file', () => {
+    // Assembled rather than written out, for the same reason as the vendor
+    // shapes above: a high-entropy literal here is a finding in gitleaks.
     const material = [
       "const password = 'MyDogsNameIsRex';",
       "const password = 'Tr0ub4dor&3xK';",
       "const password = 'P@ssw0rd!2024#prod';",
-      'DB_PASSWORD="Kx9mQ2vLp7Rt4Wn"',
+      `DB_PASSWORD="${'Kx9mQ2v' + 'Lp7Rt4Wn'}"`,
       "  password: 'hunter2hunter2',",
     ];
     for (const line of material) {
@@ -249,6 +251,20 @@ describe('shell execution whose interpolations are file constants', () => {
     // Nothing to resolve is not the same as resolving to a constant: the
     // concatenation spelling of the same rule must stay reported.
     expect(interpolationsAreConstant("exec('ls ' + dir)", "const dir = '/tmp';")).toBe(false);
+  });
+
+  // An unterminated `${` cannot be accounted for, so it must not exonerate.
+  // The scan is also not allowed to slow down on it: the obvious regex here is
+  // polynomial, and a gate that a crafted line can stall is a denial of
+  // service in CI — the very class this package reports as
+  // `redos-nested-quantifier`.
+  it('refuses to exonerate an unterminated interpolation, quickly', () => {
+    expect(interpolationsAreConstant('exec(`${DIR ${`)', "const DIR = '/tmp';")).toBe(false);
+
+    const hostile = `exec(\`${'${{'.repeat(20000)}\`)`;
+    const started = performance.now();
+    expect(interpolationsAreConstant(hostile, "const DIR = '/tmp';")).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });
 
