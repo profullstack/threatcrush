@@ -1778,6 +1778,109 @@ interface RunRow {
   conclusion: string | null;
 }
 
+interface Remark {
+  who: string;
+  at: string;
+  body: string;
+  where: string;
+}
+
+/** One line of somebody else's words, trimmed to fit a terminal. */
+function excerpt(body: string, width = 72): string[] {
+  const text = body
+    .replace(/```[\s\S]*?```/g, '[code]')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(' ');
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    if (line.length + word.length + 1 > width) {
+      lines.push(line);
+      line = word;
+      if (lines.length === 3) break;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
+  }
+  if (lines.length < 3 && line) lines.push(line);
+  const kept = lines.slice(0, 3);
+  if (kept.length === 3 && text.length > kept.join(' ').length) kept[2] += ' …';
+  return kept;
+}
+
+/**
+ * Maintainer words nobody has answered yet.
+ *
+ * The gap this closes: `check` read workflow runs and nothing else, so a
+ * request could sit blocked for a week on a question and report as healthy.
+ * erfan138057/microbot#6 was exactly that — no red check anywhere, and a
+ * maintainer asking why the workflow wanted `pull-requests: write`. Runs said
+ * "waiting for the maintainer to approve"; the maintainer was waiting on us.
+ *
+ * Three threads are read, because the question lands in whichever one the
+ * reader had open: the pull request conversation, its reviews, and the issue
+ * that asked first — whose number comes out of our own pull request body,
+ * since that is where this wrote it.
+ *
+ * "Unanswered" is deliberately crude: the newest remark that is not ours is
+ * newer than the newest remark that is. It over-reports when a maintainer
+ * says "thanks" after our reply, and that is the right direction to be wrong
+ * — a spurious line costs a glance, a missed question costs the request.
+ *
+ * This never writes. See `checkOne` for why the reply stays a human's job.
+ */
+async function unanswered(repo: string, me: string, pr: number): Promise<Remark[]> {
+  const body = await gh([
+    'api',
+    `repos/${repo}/pulls/${pr}`,
+    '--jq',
+    '.body // ""',
+  ]).catch(() => '');
+
+  // `Asked first in .../issues/12` — written by openPr, read back here rather
+  // than tracked in a file that would drift the first time one was opened by
+  // hand.
+  const asked = /\/issues\/(\d+)/.exec(body)?.[1];
+
+  const threads: [string, string][] = [
+    [`repos/${repo}/issues/${pr}/comments?per_page=100`, 'pull request'],
+    [`repos/${repo}/pulls/${pr}/reviews?per_page=100`, 'review'],
+    [`repos/${repo}/pulls/${pr}/comments?per_page=100`, 'review comment'],
+  ];
+  if (asked) threads.push([`repos/${repo}/issues/${asked}/comments?per_page=100`, `issue #${asked}`]);
+
+  const remarks: Remark[] = [];
+  for (const [endpoint, where] of threads) {
+    const said = await gh(['api', endpoint]).catch(() => '[]');
+    let rows: { user?: { login?: string }; created_at?: string; submitted_at?: string; body?: string }[];
+    try {
+      rows = JSON.parse(said);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const who = row.user?.login ?? '';
+      const at = row.created_at ?? row.submitted_at ?? '';
+      // A review with no body is an approve/request-changes click. It carries
+      // no question, and rendering it as one would be noise.
+      if (!who || !at || !row.body?.trim()) continue;
+      remarks.push({ who, at, body: row.body, where });
+    }
+  }
+
+  const mine = remarks.filter((r) => r.who.toLowerCase() === me.toLowerCase());
+  const theirs = remarks.filter((r) => r.who.toLowerCase() !== me.toLowerCase());
+  if (theirs.length === 0) return [];
+
+  const newestMine = mine.reduce((max, r) => (r.at > max ? r.at : max), '');
+  return theirs.filter((r) => r.at > newestMine).sort((a, b) => a.at.localeCompare(b.at));
+}
+
 /**
  * One repository's standing. Ours and theirs are separated by the workflow
  * *path*, not by the job name — a job called "security" in somebody's ci.yml
@@ -1828,6 +1931,25 @@ async function checkOne(repo: string, me: string, fix: boolean): Promise<void> {
   );
 
   console.log(`· ${repo} #${pr.number} — ${state}`);
+
+  // Before the runs, because it outranks them. A red check is a chore; an
+  // unanswered maintainer is the thing that decides whether this gets merged,
+  // and it is invisible in the Actions API that the rest of this reads.
+  //
+  // Printed, never answered. --fix pushes commits, and a commit that fixes a
+  // build is a mechanical claim this can verify from a log. A reply to
+  // "explain why you need pull-requests: write" is a technical argument about
+  // somebody else's repository, and a canned one reads as a bot to exactly
+  // the audience that was already unsure about installing a third-party
+  // scanner. The whole pitch is that a person asked.
+  const said = await unanswered(repo, me, pr.number).catch(() => [] as Remark[]);
+  if (said.length > 0) {
+    const last = said[said.length - 1]!;
+    const others = said.length > 1 ? ` (+${said.length - 1} earlier)` : '';
+    console.log(`    NEEDS A REPLY — @${last.who} on the ${last.where}${others}:`);
+    for (const line of excerpt(last.body)) console.log(`      "${line}"`);
+    console.log(`      reply by hand: gh pr view ${pr.number} --repo ${repo} --web`);
+  }
 
   if (waiting.length > 0) {
     // Not a failure and not fixable from this side. GitHub withholds workflow
@@ -1972,11 +2094,15 @@ async function refreshOne(repo: string, me: string, spec: string): Promise<strin
       path: OUR_WORKFLOW,
       content: render(fs.readFileSync(path.join(pack, 'workflow.yml'), 'utf8'), inputs),
     },
-    {
-      path: '.github/scripts/threatcrush-to-sarif.py',
-      content: fs.readFileSync(path.join(pack, 'threatcrush-to-sarif.py'), 'utf8'),
-    },
   ];
+
+  // Files the pack used to install and no longer does. Rewriting the workflow
+  // is not enough on its own: a request opened before pack 1.7.0 already has
+  // the SARIF converter committed to its branch, so leaving it there means the
+  // diff still adds two files to somebody's repository after we told them it
+  // adds one. Refresh has to be able to take a file away, not only put one
+  // back.
+  const obsolete = ['.github/scripts/threatcrush-to-sarif.py'];
 
   const fork = `${me}/${repo.split('/')[1]}`;
   const changed: string[] = [];
@@ -2015,6 +2141,34 @@ async function refreshOne(repo: string, me: string, spec: string): Promise<strin
       `branch=${PR_BRANCH}`,
     ]);
     changed.push(path.basename(file.path));
+  }
+
+  for (const stale of obsolete) {
+    const said = await gh([
+      'api',
+      `repos/${fork}/contents/${stale}?ref=${PR_BRANCH}`,
+      '--jq',
+      '.sha',
+    ]).catch(() => '');
+    // Absent is the expected case on anything opened after 1.7.0, and a 404
+    // here is the answer rather than a failure.
+    if (!said.trim()) continue;
+
+    await gh([
+      'api',
+      '-X',
+      'DELETE',
+      `repos/${fork}/contents/${stale}`,
+      '-f',
+      `message=ci: drop the ThreatCrush SARIF converter, no longer installed by the pack${
+        trailer ? `\n\n${trailer}` : ''
+      }`,
+      '-f',
+      `sha=${said.trim()}`,
+      '-f',
+      `branch=${PR_BRANCH}`,
+    ]);
+    changed.push(`removed ${path.basename(stale)}`);
   }
 
   return changed.length === 0 ? 'already current' : `updated ${changed.join(', ')}`;
@@ -2062,25 +2216,44 @@ async function checkCommand(argv: string[]): Promise<number> {
     return 0;
   }
 
-  // Resolved once, and only when it is going to be used: --refresh is the only
-  // path that renders the pack, and `check` should keep working on a machine
-  // that has no sh1pt checkout beside it.
-  const spec = refresh ? await resolveSpec() : '';
+  // --fix implies --refresh.
+  //
+  // They were separate, and the split did not survive contact: --fix repaired
+  // a broken build and left the request pinned to whatever version it was
+  // opened with, so a repository that took a week to answer got a scanner
+  // months out of date — including, for the batch opened before 0.11.2, one
+  // whose known false positives were the thing the maintainer was looking at.
+  // "Fix this request" means the version too.
+  //
+  // --refresh alone keeps its old meaning: render the pack and touch nothing
+  // else, which is the flag to reach for when pushing a pack release across
+  // the fleet without wanting to act on any red checks it finds.
+  const renders = refresh || fix;
+
+  // Resolved once, and only when it is going to be used, so `check` keeps
+  // working on a machine that has no sh1pt checkout beside it.
+  const spec = renders ? await resolveSpec() : '';
 
   for (const repo of repos) {
-    if (refresh) {
+    if (!refresh) {
       try {
-        console.log(`· ${repo} — ${await refreshOne(repo, me, spec)}`);
+        await checkOne(repo, me, fix);
       } catch (error) {
-        console.log(`· ${repo} — could not refresh: ${why(error)}`);
+        console.log(`· ${repo} — could not check: ${why(error)}`);
       }
-      continue;
     }
 
+    if (!renders) continue;
+
+    // After checkOne, not before. Refreshing pushes a commit, which starts a
+    // new set of runs against a head SHA that has none yet — so a check run
+    // in the other order would read "no runs" for every repository it had
+    // just written to.
+    const prefix = refresh ? `· ${repo} — ` : '    refresh: ';
     try {
-      await checkOne(repo, me, fix);
+      console.log(`${prefix}${await refreshOne(repo, me, spec)}`);
     } catch (error) {
-      console.log(`· ${repo} — could not check: ${why(error)}`);
+      console.log(`${prefix}could not refresh: ${why(error)}`);
     }
   }
 
@@ -2089,8 +2262,9 @@ async function checkCommand(argv: string[]): Promise<number> {
   // just pushed a commit to forty-four repositories.
   if (!fix && !refresh) {
     console.log('');
-    console.log('Nothing was changed. `tcfeed check --fix` acts on the failures marked ours;');
-    console.log('failures marked theirs are never touched, whatever --fix says.');
+    console.log('Nothing was changed. `tcfeed check --fix` acts on the failures marked ours');
+    console.log('and re-renders the pack; failures marked theirs are never touched, whatever');
+    console.log('--fix says, and neither is anything marked NEEDS A REPLY.');
   }
   return 0;
 }
@@ -2141,7 +2315,10 @@ async function main(): Promise<number> {
     console.log('         --no-issue   skip the question, open the request alone');
     console.log('         --no-follow  skip waiting on their checks afterwards');
     console.log('       tcfeed check [owner/name ...] [--fix]   how are the open requests doing');
-    console.log('         --refresh    bring open requests up to the current pack');
+    console.log('         --fix        repair our failed checks AND bring them to the current pack');
+    console.log('         --refresh    only re-render the pack; act on nothing else');
+    console.log('       (check always reports maintainer comments it sees no reply to,');
+    console.log('        and never writes one — that part stays a person\'s job)');
     console.log('       tcfeed rss [list|add|remove] [url ...]   feeds to read alongside reddit');
     return 0;
   }
