@@ -22,7 +22,6 @@ import {
   isVariableReference,
   redactSecret,
   SECRET_RULES,
-  SENSITIVE_FILES,
 } from './secret-rules';
 import { evaluateTemplateRules, TEMPLATE_EXTENSIONS } from './template-rules';
 import type { ScanFinding, ScanLanguage, Severity } from './types';

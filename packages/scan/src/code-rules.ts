@@ -1644,6 +1644,22 @@ function withoutSingleQuoted(text: string): string {
  * pops an empty stack. That direction is safe: it can only lose an enclosing
  * name, never invent one, and a lost name means the finding is still reported.
  */
+/**
+ * The dotted name immediately left of `open`, walking backwards from it.
+ *
+ * A backwards scan rather than `/([\w$.]*)\s*$/` over `text.slice(0, open)`:
+ * the slice copies the whole prefix and the match rescans it, once per
+ * parenthesis, which is quadratic on a long window for an answer that is
+ * always the last few characters.
+ */
+function calleeEndingAt(text: string, open: number): string {
+  let end = open;
+  while (end > 0 && (text[end - 1] === ' ' || text[end - 1] === '\t')) end -= 1;
+  let start = end;
+  while (start > 0 && /[\w$.]/.test(text[start - 1]!)) start -= 1;
+  return text.slice(start, end);
+}
+
 export function enclosingCallees(
   lines: readonly string[],
   index: number,
@@ -1661,15 +1677,35 @@ export function enclosingCallees(
       continue;
     }
     if (ch === '"' || ch === "'" || ch === '`') quote = ch;
-    else if (ch === '(') stack.push(/([\w$.]*)\s*$/.exec(before.slice(0, i))?.[1] ?? '');
+    else if (ch === '(') stack.push(calleeEndingAt(before, i));
     else if (ch === ')') stack.pop();
   }
   return stack;
 }
 
-/** Every `${…}` on the line, or `null` if there are none. */
+/**
+ * Every `${…}` on the line, or `null` if there are none to account for.
+ *
+ * Scanned rather than matched. The obvious `/\$\{([^}]*)\}/g` is polynomial —
+ * on a line of many unclosed `${`, each start position rescans to the end —
+ * and a scanner that can be stalled by the file it is reading is a denial of
+ * service in a CI gate. This repository reports that class as
+ * `redos-nested-quantifier`; it should not ship it.
+ *
+ * `null` for an unterminated `${`, which is the safe direction: the caller
+ * exonerates only when it can account for *every* interpolation, so refusing
+ * to answer leaves the finding reported.
+ */
 function interpolations(line: string): string[] | null {
-  const found = [...line.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1]!.trim());
+  const found: string[] = [];
+  for (let i = 0; ; ) {
+    const start = line.indexOf('${', i);
+    if (start === -1) break;
+    const end = line.indexOf('}', start + 2);
+    if (end === -1) return null;
+    found.push(line.slice(start + 2, end).trim());
+    i = end + 1;
+  }
   return found.length > 0 ? found : null;
 }
 

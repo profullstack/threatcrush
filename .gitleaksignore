@@ -6,3 +6,15 @@
 # A scanner's own test fixture, never an issued key. The line no longer exists
 # in the tree — it is assembled at runtime now — but history keeps it findable.
 add7c66540ff3a0a53fecc435eb7ab802b187c43:packages/scan/src/__tests__/foreign-suppression.test.ts:stripe-access-token:40
+
+# Same case, same remedy: the false-positive regression corpus briefly carried
+# a literal AWS key, JWT and random password before they were rewritten as
+# runtime concatenations. Nothing here ever authenticated anything.
+#
+# Four fingerprints for three shapes because gitleaks reads every ref: the two
+# branch commits are unreachable from master after the squash, but the branch
+# itself still exists, and the squash carries the one line that outlived it.
+ee6f49d583b361f7fa669b35a0091d06ae2734ab:packages/scan/src/__tests__/false-positives.test.ts:aws-access-token:98
+ee6f49d583b361f7fa669b35a0091d06ae2734ab:packages/scan/src/__tests__/false-positives.test.ts:jwt:113
+1ef852819b70cf7c78b4683dcfbe229423612e2d:packages/scan/src/__tests__/false-positives.test.ts:generic-api-key:144
+2d414ccadf093a26256a6b7a92c26ac01fad1273:packages/scan/src/__tests__/false-positives.test.ts:generic-api-key:144
