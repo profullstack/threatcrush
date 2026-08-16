@@ -93,12 +93,18 @@ describe('fixture credentials in test files', () => {
 
   // The whole safety argument for the exemption: it is unreachable from the
   // vendor-prefixed rules, which have no `keywordShaped` flag.
+  //
+  // Every credential shape below is assembled at runtime rather than written
+  // out. A scanner's own fixtures are indistinguishable from a leak to every
+  // *other* scanner, and this repository's CI runs two of them — a literal
+  // `AKIA…` here fails gitleaks and semgrep on an unrelated pull request. The
+  // concatenation is the fixture; the joined value is what the rule sees.
   it('never exempts a vendor-issued key, however it is named', () => {
     const cases: [string, string][] = [
-      ['secret-aws-access-key', "const testKey = 'AKIA1234567890ABCDEF';"],
-      ['secret-github-token', "const mockToken = 'ghp_" + 'a'.repeat(36) + "';"],
-      ['secret-stripe-key', "const fakeKey = 'sk_live_" + 'a'.repeat(24) + "';"],
-      ['secret-private-key', "const samplePem = '-----BEGIN RSA PRIVATE KEY-----';"],
+      ['secret-aws-access-key', `const testKey = '${'AKIA' + '1234567890ABCDEF'}';`],
+      ['secret-github-token', `const mockToken = '${'ghp_' + 'a'.repeat(36)}';`],
+      ['secret-stripe-key', `const fakeKey = '${'sk_live_' + 'a'.repeat(24)}';`],
+      ['secret-private-key', `const samplePem = '${'-----BEGIN RSA PRIVATE KEY' + '-----'}';`],
     ];
     for (const [ruleId, line] of cases) {
       expect(ruleIds('tests/billing.test.js', line), line).toContain(ruleId);
@@ -109,8 +115,7 @@ describe('fixture credentials in test files', () => {
   // finding worth keeping out of seventy-nine. The 48-character cap on the
   // key-echo signal is what stops a long base64 blob exempting itself.
   it('keeps a long opaque token even in a test file', () => {
-    const jwt =
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSJ9.abcdefghijklmnop';
+    const jwt = ['eyJ' + 'hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9', 'eyJ' + 'zdXBhYmFzZSByb2xl', 'c2ln'].join('.');
     const source = `const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '${jwt}';`;
     expect(ruleIds('tests/debug-sms.js', source)).toContain('secret-jwt');
   });
@@ -119,6 +124,37 @@ describe('fixture credentials in test files', () => {
     expect(ruleIds('tests/invite.test.js', "  inviteToken: 'qci1.payload.signature',")).toContain(
       'secret-generic-credential',
     );
+  });
+
+  /**
+   * A weak password is still a password.
+   *
+   * The failure mode of any "this looks like words" heuristic is that it
+   * swallows exactly the credentials most worth finding — the guessable ones a
+   * human typed. `secret-rules.ts` already says `root:hunter2@` must not be
+   * exempt; these are the same claim for the new signals, and they are the
+   * cases that would break first if the stem list or the key-echo rule were
+   * widened later.
+   */
+  it('keeps a weak human-chosen password, even inside a test file', () => {
+    const material = [
+      "const password = 'MyDogsNameIsRex';",
+      "const password = 'Tr0ub4dor&3xK';",
+      "const password = 'P@ssw0rd!2024#prod';",
+      'DB_PASSWORD="Kx9mQ2vLp7Rt4Wn"',
+      "  password: 'hunter2hunter2',",
+    ];
+    for (const line of material) {
+      expect(ruleIds('tests/login.test.js', line), line).toContain('secret-generic-credential');
+    }
+  });
+
+  it('keeps a metasyntactic username beside a real password', () => {
+    // The header's own example: both halves must be metasyntactic to exempt a
+    // DSN, and a database URL is not keyword-shaped, so it is never eligible
+    // for the fixture exemption regardless.
+    const dsn = "const url = 'postgres://root:hunter2@db.internal:5432/app';";
+    expect(ruleIds('tests/db.test.js', dsn)).toContain('secret-database-url');
   });
 
   it('does not read a fixture stem out of the middle of a word', () => {
