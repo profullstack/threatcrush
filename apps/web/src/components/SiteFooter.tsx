@@ -65,6 +65,7 @@ export default function SiteFooter() {
           <div>
             <h3 className={headingClass}>Legal</h3>
             <ul className="space-y-2">
+              <li><a href="/security" className={linkClass}>Security</a></li>
               <li><a href="/terms" className={linkClass}>Terms</a></li>
               <li><a href="/privacy" className={linkClass}>Privacy</a></li>
             </ul>
