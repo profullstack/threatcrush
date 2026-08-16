@@ -338,6 +338,16 @@ export const NODE_RULES: readonly CodeRule[] = [
     // membership test on the value, which is what the guard looks for.
     inherent: true,
     guard: ORIGIN_ALLOWLIST_GUARD,
+    /**
+     * Logging the origin is not reflecting it.
+     *
+     * `origin: request.headers.origin` is the CORS mistake *and* the ordinary
+     * way to record who called — the two are character-for-character
+     * identical, and only what encloses them differs. A response header goes
+     * out to the browser; a log line goes to stdout, where it grants nobody
+     * anything.
+     */
+    enclosingCallGuard: /(?:^|\.)(?:log|debug|info|warn|error|trace|verbose|fatal)$/,
   },
 
   // ── Server-side request forgery ──────────────────────────────────────────

@@ -109,6 +109,42 @@ export interface CodeRule {
    * guard would silently veto the dynamic one too.
    */
   lineGuard?: RegExp;
+  /**
+   * Evidence that the match sits inside a call that cannot be a sink —
+   * matched against the callee of each unclosed call enclosing the line.
+   *
+   * Distinct from `guard` and `lineGuard`, both of which ask what is *near*
+   * the match. Neither can answer "is this an argument to something", and that
+   * is the question that separates a CORS header from a log line:
+   *
+   *     console.log('connection', {
+   *       headers: { origin: request.headers.origin },
+   *     });
+   *
+   * The reflected-origin rule matched the inner line, four lines below the
+   * `console.log(` that makes it inert. A window guard wide enough to see the
+   * logger would also exonerate a genuine reflection written four lines under
+   * an unrelated log statement; nesting is the only thing that distinguishes
+   * them, so nesting is what this reads.
+   */
+  enclosingCallGuard?: RegExp;
+  /**
+   * Exonerate a template literal whose every `${…}` names a file-local `const`
+   * bound to a string literal.
+   *
+   *     const SRC = '/srv/app/routes';
+   *     execSync(`find ${SRC} -name '*.js'`);
+   *
+   * The command is a compile-time constant written in two pieces. Nothing
+   * reaches it, so nothing can be injected into it — the shape is a build
+   * script naming its own directories, and it is most of what the
+   * interpolated-exec rules find in practice.
+   *
+   * `const` only, and a plain string literal only. `let` can be reassigned
+   * from a request between the binding and the call, and a binding built by
+   * interpolation just moves the question somewhere this cannot follow.
+   */
+  constantInterpolationGuard?: boolean;
   /** Lines of context searched backwards for guards and required evidence. */
   guardBack?: number;
   /**
@@ -362,6 +398,7 @@ export const CODE_RULES: readonly CodeRule[] = [
     languages: ['javascript', 'typescript'],
     pattern:
       /\b(?:exec|execSync|spawn|spawnSync)\s*\(\s*(?:`[^`]*\$\{|['"][^'"]*['"]\s*\+|[a-zA-Z_$][\w$]*\s*\+)/,
+    constantInterpolationGuard: true,
   },
   {
     id: 'py-shell-command-string',
@@ -1380,6 +1417,25 @@ export const CODE_RULES: readonly CodeRule[] = [
     languages: ['javascript', 'typescript'],
     pattern:
       /\$\{[^}\n]*\breq(?:uest)?\s*\.\s*(?:headers\s*\.\s*host|hostname|host)\b|['"`]\s*\+\s*req(?:uest)?\s*\.\s*(?:headers\s*\.\s*host|hostname)\b/,
+    /**
+     * Parsing the request's own URL is not building a link from the Host
+     * header, even though it is spelled with one.
+     *
+     *     const url = new URL(request.url, `http://${request.headers.host}`);
+     *     const token = url.searchParams.get('token');
+     *
+     * `request.url` on a Node server is a path — `/ws?token=…` — and `new URL`
+     * refuses a relative input without a base. The base exists to satisfy the
+     * parser and is thrown away; only the path and query are ever read. Every
+     * Node HTTP handler that wants a query parameter is written this way, so
+     * the rule fired on the framework idiom rather than on the defect.
+     *
+     * Narrow on purpose: the first argument must be `req.url` itself. The
+     * dangerous shape passes a *path* the application chose —
+     * `new URL('/reset?t=…', `https://${req.headers.host}`)` — and that is what
+     * produces an attacker-controlled link. It does not match this guard.
+     */
+    lineGuard: /\bnew\s+URL\s*\(\s*(?:req|request|ctx)(?:uest)?\s*\.\s*url\b\s*,/,
   },
   // A recursive-merge prototype-pollution rule (`target[key] = source[key]`
   // with no `__proto__` guard) was built and dropped. The bare copy-by-key is
@@ -1576,6 +1632,70 @@ function withoutSingleQuoted(text: string): string {
   return text.replace(/'[^'\n]*'/g, "''");
 }
 
+/**
+ * The callees of every call still open at the start of this line.
+ *
+ * A bracket walk over the preceding window, skipping string bodies so that a
+ * parenthesis inside a message — `log('oops :(')` — does not unbalance it.
+ * Returned outermost-first; a rule usually only cares whether *any* of them
+ * matches.
+ *
+ * The walk starts mid-file, so a `)` closing a call opened before the window
+ * pops an empty stack. That direction is safe: it can only lose an enclosing
+ * name, never invent one, and a lost name means the finding is still reported.
+ */
+export function enclosingCallees(
+  lines: readonly string[],
+  index: number,
+  back: number,
+): string[] {
+  const before = lines.slice(Math.max(0, index - back), index).join('\n');
+  const stack: string[] = [];
+  let quote: string | null = null;
+
+  for (let i = 0; i < before.length; i += 1) {
+    const ch = before[i]!;
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === '`') quote = ch;
+    else if (ch === '(') stack.push(/([\w$.]*)\s*$/.exec(before.slice(0, i))?.[1] ?? '');
+    else if (ch === ')') stack.pop();
+  }
+  return stack;
+}
+
+/** Every `${…}` on the line, or `null` if there are none. */
+function interpolations(line: string): string[] | null {
+  const found = [...line.matchAll(/\$\{([^}]*)\}/g)].map((m) => m[1]!.trim());
+  return found.length > 0 ? found : null;
+}
+
+/** Is `name` bound in this file to a `const` holding a plain string literal? */
+function isConstantString(name: string, fileText: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `\\bconst\\s+${escaped}\\s*(?::[^=\\n]+)?=\\s*(?:'[^'\\n]*'|"[^"\\n]*"|\`[^\`$\\n]*\`)`,
+  ).test(fileText);
+}
+
+/**
+ * Does every interpolation on this line resolve to a file-local constant?
+ *
+ * False when there are no interpolations at all: the concatenation spellings
+ * of the same rules (`exec('cmd ' + arg)`) have nothing to resolve and must
+ * stay reported.
+ */
+export function interpolationsAreConstant(line: string, fileText: string): boolean {
+  const found = interpolations(line);
+  if (!found) return false;
+  return found.every(
+    (expr) => /^[A-Za-z_$][\w$]*$/.test(expr) && isConstantString(expr, fileText),
+  );
+}
+
 export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | null {
   if (rule.languages && !rule.languages.includes(ctx.language)) return null;
 
@@ -1594,6 +1714,15 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   if (rule.requires && !rule.requires.test(context)) return null;
 
   if (rule.lineGuard?.test(line)) return null;
+
+  if (rule.enclosingCallGuard) {
+    const callees = enclosingCallees(ctx.lines, ctx.index, back);
+    if (callees.some((callee) => rule.enclosingCallGuard!.test(callee))) return null;
+  }
+
+  if (rule.constantInterpolationGuard && interpolationsAreConstant(line, fileTextOf(ctx.lines))) {
+    return null;
+  }
 
   const guard = rule.guard === undefined ? GENERIC_GUARD : rule.guard;
   if (guard && (guard.test(line) || guard.test(context))) return null;
