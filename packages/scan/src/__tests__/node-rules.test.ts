@@ -360,6 +360,25 @@ describe('hardening and resource limits', () => {
     expect(ruleIds('a.js', source)).toContain('js-uninitialized-buffer');
   });
 
+  it('handles a binding whose name contains regex metacharacters', () => {
+    // `$` is legal in an identifier and meaningful in a pattern. The guard used
+    // to splice the name into `new RegExp`, so this was the shape that needed
+    // escaping; it now compares names as strings and needs none.
+    const source = ['const $buf$ = Buffer.allocUnsafe(8);', '$buf$.fill(0);'].join('\n');
+    expect(ruleIds('a.js', source)).not.toContain('js-uninitialized-buffer');
+  });
+
+  it('does not degrade on a long run of identifier characters', () => {
+    // `[A-Za-z_$][\w$]*` can begin at every position inside a run of `$`, which
+    // is quadratic without a lookbehind pinning it to where a name can start.
+    // A scanner that can be stalled by the file it is reading is a denial of
+    // service in a CI gate.
+    const source = `const buf = Buffer.allocUnsafe(8);\n${'$'.repeat(20000)}\n`;
+    const started = Date.now();
+    ruleIds('a.js', source);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it('flags an ineffective body limit', () => {
     expect(ruleIds('a.js', `app.use(express.json({ limit: '50mb' }));`)).toContain(
       'js-oversized-request-body-limit',

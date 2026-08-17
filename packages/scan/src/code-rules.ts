@@ -1829,8 +1829,20 @@ export function interpolationsAreConstant(line: string, fileText: string): boole
  */
 const FILL_LOOKAHEAD = 16;
 
-/** `$` is the only name character that also means something to a regex. */
-const escapeName = (name: string): string => name.replace(/\$/g, '\\$&');
+/**
+ * An identifier, matched only where one can actually begin.
+ *
+ * The lookbehind is load-bearing rather than decoration. `[A-Za-z_$][\w$]*`
+ * can start at *every* position inside a run of `$`, so a long run costs a
+ * restart per character and the match is quadratic in line length. This
+ * repository reports that class as `redos-nested-quantifier` and CodeQL
+ * reports it as `js/polynomial-redos`; it should not ship it.
+ */
+const NAME = String.raw`(?<![\w$])([A-Za-z_$][\w$]*)`;
+
+const ALLOCATION_BINDING = new RegExp(
+  `${NAME}\\s*=\\s*(?:new\\s+Buffer\\s*\\(|Buffer\\s*\\.\\s*allocUnsafe(?:Slow)?\\s*\\()`,
+);
 
 /**
  * The name an uninitialised allocation on this line is bound to, if any.
@@ -1840,30 +1852,41 @@ const escapeName = (name: string): string => name.replace(/\$/g, '\\$&');
  * that follow will spell it.
  */
 function allocationBinding(line: string): string | null {
-  const bound =
-    /([A-Za-z_$][\w$]*)\s*=\s*(?:new\s+Buffer\s*\(|Buffer\s*\.\s*allocUnsafe(?:Slow)?\s*\()/.exec(
-      line,
-    );
-  return bound?.[1] ?? null;
+  return ALLOCATION_BINDING.exec(line)?.[1] ?? null;
 }
 
 /**
- * Does anything write into `name` within the lookahead?
+ * The spellings that write into a buffer: copied into as a destination, filled
+ * or written through its own methods, `set` from a typed array, or assigned
+ * per index.
  *
- * Four spellings, which between them cover how a Node buffer is filled:
- * copied into as a destination, filled or written through its own methods,
- * `set` from a typed array, or assigned per index.
+ * Fixed patterns that *capture* a name, rather than a pattern built by
+ * interpolating the binding into `new RegExp`. The first version did the
+ * latter and went wrong three ways at once — the name had to be escaped, the
+ * escaper missed backslashes, and the constructed pattern was itself
+ * polynomial on a name of many `$`. All three stop existing once the name is
+ * compared as a string instead of spliced into a regex.
  */
-function writesInto(name: string): RegExp {
-  const n = escapeName(name);
-  return new RegExp(
-    // `src.copy(name, …)` — name is the destination.
-    `\\.\\s*copy\\s*\\(\\s*${n}\\s*[,)]` +
-      // `name.fill(…)`, `name.write*(…)`, `name.set(…)`.
-      `|\\b${n}\\s*\\.\\s*(?:fill|set|write[A-Za-z0-9]*)\\s*\\(` +
-      // `name[i] = …`, but not `name[i] === …`.
-      `|\\b${n}\\s*\\[[^\\]\\n]*\\]\\s*=(?!=)`,
-  );
+const WRITE_SHAPES: readonly RegExp[] = [
+  // `src.copy(name, …)` — name is the destination.
+  /\.\s*copy\s*\(\s*([A-Za-z_$][\w$]*)\s*[,)]/g,
+  // `name.fill(…)`, `name.write*(…)`, `name.set(…)`.
+  new RegExp(`${NAME}\\s*\\.\\s*(?:fill|set|write[A-Za-z0-9]*)\\s*\\(`, 'g'),
+  // `name[i] = …`, but not `name[i] === …`.
+  new RegExp(`${NAME}\\s*\\[[^\\]\\n]*\\]\\s*=(?!=)`, 'g'),
+];
+
+/** Does anything in `text` write into the buffer bound to `name`? */
+function writesInto(text: string, name: string): boolean {
+  for (const shape of WRITE_SHAPES) {
+    // Module-level and `g`, so the cursor from the previous call is still on
+    // it. Reset before use rather than allocating a regex per line.
+    shape.lastIndex = 0;
+    for (let found = shape.exec(text); found !== null; found = shape.exec(text)) {
+      if (found[1] === name) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1882,17 +1905,17 @@ export function bufferFilledBeforeUse(ctx: MatchContext): boolean {
   const name = allocationBinding(line);
   if (!name) return false;
 
-  const written = writesInto(name);
   // The allocation line itself first: `const b = Buffer.allocUnsafe(n); b.fill(0);`
   // is one line, and a rule that missed it would be answering a question about
-  // formatting rather than about the code.
-  if (written.test(line.slice(line.indexOf('=') + 1))) return true;
+  // formatting rather than about the code. Only the part after the `=`, so the
+  // binding on the left is not read as a write to itself.
+  if (writesInto(line.slice(line.indexOf('=') + 1), name)) return true;
 
   const last = Math.min(ctx.lines.length - 1, ctx.index + FILL_LOOKAHEAD);
   for (let i = ctx.index + 1; i <= last; i += 1) {
     const next = ctx.lines[i] ?? '';
     if (skippable(next, i, ctx.prose)) continue;
-    if (written.test(next)) return true;
+    if (writesInto(next, name)) return true;
   }
   return false;
 }
