@@ -25,11 +25,19 @@ export type { SecurityControl } from './controls';
 export { scanPackageJson, scanRequirementsTxt, detectTyposquat, editDistance } from './manifest-rules';
 export type { ManifestFinding, SquatVerdict } from './manifest-rules';
 
-export { isKnownPlaceholder, redactSecret, SECRET_RULES, SENSITIVE_FILES } from './secret-rules';
+export {
+  describesItsOwnKey,
+  isKnownPlaceholder,
+  isPlaceholderAttribute,
+  redactSecret,
+  SECRET_RULES,
+  SENSITIVE_FILES,
+} from './secret-rules';
 
 export {
   collectSuppressions,
-  foreignCredentialMark,
+  foreignSecurityMark,
+  isDocPath,
   isTestPath,
   languageOf,
   languageOfShebang,

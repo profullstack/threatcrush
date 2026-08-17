@@ -17,7 +17,9 @@
 import { CODE_RULES, evaluateRule, proseLines } from './code-rules';
 import { scanPackageJson, scanRequirementsTxt } from './manifest-rules';
 import {
+  describesItsOwnKey,
   isKnownPlaceholder,
+  isPlaceholderAttribute,
   isTestFixtureValue,
   isVariableReference,
   redactSecret,
@@ -147,8 +149,8 @@ const SUPPRESS_NEXT = /threatcrush-disable-next-line(?:\s+([\w-]+))?/;
 const SUPPRESS_LINE = /threatcrush-disable-line(?:\s+([\w-]+))?/;
 
 /**
- * Another linter's suppression, naming the rule that means "hardcoded
- * credential" in that linter's own vocabulary.
+ * Another linter's suppression, naming the linter that means "security" in that
+ * linter's own vocabulary.
  *
  * A repository that has already triaged a finding did so in the one place a
  * reviewer will look, which is the line itself. Re-raising it at full severity
@@ -157,16 +159,33 @@ const SUPPRESS_LINE = /threatcrush-disable-line(?:\s+([\w-]+))?/;
  * HTTP header name, not a credential" is the clearest possible signal that
  * nothing read it.
  *
- * Two things keep this from becoming a way to hide real findings. The rule has
- * to be named: a bare `//nolint` is a statement about something, and there is
- * no reason to think it is about credentials. And the finding is downgraded
- * rather than dropped, the way `isTestPath` downgrades a fixture, so it stays
- * in the report for anyone auditing the suppressions themselves.
+ * This used to insist the *rule* be named — `gosec` and `G101` both. That was
+ * the wrong half of the annotation to key on, and it is the single biggest
+ * source of noise on a mature Go repository. Measured on mulgadc/spinifex:
+ * nine of its twenty-one `InsecureSkipVerify` lines carry a bare
+ * `//nolint:gosec` with a written reason beside it —
+ *
+ *     InsecureSkipVerify: true, //nolint:gosec // self-signed per-node certs
+ *
+ * — and every one was re-reported at high. Go projects overwhelmingly write the
+ * bare form; requiring `G101` meant honouring the annotation almost nowhere it
+ * is actually written, while claiming in the docstring to honour it.
+ *
+ * Naming the *linter* is still required, and that is what keeps this from
+ * becoming a way to hide findings. `gosec` and `nosec` are a security linter
+ * and its inline directive: a line carrying one has been looked at by a human
+ * asking a security question. A bare `//nolint` is a statement about something,
+ * with no reason to think it is about security at all, and `//nolint:errcheck`
+ * is a statement about error handling. Neither counts.
+ *
+ * And the finding is downgraded rather than dropped, the way `isTestPath`
+ * downgrades a fixture, so it stays in the report for anyone auditing the
+ * suppressions themselves.
  */
-const FOREIGN_CREDENTIAL = /\b(?:nolint:[\w,]*gosec|nosec)\b[^\n]*\bG101\b|\bG101\b[^\n]*\b(?:nolint:[\w,]*gosec|nosec)\b/;
+const FOREIGN_SECURITY = /\b(?:nolint:[\w,]*gosec|nosec)\b/;
 
-export function foreignCredentialMark(line: string): boolean {
-  return FOREIGN_CREDENTIAL.test(line);
+export function foreignSecurityMark(line: string): boolean {
+  return FOREIGN_SECURITY.test(line);
 }
 
 export interface Suppressions {
@@ -217,12 +236,89 @@ function isSuppressed(suppressions: Suppressions, index: number, ruleId: string)
 export function isTestPath(relativePath: string): boolean {
   const p = relativePath.replace(/\\/g, '/');
   return (
-    /(?:^|\/)(?:tests?|__tests__|__mocks__|spec|specs|fixtures?|mocks?|e2e|testdata)\//i.test(p) ||
+    /(?:^|\/)(?:tests?|__tests__|__mocks__|spec|specs|fixtures?|mocks?|e2e|testdata|testutils?|harness)\//i.test(p) ||
     /(?:^|\/)(?:test|conftest)_[^/]+$/i.test(p) ||
     /[._-](?:test|spec)\.[a-z]+$/i.test(p) ||
     /_test\.[a-z]+$/i.test(p)
   );
 }
+
+/**
+ * Does this path hold documentation or illustrative code?
+ *
+ * The same softening as `isTestPath`, and for the *code* rules only. A fenced
+ * block in a README is a transcript of a command someone might run, not a
+ * program that runs: `go run . -log-dir /tmp/artifacts` in a usage example is
+ * not a symlink attack on anybody, because nothing executes it.
+ *
+ * Deliberately not applied to the credential rules, which is the opposite of
+ * what the volume on a documentation tree first suggests. Their noise is a
+ * property of the *value*, and value is the axis they are keyed on:
+ * `limen-regression.test.ts` pins a README quoting `postgres://user:pass@host`
+ * as silent while a real DSN in that same README still reports at `high`, and a
+ * path rule would give that up. A README is a perfectly ordinary place to leak
+ * a key.
+ *
+ * mulgadc/spinifex matches the AWS key rule ninety-six times. Ninety of those
+ * are in test paths and were already `low`; the remaining six are in `docs/`,
+ * and they are every critical left on that repository after this change. See
+ * the note in `secret-rules.ts` on typed sequences for why the value-side fix
+ * that would have silenced them cannot be had without giving up real detection.
+ */
+export function isDocPath(relativePath: string): boolean {
+  const p = relativePath.replace(/\\/g, '/');
+  return (
+    /(?:^|\/)(?:docs?|examples?|samples?)\//i.test(p) ||
+    /\.(?:md|mdx|markdown|rst|adoc)$/i.test(p)
+  );
+}
+
+/**
+ * Why a finding is being reported at `low` rather than at its rule's severity.
+ *
+ * Five contexts, one mechanism. Each says something about the *setting* of a
+ * match rather than about the construct itself, so none of them may ever drop
+ * a finding — a softened finding is still counted, still printed, still in the
+ * SARIF, and `--fail-on low` still stops on it. The severity is the claim being
+ * weakened, not the report.
+ *
+ * That is the line this must not cross. Every one of these is a heuristic about
+ * where code lives or what it is named, and heuristics of that kind are wrong
+ * often enough that they may inform a severity and never a verdict.
+ */
+type Softening = 'test' | 'docs' | 'suppressed' | 'placeholder' | 'self-describing';
+
+/** Most specific evidence first, so it is the reason the operator is shown. */
+const SOFTENING_ORDER: readonly Softening[] = [
+  'suppressed',
+  'placeholder',
+  'self-describing',
+  'test',
+  'docs',
+];
+
+function softening(reasons: Partial<Record<Softening, boolean>>): Softening | null {
+  return SOFTENING_ORDER.find((reason) => reasons[reason]) ?? null;
+}
+
+/** The clause completing "Possible AWS Access Key detected …" on a secret. */
+const SECRET_SOFTENING: Record<Softening, string> = {
+  test: 'in a test file — usually a fixture, still worth confirming it is not a live credential',
+  docs: 'in documentation — usually an illustrative example, still worth confirming it is not a live credential',
+  suppressed: "on a line already marked as a false positive for another linter's security rule",
+  placeholder: 'in example text an empty input field shows, not in data',
+  'self-describing':
+    'in a value that repeats the name of the field holding it — usually a description of a credential rather than one',
+};
+
+/** The clause appended to a code finding's message to say why it was softened. */
+const CODE_SOFTENING: Record<Softening, string> = {
+  test: 'in a test file, where the construct is ordinary',
+  docs: 'in documentation or example code, which nothing runs',
+  suppressed: "on a line another linter's security suppression already covers",
+  placeholder: 'in example text rather than in data',
+  'self-describing': 'in a value that describes itself',
+};
 
 /** Scan a single file's text. Exposed for tests and for single-file callers. */
 export function scanText(
@@ -234,6 +330,7 @@ export function scanText(
   const lines = text.split('\n');
   const suppressions = collectSuppressions(lines);
   const inTests = isTestPath(relativePath);
+  const inDocs = isDocPath(relativePath);
 
   // ── Credentials ────────────────────────────────────────────────────────
   lines.forEach((line, index) => {
@@ -255,23 +352,38 @@ export function scanText(
       // `isTestFixtureValue` for why this cannot reach a vendor-issued key.
       if (inTests && rule.keywordShaped && isTestFixtureValue(line, value)) continue;
 
-      const marked = foreignCredentialMark(line);
+      // A value that repeats its own key is a description of a credential
+      // rather than one — and unlike the fixture exemption above, that is true
+      // outside a test too, so it softens rather than skips. See
+      // `describesItsOwnKey`.
+      //
+      // Note the `false` where the code rules below pass `inDocs`. Documentation
+      // noise is a *value* problem for the credential rules and is solved by
+      // `isKnownPlaceholder`, deliberately: `limen-regression.test.ts` pins the
+      // behaviour that a README quoting `postgres://user:pass@host` is silent
+      // while a real DSN in the same README is still `high`. Softening secrets
+      // by path would take that guarantee away, and a README is a perfectly
+      // ordinary place to leak a key.
+      const soft = softening({
+        test: inTests,
+        suppressed: foreignSecurityMark(line),
+        placeholder: isPlaceholderAttribute(line, value),
+        'self-describing': rule.keywordShaped === true && describesItsOwnKey(line, value),
+      });
 
       findings.push({
         ruleId: rule.id,
         title: rule.name,
         file: relativePath,
         line: index + 1,
-        // Reported but not blocking in tests — see isTestPath. The same goes
-        // for a line another linter's credential rule was already told about.
-        severity: inTests || marked ? 'low' : rule.severity,
+        // Reported but not blocking wherever context weakens the claim — see
+        // `softening`. Never dropped: the count is the same either way.
+        severity: soft ? 'low' : rule.severity,
         // A matched credential format is the finding, not a proxy for one.
         confidence: 'evidence',
-        message: inTests
-          ? `Possible ${rule.name} detected in a test file — usually a fixture, still worth confirming it is not a live credential`
-          : marked
-            ? `Possible ${rule.name} detected on a line already marked as a false positive for another linter's credential rule`
-            : `Possible ${rule.name} detected`,
+        message: soft
+          ? `Possible ${rule.name} detected ${SECRET_SOFTENING[soft]}`
+          : `Possible ${rule.name} detected`,
         consequence: rule.consequence,
         cwe: rule.cwe,
         excerpt: redactSecret(line.trim()).slice(0, 200),
@@ -289,14 +401,28 @@ export function scanText(
       const match = evaluateRule(rule, { lines, index, language, prose });
       if (!match) continue;
 
+      // The context the credential rules above have always read, applied to the
+      // code rules for the first time. Leaving it off them was the second of
+      // the three structural false-positive causes and much the largest: on
+      // mulgadc/spinifex it is 104 findings, every one of them a code rule
+      // reporting at full severity from inside a test — `"/tmp/test-wal"` in a
+      // table-driven fixture, `exec.Command("sh", "-c", "exit 42")` in a
+      // process-supervision test, `InsecureSkipVerify` against the harness's own
+      // self-signed certificate. Each is the normal way to write that test.
+      const soft = softening({
+        test: inTests,
+        docs: inDocs,
+        suppressed: foreignSecurityMark(lines[index] ?? ''),
+      });
+
       findings.push({
         ruleId: rule.id,
         title: rule.title,
         file: relativePath,
         line: index + 1,
-        severity: match.severity,
+        severity: soft ? 'low' : match.severity,
         confidence: match.confidence,
-        message: `${rule.title} (${rule.cwe})`,
+        message: soft ? `${rule.title} (${rule.cwe}) — ${CODE_SOFTENING[soft]}` : `${rule.title} (${rule.cwe})`,
         consequence: rule.consequence,
         cwe: rule.cwe,
         excerpt: (lines[index] ?? '').trim().slice(0, 200),
@@ -315,14 +441,22 @@ export function scanText(
     const index = match.line - 1;
     if (isSuppressed(suppressions, index, match.rule.id)) continue;
 
+    const soft = softening({
+      test: inTests,
+      docs: inDocs,
+      suppressed: foreignSecurityMark(lines[index] ?? ''),
+    });
+
     findings.push({
       ruleId: match.rule.id,
       title: match.rule.title,
       file: relativePath,
       line: match.line,
-      severity: match.severity,
+      severity: soft ? 'low' : match.severity,
       confidence: 'pattern',
-      message: `${match.rule.title} (${match.rule.cwe})`,
+      message: soft
+        ? `${match.rule.title} (${match.rule.cwe}) — ${CODE_SOFTENING[soft]}`
+        : `${match.rule.title} (${match.rule.cwe})`,
       consequence: match.rule.consequence,
       cwe: match.rule.cwe,
       excerpt: (lines[index] ?? '').trim().slice(0, 200),
