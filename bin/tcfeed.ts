@@ -636,6 +636,20 @@ async function scan(
 const PR_BRANCH = 'threatcrush-scan';
 
 /**
+ * What a request installs, named once.
+ *
+ * The issue and the pull request describe the same diff to the same person,
+ * and they drifted. openPr was cut back to the workflow alone when the
+ * converter went away; issueBody went on promising "Two files under
+ * `.github/`" to every repository asked afterwards. james-6-23/codex2api was
+ * asked on that sentence and then shown a one-file diff, and asked about it.
+ *
+ * Both read the count off this list now, so the question and the answer cannot
+ * disagree about how big the change is.
+ */
+const INSTALLS = [{ source: 'workflow.yml', destination: '.github/workflows/threatcrush-scan.yml' }];
+
+/**
  * The pack, read from sh1pt rather than copied into this file.
  *
  * A copy would be a second definition of the same workflow, and the second
@@ -1334,7 +1348,8 @@ const issueBody = (spec: string): string =>
     'hardcoded credentials, injection, SSRF and unsafe deserialisation, and writes',
     'findings to the Security tab. Report-only — findings never fail the build.',
     '',
-    `Two files under \`.github/\`, a pinned \`${spec}\` whose tarball is hashed before`,
+    `${INSTALLS.length === 1 ? 'One file' : `${INSTALLS.length} files`} under \`.github/\`, a pinned` +
+      ` \`${spec}\` whose tarball is hashed before`,
     'install, and `pull_request` rather than `pull_request_target`.',
     '',
     'A pull request is open alongside this with the diff, if reading it is easier',
@@ -1385,17 +1400,15 @@ async function openPr(
   const pack = packDir();
   const spec = await resolveSpec();
   const inputs = packInputs(spec, await resolveIntegrity(spec));
-  // One file. `refresh` already installed only the workflow and actively
-  // removed the converter from branches that still carried it, but this path —
-  // the one that opens a *new* request — went on writing both, so every fresh
-  // offer re-added the file refresh existed to take away. A repository was
-  // told the diff adds one file and then shown two.
-  const files = [
-    {
-      destination: '.github/workflows/threatcrush-scan.yml',
-      content: render(fs.readFileSync(path.join(pack, 'workflow.yml'), 'utf8'), inputs),
-    },
-  ];
+  // `refresh` already installed only the workflow and actively removed the
+  // converter from branches that still carried it, but this path — the one
+  // that opens a *new* request — went on writing both, so every fresh offer
+  // re-added the file refresh existed to take away. Read from INSTALLS, so the
+  // issue cannot describe a different diff than the one pushed here.
+  const files = INSTALLS.map((file) => ({
+    destination: file.destination,
+    content: render(fs.readFileSync(path.join(pack, file.source), 'utf8'), inputs),
+  }));
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tcfeed-pr-'));
   const src = path.join(tmp, 'src');
@@ -2354,8 +2367,70 @@ async function refreshOne(repo: string, me: string, spec: string): Promise<strin
 }
 
 /**
+ * Repositories that were asked and never shown the diff.
+ *
+ * `check` finds its work by searching for open pull requests, so a repository
+ * holding a standing issue and no request is invisible to it — not for a
+ * while, but permanently. The issue says "a pull request is open alongside
+ * this with the diff", so that state is a promise made to a maintainer and
+ * then quietly dropped, and nothing here noticed. james-6-23/codex2api sat
+ * that way until the maintainer asked where the diff had got to, which is the
+ * wrong person to be running this check.
+ *
+ * Reported, not repaired. `tcfeed pr <repo>` already finishes the pair
+ * deliberately — prTarget carries the standing issue through so the request
+ * links back to it — and opening a request against somebody's repository
+ * should stay something typed, not a side effect of asking for status.
+ */
+async function unpaired(me: string): Promise<string[]> {
+  // One repository per line, not a JSON array. `--paginate` concatenates a
+  // separate document per page, so an array-shaped --jq gives back two arrays
+  // and a single JSON.parse of the pair throws — a failure that only appears
+  // once the account passes a hundred open issues, which is the worst moment
+  // for it to appear.
+  const raised = await gh([
+    'api',
+    '-XGET',
+    'search/issues',
+    '-f',
+    `q=author:${me} type:issue state:open in:title "${ISSUE_TITLE}"`,
+    '-f',
+    'per_page=100',
+    '--paginate',
+    '--jq',
+    '.items[] | select(.state == "open") | .repository_url',
+  ]).catch(() => '');
+
+  const repos = [
+    ...new Set(
+      raised
+        .split('\n')
+        .filter(Boolean)
+        .map((url) => url.trim().replace(/^.*\/repos\//, ''))
+    ),
+  ].sort();
+
+  const missing: string[] = [];
+  for (const repo of repos) {
+    // state=all: a request that was opened and then closed still counts as
+    // sent, and re-sending one a maintainer closed is the exact thing the
+    // ask-once rule exists to prevent.
+    const said = await gh([
+      'api',
+      `repos/${repo}/pulls?state=all&head=${me}:${PR_BRANCH}&per_page=1`,
+    ]).catch(() => '');
+    // Unreadable is not absent. A 404 here is a repository that takes no pull
+    // requests at all, and a promise that cannot be kept is not one to chase.
+    if (!said) continue;
+    if ((JSON.parse(said) as unknown[]).length === 0) missing.push(repo);
+  }
+  return missing;
+}
+
+/**
  * The subcommand. With no arguments it reads every repository this has an open
- * request on, which is the list it is entitled to act on and no wider.
+ * request on, which is the list it is entitled to act on and no wider, plus the
+ * repositories it asked and never sent a diff to — named only, never acted on.
  */
 async function checkCommand(argv: string[]): Promise<number> {
   const fix = argv.includes('--fix');
@@ -2376,6 +2451,7 @@ async function checkCommand(argv: string[]): Promise<number> {
   }
 
   let repos = named;
+  let owed: string[] = [];
   if (repos.length === 0) {
     // Found by searching for the requests themselves rather than by keeping a
     // list on disk. A file would drift the first time one was opened by hand.
@@ -2388,6 +2464,20 @@ async function checkCommand(argv: string[]): Promise<number> {
       ])
     ) as string[];
     repos = [...new Set(found.map((url) => url.replace(/^.*\/repos\//, '')))].sort();
+
+    // Only when nothing was named. The named form means "check these", not
+    // "audit the account", and it is also the form scripts call.
+    owed = await unpaired(me);
+  }
+
+  // Printed before the early return below, because a repository that was asked
+  // and never sent the diff is precisely the case where there is no open pull
+  // request to report — the run would otherwise say "no open requests" and
+  // nothing at all about the promise still outstanding.
+  if (owed.length > 0) {
+    console.log(`${owed.length} asked, no diff sent — the issue promised one:`);
+    for (const repo of owed) console.log(`    ${repo} — tcfeed pr ${repo}`);
+    console.log('');
   }
 
   if (repos.length === 0) {
