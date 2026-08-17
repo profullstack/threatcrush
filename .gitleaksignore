@@ -18,3 +18,13 @@ ee6f49d583b361f7fa669b35a0091d06ae2734ab:packages/scan/src/__tests__/false-posit
 ee6f49d583b361f7fa669b35a0091d06ae2734ab:packages/scan/src/__tests__/false-positives.test.ts:jwt:113
 1ef852819b70cf7c78b4683dcfbe229423612e2d:packages/scan/src/__tests__/false-positives.test.ts:generic-api-key:144
 2d414ccadf093a26256a6b7a92c26ac01fad1273:packages/scan/src/__tests__/false-positives.test.ts:generic-api-key:144
+
+# The third time, and the first where two of the three were in a *comment*. The
+# note in `secret-rules.ts` on why a typed-sequence exemption cannot be had has
+# to quote the two values it is about to be useful, and quoting them is enough
+# for gitleaks and semgrep to block the branch that explains them. Both are now
+# written as a prefix and a body, and the password beside them is assembled at
+# runtime, so none of the three survives in the tree — only in this commit.
+c3e1392c4ca3c3267fa874e0fc5d2166b34de909:packages/scan/src/secret-rules.ts:aws-access-token:250
+c3e1392c4ca3c3267fa874e0fc5d2166b34de909:packages/scan/src/secret-rules.ts:aws-access-token:257
+c3e1392c4ca3c3267fa874e0fc5d2166b34de909:packages/scan/src/__tests__/context-severity.test.ts:generic-api-key:119
