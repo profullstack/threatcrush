@@ -76,6 +76,9 @@
  *   TCFEED_PR_PAUSE seconds between requests that open, default 20
  *   TCFEED_PR_STANDING  unanswered requests allowed to stand at once, default 200
  *   TCFEED_PR_PER_DAY   requests opened in a rolling 24 hours, default 100
+ *   TCFEED_MIN_RULES how much of a repository the rule set must be able to
+ *                   read before it is worth asking, default 12, 0 turns it
+ *                   off. Scored per byte of the repository — see reach()
  *   TCFEED_NODE     nodeVersion input, default 20
  *   TCFEED_SPEC     threatcrushPackageSpec input, default the version npm
  *                   names today. Setting it also makes the integrity hash
@@ -112,6 +115,8 @@ interface Row extends Severities {
   repo: string;
   total: number;
   stars: number;
+  /** Rules per file, weighted by what the repository is written in. See reach(). */
+  rules: number;
 }
 
 const sleep = (seconds: number): Promise<void> =>
@@ -547,20 +552,25 @@ async function searchRepos(query: string, limit: number): Promise<string[]> {
 
 async function metadata(
   repo: string
-): Promise<{ archived: boolean; sizeKb: number; stars: number } | null> {
+): Promise<{ archived: boolean; sizeKb: number; stars: number; rules: number } | null> {
   try {
     const { stdout } = await run('gh', [
       'repo',
       'view',
       repo,
       '--json',
-      'isArchived,diskUsage,stargazerCount',
+      'isArchived,diskUsage,stargazerCount,languages',
     ]);
     const said = JSON.parse(stdout);
     return {
       archived: said.isArchived === true,
       sizeKb: Number(said.diskUsage) || 0,
       stars: Number(said.stargazerCount) || 0,
+      // Carried into the table rather than used to skip. The scan is a
+      // shortlist to read by hand, and a Go repository with a real hardcoded
+      // key in it is still worth reading — it is the unsolicited pull request
+      // that needs the floor, and prTarget is where that floor lives.
+      rules: reach(said.languages ?? []),
     };
   } catch {
     return null;
@@ -822,6 +832,102 @@ async function gh(args: string[]): Promise<string> {
 }
 
 /**
+ * How many rules the scanner has for each language, by GitHub's name for it.
+ *
+ * Counted out of `packages/scan/src/`, which is the only place this can be
+ * counted from — every rule carries its own `languages` array and there is no
+ * summary of them anywhere:
+ *
+ *   grep -hoE "languages: \[[^]]*\]" packages/scan/src/*.ts
+ *
+ * javascript 49, typescript 49, python 18, java 10, php 9, shell 7, go 6,
+ * ruby 5, and nothing at all for C, C++, Rust, C#, Swift, Kotlin, Zig or Elixir.
+ * Counted 2026-08-17 at 0.11.2; re-count when rules are added, because a stale
+ * table here is a repository asked on the strength of coverage that does not
+ * exist.
+ *
+ * The thirty rules with no `languages` array — the secret rules and the
+ * template rules — are deliberately left out. They apply to every repository
+ * equally, so counting them would add the same number to every score and
+ * distinguish nothing; and on the two repositories where the count above was
+ * measured against reality they were the false positives rather than the
+ * coverage. `"AccessKeyId": "ASIA…"` in an API document is what a secret rule
+ * finds in a repository whose code it cannot read.
+ */
+const LANGUAGE_RULES: Record<string, number> = {
+  javascript: 49,
+  typescript: 49,
+  python: 18,
+  java: 10,
+  php: 9,
+  shell: 7,
+  go: 6,
+  ruby: 5,
+};
+
+/**
+ * The floor a repository's reach must clear before it is worth asking.
+ *
+ * Rules per byte of the repository, weighted by how much of it each language
+ * is: a repository that is entirely TypeScript scores 49, entirely Python 18,
+ * entirely Go 6, entirely Rust or C 0.
+ *
+ * Twelve, because of what sits either side of it. Python at 18 is the thinnest
+ * coverage this has ever been honest about offering, and it is a real offer —
+ * eighteen rules that read the code. Below twelve the repository is mostly made
+ * of something the rule set barely reads, and the three repositories measured
+ * by hand say what that produces: inspektor-gadget scores 2.3 and returned 45
+ * findings with 0 true positives, spinifex scores 10 and returned 280 with 0,
+ * and Quiesce — a local Windows CLI, entirely Go — scores 6 and was declined
+ * with the reason written out in full:
+ *
+ *   "The classes ThreatCrush targets — hardcoded credentials, injection, SSRF,
+ *    unsafe deserialization — don't have a surface here, so the workflow would
+ *    be reporting on categories this codebase can't produce."
+ *
+ * That is the check this is. It was decided by a maintainer reading the pitch
+ * because nothing here was deciding it first.
+ *
+ * TCFEED_MIN_RULES moves it. Lowering it to 5 restores the old behaviour of
+ * asking everybody, which is what the three results above are a measurement of.
+ */
+const MIN_RULES = 12;
+
+/**
+ * What share of this repository the rule set can actually read.
+ *
+ * Bytes, from GitHub's own breakdown, which is free — `gh repo view` already
+ * runs on every candidate and this is one more field on the same call.
+ *
+ * Everything GitHub names is in the denominator, including the CSS and the
+ * Dockerfiles. That is on purpose: they are part of what the workflow would be
+ * pointed at, and a repository that is mostly markup is mostly not a thing this
+ * has rules for either.
+ */
+function reach(languages: { size: number; node: { name: string } }[]): number {
+  const total = languages.reduce((sum, one) => sum + (one.size || 0), 0);
+  if (total === 0) return 0;
+
+  return languages.reduce(
+    (score, one) => score + ((one.size || 0) / total) * (LANGUAGE_RULES[one.node.name.toLowerCase()] ?? 0),
+    0
+  );
+}
+
+/** The languages worth naming in a skip: the ones carrying the weight. */
+const mostly = (languages: { size: number; node: { name: string } }[]): string => {
+  const total = languages.reduce((sum, one) => sum + (one.size || 0), 0);
+  return (
+    [...languages]
+      .sort((a, b) => b.size - a.size)
+      .filter((one) => one.size / total > 0.1)
+      .slice(0, 3)
+      .map((one) => one.node.name)
+      .join(' and ') || 'nothing GitHub can name'
+  );
+};
+
+/**
  * Scanners whose presence makes this offer redundant.
  *
  * Deliberately narrow: only tools that overlap what `threatcrush scan` does,
@@ -940,6 +1046,7 @@ async function prTarget(
     visibility: string;
     hasIssuesEnabled: boolean;
     defaultBranchRef: { name: string } | null;
+    languages: { size: number; node: { name: string } }[];
   };
   try {
     about = JSON.parse(
@@ -948,7 +1055,7 @@ async function prTarget(
         'view',
         repo,
         '--json',
-        'isArchived,isFork,visibility,hasIssuesEnabled,defaultBranchRef',
+        'isArchived,isFork,visibility,hasIssuesEnabled,defaultBranchRef,languages',
       ])
     );
   } catch {
@@ -959,6 +1066,23 @@ async function prTarget(
   if (about.isFork) return 'a fork; the workflow belongs upstream, not here';
   if (about.visibility !== 'PUBLIC') return 'not public';
   if (!about.defaultBranchRef) return 'has no commits';
+
+  // Can the rule set read this repository at all? Asked before anything is
+  // opened and before the three calls below, because it is the cheapest of the
+  // reasons not to ask and the one that was missing longest.
+  //
+  // Not a judgement about the repository. A Go project running govulncheck and
+  // CodeQL's Go support is better covered for its language than this workflow
+  // would make it, and the six Go rules here do not change that. The offer is
+  // only worth a maintainer's afternoon where the rules outnumber the excuse.
+  const floor = num('TCFEED_MIN_RULES', MIN_RULES);
+  const rules = reach(about.languages ?? []);
+  if (floor > 0 && rules < floor) {
+    return (
+      `mostly ${mostly(about.languages ?? [])} — ${rules.toFixed(1)} rules per file against a ` +
+      `floor of ${floor}. TCFEED_MIN_RULES overrides it`
+    );
+  }
 
   // Asked once. The pull request says "closing it is the right answer and I
   // will not send another", and this is the line that keeps that true — state
@@ -2337,12 +2461,12 @@ const ranked = (rows: Row[]): Row[] => {
 };
 
 function table(rows: Row[]): void {
-  const columns = [9, 6, 8, 7, 7];
+  const columns = [9, 6, 8, 7, 7, 6];
   const line = (cells: string[]) =>
     cells.map((cell, i) => (i < columns.length ? cell.padEnd(columns[i]) : cell)).join(' ');
 
   console.log('');
-  console.log(line(['CRITICAL', 'HIGH', 'MEDIUM', 'TOTAL', 'STARS', 'REPO']));
+  console.log(line(['CRITICAL', 'HIGH', 'MEDIUM', 'TOTAL', 'STARS', 'RULES', 'REPO']));
 
   for (const row of ranked(rows)) {
     console.log(
@@ -2352,6 +2476,10 @@ function table(rows: Row[]): void {
         String(row.medium),
         String(row.total),
         String(row.stars),
+        // The column that says whether the findings beside it are worth
+        // believing. A repository with 200 findings and 2 rules per file is
+        // 200 findings from the rules that read every repository the same way.
+        row.rules.toFixed(1),
         `https://github.com/${row.repo}`,
       ])
     );
@@ -2546,8 +2674,11 @@ async function main(): Promise<number> {
       continue;
     }
 
-    rows.push({ repo, stars: about.stars, ...counted });
-    console.log(`· ${repo} ${counted.critical}/${counted.high}/${counted.medium}/${counted.total}`);
+    rows.push({ repo, stars: about.stars, rules: about.rules, ...counted });
+    console.log(
+      `· ${repo} ${counted.critical}/${counted.high}/${counted.medium}/${counted.total}` +
+        ` (${about.rules.toFixed(1)} rules/file)`
+    );
     remember(repo);
   }
 
