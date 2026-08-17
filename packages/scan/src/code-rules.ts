@@ -481,6 +481,22 @@ export const CODE_RULES: readonly CodeRule[] = [
     severity: 'critical',
     languages: ['go'],
     pattern: /\bexec\.Command(?:Context)?\s*\(\s*(?:ctx\s*,\s*)?"(?:\/bin\/)?(?:sh|bash|zsh|cmd|powershell)"\s*,\s*"(?:-c|\/c)"/,
+    // A call whose whole argv is string literals cannot be injected into.
+    // `exec.Command("cmd", "/c", "ver")` reads the Windows version; there is no
+    // value in it for an attacker to reach, and the consequence above — that a
+    // shell will interpret metacharacters — describes metacharacters nobody can
+    // supply. gosec's G204 draws the line in the same place, and this was the
+    // single finding a Go project got out of a whole scan before declining the
+    // offer, which is an expensive way to report nothing.
+    //
+    // The guard has to end at the closing paren, so a literal followed by
+    // anything else still reports: `"ls " + dir` leaves a `+` before the `)`,
+    // `fmt.Sprintf(…)` leaves an identifier, and a bare variable leaves a name.
+    // `(?:[^"\\]|\\.)*` rather than `[^"]*` so an escaped quote inside a
+    // literal — `"echo \"hi\""` — does not end the literal early and drop the
+    // guard on a line it should have covered.
+    lineGuard:
+      /\bexec\.Command(?:Context)?\s*\(\s*(?:ctx\s*,\s*)?"(?:\/bin\/)?(?:sh|bash|zsh|cmd|powershell)"\s*,\s*"(?:-c|\/c)"\s*(?:,\s*"(?:[^"\\]|\\.)*")*\s*,?\s*\)/,
   },
   {
     id: 'rb-backtick-interpolation',

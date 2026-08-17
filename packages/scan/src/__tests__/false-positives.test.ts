@@ -349,6 +349,33 @@ describe('a constant HTML assignment that shares its line', () => {
   });
 });
 
+describe('a Go shell call whose whole argv is literal', () => {
+  // Verbatim from SibtainOcn/Quiesce, a local Windows CLI. A whole-repository
+  // scan returned exactly one finding and this was it: a shell invocation
+  // reading the OS version, with nothing in the argv for anyone to influence.
+  it('does not flag exec.Command with an all-literal argv', () => {
+    expect(ruleIds('ui.go', 'out, err := exec.Command("cmd", "/c", "ver").Output()')).toEqual([]);
+    expect(ruleIds('a.go', 'exec.Command("sh", "-c", "ls -la").Run()')).toEqual([]);
+    expect(ruleIds('a.go', 'exec.CommandContext(ctx, "bash", "-c", "echo \\"hi\\"").Run()')).toEqual(
+      [],
+    );
+  });
+
+  it('still flags one the caller can reach into', () => {
+    // Concatenation, a formatter and a bare identifier: the three ways the
+    // literal stops being the whole of it.
+    expect(ruleIds('a.go', 'exec.Command("sh", "-c", "ping -c 1 "+host).Output()')).toContain(
+      'go-shell-exec-command',
+    );
+    expect(
+      ruleIds('a.go', 'exec.Command("sh", "-c", fmt.Sprintf("ping %s", host)).Output()'),
+    ).toContain('go-shell-exec-command');
+    expect(ruleIds('a.go', 'exec.Command("sh", "-c", command).Output()')).toContain(
+      'go-shell-exec-command',
+    );
+  });
+});
+
 describe('findings this triage deliberately left alone', () => {
   // Suppressing these would be the scanner talking itself out of real classes.
   it('still reports a nested quantifier, a lifecycle script and a live HTML sink', () => {
