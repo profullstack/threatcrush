@@ -301,6 +301,84 @@ describe('hardening and resource limits', () => {
     expect(ruleIds('a.js', 'const buf = Buffer.alloc(1024);')).not.toContain('js-uninitialized-buffer');
   });
 
+  it('stays silent when the allocation is copied into before it escapes', () => {
+    // The shape this rule was reported wrong on: a ring-buffer read that
+    // allocates at the exact length it is about to write, wrap-around and all.
+    const source = [
+      'function copy(fromAbsolute, length) {',
+      '  const out = Buffer.allocUnsafe(length);',
+      '  if (length === 0) return out;',
+      '  const retained = Math.min(total, capacity);',
+      '  const rel = fromAbsolute - (total - retained);',
+      '  const start = (writePos - retained + rel + capacity * 2) % capacity;',
+      '  const firstLen = Math.min(length, capacity - start);',
+      '  buf.copy(out, 0, start, start + firstLen);',
+      '  if (firstLen < length) buf.copy(out, firstLen, 0, length - firstLen);',
+      '  return out;',
+      '}',
+    ].join('\n');
+    expect(ruleIds('a.js', source)).not.toContain('js-uninitialized-buffer');
+  });
+
+  it('stays silent on an allocation filled in the same expression', () => {
+    expect(ruleIds('a.js', 'const buf = Buffer.allocUnsafe(1024).fill(0);')).not.toContain(
+      'js-uninitialized-buffer',
+    );
+  });
+
+  it('stays silent on an allocation filled through its own methods', () => {
+    const source = ['const header = Buffer.allocUnsafe(8);', 'header.writeUInt32BE(len, 0);', 'header.writeUInt32BE(crc, 4);'].join('\n');
+    expect(ruleIds('a.js', source)).not.toContain('js-uninitialized-buffer');
+  });
+
+  it('still flags when the write lands in a different buffer', () => {
+    // The guard is bound to the name that was allocated. A fill of something
+    // else nearby is not evidence about this one, and reading it as evidence
+    // is how a name-blind window guard exonerates the real defect.
+    const source = [
+      'const leaked = Buffer.allocUnsafe(1024);',
+      'const other = Buffer.alloc(1024);',
+      'other.fill(0);',
+      'socket.write(leaked);',
+    ].join('\n');
+    expect(ruleIds('a.js', source)).toContain('js-uninitialized-buffer');
+  });
+
+  it('still flags an allocation that escapes with nothing bound to fill', () => {
+    // No binding to follow, so nothing can be shown to write into it — and
+    // handing unzeroed heap straight to a caller is the defect itself.
+    expect(ruleIds('a.js', 'return Buffer.allocUnsafe(size);')).toContain(
+      'js-uninitialized-buffer',
+    );
+    expect(ruleIds('a.js', 'socket.write(Buffer.allocUnsafe(size));')).toContain(
+      'js-uninitialized-buffer',
+    );
+  });
+
+  it('still flags an allocation that is never written to', () => {
+    const source = ['const buf = Buffer.allocUnsafe(1024);', 'res.end(buf);'].join('\n');
+    expect(ruleIds('a.js', source)).toContain('js-uninitialized-buffer');
+  });
+
+  it('handles a binding whose name contains regex metacharacters', () => {
+    // `$` is legal in an identifier and meaningful in a pattern. The guard used
+    // to splice the name into `new RegExp`, so this was the shape that needed
+    // escaping; it now compares names as strings and needs none.
+    const source = ['const $buf$ = Buffer.allocUnsafe(8);', '$buf$.fill(0);'].join('\n');
+    expect(ruleIds('a.js', source)).not.toContain('js-uninitialized-buffer');
+  });
+
+  it('does not degrade on a long run of identifier characters', () => {
+    // `[A-Za-z_$][\w$]*` can begin at every position inside a run of `$`, which
+    // is quadratic without a lookbehind pinning it to where a name can start.
+    // A scanner that can be stalled by the file it is reading is a denial of
+    // service in a CI gate.
+    const source = `const buf = Buffer.allocUnsafe(8);\n${'$'.repeat(20000)}\n`;
+    const started = Date.now();
+    ruleIds('a.js', source);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it('flags an ineffective body limit', () => {
     expect(ruleIds('a.js', `app.use(express.json({ limit: '50mb' }));`)).toContain(
       'js-oversized-request-body-limit',

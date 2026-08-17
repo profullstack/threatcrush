@@ -459,6 +459,10 @@ export const NODE_RULES: readonly CodeRule[] = [
     languages: ['javascript', 'typescript'],
     pattern: /\bBuffer\s*\.\s*allocUnsafe(?:Slow)?\s*\(|\bnew\s+Buffer\s*\(\s*(?![`'"])[a-zA-Z_$0-9]/,
     inherent: true,
+    // Filling the buffer yourself is the whole reason to call `allocUnsafe`,
+    // so reporting every call reports correct code. What is left reported is
+    // an allocation whose bytes are never written before it escapes.
+    filledBeforeUseGuard: true,
   },
   {
     id: 'js-oversized-request-body-limit',
