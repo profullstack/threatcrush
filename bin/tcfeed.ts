@@ -760,26 +760,54 @@ const packInputs = (spec: string, integrity: string): Record<string, string> => 
  * not have to ask. But it is now one variable away for the repositories that
  * will not grant a third party write access on a first install, and that is a
  * real answer to a real objection rather than a paragraph about trust.
+ *
+ * Two maintainers have now declined on this specific point — SAG, and
+ * mac-developer-bridge, who also observed that `pull_request` gives a fork's
+ * GITHUB_TOKEN read-only access, so the comment and the Security-tab upload
+ * are *least* reliable on exactly the contributor pull requests an external
+ * scan is most useful for. If a third declines the same way, the default is
+ * wrong and should be flipped rather than defended again.
  */
 function outputs(): Record<string, string> {
   if (process.env.TCFEED_LEAST_PRIVILEGE === '1') {
-    return { uploadSarif: 'false', commentOnPr: 'false', extraPermissions: '' };
+    return { uploadSarif: 'false', commentOnPr: 'false' };
   }
-  return {
-    uploadSarif: 'true',
-    commentOnPr: 'true',
-    extraPermissions: '  pull-requests: write\n  security-events: write',
-  };
+  return { uploadSarif: 'true', commentOnPr: 'true' };
 }
 
 /**
- * Substitution, narrow on purpose. `{{name}}` and nothing else: GitHub's own
- * `${{ steps.iface.outputs.native }}` contains braces too, and a looser
- * expression rewrites the workflow's expressions into empty strings. That
- * damage is invisible here and shows up as a broken job in a stranger's repo.
+ * Whole-line `{{#if name}} … {{/if}}`, resolved before substitution.
+ *
+ * The pack's two optional steps are *removed* from the render rather than left
+ * in it behind a false condition, and the permission each one needs is emitted
+ * with it. That retires `extraPermissions`, which was a block of literal YAML
+ * this function pasted in — so least privilege depended on tcfeed remembering
+ * to pass the empty string, rather than on the template.
+ *
+ * mac-developer-bridge is the reason it is worth the code: shipping a disabled
+ * Security-tab upload still asks a maintainer to read an upload and trust the
+ * guard around it, and they counted it as surface either way.
+ *
+ * Not nestable, and still a bare variable name inside the marker — there is no
+ * expression to evaluate, only a value compared against the literal 'true'.
  */
 function render(template: string, values: Record<string, string>): string {
-  return template.replace(/\{\{([A-Za-z][A-Za-z0-9]*)\}\}/g, (whole, key: string) => {
+  const blocks = template.replace(
+    /^[ \t]*\{\{#if ([A-Za-z][A-Za-z0-9]*)\}\}[ \t]*\n([\s\S]*?)^[ \t]*\{\{\/if\}\}[ \t]*\n/gm,
+    (_whole, key: string, body: string) => {
+      const value = values[key];
+      if (value === undefined) throw new Error(`the pack has an input tcfeed cannot fill: {{#if ${key}}}`);
+      // Anything but the literal 'true' drops it. Treating a stray value as
+      // truthy would turn a typo into a granted write scope.
+      return value === 'true' ? body : '';
+    }
+  );
+
+  // Substitution, narrow on purpose. `{{name}}` and nothing else: GitHub's own
+  // `${{ steps.changed.outputs.scoped }}` contains braces too, and a looser
+  // expression rewrites the workflow's expressions into empty strings. That
+  // damage is invisible here and shows up as a broken job in a stranger's repo.
+  return blocks.replace(/\{\{([A-Za-z][A-Za-z0-9]*)\}\}/g, (whole, key: string) => {
     const value = values[key];
     // A pack that gained an input this does not know about is a pack this
     // cannot install correctly. Stop; do not ship `{{newInput}}` as a literal.
@@ -1023,18 +1051,43 @@ const PR_TITLE = 'ci: scan pull requests for credentials and injection with Thre
  * workflow, discloses who wrote the workflow, and says it will not be sent
  * twice. Everything past that is the maintainer's call.
  */
-const prBody = (spec: string, issue: string): string =>
-  [
+const prBody = (spec: string, issue: string): string => {
+  // Described from the same switch that renders the workflow, not from a
+  // sentence written once and left behind. The body used to promise the
+  // Security tab and a comment unconditionally, which was wrong in exactly the
+  // configuration a cautious maintainer is most likely to be offered.
+  const leastPrivilege = outputs().uploadSarif !== 'true';
+
+  return [
     'Adds one workflow. On each pull request it scans the checked-out repository for',
-    'hardcoded credentials, injection, SSRF and unsafe deserialisation, and writes',
-    'findings to the Security tab and a comment.',
+    'hardcoded credentials, injection, SSRF and unsafe deserialisation.',
     '',
     '- `.github/workflows/threatcrush-scan.yml`',
-    '- `.github/scripts/threatcrush-to-sarif.py` — SARIF shim for older CLI versions',
+    '',
+    ...(leastPrivilege
+      ? [
+          '**Read-only.** `permissions:` is `contents: read` and nothing else. Findings go',
+          'to the job summary and a SARIF artifact — no pull request comment, no Security',
+          'tab upload, no write scope requested. Those two steps are not disabled in the',
+          'file, they are absent from it. This is also the shape that keeps working on fork',
+          'pull requests, where GitHub downgrades `GITHUB_TOKEN` to read-only.',
+        ]
+      : [
+          'Findings go to the Security tab and a pull request comment. If you would rather',
+          'not grant those write scopes, say so and I will send the `contents: read` build:',
+          'same scan, findings in the job summary and a SARIF artifact, and the two steps',
+          'that need a write scope removed from the file rather than switched off.',
+        ]),
     '',
     '**Report-only.** `failOn` is empty, so findings never fail the build. An install',
     'or scan failure does fail the job: a scanner that reports clean when it did not',
     'run is worse than no scanner.',
+    '',
+    '**Pre-existing findings.** The report leads with findings in the files the pull',
+    'request changes and folds the rest of the repository behind a `<details>` summary,',
+    'so an existing backlog is visible without being posted at the author of an',
+    'unrelated change. Anything intentional can be excluded with a `.threatcrushignore`',
+    'or a `// threatcrush-disable-next-line <rule-id>` comment.',
     '',
     // Said plainly because it was said wrongly for sixty-nine requests. scanPath
     // is ".", and "scans the diff" was in every one of them.
@@ -1050,6 +1103,7 @@ const prBody = (spec: string, issue: string): string =>
     'MIT and free. Written with AI assistance. Closing this is a fine answer and I',
     'will not send another.',
   ].join('\n');
+};
 
 /**
  * How many requests may be opened right now, and why not more.
@@ -1207,14 +1261,15 @@ async function openPr(
   const pack = packDir();
   const spec = await resolveSpec();
   const inputs = packInputs(spec, await resolveIntegrity(spec));
+  // One file. `refresh` already installed only the workflow and actively
+  // removed the converter from branches that still carried it, but this path —
+  // the one that opens a *new* request — went on writing both, so every fresh
+  // offer re-added the file refresh existed to take away. A repository was
+  // told the diff adds one file and then shown two.
   const files = [
     {
       destination: '.github/workflows/threatcrush-scan.yml',
       content: render(fs.readFileSync(path.join(pack, 'workflow.yml'), 'utf8'), inputs),
-    },
-    {
-      destination: '.github/scripts/threatcrush-to-sarif.py',
-      content: fs.readFileSync(path.join(pack, 'threatcrush-to-sarif.py'), 'utf8'),
     },
   ];
 
@@ -1703,9 +1758,9 @@ async function followUp(repo: string, me: string, pr: string): Promise<void> {
     console.log(`· ${repo} — ${row.name} failed`);
     if (row.link) console.log(`    ${row.link}`);
   }
-  console.log('    the branch adds only .github/workflows/threatcrush-scan.yml and');
-  console.log('    .github/scripts/threatcrush-to-sarif.py, so a scanner failing here may');
-  console.log('    well be judging those — read it before assuming it is theirs.');
+  console.log('    the branch adds only .github/workflows/threatcrush-scan.yml, so a');
+  console.log('    scanner failing here may well be judging that file — read it before');
+  console.log('    assuming the failure is theirs.');
 
   // The remedy table, unchanged and still deliberately short. It patches only
   // what it recognises and prints the rest for a person, which is the line
