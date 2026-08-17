@@ -145,6 +145,37 @@ export interface CodeRule {
    * interpolation just moves the question somewhere this cannot follow.
    */
   constantInterpolationGuard?: boolean;
+  /**
+   * Exonerate an uninitialised buffer that is written into before it escapes.
+   *
+   *     const out = Buffer.allocUnsafe(length);
+   *     src.copy(out, 0, start, start + firstLen);
+   *     return out;
+   *
+   * `allocUnsafe` hands back unzeroed heap and the leak it enables is real, but
+   * "I will fill this myself" is the entire reason the API exists. A rule that
+   * fires on every call reports correct code as a vulnerability, and both hits
+   * on the repository this was found against were a PTY ring that writes every
+   * byte it later hands out. Neither could be silenced without silencing the
+   * rule everywhere.
+   *
+   * Bound to the *name* the allocation is assigned to, not to a write merely
+   * appearing nearby: an unrelated `.copy(` below an escaping `allocUnsafe`
+   * must not exonerate it.
+   *
+   * The trade is deliberate and worth stating plainly. This cannot prove the
+   * write covers the whole buffer, so a partial fill — `src.copy(out, 0, 0, 5)`
+   * into a hundred-byte buffer — is exonerated and still leaks the rest.
+   * Proving coverage needs range analysis this engine does not do. The
+   * alternative is the status quo, where the rule fires on every correct use,
+   * is read as noise and gets switched off — which catches that partial write
+   * in exactly the same number of cases, namely none.
+   *
+   * An allocation with no binding to follow is never exonerated:
+   * `return Buffer.allocUnsafe(n)` and `send(Buffer.allocUnsafe(n))` hand the
+   * unzeroed memory straight out, which is the shape of the actual defect.
+   */
+  filledBeforeUseGuard?: boolean;
   /** Lines of context searched backwards for guards and required evidence. */
   guardBack?: number;
   /**
@@ -1787,6 +1818,85 @@ export function interpolationsAreConstant(line: string, fileText: string): boole
   );
 }
 
+/**
+ * How far below an allocation a fill is still credibly *the* fill for it.
+ *
+ * Sixteen because the shape that motivated this is a ring-buffer read: the
+ * allocation, an early return for the empty case, three or four lines working
+ * out the wrap-around offsets, then the copies. Ten lines was not enough for
+ * it. Past this the write is more likely to belong to something else, and the
+ * finding should stand.
+ */
+const FILL_LOOKAHEAD = 16;
+
+/** `$` is the only name character that also means something to a regex. */
+const escapeName = (name: string): string => name.replace(/\$/g, '\\$&');
+
+/**
+ * The name an uninitialised allocation on this line is bound to, if any.
+ *
+ * Declarations and plain assignments both. A property target such as
+ * `this.buf = Buffer.allocUnsafe(n)` reduces to `buf`, which is how the writes
+ * that follow will spell it.
+ */
+function allocationBinding(line: string): string | null {
+  const bound =
+    /([A-Za-z_$][\w$]*)\s*=\s*(?:new\s+Buffer\s*\(|Buffer\s*\.\s*allocUnsafe(?:Slow)?\s*\()/.exec(
+      line,
+    );
+  return bound?.[1] ?? null;
+}
+
+/**
+ * Does anything write into `name` within the lookahead?
+ *
+ * Four spellings, which between them cover how a Node buffer is filled:
+ * copied into as a destination, filled or written through its own methods,
+ * `set` from a typed array, or assigned per index.
+ */
+function writesInto(name: string): RegExp {
+  const n = escapeName(name);
+  return new RegExp(
+    // `src.copy(name, …)` — name is the destination.
+    `\\.\\s*copy\\s*\\(\\s*${n}\\s*[,)]` +
+      // `name.fill(…)`, `name.write*(…)`, `name.set(…)`.
+      `|\\b${n}\\s*\\.\\s*(?:fill|set|write[A-Za-z0-9]*)\\s*\\(` +
+      // `name[i] = …`, but not `name[i] === …`.
+      `|\\b${n}\\s*\\[[^\\]\\n]*\\]\\s*=(?!=)`,
+  );
+}
+
+/**
+ * True when the buffer allocated on this line is filled before it escapes.
+ *
+ * Looks forward only. Code that fills a buffer runs after the allocation, by
+ * definition — there is nothing above it to find.
+ */
+export function bufferFilledBeforeUse(ctx: MatchContext): boolean {
+  const line = ctx.lines[ctx.index] ?? '';
+
+  // `Buffer.allocUnsafe(n).fill(0)` — filled in the same breath, and there is
+  // no binding to follow because none is needed.
+  if (/\ballocUnsafe(?:Slow)?\s*\([^)\n]*\)\s*\.\s*fill\s*\(/.test(line)) return true;
+
+  const name = allocationBinding(line);
+  if (!name) return false;
+
+  const written = writesInto(name);
+  // The allocation line itself first: `const b = Buffer.allocUnsafe(n); b.fill(0);`
+  // is one line, and a rule that missed it would be answering a question about
+  // formatting rather than about the code.
+  if (written.test(line.slice(line.indexOf('=') + 1))) return true;
+
+  const last = Math.min(ctx.lines.length - 1, ctx.index + FILL_LOOKAHEAD);
+  for (let i = ctx.index + 1; i <= last; i += 1) {
+    const next = ctx.lines[i] ?? '';
+    if (skippable(next, i, ctx.prose)) continue;
+    if (written.test(next)) return true;
+  }
+  return false;
+}
+
 export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | null {
   if (rule.languages && !rule.languages.includes(ctx.language)) return null;
 
@@ -1814,6 +1924,8 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   if (rule.constantInterpolationGuard && interpolationsAreConstant(line, fileTextOf(ctx.lines))) {
     return null;
   }
+
+  if (rule.filledBeforeUseGuard && bufferFilledBeforeUse(ctx)) return null;
 
   const guard = rule.guard === undefined ? GENERIC_GUARD : rule.guard;
   if (guard && (guard.test(line) || guard.test(context))) return null;
