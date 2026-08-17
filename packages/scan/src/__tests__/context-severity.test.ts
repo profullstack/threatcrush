@@ -115,8 +115,12 @@ describe('cause 3 — a value that repeats the name of the field holding it', ()
     expect(findings[0]!.ruleId).toBe('secret-generic-credential');
   });
 
+  // Assembled rather than written out, following `foreign-suppression.test.ts`:
+  // a credential-shaped literal in this repository is a finding for every other
+  // scanner that reads us, and two of them gate our own CI.
   it('leaves a credential that does not echo its key at full severity', () => {
-    expect(severityOf('src/db.go', `password = "Kd93mQpZx2Lf"`, 'secret-generic-credential')).toBe('high');
+    const value = ['Kd93', 'mQpZ', 'x2Lf'].join('');
+    expect(severityOf('src/db.go', `password = "${value}"`, 'secret-generic-credential')).toBe('high');
   });
 });
 

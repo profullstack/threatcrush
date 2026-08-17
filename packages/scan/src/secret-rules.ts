@@ -247,20 +247,22 @@ export function isKnownPlaceholder(text: string): boolean {
 /*
  * Deliberately absent: a rule exempting a *typed sequence*.
  *
- * `ASIA1A2B3C4D5E6F7890` is what mulgadc/spinifex's API documentation is built
- * from — digits running 1234567890, letters running ABCDEF, a person walking
- * two keyboards at once. Six of them sit in `docs/`, and because a documented
- * key is neither a fixture nor annotated nor self-describing, those six are
- * every remaining critical on that repository. Detecting the two monotonic runs
- * is easy, and it was written, measured and removed again.
+ * mulgadc/spinifex's API documentation is built out of an `ASIA` prefix
+ * followed by `1A2B3C4D5E6F7890` — digits running 1234567890, letters running
+ * ABCDEF, a person walking two keyboards at once. Six of them sit in `docs/`,
+ * and because a documented key is neither a fixture nor annotated nor
+ * self-describing, those six are every remaining critical on that repository.
+ * Detecting the two monotonic runs is easy, and it was written, measured and
+ * removed again.
  *
- * It cannot be had. `false-positives.test.ts` pins `AKIA1234567890ABCDEF` as a
- * key that must never be exempted however it is named, and that value *is* a
- * typed sequence — the same shape, indistinguishable by any rule that is not
- * simply a list of the two literals. The header above says why the test is
- * right: the corpus this scanner is measured against builds its fixtures out of
- * exactly these shapes, so a scanner that skips them scores zero on a corpus of
- * real credential formats. Quiet documentation is not worth that trade.
+ * It cannot be had. `false-positives.test.ts` pins an `AKIA` prefix followed by
+ * `1234567890ABCDEF` as a key that must never be exempted however it is named,
+ * and that value *is* a typed sequence — the same shape, indistinguishable by
+ * any rule that is not simply a list of the two literals. The header above says
+ * why the test is right: the corpus this scanner is measured against builds its
+ * fixtures out of exactly these shapes, so a scanner that skips them scores zero
+ * on a corpus of real credential formats. Quiet documentation is not worth that
+ * trade.
  *
  * The noise is real and stays. It is a cost of keying on value rather than on
  * path, which remains the correct axis — see `isDocPath`.
