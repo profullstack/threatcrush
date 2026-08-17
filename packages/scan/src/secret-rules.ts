@@ -244,6 +244,47 @@ export function isKnownPlaceholder(text: string): boolean {
   return KNOWN_PLACEHOLDERS.some((pattern) => pattern.test(text));
 }
 
+/*
+ * Deliberately absent: a rule exempting a *typed sequence*.
+ *
+ * `ASIA1A2B3C4D5E6F7890` is what mulgadc/spinifex's API documentation is built
+ * from — digits running 1234567890, letters running ABCDEF, a person walking
+ * two keyboards at once. Six of them sit in `docs/`, and because a documented
+ * key is neither a fixture nor annotated nor self-describing, those six are
+ * every remaining critical on that repository. Detecting the two monotonic runs
+ * is easy, and it was written, measured and removed again.
+ *
+ * It cannot be had. `false-positives.test.ts` pins `AKIA1234567890ABCDEF` as a
+ * key that must never be exempted however it is named, and that value *is* a
+ * typed sequence — the same shape, indistinguishable by any rule that is not
+ * simply a list of the two literals. The header above says why the test is
+ * right: the corpus this scanner is measured against builds its fixtures out of
+ * exactly these shapes, so a scanner that skips them scores zero on a corpus of
+ * real credential formats. Quiet documentation is not worth that trade.
+ *
+ * The noise is real and stays. It is a cost of keying on value rather than on
+ * path, which remains the correct axis — see `isDocPath`.
+ */
+
+/**
+ * Is the value the example text an empty input field shows?
+ *
+ * `placeholder` is the one HTML attribute whose contents are, by definition,
+ * not data — it is the grey hint that disappears the moment a user types. A
+ * credential-shaped string there is the interface telling somebody what to
+ * paste, which is the same reason spinifex's cert-import dialog holds
+ * `placeholder="-----BEGIN PRIVATE KEY-----"`: a banner with no key under it.
+ *
+ * Both of those were criticals, and a critical is what a maintainer reads
+ * first. Softened rather than skipped, like everything else here — a real key
+ * left in a placeholder is rendered to every visitor, so it stays in the report.
+ */
+export function isPlaceholderAttribute(line: string, value: string): boolean {
+  const at = line.lastIndexOf(value);
+  if (at === -1) return false;
+  return /(?:^|\s)(?:aria-)?placeholder\s*=\s*[{("'`]*$/i.test(line.slice(0, at));
+}
+
 /**
  * Is the matched value a variable reference rather than a literal?
  *
@@ -343,11 +384,46 @@ export function isTestFixtureValue(line: string, value: string): boolean {
   const valueWords = words(value);
   if (valueWords.some((word) => FIXTURE_STEMS.some((stem) => word.startsWith(stem)))) return true;
 
+  return describesItsOwnKey(line, value);
+}
+
+/**
+ * Does the value repeat a word from the name of the thing holding it?
+ *
+ * Signal 2 of `isTestFixtureValue`, lifted out because the reasoning behind it
+ * was never about tests. `access_token: 'access-token'` is a description of a
+ * credential rather than a credential in a test file and in production code
+ * alike — the difference is only what to do about it, and that is the caller's
+ * decision, not this function's.
+ *
+ * Outside a test the caller downgrades instead of skipping, which is what makes
+ * generalising it safe. `DB_PASSWORD = "password123"` echoes its key and is
+ * also a real, terrible, hardcoded credential; it stays in the report.
+ *
+ * This is the third of the three structural false-positive causes measured on
+ * Go repositories, and on a cloud project it is the loudest. An AWS-compatible
+ * API surface is built out of constants that name credentials without being
+ * them:
+ *
+ *     ErrExpiredToken         = "ExpiredToken"           // an API error code
+ *     pathToken               = "/latest/api/token"      // a URL path
+ *     hdrToken                = "X-aws-ec2-metadata-token"  // a header name
+ *     CommandSetMasterPassword = "set-master-password"   // a CLI verb
+ *
+ * Every one matches `secret-generic-credential`, which keys on the *word*
+ * `token` or `password` next to a quoted string and never looks at what the
+ * string is. Every one repeats its own key.
+ *
+ * The 48-character cap is load-bearing and is explained on `isTestFixtureValue`:
+ * base64 is dense enough that a long blob eventually contains a four-letter
+ * word by accident and would exempt itself.
+ */
+export function describesItsOwnKey(line: string, value: string): boolean {
   if (value.length > 48) return false;
 
   const valueAt = line.lastIndexOf(value);
   const key = valueAt === -1 ? line : line.slice(0, valueAt);
-  const flattened = valueWords.join('');
+  const flattened = words(value).join('');
 
   return words(key)
     .filter((word) => word.length >= 4 && !KEY_NOISE.has(word))
