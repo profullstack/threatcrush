@@ -176,6 +176,13 @@ export interface CodeRule {
    * unzeroed memory straight out, which is the shape of the actual defect.
    */
   filledBeforeUseGuard?: boolean;
+  /**
+   * Exonerate an HTML sink when its value was produced by an explicit HTML
+   * sanitiser or escaper, including a `const` previously assigned from one.
+   * This is opt-in: generic names such as `html` or `content` are never proof
+   * that a value is safe.
+   */
+  sanitizedHtmlGuard?: boolean;
   /** Lines of context searched backwards for guards and required evidence. */
   guardBack?: number;
   /**
@@ -610,6 +617,7 @@ export const CODE_RULES: readonly CodeRule[] = [
      */
     pattern:
       /\bdangerouslySetInnerHTML\s*=|\.\s*(?:innerHTML|outerHTML)\s*=(?!\s*(?:'[^'\\\n]*'|"[^"\\\n]*"|`[^`$\\\n]*`)\s*(?:;|$))|\bdocument\s*\.\s*write(?:ln)?\s*\(|\.\s*insertAdjacentHTML\s*\(/,
+    sanitizedHtmlGuard: true,
   },
   {
     id: 'java-html-writer-concatenation',
@@ -924,7 +932,8 @@ export const CODE_RULES: readonly CodeRule[] = [
     // the pattern is written. `other` also covers C++, Rust and Zig, which
     // share the cast-then-deref spelling.
     languages: ['javascript', 'typescript', 'python', 'ruby', 'go', 'java', 'php'],
-    pattern: /\([^)\n]*[+*]\s*\)\s*[+*]|\([^)\n]*\{\d+,\}\s*\)\s*[+*{]/,
+    pattern:
+      /(?:^|[=(:,]\s*)\/(?:\\.|[^/\\\n])*\([^()\n]*[+*][^()\n]*\)\s*(?:[+*]|\{\d+,\})|\b(?:new\s+RegExp|RegExp|re\.compile|regexp\.(?:Compile|MustCompile)|Pattern\.compile)\s*\(\s*(?:r)?["'][^"'\n]*\([^()\n]*[+*][^()\n]*\)\s*(?:[+*]|\{\d+,\})/,
   },
 
   // ── Temporary files ──────────────────────────────────────────────────────
@@ -935,11 +944,13 @@ export const CODE_RULES: readonly CodeRule[] = [
       'A predictable name in a world-writable directory is a symlink attack: an attacker pre-creates the path and your process writes through it.',
     cwe: 'CWE-377',
     severity: 'medium',
-    // A hardcoded path under /tmp is the finding whether or not it is
-    // formatted: `"/tmp/application.log.tmp"` is worse than the PID-based one,
-    // because every process on the host can predict it exactly.
-    pattern:
-      /\btempfile\.mktemp\s*\(|\bos\.tmpnam\s*\(|['"]\/tmp\/[^'"\n]+['"]|['"]\/tmp\/[^'"\n]*\{|\bFile\.createTempFile\s*\(/,
+    // `File.createTempFile` is specifically the safe Java API, and a string
+    // containing `/tmp/` is not necessarily a write. Detect unsafe name
+    // generators and actual writes to a literal temp path instead. Shell
+    // redirections are handled by the shell-specific rule below.
+    pattern: new RegExp(
+      String.raw`\btempfile\.mktemp\s*\(|\bos\.tmpnam\s*\(|\b(?:writeFile(?:Sync)?|appendFile(?:Sync)?|createWriteStream|FileOutputStream|FileWriter|os\.OpenFile|open)\s*\([^\n)]*['"]\/tmp\/[^'"\n]+['"]`,
+    ),
   },
 
   // ── Information exposure ─────────────────────────────────────────────────
@@ -1000,7 +1011,6 @@ export const CODE_RULES: readonly CodeRule[] = [
   // of privileged work actually happens, and they run as whoever invoked them.
   {
     id: 'sh-remote-script-execution',
-    inherent: true,
     title: 'network output piped into a shell',
     consequence:
       'Whatever that URL serves at the moment this runs is executed as the invoking user. There is no version, no signature, and no review — a compromise of the host, or anyone able to answer for it, is a compromise of every machine that runs the script.',
@@ -1010,8 +1020,9 @@ export const CODE_RULES: readonly CodeRule[] = [
     // The pipe must be the *next* thing: `curl -o f url && sh f` is a different
     // (and checkable) shape, and `curl url | jq` is not an execution at all.
     pattern: /\b(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+(?:-\S+\s+)*)?(?:\/bin\/|\/usr\/bin\/)?(?:ba|da|k|z|a)?sh\b/,
-    // Nothing on this line can exonerate it. Integrity checking happens in a
-    // separate step by construction, so a window guard would only mislead.
+    // This is a supply-chain review item, not proof that the repository is
+    // compromised. A literal HTTPS installer URL is capped at medium; it only
+    // escalates when nearby evidence shows that input can choose the download.
     guard: false,
   },
   {
@@ -1820,6 +1831,28 @@ function isConstantString(name: string, fileText: string): boolean {
 }
 
 /**
+ * Is a `dangerouslySetInnerHTML` value explicitly made safe on this line, or
+ * a `const` whose sole binding was made safe earlier in the file?
+ *
+ * This intentionally recognises only explicit sanitizer/escaper names. It
+ * does not treat a variable called `html` as trustworthy; the source must
+ * visibly pass through an operation whose contract is HTML-safe output.
+ */
+function hasSanitizedHtmlValue(line: string, fileText: string): boolean {
+  const direct = /\b__html\s*:\s*(?:[A-Za-z_$][\w$]*\s*\.\s*)?(?:sanitize\w*|escape\w*|serializeJsonForHtml)\s*\(/i;
+  if (direct.test(line)) return true;
+
+  const value = /\b__html\s*:\s*([A-Za-z_$][\w$]*)\b/.exec(line)?.[1];
+  if (!value) return false;
+
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `\\bconst\\s+${escaped}\\s*=\\s*(?:[A-Za-z_$][\\w$]*\\s*\\.\\s*)?(?:sanitize\\w*|escape\\w*|serializeJsonForHtml)\\s*\\(`,
+    'i',
+  ).test(fileText);
+}
+
+/**
  * Does every interpolation on this line resolve to a file-local constant?
  *
  * False when there are no interpolations at all: the concatenation spellings
@@ -1961,6 +1994,10 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   }
 
   if (rule.constantInterpolationGuard && interpolationsAreConstant(line, fileTextOf(ctx.lines))) {
+    return null;
+  }
+
+  if (rule.sanitizedHtmlGuard && hasSanitizedHtmlValue(line, fileTextOf(ctx.lines))) {
     return null;
   }
 

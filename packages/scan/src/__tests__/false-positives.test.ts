@@ -349,6 +349,31 @@ describe('a constant HTML assignment that shares its line', () => {
   });
 });
 
+describe('HTML sinks with an explicit safe-output contract', () => {
+  it('does not flag a value previously sanitized into a const', () => {
+    const source = [
+      'const html = sanitizeHtml(post.content_html);',
+      'return <div dangerouslySetInnerHTML={{ __html: html }} />;',
+    ].join('\n');
+    expect(ruleIds('app/post.tsx', source)).not.toContain('js-unescaped-html-sink');
+  });
+
+  it('does not flag a JSON script serialized by the safe helper', () => {
+    expect(
+      ruleIds(
+        'app/page.tsx',
+        'return <script dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(schema) }} />;',
+      ),
+    ).not.toContain('js-unescaped-html-sink');
+  });
+
+  it('still flags a variable whose origin is not visible', () => {
+    expect(
+      ruleIds('app/page.tsx', 'return <div dangerouslySetInnerHTML={{ __html: html }} />;'),
+    ).toContain('js-unescaped-html-sink');
+  });
+});
+
 describe('a Go shell call whose whole argv is literal', () => {
   // Verbatim from SibtainOcn/Quiesce, a local Windows CLI. A whole-repository
   // scan returned exactly one finding and this was it: a shell invocation

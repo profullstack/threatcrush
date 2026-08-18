@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { serializeJsonForHtml } from "@/lib/safe-json";
 import ScrollReveal from "@/components/ScrollReveal";
 import WaitlistModal from "@/components/WaitlistModal";
 
@@ -117,7 +118,7 @@ export default function Home() {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(faqJsonLd) }}
       />
       <WaitlistModal open={modalOpen} onClose={() => setModalOpen(false)} />
 

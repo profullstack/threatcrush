@@ -156,6 +156,14 @@ describe('guard windows', () => {
     expect(ruleIds('deref.c', 'x = *(char *)*p;')).toHaveLength(0);
   });
 
+  it('only detects nested quantifiers in regex construction', () => {
+    expect(ruleIds('a.ts', 'const pattern = /^(a+)+$/;')).toContain('redos-nested-quantifier');
+    expect(ruleIds('a.ts', 'const count = (a + b) * c;')).not.toContain('redos-nested-quantifier');
+    expect(ruleIds('a.java', 'File.createTempFile("report", ".tmp");')).not.toContain(
+      'insecure-temp-file',
+    );
+  });
+
   it('looks forward for XML hardening, which is configured after construction', () => {
     const hardened = [
       'DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();',

@@ -17,7 +17,7 @@ BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-RELEASE_TRIGGER_FILE="/tmp/.threatcrush-release-trigger"
+RELEASE_TRIGGER_FILE="$(git rev-parse --git-path threatcrush-release-trigger)"
 
 if [ -f "$RELEASE_TRIGGER_FILE" ]; then
     RELEASE_TYPE=$(cat "$RELEASE_TRIGGER_FILE")
