@@ -41,7 +41,7 @@ export default function SiteHeader() {
             <a href="/store" className="text-tc-green transition-colors">Module Store</a>
             <a href="/blog" className="hover:text-tc-green transition-colors">Blog</a>
             <a href="/docs" className="hover:text-tc-green transition-colors">Docs</a>
-            <a href="/pricing" className="hover:text-tc-green transition-colors">Pricing</a>
+            <a href="/hire" className="hover:text-tc-green transition-colors">Hire Us</a>
             <div className="relative">
               <button
                 type="button"
@@ -222,7 +222,7 @@ export default function SiteHeader() {
               <a href="/docs" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Docs</a>
               <a href="/#features" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Features</a>
               <a href="/usage" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Usage</a>
-              <a href="/pricing" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Pricing</a>
+              <a href="/hire" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Hire Us</a>
               <a href="/investors" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Investors</a>
               <a href="/#faq" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>FAQ</a>
               {signedIn ? (

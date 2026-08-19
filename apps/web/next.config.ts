@@ -55,6 +55,11 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // /pricing was the quote-request page; /hire replaced it. Permanent so the
+  // indexed URL and any links already in the wild follow through.
+  async redirects() {
+    return [{ source: "/pricing", destination: "/hire", permanent: true }];
+  },
 };
 
 export default nextConfig;

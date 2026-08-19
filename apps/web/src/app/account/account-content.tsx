@@ -367,7 +367,7 @@ export default function AccountContent() {
             {profile?.license_status !== "active" && (
               <p className="text-tc-text-dim text-sm mt-2">
                 {profile?.email_verified && profile?.phone_verified ? (
-                  <Link href="/pricing" className="text-tc-green hover:underline">Contact us for pricing →</Link>
+                  <Link href="/hire" className="text-tc-green hover:underline">Contact us for a quote →</Link>
                 ) : (
                   <Link href="/auth/verify" className="text-yellow-500 hover:underline">Complete verification to purchase →</Link>
                 )}

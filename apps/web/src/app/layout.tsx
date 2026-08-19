@@ -101,7 +101,7 @@ const organizationJsonLd = {
       "@type": "ContactPoint",
       contactType: "customer support",
       email: "hello@threatcrush.com",
-      url: `${SITE_URL}/pricing`,
+      url: `${SITE_URL}/hire`,
       availableLanguage: ["English"],
     },
     {
@@ -189,7 +189,7 @@ const softwareApplicationJsonLd = {
     price: "0",
     description:
       "Private beta — contact sales for lifetime licensing. AI-enhanced modules billed by usage.",
-    url: `${SITE_URL}/pricing`,
+    url: `${SITE_URL}/hire`,
   },
 };
 

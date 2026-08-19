@@ -21,7 +21,7 @@ export default function SiteFooter() {
               <li><a href="/blog" className={linkClass}>Blog</a></li>
               <li><a href="/docs" className={linkClass}>Docs</a></li>
               <li><a href="/usage" className={linkClass}>Usage</a></li>
-              <li><a href="/pricing" className={linkClass}>Pricing</a></li>
+              <li><a href="/hire" className={linkClass}>Hire Us</a></li>
             </ul>
           </div>
 

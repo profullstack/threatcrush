@@ -161,7 +161,7 @@ export default function AboutPage() {
 
         <div className="mt-10 flex flex-wrap gap-4">
           <Link
-            href="/pricing"
+            href="/hire"
             className="rounded-xl bg-tc-green px-6 py-3 font-bold text-black hover:bg-tc-green-dim"
           >
             Talk to sales
