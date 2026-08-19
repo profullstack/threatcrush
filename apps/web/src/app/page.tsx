@@ -907,10 +907,10 @@ export default function Home() {
                 </ul>
 
                 <a
-                  href="/pricing"
+                  href="/hire"
                   className="block w-full text-center rounded-xl bg-tc-green py-4 text-lg font-bold text-black transition-all hover:bg-tc-green-dim pulse-glow"
                 >
-                  Contact Us for Pricing
+                  Get a Quote
                 </a>
 
                 <p className="text-center text-xs text-tc-text-dim mt-4">

@@ -19,7 +19,7 @@ export default function AffiliatesPage() {
           <div className="hidden sm:flex items-center gap-6 text-sm text-[#999]">
             <a href="/#features" className="hover:text-[#00ff41] transition-colors">Features</a>
             <a href="/store" className="hover:text-[#00ff41] transition-colors">Module Store</a>
-            <a href="/pricing" className="hover:text-[#00ff41] transition-colors">Pricing</a>
+            <a href="/hire" className="hover:text-[#00ff41] transition-colors">Hire Us</a>
             <a href="/affiliates" className="text-[#00ff41]">Affiliates</a>
           </div>
         </div>
@@ -173,7 +173,7 @@ export default function AffiliatesPage() {
             <div className="flex items-center gap-6 text-sm text-[#999]">
               <a href="/#features" className="hover:text-[#00ff41] transition-colors">Features</a>
               <a href="/store" className="hover:text-[#00ff41] transition-colors">Module Store</a>
-              <a href="/pricing" className="hover:text-[#00ff41] transition-colors">Pricing</a>
+              <a href="/hire" className="hover:text-[#00ff41] transition-colors">Hire Us</a>
               <a href="/affiliates" className="hover:text-[#00ff41] transition-colors">Affiliates</a>
               <a href="https://github.com/profullstack/threatcrush" target="_blank" rel="noopener noreferrer" className="hover:text-[#00ff41] transition-colors">GitHub</a>
             </div>
