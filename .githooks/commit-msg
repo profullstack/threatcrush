@@ -13,7 +13,7 @@
 COMMIT_MSG_FILE="$1"
 COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
 
-RELEASE_TRIGGER_FILE="/tmp/.threatcrush-release-trigger"
+RELEASE_TRIGGER_FILE="$(git rev-parse --git-path threatcrush-release-trigger)"
 
 rm -f "$RELEASE_TRIGGER_FILE"
 

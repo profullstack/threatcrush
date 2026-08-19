@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { FeedbackWidget } from "@profullstack/stack/feedback";
 import "./globals.css";
+import { serializeJsonForHtml } from "@/lib/safe-json";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
 import PwaLifecycle from "@/components/PwaLifecycle";
@@ -208,15 +209,15 @@ export default function RootLayout({
         <link rel="alternate" type="application/rss+xml" title="ThreatCrush Blog" href="/blog/rss.xml" />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+          dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(organizationJsonLd) }}
         />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+          dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(websiteJsonLd) }}
         />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(softwareApplicationJsonLd) }}
+          dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(softwareApplicationJsonLd) }}
         />
       </head>
       <body className="antialiased">

@@ -160,6 +160,19 @@ export function detectTyposquat(name: string, ecosystem: 'npm' | 'pypi'): SquatV
 const LIFECYCLE_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare', 'prepublish'];
 
 /**
+ * Lifecycle hooks are a normal npm feature.  Reporting every `prepare` or
+ * `postinstall` turns build compilation, generated clients, and workspace
+ * setup into security findings.  The security-relevant subset is a hook that
+ * itself contains an execution primitive commonly used to hide or fetch a
+ * payload.  The script remains visible in package.json either way; this rule
+ * is reserved for the cases that need security triage.
+ */
+function isRiskyLifecycleScript(body: unknown): boolean {
+  if (typeof body !== 'string') return false;
+  return /\b(?:curl|wget)\b[^\n|]*\|\s*(?:\w*sh|bash|node|python)\b|\b(?:curl|wget)\b[^\n]*(?:https?:|--upload-file)|\b(?:node|python|ruby|perl)\s+-e\b|\b(?:base64|openssl)\b[^\n]*(?:-d|--decode)|\beval\s+|\bchmod\s+(?:\S+\s+)*(?:777|a\+rwx)\b/i.test(body);
+}
+
+/**
  * Scan a `package.json`.
  *
  * Text-oriented rather than object-oriented so every finding can carry the
@@ -228,13 +241,14 @@ export function scanPackageJson(text: string): ManifestFinding[] {
   if (scripts && typeof scripts === 'object') {
     for (const [name, body] of Object.entries(scripts as Record<string, unknown>)) {
       if (!LIFECYCLE_SCRIPTS.includes(name)) continue;
+      if (!isRiskyLifecycleScript(body)) continue;
       findings.push({
-        ruleId: 'manifest-install-lifecycle-script',
-        title: 'install-time lifecycle script',
+        ruleId: 'manifest-risky-install-lifecycle-script',
+        title: 'risky install-time lifecycle script',
         line: lineOf(name),
         severity: 'medium',
         cwe: 'CWE-506',
-        message: `"${name}" runs automatically on install: ${String(body).slice(0, 120)}`,
+        message: `"${name}" runs automatically on install and contains a network or code-execution primitive: ${String(body).slice(0, 120)}`,
         consequence:
           'Lifecycle scripts run with the installing user’s privileges and network access, before any code is reviewed. It is the execution vector every notable npm compromise has used.',
         excerpt: (lines[lineOf(name) - 1] ?? '').trim(),

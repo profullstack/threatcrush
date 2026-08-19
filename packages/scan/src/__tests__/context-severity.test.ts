@@ -21,7 +21,7 @@ const severityOf = (path: string, source: string, ruleId: string): string | unde
 describe('cause 2 — a construct that is ordinary in a test file', () => {
   // 66 of spinifex's 70 `insecure-temp-file` findings look like this: a table
   // -driven fixture naming a scratch directory. Nothing races anybody for it.
-  const WAL = 'func TestVolume(t *testing.T) {\n\tcfg := Config{WalDir: "/tmp/test-wal"}\n}';
+  const WAL = 'func TestVolume(t *testing.T) {\n\tos.OpenFile("/tmp/test-wal", os.O_CREATE, 0600)\n}';
 
   it('reports a temp path in a _test.go at low', () => {
     expect(severityOf('spinifex/handlers/ec2/volume/service_impl_test.go', WAL, 'insecure-temp-file')).toBe('low');
@@ -52,9 +52,9 @@ describe('cause 2 — a construct that is ordinary in a test file', () => {
 });
 
 describe('a construct in documentation', () => {
-  // From `.github/actions/e2e-analyze/README.md` — a usage example. Nothing
-  // runs a fenced code block.
-  const README = '```bash\ngo run . -junit-glob "/tmp/artifacts/junit-*.xml"\n```';
+  // A write in a usage example is still a code-shaped match, but nothing in a
+  // fenced README block executes it.
+  const README = '```js\ncreateWriteStream("/tmp/artifacts/junit.xml")\n```';
 
   it('reports a temp path in a README at low', () => {
     expect(severityOf('docs/e2e/README.md', README, 'insecure-temp-file')).toBe('low');

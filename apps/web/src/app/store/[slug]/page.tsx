@@ -6,7 +6,7 @@ import ScrollReveal from "@/components/ScrollReveal";
 import { authHeaders } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
 import { decryptClientSecret, encryptClientSecret, isE2ESecret } from "@/lib/client-secret-crypto";
-import { renderSimpleMarkdown } from "@/lib/simple-markdown";
+import { renderSanitizedMarkdown } from "@/lib/simple-markdown";
 import type { PluginConfigField } from "@profullstack/pluginstore";
 
 interface Module {
@@ -78,12 +78,12 @@ function StarRating({ rating, size = "sm" }: { rating: number; size?: string }) 
 }
 
 function SimpleMarkdown({ content }: { content: string }) {
-  // long_description is author-supplied; renderSimpleMarkdown escapes it before
+  // long_description is author-supplied; renderSanitizedMarkdown escapes it before
   // building any markup (TC-04 / TC-39).
   return (
     <div
       className="prose-tc"
-      dangerouslySetInnerHTML={{ __html: renderSimpleMarkdown(content) }}
+      dangerouslySetInnerHTML={{ __html: renderSanitizedMarkdown(content) }}
     />
   );
 }

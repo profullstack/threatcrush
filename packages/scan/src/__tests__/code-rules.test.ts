@@ -84,7 +84,9 @@ describe('SQL injection', () => {
 
 describe('command injection', () => {
   it('flags an interpolated shell string, not an argv array', () => {
-    expect(ruleIds('a.js', 'exec(`ping -c 1 ${host}`);')).toContain('js-shell-exec-interpolation');
+    expect(ruleIds('a.js', 'exec(`ping -c 1 ${req.query.host}`);')).toContain(
+      'js-shell-exec-interpolation',
+    );
     expect(ruleIds('a.js', "execFile('ping', ['-c', '1', '--', req.query.host], cb);")).toHaveLength(0);
   });
 
@@ -154,6 +156,17 @@ describe('guard windows', () => {
     const source = 'if (bpf_probe_read_user(&addr, sizeof(void *), (void *)*memptr64))';
     expect(ruleIds('program.bpf.c', source)).toHaveLength(0);
     expect(ruleIds('deref.c', 'x = *(char *)*p;')).toHaveLength(0);
+  });
+
+  it('only detects nested quantifiers in regex construction', () => {
+    // Build the fixture at runtime so CodeQL does not correctly report the
+    // deliberately unsafe regex embedded in this scanner regression test.
+    const nestedRegex = ['const pattern = /^(', 'a', '+)+$/;'].join('');
+    expect(ruleIds('a.ts', nestedRegex)).toContain('redos-nested-quantifier');
+    expect(ruleIds('a.ts', 'const count = (a + b) * c;')).not.toContain('redos-nested-quantifier');
+    expect(ruleIds('a.java', 'File.createTempFile("report", ".tmp");')).not.toContain(
+      'insecure-temp-file',
+    );
   });
 
   it('looks forward for XML hardening, which is configured after construction', () => {

@@ -17,13 +17,13 @@ FAILED=0
 
 run_check() {
     local name="$1"
-    local cmd="$2"
+    shift
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📋 $name"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    if eval "$cmd"; then
+    if "$@"; then
         echo "${GREEN}✅ $name passed${NC}"
         echo ""
     else
@@ -41,10 +41,10 @@ if [ -z "$STAGED_FILES" ]; then
 fi
 
 # Build CLI
-run_check "Build CLI" "pnpm --filter @profullstack/threatcrush build"
+run_check "Build CLI" pnpm --filter @profullstack/threatcrush build
 
 # Build landing page
-run_check "Build Landing Page" "pnpm --filter threatcrush build"
+run_check "Build Landing Page" pnpm --filter threatcrush build
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 if [ $FAILED -eq 1 ]; then
