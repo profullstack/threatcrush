@@ -1863,15 +1863,58 @@ function hasSanitizedHtmlValue(line: string, fileText: string): boolean {
   ).test(fileText);
 }
 
+function isIdentifierStart(char: string | undefined): boolean {
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  return char === '$' || char === '_' || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+function isIdentifierPart(char: string | undefined): boolean {
+  if (isIdentifierStart(char)) return true;
+  if (!char) return false;
+  const code = char.charCodeAt(0);
+  return code >= 48 && code <= 57;
+}
+
+function identifierAfter(text: string, start: number): string | null {
+  let index = start;
+  while (text[index] === ' ' || text[index] === '\t') index += 1;
+  if (!isIdentifierStart(text[index])) return null;
+  const from = index;
+  while (isIdentifierPart(text[index])) index += 1;
+  return text.slice(from, index);
+}
+
 /** Does the redirected variable come from an explicit local-path validator? */
 function hasSafeRedirectValue(line: string, fileText: string): boolean {
-  const value = /\b(?:redirect|location)\s*(?:\.\s*(?:href|replace))?\s*(?:=|\()\s*([A-Za-z_$][\w$]*)\b/i.exec(line)?.[1];
+  const location = line.indexOf('window.location');
+  const redirect = line.indexOf('.redirect');
+  const valueStart = location >= 0
+    ? line.indexOf('=', location) + 1
+    : redirect >= 0
+      ? line.indexOf('(', redirect) + 1
+      : 0;
+  if (valueStart === 0) return false;
+
+  const value = identifierAfter(line, valueStart);
   if (!value) return false;
 
-  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(
-    `\\bconst\\s+${escaped}\\s*=[^\\n;]*\\bsafeRedirect(?:Path|Url|URL)\\s*\\(`,
-  ).test(fileText);
+  const declaration = `const ${value}`;
+  for (const candidate of fileText.split('\n')) {
+    const at = candidate.indexOf(declaration);
+    if (at === -1 || isIdentifierPart(candidate[at - 1]) || isIdentifierPart(candidate[at + declaration.length])) {
+      continue;
+    }
+    const equals = candidate.indexOf('=', at + declaration.length);
+    const initializer = candidate.slice(equals + 1);
+    if (
+      equals !== -1 &&
+      ['safeRedirectPath(', 'safeRedirectUrl(', 'safeRedirectURL('].some((call) => initializer.includes(call))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
