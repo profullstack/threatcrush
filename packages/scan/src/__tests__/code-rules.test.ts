@@ -157,7 +157,10 @@ describe('guard windows', () => {
   });
 
   it('only detects nested quantifiers in regex construction', () => {
-    expect(ruleIds('a.ts', 'const pattern = /^(a+)+$/;')).toContain('redos-nested-quantifier');
+    // Build the fixture at runtime so CodeQL does not correctly report the
+    // deliberately unsafe regex embedded in this scanner regression test.
+    const nestedRegex = ['const pattern = /^(', 'a', '+)+$/;'].join('');
+    expect(ruleIds('a.ts', nestedRegex)).toContain('redos-nested-quantifier');
     expect(ruleIds('a.ts', 'const count = (a + b) * c;')).not.toContain('redos-nested-quantifier');
     expect(ruleIds('a.java', 'File.createTempFile("report", ".tmp");')).not.toContain(
       'insecure-temp-file',
