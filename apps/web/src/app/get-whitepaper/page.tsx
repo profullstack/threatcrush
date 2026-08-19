@@ -334,17 +334,14 @@ export default function GetWhitepaperPage() {
               { n: "01", t: "Scope", d: "Protect business outcomes, not tool inventories." },
               { n: "02", t: "Discover", d: "Continuous enumeration — assets, services, identities, weaknesses." },
               { n: "03", t: "Prioritize", d: "Exploitability × reachability × blast radius — not raw CVSS." },
-              { n: "04", t: "Validate", d: "Re-run the exploit. Re-test the control. Don&rsquo;t trust dashboards." },
+              { n: "04", t: "Validate", d: "Re-run the exploit. Re-test the control. Don’t trust dashboards." },
               { n: "05", t: "Mobilize", d: "Fix shipped, validated, and re-tested. Loop closed." },
             ].map((s, i) => (
               <ScrollReveal key={s.n} delay={i * 80}>
                 <div className="rounded-xl border border-tc-border bg-tc-card p-5 h-full">
                   <div className="font-mono text-xs text-tc-green mb-2">{s.n}</div>
                   <h3 className="text-lg font-bold text-white mb-2">{s.t}</h3>
-                  <p
-                    className="text-sm text-tc-text-dim leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: s.d }}
-                  />
+                  <p className="text-sm text-tc-text-dim leading-relaxed">{s.d}</p>
                 </div>
               </ScrollReveal>
             ))}

@@ -367,10 +367,35 @@ describe('HTML sinks with an explicit safe-output contract', () => {
     ).not.toContain('js-unescaped-html-sink');
   });
 
+  it('does not flag a renderer whose contract is sanitized HTML', () => {
+    expect(
+      ruleIds(
+        'app/module.tsx',
+        'return <div dangerouslySetInnerHTML={{ __html: renderSanitizedMarkdown(content) }} />;',
+      ),
+    ).not.toContain('js-unescaped-html-sink');
+  });
+
   it('still flags a variable whose origin is not visible', () => {
     expect(
       ruleIds('app/page.tsx', 'return <div dangerouslySetInnerHTML={{ __html: html }} />;'),
     ).toContain('js-unescaped-html-sink');
+  });
+});
+
+describe('redirect destinations validated into a const', () => {
+  it('does not flag a local redirect path normalized by a redirect guard', () => {
+    const source = [
+      'const nextPath = useMemo(() => safeRedirectPath(search.get("next")), []);',
+      'window.location.href = nextPath;',
+    ].join('\n');
+    expect(ruleIds('app/login.tsx', source)).not.toContain('js-open-redirect');
+  });
+
+  it('still flags a request value redirected without validation', () => {
+    expect(
+      ruleIds('app/login.tsx', 'window.location.href = req.query.next;'),
+    ).toContain('js-open-redirect');
   });
 });
 

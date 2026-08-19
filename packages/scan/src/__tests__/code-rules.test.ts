@@ -84,7 +84,9 @@ describe('SQL injection', () => {
 
 describe('command injection', () => {
   it('flags an interpolated shell string, not an argv array', () => {
-    expect(ruleIds('a.js', 'exec(`ping -c 1 ${host}`);')).toContain('js-shell-exec-interpolation');
+    expect(ruleIds('a.js', 'exec(`ping -c 1 ${req.query.host}`);')).toContain(
+      'js-shell-exec-interpolation',
+    );
     expect(ruleIds('a.js', "execFile('ping', ['-c', '1', '--', req.query.host], cb);")).toHaveLength(0);
   });
 

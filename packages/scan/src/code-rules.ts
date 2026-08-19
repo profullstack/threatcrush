@@ -183,6 +183,8 @@ export interface CodeRule {
    * that a value is safe.
    */
   sanitizedHtmlGuard?: boolean;
+  /** Exonerate a redirect destination derived by a named redirect validator. */
+  safeRedirectGuard?: boolean;
   /** Lines of context searched backwards for guards and required evidence. */
   guardBack?: number;
   /**
@@ -467,6 +469,11 @@ export const CODE_RULES: readonly CodeRule[] = [
     pattern:
       /\b(?:exec|execSync|spawn|spawnSync)\s*\(\s*(?:`[^`]*\$\{|['"][^'"]*['"]\s*\+|[a-zA-Z_$][\w$]*\s*\+)/,
     constantInterpolationGuard: true,
+    // Interpolation is common in locally run CLI and installer code. Report
+    // command execution as an injection vulnerability only when the nearby
+    // code shows a caller-controlled source, rather than treating every
+    // internally assembled command as attacker input.
+    needsContext: true,
   },
   {
     id: 'py-shell-command-string',
@@ -710,6 +717,7 @@ export const CODE_RULES: readonly CodeRule[] = [
     pattern:
       /\b(?:res|response)\s*\.\s*redirect\s*\(\s*[a-zA-Z_$][\w$]*\s*\)|\bwindow\s*\.\s*location(?:\s*\.\s*(?:href|replace))?\s*(?:=\s*[a-zA-Z_$]|\(\s*[a-zA-Z_$][\w$]*\s*\))/,
     needsContext: true,
+    safeRedirectGuard: true,
   },
 
   // ── Deserialisation ──────────────────────────────────────────────────────
@@ -1024,6 +1032,9 @@ export const CODE_RULES: readonly CodeRule[] = [
     // compromised. A literal HTTPS installer URL is capped at medium; it only
     // escalates when nearby evidence shows that input can choose the download.
     guard: false,
+    // Installer instructions printed by the script do not execute.  Matching
+    // them made a script report its own documentation as a network pipeline.
+    lineGuard: /^\s*(?:echo|printf|say|info|warn|error)\s+["'][^"'\n]*\b(?:curl|wget)\b/,
   },
   {
     id: 'sh-eval-expansion',
@@ -1839,7 +1850,7 @@ function isConstantString(name: string, fileText: string): boolean {
  * visibly pass through an operation whose contract is HTML-safe output.
  */
 function hasSanitizedHtmlValue(line: string, fileText: string): boolean {
-  const direct = /\b__html\s*:\s*(?:[A-Za-z_$][\w$]*\s*\.\s*)?(?:sanitize\w*|escape\w*|serializeJsonForHtml)\s*\(/i;
+  const direct = /\b__html\s*:\s*(?:[A-Za-z_$][\w$]*\s*\.\s*)?(?:sanitize\w*|escape\w*|serializeJsonForHtml|renderSanitizedMarkdown)\s*\(/i;
   if (direct.test(line)) return true;
 
   const value = /\b__html\s*:\s*([A-Za-z_$][\w$]*)\b/.exec(line)?.[1];
@@ -1847,8 +1858,19 @@ function hasSanitizedHtmlValue(line: string, fileText: string): boolean {
 
   const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(
-    `\\bconst\\s+${escaped}\\s*=\\s*(?:[A-Za-z_$][\\w$]*\\s*\\.\\s*)?(?:sanitize\\w*|escape\\w*|serializeJsonForHtml)\\s*\\(`,
+    `\\bconst\\s+${escaped}\\s*=[^\\n;]*(?:[A-Za-z_$][\\w$]*\\s*\\.\\s*)?(?:sanitize\\w*|escape\\w*|serializeJsonForHtml|renderSanitizedMarkdown)\\s*\\(`,
     'i',
+  ).test(fileText);
+}
+
+/** Does the redirected variable come from an explicit local-path validator? */
+function hasSafeRedirectValue(line: string, fileText: string): boolean {
+  const value = /\b(?:redirect|location)\s*(?:\.\s*(?:href|replace))?\s*(?:=|\()\s*([A-Za-z_$][\w$]*)\b/i.exec(line)?.[1];
+  if (!value) return false;
+
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(
+    `\\bconst\\s+${escaped}\\s*=[^\\n;]*\\bsafeRedirect(?:Path|Url|URL)\\s*\\(`,
   ).test(fileText);
 }
 
@@ -1998,6 +2020,10 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   }
 
   if (rule.sanitizedHtmlGuard && hasSanitizedHtmlValue(line, fileTextOf(ctx.lines))) {
+    return null;
+  }
+
+  if (rule.safeRedirectGuard && hasSafeRedirectValue(line, fileTextOf(ctx.lines))) {
     return null;
   }
 
