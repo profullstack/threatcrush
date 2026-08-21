@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { authHeaders } from "@/lib/auth-client";
+import MarketplacePanel from "./marketplace-panel";
 
 type Kind = "outrank" | "crawlproof";
 
@@ -168,7 +169,9 @@ export default function AdminContent() {
 
       <div className="mx-auto max-w-4xl px-6 py-10">
         <h1 className="text-3xl font-bold text-white mb-2">Admin</h1>
-        <p className="text-tc-text-dim mb-8">Blog publishing webhooks (Crawlproof, Outrank)</p>
+        <p className="text-tc-text-dim mb-8">
+          Blog publishing webhooks (Crawlproof, Outrank) and the GitHub Marketplace listing
+        </p>
 
         {error && (
           <div className="mb-4 rounded border border-red-500/50 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -315,6 +318,8 @@ export default function AdminContent() {
             </ul>
           )}
         </section>
+
+        <MarketplacePanel />
       </div>
     </div>
   );
