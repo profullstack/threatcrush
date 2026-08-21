@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { authHeaders } from "@/lib/auth-client";
 import MarketplacePanel from "./marketplace-panel";
+import GitHubScansPanel from "./github-scans-panel";
 
 type Kind = "outrank" | "crawlproof";
 
@@ -320,6 +321,7 @@ export default function AdminContent() {
         </section>
 
         <MarketplacePanel />
+        <GitHubScansPanel />
       </div>
     </div>
   );
