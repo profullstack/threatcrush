@@ -17,15 +17,41 @@ import { createSign } from "node:crypto";
 export const GITHUB_API = "https://api.github.com";
 
 /**
- * GitHub issues PKCS#1 keys ("BEGIN RSA PRIVATE KEY"). Env vars mangle the
- * newlines in two common ways: pasted with literal backslash-n, or pasted as
- * one line with the newlines eaten entirely. The first is repairable here; the
- * second is not, because PEM base64 has no reliable line-length guarantee once
- * the header is glued on. So repair what can be repaired and let the rest fail
- * loudly at signing time rather than silently producing bad signatures.
+ * GitHub issues PKCS#1 keys ("BEGIN RSA PRIVATE KEY"), and a multi-line secret
+ * survives almost no secret store intact. Three forms are accepted:
+ *
+ *   1. The PEM itself, with real newlines. What Railway holds.
+ *   2. The PEM with literal backslash-n, which is how most .env files carry it.
+ *   3. Base64 of the whole PEM — no newlines, no backslashes, so it round-trips
+ *      through anything.
+ *
+ * Form 3 exists because it was needed. Pushing the PEM into the logicsrc vault
+ * mangled it twice: as backslash-n it came back double-escaped (`\\n`), and as
+ * real newlines the .env round-trip truncated it at the first line. Base64 is
+ * the only representation that reliably survives, so the vault holds that and
+ * this function accepts it.
+ *
+ * A key that is none of these fails loudly at signing time, which is correct —
+ * far better than silently producing signatures GitHub will reject.
  */
 export function normalizePrivateKey(raw: string): string {
-  const unescaped = raw.includes("\\n") ? raw.replace(/\\n/g, "\n") : raw;
+  const trimmed = raw.trim();
+
+  // Anything without a PEM header is treated as base64 of one. Decoding is
+  // only accepted if it actually yields a PEM, so a corrupted value still
+  // fails at signing rather than being passed through as plausible.
+  if (!trimmed.includes("BEGIN")) {
+    try {
+      const decoded = Buffer.from(trimmed, "base64").toString("utf8");
+      if (decoded.includes("BEGIN") && decoded.includes("PRIVATE KEY")) {
+        return decoded.trim().replace(/\r\n/g, "\n");
+      }
+    } catch {
+      // Fall through: let the caller's sign() produce the real error.
+    }
+  }
+
+  const unescaped = trimmed.includes("\\n") ? trimmed.replace(/\\n/g, "\n") : trimmed;
   return unescaped.trim().replace(/\r\n/g, "\n");
 }
 

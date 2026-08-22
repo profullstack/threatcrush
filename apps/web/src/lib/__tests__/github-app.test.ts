@@ -62,6 +62,28 @@ describe("normalizePrivateKey", () => {
     const mangled = privateKey.replace(/\n/g, "\\n");
     expect(() => createAppJwt("1", mangled, 1_700_000_000)).not.toThrow();
   });
+
+  it("accepts base64 of the whole PEM, which is what survives a vault round-trip", () => {
+    const b64 = Buffer.from(privateKey, "utf8").toString("base64");
+    expect(b64).not.toContain("\n");
+    expect(b64).not.toContain("\\");
+    expect(normalizePrivateKey(b64)).toBe(privateKey.trim());
+    expect(() => createAppJwt("1", b64, 1_700_000_000)).not.toThrow();
+  });
+
+  it("produces the same signature from PEM and from its base64", () => {
+    const b64 = Buffer.from(privateKey, "utf8").toString("base64");
+    expect(createAppJwt("1", b64, 1_700_000_000)).toBe(
+      createAppJwt("1", privateKey, 1_700_000_000)
+    );
+  });
+
+  it("does not pass off undecodable junk as a key", () => {
+    // Valid base64 that decodes to something that is not a PEM must not be
+    // silently accepted — it has to reach sign() and fail there.
+    const notAKey = Buffer.from("hello world", "utf8").toString("base64");
+    expect(() => createAppJwt("1", notAKey, 1_700_000_000)).toThrow();
+  });
 });
 
 describe("readAppCredentials", () => {
