@@ -127,6 +127,20 @@ describe("POST /api/webhooks/github/marketplace", () => {
     expect(state.upsertedPurchases).toHaveLength(0);
   });
 
+  it("says WHICH 401 it is, because the two have different fixes", async () => {
+    // An empty Secret field on the listing and a mismatched one are both
+    // 401, and an opaque body makes the webhook page unfixable by guessing.
+    const unsigned = await POST(
+      makeRequest(JSON.stringify(PAYLOAD), { signature: null }),
+    );
+    expect(await unsigned.json()).toMatchObject({ error: "Missing signature" });
+
+    const body = JSON.stringify(PAYLOAD);
+    const wrong = `sha256=${createHmac("sha256", "not-the-secret").update(body).digest("hex")}`;
+    const mismatched = await POST(makeRequest(body, { signature: wrong }));
+    expect(await mismatched.json()).toMatchObject({ error: "Invalid signature" });
+  });
+
   it("rejects a delivery signed with the wrong secret", async () => {
     const body = JSON.stringify(PAYLOAD);
     const wrong = `sha256=${createHmac("sha256", "not-the-secret").update(body).digest("hex")}`;

@@ -54,9 +54,35 @@ export async function POST(req: NextRequest) {
   }
 
   const signature = req.headers.get("x-hub-signature-256");
+
+  // Distinguish the two 401 causes. They are the same rejection, but they
+  // have completely different fixes: an absent header means the listing's
+  // Secret field is empty, a present-but-wrong one means the value there
+  // does not match this service. Returning one opaque message for both
+  // makes the webhook page unfixable without guessing. This leaks nothing
+  // a caller does not already know about its own request.
+  if (!signature) {
+    console.warn("[gh marketplace] rejected delivery with no X-Hub-Signature-256");
+    return NextResponse.json(
+      {
+        error: "Missing signature",
+        detail:
+          "No X-Hub-Signature-256 header. Set a Secret on the Marketplace listing's Webhook page.",
+      },
+      { status: 401 },
+    );
+  }
+
   if (!verifyGithubSignature(rawBody, signature, secret)) {
     console.warn("[gh marketplace] rejected delivery with invalid signature");
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    return NextResponse.json(
+      {
+        error: "Invalid signature",
+        detail:
+          "X-Hub-Signature-256 did not match. The Secret on the listing differs from GITHUB_MARKETPLACE_WEBHOOK_SECRET.",
+      },
+      { status: 401 },
+    );
   }
 
   const event = req.headers.get("x-github-event") ?? "";
