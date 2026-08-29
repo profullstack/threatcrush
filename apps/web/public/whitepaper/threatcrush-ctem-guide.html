@@ -123,6 +123,54 @@
   .page > p:first-of-type strong:first-child {
     color: var(--tc-green-dim);
   }
+  /* Checklist appendix */
+  .cl-stage {
+    page-break-inside: avoid;
+    margin: 1.1em 0;
+  }
+  .cl-stage-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    border-bottom: 2px solid var(--tc-green);
+    padding-bottom: 3px;
+    margin-bottom: 0.5em;
+  }
+  .cl-n {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10pt;
+    color: var(--tc-green-dim);
+    font-weight: 700;
+  }
+  .cl-name { font-size: 14pt; font-weight: 800; }
+  .cl-q { font-size: 9.5pt; font-style: italic; color: var(--ink-soft); margin-left: auto; }
+  .cl-item {
+    display: flex;
+    gap: 8px;
+    margin: 0.45em 0;
+    page-break-inside: avoid;
+  }
+  .cl-box {
+    flex: 0 0 auto;
+    width: 11px;
+    height: 11px;
+    border: 1.5px solid var(--ink-soft);
+    border-radius: 2px;
+    margin-top: 3px;
+  }
+  .cl-body { flex: 1 1 auto; }
+  .cl-title { font-weight: 700; font-size: 10.5pt; }
+  .cl-detail { font-size: 9.5pt; color: var(--ink-soft); text-align: left; margin: 1px 0 0; }
+  .cl-score {
+    border: 1.5px solid var(--tc-green);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 1.2em 0;
+    page-break-inside: avoid;
+  }
+  .cl-band { font-size: 9.5pt; margin: 0.3em 0; }
+  .cl-band b { color: var(--tc-green-dim); }
+  .disclaimer { font-size: 7pt; font-style: italic; color: #6b7570; margin-top: 1.2em; }
   /* Print rules */
   @page {
     size: Letter;
@@ -269,6 +317,167 @@
 <p>ThreatCrush is an all-in-one threat exposure platform for Linux servers, plus a marketplace of security modules. It is built and maintained by Profullstack and a community of module authors. The core platform is licensed for lifetime use; AI-enhanced modules are billed on usage.</p>
 <p>Questions, feedback, or war stories: <strong>hello@threatcrush.com</strong>.</p>
 <p>— <em>The ThreatCrush team</em></p>
+<h2 id="checklist">Appendix A. CTEM Readiness Checklist</h2>
+<p><em>Do you actually run the loop, or do you run a queue?</em></p>
+<p>A CTEM program is five stages that repeat forever: scope, discover, prioritize, validate, mobilize. Most teams do two of them well and call it a program. Tick every control you can honestly say is running today — not planned, not purchased, running. The score at the end tells you which stage is starving the rest.</p>
+
+  <div class="cl-stage">
+    <div class="cl-stage-head">
+      <span class="cl-n">01</span>
+      <span class="cl-name">Scope</span>
+      <span class="cl-q">Do you know what you are actually protecting?</span>
+    </div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Scope is defined by business outcomes, not tool coverage</div>
+      <p class="cl-detail">You can name the top five things an attacker could do that would genuinely hurt the business, and trace each one back to the systems and identities that would have to fall first. If your scope is "everything the EDR sees," a vendor renewal can silently halve it.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">A live asset inventory exists and is not a spreadsheet</div>
+      <p class="cl-detail">Servers, services, domains, cloud accounts, and third-party SaaS are enumerated automatically and refreshed. An inventory a human maintains by hand is out of date the week it is written.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Identities are in scope alongside machines</div>
+      <p class="cl-detail">Dormant accounts, over-privileged service principals, and MFA gaps are tracked as exposures. Most modern intrusions arrive through a credential, not a CVE.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Every in-scope system has a named human owner</div>
+      <p class="cl-detail">Not a team alias. When a validated finding lands, there is one person whose job it is to close it. Unowned findings are the ones that outlive the engineer who filed them.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Scope is revisited on a schedule, not after an incident</div>
+      <p class="cl-detail">A quarterly review that adds and, crucially, removes things. Scope that only ever grows becomes scope nobody believes.</p>
+    </div></div>
+  </div>
+
+  <div class="cl-stage">
+    <div class="cl-stage-head">
+      <span class="cl-n">02</span>
+      <span class="cl-name">Discover</span>
+      <span class="cl-q">Would you find out, or would someone tell you?</span>
+    </div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">External attack surface is enumerated continuously</div>
+      <p class="cl-detail">Subdomains, exposed dashboards, forgotten storage buckets, and stale DNS records. The exposures that get exploited are usually the ones nobody remembered deploying.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Inbound traffic is monitored on every port, not just the ones you expect</div>
+      <p class="cl-detail">Passive monitoring catches the service you forgot you exposed. Scanning only your declared surface finds only what you already knew about.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Code-side discovery runs on every commit</div>
+      <p class="cl-detail">Hardcoded secrets, vulnerable and malicious dependencies, and dangerous configuration land in the same exposure store as infrastructure findings — before they reach production, not after.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Dependency and supply-chain risk is tracked, including transitive packages</div>
+      <p class="cl-detail">Your build pulls code from people you have never met. A direct-dependency-only view misses the layer where compromises actually happen.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">All discovery sources feed one normalized exposure store</div>
+      <p class="cl-detail">The same finding from three tools is one row, not three. Adding a sixth discovery tool without normalization multiplies noise instead of coverage.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Leaked credentials are monitored outside your perimeter</div>
+      <p class="cl-detail">Public repos, paste sites, and breach dumps. Learning about a breach when the stolen credential is used is late, but it beats not learning at all.</p>
+    </div></div>
+  </div>
+
+  <div class="cl-stage">
+    <div class="cl-stage-head">
+      <span class="cl-n">03</span>
+      <span class="cl-name">Prioritize</span>
+      <span class="cl-q">Does your ranking survive contact with an attacker?</span>
+    </div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">A written prioritization formula exists and is applied mechanically</div>
+      <p class="cl-detail">Inputs: exploitability, attacker reachability, blast radius, business impact, compensating controls. Written down, so it runs the same way whether or not the loudest stakeholder is in the room.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Ranking is not primarily CVSS</div>
+      <p class="cl-detail">CVSS describes a vulnerability in the abstract. It knows nothing about whether the affected host is reachable, whether the service is running, or whether the data behind it matters.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Real-world exploitation data feeds the ranking</div>
+      <p class="cl-detail">Known-exploited catalogues and exploit-prediction scoring separate the thousands of theoretical findings from the handful being used this week.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Reachability is evaluated, not assumed</div>
+      <p class="cl-detail">A critical vulnerability in a code path that never executes, on a host no route reaches, is not a critical exposure. Treating it as one is how backlogs become fiction.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">A published top-20 list exists with sign-off from engineering</div>
+      <p class="cl-detail">Short enough to actually finish, owned by the people who will do the work, and refreshed each cycle.</p>
+    </div></div>
+  </div>
+
+  <div class="cl-stage">
+    <div class="cl-stage-head">
+      <span class="cl-n">04</span>
+      <span class="cl-name">Validate</span>
+      <span class="cl-q">Do you confirm, or do you trust the dashboard?</span>
+    </div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Every top-tier finding has a defined validation check</div>
+      <p class="cl-detail">A script, a pentest module, or a control test that answers "is this real?" — scheduled, not run once during triage.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Tickets close on validated fixes, not on claimed fixes</div>
+      <p class="cl-detail">"Patched" and "no longer exploitable" are different statements. Only one of them is evidence.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Controls are tested by trying to defeat them</div>
+      <p class="cl-detail">The green light on a console means the agent is reporting, not that the control works. Attack your own infrastructure — safely, and only your own.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">False positives are measured and fed back into tuning</div>
+      <p class="cl-detail">A scanner nobody trusts is a scanner nobody reads. If you cannot state your false-positive rate, your team has already started ignoring the output.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Validation coverage is tracked as a metric</div>
+      <p class="cl-detail">The share of open findings actively validated in the last 30 days. Below 50%, the queue is a work of imagination.</p>
+    </div></div>
+  </div>
+
+  <div class="cl-stage">
+    <div class="cl-stage-head">
+      <span class="cl-n">05</span>
+      <span class="cl-name">Mobilize</span>
+      <span class="cl-q">Do fixes ship, or do they get assigned?</span>
+    </div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Your three most frequent remediations are automated</div>
+      <p class="cl-detail">Rotate the credential, block the address, add the header. The repetitive fixes should not consume senior engineering time.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Alerts route to channels operators actually read</div>
+      <p class="cl-detail">Chat, SMS, or phone — not a dashboard someone opens on Mondays. An alert nobody sees is an outage nobody is fixing.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Findings become tickets in the system engineering already lives in</div>
+      <p class="cl-detail">Work that requires logging into the security tool is work that competes with the sprint board and loses.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">An incident response plan exists and has been rehearsed this year</div>
+      <p class="cl-detail">Who to call, who decides, who talks to customers. A plan that has never survived a tabletop is a document, not a capability.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">Backups are restored on a schedule, not merely taken</div>
+      <p class="cl-detail">An untested backup is a hypothesis. Restore drills are the only thing that converts it into a recovery capability.</p>
+    </div></div>
+    <div class="cl-item"><div class="cl-box"></div><div class="cl-body">
+      <div class="cl-title">A recurring review asks which stage is slowest</div>
+      <p class="cl-detail">Cycles closed, stage latency, next quarter's scope adjustment. Without it the loop degrades back into a queue and nobody notices for two quarters.</p>
+    </div></div>
+  </div>
+  <div class="cl-score">
+    <p style="margin:0 0 6px;font-weight:700;">Scoring — 27 controls in total</p>
+    <p style="margin:0 0 8px;font-size:9.5pt;">Count your ticks, divide by 27, multiply by 100.</p>
+    <p class="cl-band"><b>0–29% &nbsp;Reactive</b> — You have tools, not a loop. Findings arrive, get triaged by whoever is free, and the backlog only grows. Start at scoping — everything downstream is noise until scope is real.</p>
+    <p class="cl-band"><b>30–54% &nbsp;Emerging</b> — Discovery works and somebody owns the queue, but nothing closes the loop. Validation is almost certainly your bottleneck: you cannot tell a fixed finding from a stale one.</p>
+    <p class="cl-band"><b>55–79% &nbsp;Operating</b> — The loop turns. The work now is latency — shrinking the exposure window between discovery and re-validated fix, and automating the three remediations you do most often.</p>
+    <p class="cl-band"><b>80–100% &nbsp;Optimizing</b> — You run a real CTEM program. The remaining gains are in scope adjustment and cost imposition: making attacks expensive rather than merely detected.</p>
+  </div>
+  <p class="disclaimer">Any actions taken need to be tailored to your own environment. This checklist is a diagnostic, not a compliance standard, and we take no responsibility for outcomes.</p>
+
   </div>
 </body>
 </html>

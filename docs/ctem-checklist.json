@@ -1,0 +1,210 @@
+{
+  "slug": "ctem-readiness",
+  "title": "CTEM Readiness Checklist",
+  "subtitle": "Do you actually run the loop, or do you run a queue?",
+  "intro": "A CTEM program is five stages that repeat forever: scope, discover, prioritize, validate, mobilize. Most teams do two of them well and call it a program. Tick every control you can honestly say is running today — not planned, not purchased, running. The score at the end tells you which stage is starving the rest.",
+  "disclaimer": "Any actions taken need to be tailored to your own environment. This checklist is a diagnostic, not a compliance standard, and we take no responsibility for outcomes.",
+  "bands": [
+    {
+      "min": 0,
+      "max": 29,
+      "label": "Reactive",
+      "summary": "You have tools, not a loop. Findings arrive, get triaged by whoever is free, and the backlog only grows. Start at scoping — everything downstream is noise until scope is real."
+    },
+    {
+      "min": 30,
+      "max": 54,
+      "label": "Emerging",
+      "summary": "Discovery works and somebody owns the queue, but nothing closes the loop. Validation is almost certainly your bottleneck: you cannot tell a fixed finding from a stale one."
+    },
+    {
+      "min": 55,
+      "max": 79,
+      "label": "Operating",
+      "summary": "The loop turns. The work now is latency — shrinking the exposure window between discovery and re-validated fix, and automating the three remediations you do most often."
+    },
+    {
+      "min": 80,
+      "max": 100,
+      "label": "Optimizing",
+      "summary": "You run a real CTEM program. The remaining gains are in scope adjustment and cost imposition: making attacks expensive rather than merely detected."
+    }
+  ],
+  "stages": [
+    {
+      "id": "scope",
+      "n": "01",
+      "name": "Scope",
+      "question": "Do you know what you are actually protecting?",
+      "items": [
+        {
+          "id": "scope-outcomes",
+          "title": "Scope is defined by business outcomes, not tool coverage",
+          "detail": "You can name the top five things an attacker could do that would genuinely hurt the business, and trace each one back to the systems and identities that would have to fall first. If your scope is \"everything the EDR sees,\" a vendor renewal can silently halve it."
+        },
+        {
+          "id": "scope-inventory",
+          "title": "A live asset inventory exists and is not a spreadsheet",
+          "detail": "Servers, services, domains, cloud accounts, and third-party SaaS are enumerated automatically and refreshed. An inventory a human maintains by hand is out of date the week it is written."
+        },
+        {
+          "id": "scope-identity",
+          "title": "Identities are in scope alongside machines",
+          "detail": "Dormant accounts, over-privileged service principals, and MFA gaps are tracked as exposures. Most modern intrusions arrive through a credential, not a CVE."
+        },
+        {
+          "id": "scope-owners",
+          "title": "Every in-scope system has a named human owner",
+          "detail": "Not a team alias. When a validated finding lands, there is one person whose job it is to close it. Unowned findings are the ones that outlive the engineer who filed them."
+        },
+        {
+          "id": "scope-review",
+          "title": "Scope is revisited on a schedule, not after an incident",
+          "detail": "A quarterly review that adds and, crucially, removes things. Scope that only ever grows becomes scope nobody believes."
+        }
+      ]
+    },
+    {
+      "id": "discover",
+      "n": "02",
+      "name": "Discover",
+      "question": "Would you find out, or would someone tell you?",
+      "items": [
+        {
+          "id": "discover-external",
+          "title": "External attack surface is enumerated continuously",
+          "detail": "Subdomains, exposed dashboards, forgotten storage buckets, and stale DNS records. The exposures that get exploited are usually the ones nobody remembered deploying."
+        },
+        {
+          "id": "discover-inbound",
+          "title": "Inbound traffic is monitored on every port, not just the ones you expect",
+          "detail": "Passive monitoring catches the service you forgot you exposed. Scanning only your declared surface finds only what you already knew about."
+        },
+        {
+          "id": "discover-code",
+          "title": "Code-side discovery runs on every commit",
+          "detail": "Hardcoded secrets, vulnerable and malicious dependencies, and dangerous configuration land in the same exposure store as infrastructure findings — before they reach production, not after."
+        },
+        {
+          "id": "discover-supplychain",
+          "title": "Dependency and supply-chain risk is tracked, including transitive packages",
+          "detail": "Your build pulls code from people you have never met. A direct-dependency-only view misses the layer where compromises actually happen."
+        },
+        {
+          "id": "discover-normalized",
+          "title": "All discovery sources feed one normalized exposure store",
+          "detail": "The same finding from three tools is one row, not three. Adding a sixth discovery tool without normalization multiplies noise instead of coverage."
+        },
+        {
+          "id": "discover-creds",
+          "title": "Leaked credentials are monitored outside your perimeter",
+          "detail": "Public repos, paste sites, and breach dumps. Learning about a breach when the stolen credential is used is late, but it beats not learning at all."
+        }
+      ]
+    },
+    {
+      "id": "prioritize",
+      "n": "03",
+      "name": "Prioritize",
+      "question": "Does your ranking survive contact with an attacker?",
+      "items": [
+        {
+          "id": "prioritize-formula",
+          "title": "A written prioritization formula exists and is applied mechanically",
+          "detail": "Inputs: exploitability, attacker reachability, blast radius, business impact, compensating controls. Written down, so it runs the same way whether or not the loudest stakeholder is in the room."
+        },
+        {
+          "id": "prioritize-notcvss",
+          "title": "Ranking is not primarily CVSS",
+          "detail": "CVSS describes a vulnerability in the abstract. It knows nothing about whether the affected host is reachable, whether the service is running, or whether the data behind it matters."
+        },
+        {
+          "id": "prioritize-exploit",
+          "title": "Real-world exploitation data feeds the ranking",
+          "detail": "Known-exploited catalogues and exploit-prediction scoring separate the thousands of theoretical findings from the handful being used this week."
+        },
+        {
+          "id": "prioritize-reachability",
+          "title": "Reachability is evaluated, not assumed",
+          "detail": "A critical vulnerability in a code path that never executes, on a host no route reaches, is not a critical exposure. Treating it as one is how backlogs become fiction."
+        },
+        {
+          "id": "prioritize-topn",
+          "title": "A published top-20 list exists with sign-off from engineering",
+          "detail": "Short enough to actually finish, owned by the people who will do the work, and refreshed each cycle."
+        }
+      ]
+    },
+    {
+      "id": "validate",
+      "n": "04",
+      "name": "Validate",
+      "question": "Do you confirm, or do you trust the dashboard?",
+      "items": [
+        {
+          "id": "validate-check",
+          "title": "Every top-tier finding has a defined validation check",
+          "detail": "A script, a pentest module, or a control test that answers \"is this real?\" — scheduled, not run once during triage."
+        },
+        {
+          "id": "validate-close",
+          "title": "Tickets close on validated fixes, not on claimed fixes",
+          "detail": "\"Patched\" and \"no longer exploitable\" are different statements. Only one of them is evidence."
+        },
+        {
+          "id": "validate-controls",
+          "title": "Controls are tested by trying to defeat them",
+          "detail": "The green light on a console means the agent is reporting, not that the control works. Attack your own infrastructure — safely, and only your own."
+        },
+        {
+          "id": "validate-fp",
+          "title": "False positives are measured and fed back into tuning",
+          "detail": "A scanner nobody trusts is a scanner nobody reads. If you cannot state your false-positive rate, your team has already started ignoring the output."
+        },
+        {
+          "id": "validate-coverage",
+          "title": "Validation coverage is tracked as a metric",
+          "detail": "The share of open findings actively validated in the last 30 days. Below 50%, the queue is a work of imagination."
+        }
+      ]
+    },
+    {
+      "id": "mobilize",
+      "n": "05",
+      "name": "Mobilize",
+      "question": "Do fixes ship, or do they get assigned?",
+      "items": [
+        {
+          "id": "mobilize-auto",
+          "title": "Your three most frequent remediations are automated",
+          "detail": "Rotate the credential, block the address, add the header. The repetitive fixes should not consume senior engineering time."
+        },
+        {
+          "id": "mobilize-alerts",
+          "title": "Alerts route to channels operators actually read",
+          "detail": "Chat, SMS, or phone — not a dashboard someone opens on Mondays. An alert nobody sees is an outage nobody is fixing."
+        },
+        {
+          "id": "mobilize-ticketing",
+          "title": "Findings become tickets in the system engineering already lives in",
+          "detail": "Work that requires logging into the security tool is work that competes with the sprint board and loses."
+        },
+        {
+          "id": "mobilize-ir",
+          "title": "An incident response plan exists and has been rehearsed this year",
+          "detail": "Who to call, who decides, who talks to customers. A plan that has never survived a tabletop is a document, not a capability."
+        },
+        {
+          "id": "mobilize-backups",
+          "title": "Backups are restored on a schedule, not merely taken",
+          "detail": "An untested backup is a hypothesis. Restore drills are the only thing that converts it into a recovery capability."
+        },
+        {
+          "id": "mobilize-review",
+          "title": "A recurring review asks which stage is slowest",
+          "detail": "Cycles closed, stage latency, next quarter's scope adjustment. Without it the loop degrades back into a queue and nobody notices for two quarters."
+        }
+      ]
+    }
+  ]
+}

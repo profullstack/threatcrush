@@ -152,7 +152,7 @@ export default function Home() {
                 Built on the open standards your SOC already speaks: MITRE ATT&amp;CK, D3FEND, Sigma, OCSF, NIST CSF. Today the module store is the clearest place to start — the rest of the loop fills in module by module.
               </p>
               <a
-                href="/get-whitepaper"
+                href="/read/ctem-guide"
                 className="inline-flex items-center gap-2 text-sm font-mono text-tc-green hover:underline mb-10"
               >
                 <span>📄</span> Free guide: Evolving from VM to CTEM →
@@ -530,14 +530,14 @@ export default function Home() {
                       Get the operator&apos;s playbook — CTEM, SIEM/EDR/SOC, and the standards that tie them together
                     </h3>
                     <p className="text-sm text-tc-text-dim mt-1">
-                      14-page PDF · the 5 CTEM stages · how it maps to ATT&amp;CK, D3FEND, Sigma, OCSF · a 90-day implementation plan.
+                      The 5 CTEM stages · how it maps to ATT&amp;CK, D3FEND, Sigma, OCSF · a 90-day implementation plan · a 27-control readiness checklist that scores your program. Read it here, no signup.
                     </p>
                   </div>
                   <a
-                    href="/get-whitepaper"
+                    href="/read/ctem-guide"
                     className="rounded-xl bg-tc-green px-6 py-3 font-bold text-black transition-all hover:bg-tc-green-dim pulse-glow whitespace-nowrap"
                   >
-                    Download the guide →
+                    Read the guide →
                   </a>
                 </div>
               </div>
