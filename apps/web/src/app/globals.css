@@ -9,6 +9,17 @@
   --tc-border: #1a2332;
   --tc-text: #c9d1d9;
   --tc-text-dim: #8b949e;
+
+  /* Height of the fixed SiteHeader, border included. SiteHeader sizes its own
+     row from this, so anything pinned below the header can trust it instead of
+     guessing — a guess of 4rem put the reader's progress bar inside the header. */
+  --tc-header-h: 69px;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --tc-header-h: 81px;
+  }
 }
 
 @theme inline {

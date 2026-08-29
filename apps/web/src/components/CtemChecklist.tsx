@@ -142,7 +142,7 @@ export default function CtemChecklist({ checklist, total, sessionId, getReadPerc
   const started = checked.size > 0;
 
   return (
-    <section id="checklist" className="scroll-mt-28">
+    <section id="checklist" className="scroll-mt-[calc(var(--tc-header-h)+2.5rem)]">
       <div className="rounded-2xl border border-tc-green/30 bg-tc-card/60 backdrop-blur-md p-6 sm:p-8 glow-box">
         <p className="font-mono text-xs text-tc-green tracking-wider mb-3">
           // SELF-ASSESSMENT — {total} CONTROLS

@@ -18,6 +18,18 @@ const MILESTONES = [10, 25, 50, 75, 90, 100];
 
 type NavEntry = { id: string; title: string };
 
+/**
+ * Everything the header covers: the fixed nav plus the progress bar pinned
+ * under it. Read from the same token the CSS uses so the rail highlights the
+ * section you can actually see, not one hidden behind the header.
+ */
+function headerOffset() {
+  if (typeof window === "undefined") return 112;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue("--tc-header-h");
+  const px = Number.parseFloat(raw);
+  return (Number.isFinite(px) ? px : 81) + 40;
+}
+
 const NAV: NavEntry[] = [
   ...GUIDE_SECTIONS.map((s) => ({ id: s.id, title: s.title })),
   { id: "checklist", title: "Readiness checklist" },
@@ -140,7 +152,7 @@ export default function GuideReader() {
           setActiveId(id);
         }
       },
-      { rootMargin: "-96px 0px -70% 0px", threshold: 0 },
+      { rootMargin: `-${headerOffset()}px 0px -70% 0px`, threshold: 0 },
     );
 
     targets.forEach((t) => observer.observe(t));
@@ -156,8 +168,11 @@ export default function GuideReader() {
 
   return (
     <>
-      {/* ── Progress bar, pinned under the site header ── */}
-      <div className="fixed top-16 left-0 right-0 z-40 pointer-events-none">
+      {/* ── Progress bar, pinned under the site header ──
+          top comes from the header's own token: 4rem was shorter than the
+          header, so the bar drew a line across the logo and nav. z-30 keeps it
+          under the header, including when the mobile menu drops open. */}
+      <div className="fixed top-[var(--tc-header-h)] left-0 right-0 z-30 pointer-events-none">
         <div className="h-1 bg-tc-border/60">
           <div
             className="h-full bg-tc-green transition-[width] duration-150 ease-out"
@@ -178,7 +193,7 @@ export default function GuideReader() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           {/* ── Contents rail ── */}
           <aside className="lg:col-span-3">
-            <div className="lg:sticky lg:top-28">
+            <div className="lg:sticky lg:top-[calc(var(--tc-header-h)+2.5rem)]">
               <button
                 type="button"
                 onClick={() => setTocOpen((v) => !v)}
@@ -241,7 +256,11 @@ export default function GuideReader() {
             <div ref={articleRef}>
               <article className="guide-prose">
                 {GUIDE_SECTIONS.map((section) => (
-                  <section key={section.id} id={section.id} className="scroll-mt-28">
+                  <section
+                    key={section.id}
+                    id={section.id}
+                    className="scroll-mt-[calc(var(--tc-header-h)+2.5rem)]"
+                  >
                     {section.id !== "top" && <h2>{section.title}</h2>}
                     <div dangerouslySetInnerHTML={{ __html: section.html }} />
                   </section>
