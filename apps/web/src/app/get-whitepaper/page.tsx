@@ -120,6 +120,7 @@ export default function GetWhitepaperPage() {
                       "A 90-day implementation playbook — calendar weeks, not sprints",
                       "Six metrics that actually reflect risk reduction",
                       "Common failure modes and how to avoid them",
+                      "A 27-control CTEM readiness checklist you can score yourself against",
                     ].map((item) => (
                       <li key={item} className="flex items-start gap-3 text-sm text-tc-text leading-relaxed">
                         <span className="text-tc-green flex-shrink-0 mt-0.5">✓</span>
@@ -131,13 +132,29 @@ export default function GetWhitepaperPage() {
               </ScrollReveal>
 
               <ScrollReveal delay={400}>
+                <div className="rounded-xl border border-tc-green/25 bg-tc-green/5 p-4 mb-8">
+                  <p className="text-sm text-tc-text">
+                    <span className="font-semibold text-white">
+                      Don&apos;t want to give us an email?
+                    </span>{" "}
+                    Read the whole thing in your browser instead — every section, plus the
+                    interactive readiness checklist.{" "}
+                    <a
+                      href="/read/ctem-guide"
+                      className="font-semibold text-tc-green underline underline-offset-2"
+                    >
+                      Read it online →
+                    </a>
+                  </p>
+                </div>
+
                 <div className="hidden lg:flex items-center gap-4 text-xs text-tc-text-dim">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="text-tc-green">📄</span> 14-page PDF
+                    <span className="text-tc-green">📄</span> 17-page PDF
                   </span>
                   <span>·</span>
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="text-tc-green">⏱</span> 17 min read
+                    <span className="text-tc-green">⏱</span> 18 min read
                   </span>
                   <span>·</span>
                   <span className="inline-flex items-center gap-1.5">

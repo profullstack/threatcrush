@@ -233,3 +233,87 @@ body {
   font-size: 0.875rem;
   margin-top: 0.5rem;
 }
+
+/* Guide reader (/read/ctem-guide) — renders the generated whitepaper HTML */
+.guide-prose {
+  color: var(--tc-text);
+  line-height: 1.75;
+  font-size: 1.0625rem;
+}
+.guide-prose h2 {
+  color: rgb(255 255 255);
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 3rem 0 1rem;
+  padding-top: 0.75rem;
+  border-top: 2px solid var(--tc-green);
+}
+.guide-prose section:first-child h2 { margin-top: 0; }
+.guide-prose h3 {
+  color: rgb(255 255 255);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 2rem 0 0.6rem;
+}
+.guide-prose h4 {
+  color: rgb(255 255 255);
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.4rem;
+}
+.guide-prose p { margin: 1rem 0; }
+.guide-prose strong { color: rgb(255 255 255); font-weight: 700; }
+.guide-prose em { color: var(--tc-text-dim); }
+.guide-prose a {
+  color: var(--tc-green);
+  text-decoration: underline;
+  text-decoration-color: rgb(0 255 65 / 0.4);
+  text-underline-offset: 3px;
+}
+.guide-prose a:hover { text-decoration-color: var(--tc-green); }
+.guide-prose ul,
+.guide-prose ol {
+  margin: 1rem 0;
+  padding-left: 1.5rem;
+}
+.guide-prose ul { list-style: disc; }
+.guide-prose ol { list-style: decimal; }
+.guide-prose li { margin: 0.45rem 0; }
+.guide-prose li::marker { color: var(--tc-green); }
+.guide-prose hr {
+  border: none;
+  border-top: 1px solid var(--tc-border);
+  margin: 2rem 0;
+}
+.guide-prose code {
+  background: rgba(0, 255, 65, 0.08);
+  color: var(--tc-green);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.9em;
+}
+/* Wide comparison tables scroll in their own box rather than the page body. */
+.guide-prose table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  width: 100%;
+  font-size: 0.9375rem;
+}
+.guide-prose th,
+.guide-prose td {
+  border: 1px solid var(--tc-border);
+  padding: 0.6rem 0.85rem;
+  text-align: left;
+  vertical-align: top;
+  min-width: 9rem;
+}
+.guide-prose th {
+  background: rgba(0, 255, 65, 0.05);
+  color: rgb(255 255 255);
+  font-weight: 700;
+}
