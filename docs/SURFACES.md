@@ -23,7 +23,7 @@ Status values:
 |---|---|---|---|---|
 | **PWA / Web** | `shipping` | `apps/web/` | Railway → [threatcrush.com](https://threatcrush.com), Docker image | Next.js 16, Supabase, Tailwind 4. `output: standalone`. |
 | **CLI** | `shipping` | `apps/cli/` | npm (`@profullstack/threatcrush`), `curl \| sh` | v0.1.16. `threatcrushd` daemon, IPC socket, systemd unit. |
-| **TUI** | `shipping` | `apps/cli/src/tui/` | Bundled with CLI | react-blessed dashboard. `threatcrush tui`. |
+| **TUI** | `shipping` | `apps/cli/src/tui/` | Bundled with CLI | `@profullstack/hqtui` dashboard, live over daemon IPC. `threatcrush tui` (add `--demo` for canned events). |
 | **API** | `shipping` | `apps/web/src/app/api/` | Same origin as web | REST, bearer-token auth. Used by CLI, desktop, extension. |
 | **Webhooks (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/` | Slack, generic webhook | Threat alerts emit when severity ≥ high. |
 | **Email (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/smtp.ts` | SMTP via `nodemailer` | Configure `[alerts.email]` in `threatcrushd.conf`. |
