@@ -509,11 +509,9 @@ program
     console.log(chalk.dim(`  Detected package manager: ${pm}`));
     console.log(chalk.dim(`  Install mode: ${installMode}\n`));
 
+    // The desktop app ships as a GitHub Releases bundle, not an npm package,
+    // so there is nothing to update globally for it here.
     const commands = [getGlobalInstallCommand(pm, PKG_NAME, "update")];
-
-    if (installMode === "desktop") {
-      commands.push(getGlobalInstallCommand(pm, DESKTOP_PKG_NAME, "update"));
-    }
 
     try {
       for (const cmd of commands) {
