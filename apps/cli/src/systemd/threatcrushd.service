@@ -17,7 +17,13 @@ TimeoutStopSec=10
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=read-only
-ReadWritePaths=/etc/threatcrush /var/log/threatcrush /var/lib/threatcrush /var/run/threatcrush
+ReadWritePaths=/etc/threatcrush /var/log/threatcrush /var/lib/threatcrush
+# /var/run is a symlink to /run, which is a tmpfs — anything created there at
+# install time is gone after the next reboot. Listing it under ReadWritePaths
+# then makes the unit fail 226/NAMESPACE on every start. RuntimeDirectory has
+# systemd create (and clean up) /run/threatcrush itself, on each start.
+RuntimeDirectory=threatcrush
+RuntimeDirectoryMode=0755
 PrivateTmp=true
 
 # Log directly to journald
