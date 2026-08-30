@@ -54,7 +54,7 @@ Install it locally:
 
 ```bash
 threatcrush modules install ./my-module
-threatcrush stop && threatcrush start   # reload the daemon
+threatcrush restart                     # reload the daemon
 ```
 
 ## What's exported
