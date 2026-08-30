@@ -320,6 +320,42 @@ installed_version() {
 # PATH - not that it is the copy we just installed. Without this check the
 # installer prints "installed successfully" next to the old version number and
 # the user has no idea why the upgrade did nothing.
+# Installing a new CLI replaces files on disk and nothing else. A daemon that is
+# already running keeps executing the bundle it was spawned from — even after
+# that version's directory is gone — so the new build never takes effect until
+# it is restarted, while every install reports success.
+refresh_daemon() {
+  command_exists threatcrush || return 0
+
+  # A systemd-managed daemon must be restarted through systemd. `threatcrush
+  # restart` here would stop the supervised copy and start an unsupervised one
+  # in its place, which systemd would know nothing about.
+  if command_exists systemctl && [ "$(systemctl is-active threatcrushd.service 2>/dev/null)" = "active" ]; then
+    say ""
+    say "${YELLOW}! threatcrushd is managed by systemd and is still on the old build.${RESET}"
+    say "  ${DIM}Restart it with:${RESET} ${GREEN}sudo systemctl restart threatcrushd${RESET}"
+    return 0
+  fi
+
+  for PIDFILE in "$HOME/.threatcrush/run/threatcrushd.pid" /var/run/threatcrush/threatcrushd.pid; do
+    [ -f "$PIDFILE" ] || continue
+    DAEMON_PID=$(cat "$PIDFILE" 2>/dev/null || echo "")
+    [ -n "$DAEMON_PID" ] || continue
+    kill -0 "$DAEMON_PID" 2>/dev/null || continue
+
+    say ""
+    say "${DIM}Restarting threatcrushd onto the new build...${RESET}"
+    if threatcrush restart >/dev/null 2>&1; then
+      say "${GREEN}✓ threatcrushd restarted.${RESET}"
+    else
+      say "${YELLOW}! Could not restart threatcrushd — run:${RESET} ${GREEN}threatcrush restart${RESET}"
+    fi
+    return 0
+  done
+
+  return 0
+}
+
 warn_if_shadowed() {
   EXPECTED="$1"
   ACTIVE="$2"
@@ -427,6 +463,7 @@ if command_exists threatcrush; then
   EXPECTED_VERSION=$(installed_version "$PKG_NAME" 2>/dev/null || echo "")
   say "${GREEN}✓ ThreatCrush ${VERSION} installed successfully!${RESET}"
   warn_if_shadowed "$EXPECTED_VERSION" "$VERSION"
+  refresh_daemon
   say ""
   say "  ${BOLD}Detected install mode:${RESET} ${INSTALL_MODE}"
   say "  ${BOLD}Platform kind:${RESET} ${PLATFORM_KIND}"

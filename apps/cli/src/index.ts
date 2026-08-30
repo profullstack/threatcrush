@@ -33,15 +33,21 @@ import { hardenCommand } from "./commands/harden.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import { PATHS } from "./daemon/paths.js";
 import {
+  DAEMON_UNIT,
   activeCliPath,
   activeCliVersion,
+  daemonRefreshPlan,
   globalHolders,
   globalInstallCommand,
   globalListCommand,
   latestPublishedVersion,
   shadowedUpdateWarning,
+  staleDaemonWarning,
+  systemdOwnsDaemon,
   type PackageManager,
 } from "./upgrade.js";
+import { IpcClient } from "./core/ipc-client.js";
+import { findRunningDaemon } from "./daemon/pidfile.js";
 import { PKG_VERSION } from "./core/version.js";
 
 const LOGO = `
@@ -144,6 +150,73 @@ async function reportIfStillStale(): Promise<void> {
     console.log(chalk.dim(`  ${line}`));
   }
   console.log();
+}
+
+/** The running daemon's pid and version, or nulls when it is not up. */
+async function liveDaemon(): Promise<{ pid: number | null; version: string | null }> {
+  const pid = findRunningDaemon();
+  if (!pid) return { pid: null, version: null };
+
+  const client = new IpcClient();
+  try {
+    await client.connect();
+    const live = await client.status();
+    return { pid, version: live.version ?? null };
+  } catch {
+    // Daemon is up but not answering IPC — we still know it is running.
+    return { pid, version: null };
+  } finally {
+    client.close();
+  }
+}
+
+/**
+ * Bring the running daemon onto the build we just installed.
+ *
+ * The CLI upgrade replaces files on disk and nothing else, so without this the
+ * daemon serves the old version indefinitely while `update` reports success.
+ */
+async function refreshDaemonAfterUpgrade(): Promise<void> {
+  const before = await liveDaemon();
+  const plan = daemonRefreshPlan({
+    daemonRunning: before.pid !== null,
+    systemdManaged: systemdOwnsDaemon(
+      execQuiet(`systemctl show ${DAEMON_UNIT} -p MainPID --value`),
+      before.pid,
+    ),
+  });
+
+  if (plan.action === "none") return;
+
+  if (plan.action === "manual") {
+    // Restarting this one ourselves would swap a supervised daemon for an
+    // unsupervised one, so hand the command over instead of running it.
+    console.log(chalk.yellow("  ! The daemon is managed by systemd and is still on the old build."));
+    console.log(chalk.dim(`    Restart it with:  ${plan.command}\n`));
+    return;
+  }
+
+  console.log(chalk.dim("  Restarting threatcrushd onto the new build...\n"));
+  await daemonRestart();
+
+  const after = await liveDaemon();
+  const warning = staleDaemonWarning(PKG_VERSION, after.version);
+  if (warning) {
+    console.log(chalk.yellow(`  ${warning[0]}`));
+    for (const line of warning.slice(1)) {
+      console.log(chalk.dim(`  ${line}`));
+    }
+    console.log();
+  }
+}
+
+/** Runs a command for its stdout, swallowing failure and a missing binary. */
+function execQuiet(cmd: string): string | null {
+  try {
+    return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] });
+  } catch {
+    return null;
+  }
 }
 
 // ─── Program ───
@@ -534,6 +607,10 @@ program
         console.log(chalk.dim("  Updated bundle: CLI only\n"));
       }
       await reportIfStillStale();
+      await refreshDaemonAfterUpgrade();
+      // A running `monitor --tui` loaded its code at launch, so it keeps
+      // rendering the old build however current everything on disk is.
+      console.log(chalk.dim("  If a `threatcrush monitor --tui` is open, quit and relaunch it.\n"));
     } catch (err) {
       console.log(chalk.red("\n  ✗ Update failed. Try manually:\n"));
       for (const cmd of commands) {

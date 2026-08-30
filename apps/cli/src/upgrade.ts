@@ -105,6 +105,71 @@ export async function latestPublishedVersion(pkgName: string, timeoutMs = 8000):
   }
 }
 
+export const DAEMON_UNIT = "threatcrushd.service";
+
+/**
+ * Whether a systemd unit — rather than a bare `threatcrush start` — owns the
+ * daemon that is currently up.
+ *
+ * This decides how the daemon may be restarted, and getting it wrong is worse
+ * than not restarting at all: `threatcrush restart` against a systemd-managed
+ * daemon stops the supervised copy and starts an unsupervised one in its place,
+ * which systemd then knows nothing about.
+ */
+export function systemdOwnsDaemon(mainPidOutput: string | null, daemonPid: number | null): boolean {
+  if (!mainPidOutput || !daemonPid) return false;
+  const mainPid = Number.parseInt(mainPidOutput.trim(), 10);
+  // systemd reports MainPID=0 for a unit that is not running.
+  return Number.isFinite(mainPid) && mainPid > 0 && mainPid === daemonPid;
+}
+
+export type DaemonRefresh =
+  | { action: "none" }
+  | { action: "restart" }
+  | { action: "manual"; command: string };
+
+/**
+ * What to do about the running daemon once a new CLI is on disk.
+ *
+ * Upgrading the CLI does not touch a daemon that is already running: it keeps
+ * executing the bundle it was spawned from, even after that version has been
+ * uninstalled. One host sat on a daemon running 0.11.3 out of a pnpm store path
+ * for a version no longer installed at all, while the CLI beside it reported
+ * 0.11.6 and every upgrade printed success.
+ */
+export function daemonRefreshPlan(opts: {
+  daemonRunning: boolean;
+  systemdManaged: boolean;
+  unit?: string;
+}): DaemonRefresh {
+  if (!opts.daemonRunning) return { action: "none" };
+  if (opts.systemdManaged) {
+    return { action: "manual", command: `sudo systemctl restart ${opts.unit ?? DAEMON_UNIT}` };
+  }
+  return { action: "restart" };
+}
+
+/**
+ * Lines to print when the daemon is still serving a different version than the
+ * CLI we just installed. Returns null when they agree or the daemon is down.
+ */
+export function staleDaemonWarning(
+  cliVersion: string | null,
+  daemonVersion: string | null,
+  restartCommand = "threatcrush restart",
+): string[] | null {
+  if (!cliVersion || !daemonVersion || cliVersion === daemonVersion) return null;
+
+  return [
+    "⚠ The CLI was updated, but the running daemon is still on the old build.",
+    `  CLI:    ${cliVersion}`,
+    `  Daemon: ${daemonVersion}`,
+    "",
+    "  A running daemon keeps executing the bundle it started from. Restart it:",
+    `    ${restartCommand}`,
+  ];
+}
+
 /**
  * Lines to print when the update ran clean but PATH still resolves to an older
  * copy — a stale shell hash, or a second install the package manager we used
