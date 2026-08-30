@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import type { EventSeverity } from '../types/events.js';
+import { PKG_VERSION } from './version.js';
 
 const SEVERITY_COLORS: Record<EventSeverity, (s: string) => string> = {
   info: chalk.green,
@@ -58,5 +59,5 @@ export function banner(): void {
      ██║   ██║  ██║██║  ██║███████╗██║  ██║   ██║   ╚██████╗██║  ██║╚██████╔╝███████║██║  ██║
      ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝   ╚═╝    ╚═════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
   `));
-  console.log(chalk.gray('  All-in-one security agent daemon — v0.1.0\n'));
+  console.log(chalk.gray(`  All-in-one security agent daemon — v${PKG_VERSION}\n`));
 }
