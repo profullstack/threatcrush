@@ -42,12 +42,7 @@ import {
   shadowedUpdateWarning,
   type PackageManager,
 } from "./upgrade.js";
-
-let PKG_VERSION = "0.1.8";
-try {
-  const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
-  PKG_VERSION = pkg.version;
-} catch {}
+import { PKG_VERSION } from "./core/version.js";
 
 const LOGO = `
 ${chalk.green("  ████████╗██╗  ██╗██████╗ ███████╗ █████╗ ████████╗")}
