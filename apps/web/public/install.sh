@@ -210,9 +210,49 @@ ensure_global_prefix() {
   esac
 }
 
+# A previous install made with a different package manager leaves its own shim
+# behind, and that shim often sorts ahead of npm's on PATH. The install then
+# succeeds while the user keeps running the old binary - which reads as "the
+# installer says it updated but the version never changes". Clear the strays
+# before installing rather than leaving two copies to fight over PATH.
+#
+# Every probe is guarded: `set -e` is on, and none of this is worth aborting a
+# working install for. pnpm in particular refuses to run at all when its global
+# bin dir is not already exported, so its failure here is expected and benign.
+remove_stale_global_installs() {
+  KEEP_PM="$1"
+  PACKAGE_NAME="$2"
+
+  if [ "$KEEP_PM" != "pnpm" ] && command_exists pnpm; then
+    if pnpm ls -g --depth=0 2>/dev/null | grep -q "$PACKAGE_NAME"; then
+      say "${YELLOW}→ Removing an older ${PACKAGE_NAME} installed with pnpm...${RESET}"
+      pnpm remove -g "$PACKAGE_NAME" >/dev/null 2>&1 ||
+        say "${DIM}  Could not remove it. Run: pnpm remove -g ${PACKAGE_NAME}${RESET}"
+    fi
+  fi
+
+  if [ "$KEEP_PM" != "yarn" ] && command_exists yarn; then
+    if yarn global list 2>/dev/null | grep -q "$PACKAGE_NAME"; then
+      say "${YELLOW}→ Removing an older ${PACKAGE_NAME} installed with yarn...${RESET}"
+      yarn global remove "$PACKAGE_NAME" >/dev/null 2>&1 ||
+        say "${DIM}  Could not remove it. Run: yarn global remove ${PACKAGE_NAME}${RESET}"
+    fi
+  fi
+
+  if [ "$KEEP_PM" != "bun" ] && command_exists bun; then
+    if bun pm ls -g 2>/dev/null | grep -q "$PACKAGE_NAME"; then
+      say "${YELLOW}→ Removing an older ${PACKAGE_NAME} installed with bun...${RESET}"
+      bun remove -g "$PACKAGE_NAME" >/dev/null 2>&1 ||
+        say "${DIM}  Could not remove it. Run: bun remove -g ${PACKAGE_NAME}${RESET}"
+    fi
+  fi
+}
+
 install_global_package() {
   PACKAGE_NAME="$1"
   PM=$(detect_pm)
+
+  remove_stale_global_installs "$PM" "$PACKAGE_NAME"
 
   case "$PM" in
     pnpm)
@@ -247,6 +287,40 @@ install_global_package() {
       exit 1
       ;;
   esac
+}
+
+# The version we just put on disk, read from the installed package rather than
+# from the registry, so this stays correct offline and on a pinned install.
+installed_version() {
+  PACKAGE_NAME="$1"
+  NPM_ROOT=$(npm root -g 2>/dev/null) || return 1
+  [ -n "$NPM_ROOT" ] || return 1
+  node -p "require('$NPM_ROOT/$PACKAGE_NAME/package.json').version" 2>/dev/null
+}
+
+# `command_exists threatcrush` only proves *something* named threatcrush is on
+# PATH - not that it is the copy we just installed. Without this check the
+# installer prints "installed successfully" next to the old version number and
+# the user has no idea why the upgrade did nothing.
+warn_if_shadowed() {
+  EXPECTED="$1"
+  ACTIVE="$2"
+
+  if [ -z "$EXPECTED" ] || [ -z "$ACTIVE" ] || [ "$EXPECTED" = "$ACTIVE" ]; then
+    return 0
+  fi
+
+  ACTIVE_PATH=$(command -v threatcrush 2>/dev/null || echo "unknown")
+
+  say ""
+  say "${YELLOW}⚠ PATH still resolves to an older ThreatCrush.${RESET}"
+  say "  ${DIM}Just installed:${RESET} ${EXPECTED}"
+  say "  ${DIM}Running from PATH:${RESET} ${ACTIVE}  ${DIM}(${ACTIVE_PATH})${RESET}"
+  say ""
+  say "  ${DIM}Usually a stale shell hash. Try first:${RESET}"
+  say "    ${GREEN}hash -r${RESET}   ${DIM}# or open a new terminal${RESET}"
+  say "  ${DIM}If it persists, that path is an older copy - remove it:${RESET}"
+  say "    ${GREEN}rm ${ACTIVE_PATH}${RESET}"
 }
 
 announce_desktop_bundle() {
@@ -332,7 +406,9 @@ write_install_config "$INSTALL_MODE" "$(detect_pm)" "$PLATFORM_KIND"
 say ""
 if command_exists threatcrush; then
   VERSION=$(threatcrush --version 2>/dev/null || echo "unknown")
+  EXPECTED_VERSION=$(installed_version "$PKG_NAME" 2>/dev/null || echo "")
   say "${GREEN}✓ ThreatCrush ${VERSION} installed successfully!${RESET}"
+  warn_if_shadowed "$EXPECTED_VERSION" "$VERSION"
   say ""
   say "  ${BOLD}Detected install mode:${RESET} ${INSTALL_MODE}"
   say "  ${BOLD}Platform kind:${RESET} ${PLATFORM_KIND}"
