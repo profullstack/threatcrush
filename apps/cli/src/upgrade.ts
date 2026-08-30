@@ -91,7 +91,10 @@ export function activeCliPath(bin = "threatcrush", run: Runner = defaultRunner):
 /** The version the registry currently serves as `latest`. Null when offline. */
 export async function latestPublishedVersion(pkgName: string, timeoutMs = 8000): Promise<string | null> {
   try {
-    const res = await fetch(`https://registry.npmjs.org/${pkgName.replace("/", "%2F")}/latest`, {
+    // The registry serves a scoped name unescaped (`/@scope/name/latest`), so
+    // the slash needs no encoding here — and hand-rolling one is how you write
+    // an escape that only replaces the first occurrence.
+    const res = await fetch(`https://registry.npmjs.org/${pkgName}/latest`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) return null;
