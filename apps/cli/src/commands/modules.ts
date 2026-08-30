@@ -72,7 +72,7 @@ function printTrustRequired(name: string): void {
 function notifyDaemonIfRunning(): void {
   if (!findRunningDaemon()) return;
   console.log(chalk.dim(`  ℹ threatcrushd is running — restart it to load/unload modules:`));
-  console.log(chalk.dim(`    ${chalk.white('threatcrush stop && threatcrush start')}`));
+  console.log(chalk.dim(`    ${chalk.white('threatcrush restart')}`));
 }
 
 export async function modulesListCommand(): Promise<void> {

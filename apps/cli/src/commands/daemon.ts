@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { openSync } from 'node:fs';
 import chalk from 'chalk';
 import { runDaemon } from '../daemon/index.js';
 import { PATHS, ensureRuntimeDirs } from '../daemon/paths.js';
-import { findRunningDaemon, removePidFile } from '../daemon/pidfile.js';
+import { findRunningDaemon, isProcessAlive, removePidFile } from '../daemon/pidfile.js';
 import { IpcClient } from '../core/ipc-client.js';
 
 const DAEMON_ENTRY = join(__dirname, 'daemon.js');
@@ -73,11 +73,16 @@ export async function daemonStart(): Promise<void> {
   }
 }
 
-export async function daemonStop(): Promise<void> {
+/**
+ * Returns true when no daemon is running once this resolves — either it was
+ * already down, or we brought it down. `restart` needs that answer: starting a
+ * second daemon while the first is alive makes it unlink the live socket.
+ */
+export async function daemonStop(): Promise<boolean> {
   const pid = findRunningDaemon();
   if (!pid) {
     console.log(chalk.dim('  No running daemon found.'));
-    return;
+    return true;
   }
 
   try {
@@ -89,19 +94,55 @@ export async function daemonStop(): Promise<void> {
     try { process.kill(pid, 'SIGTERM'); } catch {}
   }
 
-  const deadline = Date.now() + 3000;
-  while (Date.now() < deadline) {
-    try { process.kill(pid, 0); } catch { break; }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-
-  try { process.kill(pid, 0); } catch {
+  // `isProcessAlive` treats EPERM as alive. A raw `process.kill(pid, 0)` here
+  // would read the EPERM from signalling a root-owned daemon as "it's gone".
+  if (await waitForExit(pid, 3000)) {
     removePidFile();
     console.log(chalk.green(`  ✓ threatcrushd stopped.`));
-    return;
+    return true;
   }
 
   try { process.kill(pid, 'SIGKILL'); } catch {}
+
+  if (!(await waitForExit(pid, 1000))) {
+    console.log(chalk.red(`  ✗ threatcrushd (pid ${pid}) is still running and could not be stopped.`));
+    console.log(chalk.dim('    It may be owned by another user — try `sudo threatcrush stop`.\n'));
+    // Leave the pidfile: it still points at a live process.
+    return false;
+  }
+
   removePidFile();
   console.log(chalk.yellow(`  ! threatcrushd was killed (SIGKILL).`));
+  return true;
+}
+
+export async function daemonRestart(): Promise<void> {
+  if (!(await daemonStop())) return;
+  await releaseStaleSocket();
+  await daemonStart();
+}
+
+async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (isProcessAlive(pid)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return true;
+}
+
+/**
+ * A daemon that exits cleanly unlinks its own socket, but one we SIGKILLed
+ * leaves the file behind — and `daemonStart` reads socket existence as
+ * "it's up", so a leftover would make the restart report success without the
+ * new daemon ever binding.
+ */
+async function releaseStaleSocket(): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (existsSync(PATHS.socket) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  if (existsSync(PATHS.socket)) {
+    try { unlinkSync(PATHS.socket); } catch {}
+  }
 }

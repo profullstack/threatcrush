@@ -16,7 +16,7 @@ import { pentestCommand } from "./commands/pentest.js";
 import { orgsCommand } from "./commands/orgs.js";
 import { serversCommand } from "./commands/servers.js";
 import { connectCommand } from "./commands/connect.js";
-import { daemonForeground, daemonStart, daemonStop } from "./commands/daemon.js";
+import { daemonForeground, daemonRestart, daemonStart, daemonStop } from "./commands/daemon.js";
 import { installServiceCommand, uninstallServiceCommand } from "./commands/service.js";
 import { loginCommand, logoutCommand, whoamiCommand } from "./commands/login.js";
 import { welcomeCommand } from "./commands/welcome.js";
@@ -389,6 +389,14 @@ program
   .action(async () => {
     console.log(LOGO);
     await daemonStop();
+  });
+
+program
+  .command("restart")
+  .description("Restart the ThreatCrush daemon (stop, then start)")
+  .action(async () => {
+    console.log(LOGO);
+    await daemonRestart();
   });
 
 program

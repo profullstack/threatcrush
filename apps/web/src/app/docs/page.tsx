@@ -77,6 +77,11 @@ const supportedCommands = [
     notes: "Command surface exists, but the real daemon/service lifecycle is still being built.",
   },
   {
+    name: "threatcrush restart",
+    description: "Restart the daemon.",
+    notes: "Command surface exists, but the real daemon/service lifecycle is still being built.",
+  },
+  {
     name: "threatcrush logs",
     description: "Inspect runtime logs.",
     notes: "Command surface exists, but final logging/runtime behavior is still planned.",

@@ -57,6 +57,7 @@ threatcrush (CLI)
 # Daemon management
 threatcrush start                     # Start daemon (or systemctl start threatcrushd)
 threatcrush stop                      # Stop daemon
+threatcrush restart                   # Restart daemon
 threatcrush status                    # Show daemon status, active modules, threat count
 threatcrush logs                      # Tail daemon logs
 threatcrush logs --module ssh-guard   # Tail specific module logs
