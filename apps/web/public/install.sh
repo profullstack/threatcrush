@@ -54,11 +54,23 @@ run_cmd() {
   fi
 }
 
+# npm first, deliberately. It ships with Node, and its global install is the one
+# path that behaves the same on every machine. The alternatives each have a way
+# to fail a `curl | sh` run that the user never opted into:
+#   pnpm  - `pnpm add -g` aborts when its global bin dir is not already on PATH,
+#           the global dir layout is versioned (v9/v10 use `global/5`, v11 uses
+#           `global/v11`) so two pnpm versions on one box fight over it, and the
+#           global pnpm-lock.yaml pins the resolved version, so a reinstall can
+#           silently hand back an older release than `latest`.
+#   yarn  - `yarn global add` is removed in Yarn 2+.
+#   bun   - `bun add -g` links into ~/.bun/bin, which is often not on PATH.
+# Anyone who wants a different package manager can still install by hand; the
+# installer should pick the boring option that works unattended.
 detect_pm() {
-  if command_exists pnpm; then echo "pnpm"
+  if command_exists npm; then echo "npm"
+  elif command_exists pnpm; then echo "pnpm"
   elif command_exists yarn; then echo "yarn"
   elif command_exists bun; then echo "bun"
-  elif command_exists npm; then echo "npm"
   else echo ""; fi
 }
 
