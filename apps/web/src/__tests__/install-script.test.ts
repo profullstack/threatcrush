@@ -33,10 +33,18 @@ describe("install.sh", () => {
     expect(installScript).toContain("Platform kind:");
   });
 
-  it("treats desktop clients differently from Linux server installs", () => {
-    expect(installScript).toContain('DESKTOP_PKG_NAME="@profullstack/threatcrush-desktop"');
-    expect(installScript).toContain('desktop-client');
-    expect(installScript).toContain('Linux server');
-    expect(installScript).toContain('install_desktop_bundle');
+  it("installs the CLI on every platform, including macOS and Windows", () => {
+    // Regression: the desktop-client branch skipped the CLI entirely and tried
+    // to `add -g @profullstack/threatcrush-desktop`, which has never been
+    // published. Under `set -e` the 404 aborted the whole install on macOS.
+    expect(installScript).toContain('install_global_package "$PKG_NAME"');
+    expect(installScript).not.toContain("@profullstack/threatcrush-desktop");
+  });
+
+  it("points desktop users at the GitHub Releases bundle", () => {
+    expect(installScript).toContain("DESKTOP_RELEASES_URL");
+    expect(installScript).toContain("releases/latest");
+    expect(installScript).toContain("announce_desktop_bundle");
+    expect(installScript).toContain("desktop-client");
   });
 });

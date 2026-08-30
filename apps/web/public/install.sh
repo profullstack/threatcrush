@@ -12,7 +12,9 @@ DIM="\033[2m"
 RESET="\033[0m"
 
 PKG_NAME="@profullstack/threatcrush"
-DESKTOP_PKG_NAME="@profullstack/threatcrush-desktop"
+# The desktop app is an Electron bundle published to GitHub Releases (.dmg /
+# .exe / .AppImage / .deb), not to npm. There is nothing to install globally.
+DESKTOP_RELEASES_URL="https://github.com/profullstack/threatcrush/releases/latest"
 MISE_INSTALL_URL="https://mise.run"
 CONFIG_DIR="$HOME/.threatcrush"
 CONFIG_PATH="$CONFIG_DIR/install.json"
@@ -66,6 +68,15 @@ detect_node() {
 
 detect_os() {
   uname -s 2>/dev/null || echo "unknown"
+}
+
+detect_arch() {
+  ARCH_NAME=$(uname -m 2>/dev/null || echo "unknown")
+  case "$ARCH_NAME" in
+    x86_64|amd64) echo "x64" ;;
+    arm64|aarch64) echo "arm64" ;;
+    *) echo "$ARCH_NAME" ;;
+  esac
 }
 
 detect_install_mode() {
@@ -226,16 +237,31 @@ install_global_package() {
   esac
 }
 
-install_desktop_bundle() {
+announce_desktop_bundle() {
   OS_NAME=$(detect_os)
+  ARCH=$(detect_arch)
+
   case "$OS_NAME" in
-    Linux|Darwin|MINGW*|MSYS*|CYGWIN*|Windows_NT)
-      install_global_package "$DESKTOP_PKG_NAME"
+    Darwin)
+      DESKTOP_ASSET="threatcrush-desktop-<version>-${ARCH}.dmg"
+      ;;
+    Linux)
+      DESKTOP_ASSET="threatcrush-desktop-<version>-x86_64.AppImage or -amd64.deb"
+      ;;
+    MINGW*|MSYS*|CYGWIN*|Windows_NT)
+      DESKTOP_ASSET="threatcrush-desktop-<version>-x64-setup.exe"
       ;;
     *)
-      say "${YELLOW}Desktop mode detected, but automatic desktop package install is not ready on ${OS_NAME}.${RESET}"
+      DESKTOP_ASSET=""
       ;;
   esac
+
+  if [ -n "$DESKTOP_ASSET" ]; then
+    say "  ${DIM}Download:${RESET} ${DESKTOP_ASSET}"
+    say "  ${DIM}From:${RESET}     ${DESKTOP_RELEASES_URL}"
+  else
+    say "${YELLOW}Desktop builds are not published for ${OS_NAME}.${RESET}"
+  fi
 }
 
 NODE_VERSION=$(detect_node)
@@ -281,17 +307,12 @@ if [ -z "$NODE_VERSION" ] || [ -z "$PM" ]; then
   say ""
 fi
 
-if [ "$PLATFORM_KIND" = "desktop-client" ]; then
-  say "${GREEN}→ Desktop client platform detected. Installing desktop app bundle...${RESET}"
-  install_desktop_bundle
-else
-  install_global_package "$PKG_NAME"
+install_global_package "$PKG_NAME"
 
-  if [ "$INSTALL_MODE" = "desktop" ]; then
-    say ""
-    say "${GREEN}→ Linux desktop detected. Installing desktop bundle too...${RESET}"
-    install_desktop_bundle
-  fi
+if [ "$INSTALL_MODE" = "desktop" ]; then
+  say ""
+  say "${GREEN}→ Desktop platform detected. The desktop app is a separate download:${RESET}"
+  announce_desktop_bundle
 fi
 
 write_install_config "$INSTALL_MODE" "$(detect_pm)" "$PLATFORM_KIND"
@@ -304,17 +325,12 @@ if command_exists threatcrush; then
   say "  ${BOLD}Detected install mode:${RESET} ${INSTALL_MODE}"
   say "  ${BOLD}Platform kind:${RESET} ${PLATFORM_KIND}"
   say "  ${BOLD}Preferred usage:${RESET}"
-  if [ "$PLATFORM_KIND" = "desktop-client" ]; then
-    say "    ${GREEN}ThreatCrush Desktop${RESET}       ${DIM}# Connect to a ThreatCrush server${RESET}"
-    say "    ${GREEN}threatcrush update${RESET}        ${DIM}# Upgrade the installed desktop bundle${RESET}"
-    say "    ${GREEN}threatcrush remove${RESET}        ${DIM}# Uninstall the installed desktop bundle${RESET}"
-  else
-    say "    ${GREEN}threatcrush${RESET}               ${DIM}# Setup / help${RESET}"
-    say "    ${GREEN}threatcrush init${RESET}          ${DIM}# Auto-detect services and generate config${RESET}"
-    say "    ${GREEN}threatcrush monitor${RESET}       ${DIM}# Real-time monitoring${RESET}"
-    say "    ${GREEN}threatcrush update${RESET}        ${DIM}# Upgrade CLI later using the same blessed path${RESET}"
-    say "    ${GREEN}threatcrush remove${RESET}        ${DIM}# Uninstall the installed bundle${RESET}"
-  fi
+  say "    ${GREEN}threatcrush${RESET}                  ${DIM}# Setup / help${RESET}"
+  say "    ${GREEN}threatcrush init${RESET}             ${DIM}# Auto-detect services and generate config${RESET}"
+  say "    ${GREEN}threatcrush monitor${RESET}          ${DIM}# Real-time monitoring${RESET}"
+  say "    ${GREEN}threatcrush monitor --tui${RESET}    ${DIM}# Interactive dashboard${RESET}"
+  say "    ${GREEN}threatcrush update${RESET}           ${DIM}# Upgrade CLI later using the same blessed path${RESET}"
+  say "    ${GREEN}threatcrush remove${RESET}           ${DIM}# Uninstall the installed bundle${RESET}"
   say ""
   say "  ${BOLD}Install model:${RESET}"
   say "    ${DIM}• Primary install:${RESET} curl -fsSL https://threatcrush.com/install.sh | sh"
@@ -322,12 +338,10 @@ if command_exists threatcrush; then
   say "    ${DIM}• Platform kind:${RESET} ${PLATFORM_KIND}"
   say "    ${DIM}• Upgrades later:${RESET} threatcrush update"
   say "    ${DIM}• Bare machines:${RESET} installer can bootstrap Node.js with mise"
-  if [ "$PLATFORM_KIND" = "desktop-client" ]; then
-    say "    ${DIM}• Desktop client:${RESET} desktop app only — connects to a ThreatCrush server elsewhere"
-  elif [ "$INSTALL_MODE" = "desktop" ]; then
-    say "    ${DIM}• Linux desktop:${RESET} CLI + desktop app"
+  if [ "$INSTALL_MODE" = "desktop" ]; then
+    say "    ${DIM}• Desktop:${RESET} CLI installed — the desktop app is an optional separate download"
   else
-    say "    ${DIM}• Linux server:${RESET} CLI only"
+    say "    ${DIM}• Server:${RESET} CLI only"
   fi
 else
   say "${RED}Installation completed but 'threatcrush' was not found on PATH.${RESET}"
