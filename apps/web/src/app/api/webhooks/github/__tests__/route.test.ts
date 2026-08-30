@@ -1,9 +1,13 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST, verifySignature, logSafe } from "../route";
 
-const SECRET = "a8dcbc8a7d80e768fa24dac0b907e7491ecb4bfc3805107486a5ffe581b91faf";
+// Generated per run rather than written down. These tests only need both sides
+// of the signature to agree on *a* secret, so the literal bought nothing — and
+// a 64-hex constant named SECRET is indistinguishable from a leaked webhook
+// secret to every scanner that reads this tree, ours included.
+const SECRET = randomBytes(32).toString("hex");
 const URL_ = "https://threatcrush.com/api/webhooks/github";
 
 function sign(body: string, secret = SECRET) {
