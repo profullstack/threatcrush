@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  daemonRefreshPlan,
   globalHolders,
   globalInstallCommand,
   globalListCommand,
   parseVersionOutput,
   shadowedUpdateWarning,
+  staleDaemonWarning,
+  systemdOwnsDaemon,
   type PackageManager,
   type Runner,
 } from "../upgrade.js";
@@ -131,5 +134,73 @@ describe("shadowedUpdateWarning", () => {
     const text = (shadowedUpdateWarning("0.11.5", "0.2.2", null) ?? []).join("\n");
     expect(text).toContain("unknown");
     expect(text).toContain("rm <path>");
+  });
+});
+
+describe("systemdOwnsDaemon", () => {
+  it("matches when the unit's MainPID is the running daemon", () => {
+    expect(systemdOwnsDaemon("1138793\n", 1138793)).toBe(true);
+  });
+
+  it("treats MainPID=0 as not managed", () => {
+    // systemd reports 0 for a unit that is not running — a bare `threatcrush
+    // start` daemon must not be mistaken for a supervised one.
+    expect(systemdOwnsDaemon("0\n", 1138793)).toBe(false);
+  });
+
+  it("is false when systemctl is absent or the pids differ", () => {
+    expect(systemdOwnsDaemon(null, 1138793)).toBe(false);
+    expect(systemdOwnsDaemon("42\n", 1138793)).toBe(false);
+    expect(systemdOwnsDaemon("1138793\n", null)).toBe(false);
+  });
+});
+
+describe("daemonRefreshPlan", () => {
+  it("does nothing when no daemon is running", () => {
+    expect(daemonRefreshPlan({ daemonRunning: false, systemdManaged: false })).toEqual({
+      action: "none",
+    });
+  });
+
+  it("restarts a daemon we started ourselves", () => {
+    expect(daemonRefreshPlan({ daemonRunning: true, systemdManaged: false })).toEqual({
+      action: "restart",
+    });
+  });
+
+  // Restarting a systemd-managed daemon ourselves would swap the supervised
+  // copy for an unsupervised one that systemd knows nothing about.
+  it("hands over the command for a systemd-managed daemon", () => {
+    expect(daemonRefreshPlan({ daemonRunning: true, systemdManaged: true })).toEqual({
+      action: "manual",
+      command: "sudo systemctl restart threatcrushd.service",
+    });
+  });
+});
+
+describe("staleDaemonWarning", () => {
+  it("stays quiet when the daemon matches the CLI", () => {
+    expect(staleDaemonWarning("0.11.7", "0.11.7")).toBeNull();
+  });
+
+  it("stays quiet when the daemon is down or unreadable", () => {
+    expect(staleDaemonWarning("0.11.7", null)).toBeNull();
+    expect(staleDaemonWarning(null, "0.11.3")).toBeNull();
+  });
+
+  // The failure this exists for: a CLI on 0.11.6 beside a daemon still running
+  // 0.11.3 out of a store path for a version no longer installed.
+  it("names both versions and how to fix it", () => {
+    const text = (staleDaemonWarning("0.11.6", "0.11.3") ?? []).join("\n");
+    expect(text).toContain("0.11.6");
+    expect(text).toContain("0.11.3");
+    expect(text).toContain("threatcrush restart");
+  });
+
+  it("uses the supplied restart command", () => {
+    const text = (
+      staleDaemonWarning("0.11.6", "0.11.3", "sudo systemctl restart threatcrushd") ?? []
+    ).join("\n");
+    expect(text).toContain("sudo systemctl restart threatcrushd");
   });
 });
