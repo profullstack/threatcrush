@@ -41,6 +41,24 @@ describe("install.sh", () => {
     expect(installScript).not.toContain("@profullstack/threatcrush-desktop");
   });
 
+  it("installs an explicit @latest so a reinstall cannot resolve to the old copy", () => {
+    // Regression: a bare package name lets pnpm's global lockfile pin (and
+    // npm's satisfying tree) hand back the version already on disk, so
+    // rerunning the installer over an old install reported success and changed
+    // nothing.
+    expect(installScript).toContain('PACKAGE_SPEC="${PACKAGE_NAME}@latest"');
+    expect(installScript).toContain('pnpm add -g "$PACKAGE_SPEC"');
+    expect(installScript).toContain('npm i -g "$PACKAGE_SPEC"');
+    expect(installScript).not.toContain('pnpm add -g "$PACKAGE_NAME"');
+  });
+
+  it("reads the installed version from whichever package manager installed it", () => {
+    // `npm root -g` is empty after a pnpm install, which silently disabled the
+    // shadowed-install warning on exactly the machines that needed it.
+    expect(installScript).toContain('for ROOT_CMD in "npm root -g" "pnpm root -g"');
+    expect(installScript).toContain("warn_if_shadowed");
+  });
+
   it("points desktop users at the GitHub Releases bundle", () => {
     expect(installScript).toContain("DESKTOP_RELEASES_URL");
     expect(installScript).toContain("releases/latest");

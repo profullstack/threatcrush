@@ -252,34 +252,40 @@ install_global_package() {
   PACKAGE_NAME="$1"
   PM=$(detect_pm)
 
+  # Always an explicit `@latest`. A bare package name lets a package manager
+  # reuse what it already resolved: pnpm's global lockfile pins the version it
+  # first installed, and npm reuses a satisfying tree, so a reinstall over an
+  # old copy can hand back that old copy and report success.
+  PACKAGE_SPEC="${PACKAGE_NAME}@latest"
+
   remove_stale_global_installs "$PM" "$PACKAGE_NAME"
 
   case "$PM" in
     pnpm)
       say "${GREEN}→ Installing ${PACKAGE_NAME} via pnpm...${RESET}"
-      pnpm add -g "$PACKAGE_NAME"
+      pnpm add -g "$PACKAGE_SPEC"
       ;;
     yarn)
       say "${GREEN}→ Installing ${PACKAGE_NAME} via yarn...${RESET}"
-      yarn global add "$PACKAGE_NAME"
+      yarn global add "$PACKAGE_SPEC"
       ;;
     bun)
       say "${GREEN}→ Installing ${PACKAGE_NAME} via bun...${RESET}"
-      bun add -g "$PACKAGE_NAME"
+      bun add -g "$PACKAGE_SPEC"
       ;;
     npm)
       say "${GREEN}→ Installing ${PACKAGE_NAME} via npm...${RESET}"
       ensure_global_prefix
       if [ "$(id -u)" -eq 0 ]; then
-        npm i -g "$PACKAGE_NAME"
+        npm i -g "$PACKAGE_SPEC"
       elif command_exists sudo; then
-        if npm i -g "$PACKAGE_NAME" 2>/dev/null; then
+        if npm i -g "$PACKAGE_SPEC" 2>/dev/null; then
           :
         else
-          run_cmd npm i -g "$PACKAGE_NAME"
+          run_cmd npm i -g "$PACKAGE_SPEC"
         fi
       else
-        npm i -g "$PACKAGE_NAME"
+        npm i -g "$PACKAGE_SPEC"
       fi
       ;;
     *)
@@ -293,9 +299,21 @@ install_global_package() {
 # from the registry, so this stays correct offline and on a pinned install.
 installed_version() {
   PACKAGE_NAME="$1"
-  NPM_ROOT=$(npm root -g 2>/dev/null) || return 1
-  [ -n "$NPM_ROOT" ] || return 1
-  node -p "require('$NPM_ROOT/$PACKAGE_NAME/package.json').version" 2>/dev/null
+
+  # The global root belongs to whichever package manager did the install, so
+  # ask each one we might have used. Reading only `npm root -g` after a pnpm
+  # install returned nothing, which silently disabled the shadow check below.
+  for ROOT_CMD in "npm root -g" "pnpm root -g"; do
+    PKG_ROOT=$($ROOT_CMD 2>/dev/null) || continue
+    [ -n "$PKG_ROOT" ] || continue
+    FOUND=$(node -p "require('$PKG_ROOT/$PACKAGE_NAME/package.json').version" 2>/dev/null) || continue
+    if [ -n "$FOUND" ]; then
+      echo "$FOUND"
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 # `command_exists threatcrush` only proves *something* named threatcrush is on

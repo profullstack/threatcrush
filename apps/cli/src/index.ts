@@ -32,6 +32,16 @@ import { rulesCommand } from "./commands/rules.js";
 import { hardenCommand } from "./commands/harden.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import { PATHS } from "./daemon/paths.js";
+import {
+  activeCliPath,
+  activeCliVersion,
+  globalHolders,
+  globalInstallCommand,
+  globalListCommand,
+  latestPublishedVersion,
+  shadowedUpdateWarning,
+  type PackageManager,
+} from "./upgrade.js";
 
 let PKG_VERSION = "0.1.8";
 try {
@@ -69,7 +79,7 @@ async function joinWaitlist(email: string): Promise<{ referral_code?: string } |
   }
 }
 
-function detectPackageManager(): string {
+function detectPackageManager(): PackageManager {
   // Check what installed us
   try {
     const npmGlobal = execSync("npm ls -g --depth=0 --json 2>/dev/null", { encoding: "utf-8" });
@@ -98,43 +108,9 @@ function readInstallConfig(): { installMode?: string; packageManager?: string; i
   }
 }
 
-function getGlobalInstallCommand(pm: string, pkgName: string, action: "install" | "update" | "remove"): string {
-  const commands: Record<string, Record<string, string>> = {
-    npm: {
-      install: `npm i -g ${pkgName}`,
-      update: `npm update -g ${pkgName}`,
-      remove: `npm uninstall -g ${pkgName}`,
-    },
-    pnpm: {
-      install: `pnpm add -g ${pkgName}`,
-      update: `pnpm update -g ${pkgName}`,
-      remove: `pnpm remove -g ${pkgName}`,
-    },
-    yarn: {
-      install: `yarn global add ${pkgName}`,
-      update: `yarn global upgrade ${pkgName}`,
-      remove: `yarn global remove ${pkgName}`,
-    },
-    bun: {
-      install: `bun add -g ${pkgName}`,
-      update: `bun update -g ${pkgName}`,
-      remove: `bun remove -g ${pkgName}`,
-    },
-  };
-
-  return commands[pm]?.[action] || commands.npm[action];
-}
-
-function packageLooksInstalled(pm: string, pkgName: string): boolean {
+function packageLooksInstalled(pm: PackageManager, pkgName: string): boolean {
   try {
-    const listCommands: Record<string, string> = {
-      npm: `npm ls -g ${pkgName} --depth=0`,
-      pnpm: `pnpm list -g ${pkgName} --depth=0`,
-      yarn: `yarn global list --pattern ${pkgName}`,
-      bun: `bun pm ls -g`,
-    };
-
-    const output = execSync(listCommands[pm] || listCommands.npm, {
+    const output = execSync(globalListCommand(pm, pkgName), {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -143,6 +119,36 @@ function packageLooksInstalled(pm: string, pkgName: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Runs one upgrade command per package manager that holds a global copy, so a
+ * second install under another package manager cannot keep shadowing the new
+ * one. Falls back to whichever manager we detect when nothing reports a copy.
+ */
+function upgradeCommands(pkgName: string): string[] {
+  const holders = globalHolders(pkgName);
+  const targets = holders.length > 0 ? holders : [detectPackageManager()];
+  return targets.map((pm) => globalInstallCommand(pm, pkgName, "update"));
+}
+
+/**
+ * A clean install still leaves the user on the old build when PATH resolves
+ * somewhere else, and the old "✓ updated successfully" said nothing about it.
+ */
+async function reportIfStillStale(): Promise<void> {
+  const warning = shadowedUpdateWarning(
+    await latestPublishedVersion(PKG_NAME),
+    activeCliVersion(),
+    activeCliPath(),
+  );
+  if (!warning) return;
+
+  console.log(chalk.yellow(`  ${warning[0]}`));
+  for (const line of warning.slice(1)) {
+    console.log(chalk.dim(`  ${line}`));
+  }
+  console.log();
 }
 
 // ─── Program ───
@@ -490,16 +496,14 @@ program
     if (opts.modules) {
       console.log(LOGO);
       console.log(chalk.yellow("  Updating modules...\n"));
-      const pm = detectPackageManager();
-      const commands = [
-        getGlobalInstallCommand(pm, PKG_NAME, "update"),
-      ];
+      const commands = upgradeCommands(PKG_NAME);
       try {
         for (const cmd of commands) {
           console.log(chalk.green(`  → ${cmd}\n`));
           execSync(cmd, { stdio: "inherit" });
         }
         console.log(chalk.green("\n  ✓ Modules updated successfully!\n"));
+        await reportIfStillStale();
       } catch (err) {
         console.log(chalk.red("\n  ✗ Module update failed. Try manually:\n"));
         for (const cmd of commands) {
@@ -510,16 +514,17 @@ program
       return;
     }
 
-    const pm = detectPackageManager();
+    const holders = globalHolders(PKG_NAME);
     const installConfig = readInstallConfig();
     const installMode = opts.cli ? "server" : (opts.desktop ? "desktop" : installConfig.installMode || "server");
 
-    console.log(chalk.dim(`  Detected package manager: ${pm}`));
-    console.log(chalk.dim(`  Install mode: ${installMode}\n`));
+    console.log(chalk.dim(`  Detected package manager: ${holders.join(", ") || detectPackageManager()}`));
+    console.log(chalk.dim(`  Install mode: ${installMode}`));
+    console.log(chalk.dim(`  Current version: ${PKG_VERSION}\n`));
 
     // The desktop app ships as a GitHub Releases bundle, not an npm package,
     // so there is nothing to update globally for it here.
-    const commands = [getGlobalInstallCommand(pm, PKG_NAME, "update")];
+    const commands = upgradeCommands(PKG_NAME);
 
     try {
       for (const cmd of commands) {
@@ -533,6 +538,7 @@ program
       } else {
         console.log(chalk.dim("  Updated bundle: CLI only\n"));
       }
+      await reportIfStillStale();
     } catch (err) {
       console.log(chalk.red("\n  ✗ Update failed. Try manually:\n"));
       for (const cmd of commands) {
@@ -562,16 +568,23 @@ program
       return;
     }
 
-    const pm = detectPackageManager();
     const installConfig = readInstallConfig();
     const installMode = installConfig.installMode || "server";
-    const commands = [getGlobalInstallCommand(pm, PKG_NAME, "remove")];
 
-    if (installMode === "desktop" && packageLooksInstalled(pm, DESKTOP_PKG_NAME)) {
-      commands.push(getGlobalInstallCommand(pm, DESKTOP_PKG_NAME, "remove"));
+    // Remove from every package manager holding a copy, not just the detected
+    // one — a leftover global install elsewhere stays on PATH after an
+    // "uninstalled" message.
+    const holders = globalHolders(PKG_NAME);
+    const pms = holders.length > 0 ? holders : [detectPackageManager()];
+    const commands = pms.map((pm) => globalInstallCommand(pm, PKG_NAME, "remove"));
+
+    for (const pm of pms) {
+      if (installMode === "desktop" && packageLooksInstalled(pm, DESKTOP_PKG_NAME)) {
+        commands.push(globalInstallCommand(pm, DESKTOP_PKG_NAME, "remove"));
+      }
     }
 
-    console.log(chalk.dim(`\n  Detected package manager: ${pm}`));
+    console.log(chalk.dim(`\n  Detected package manager: ${pms.join(", ")}`));
     console.log(chalk.dim(`  Install mode: ${installMode}\n`));
 
     try {

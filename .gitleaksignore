@@ -1,3 +1,11 @@
+# The HMAC secret the GitHub webhook tests sign with. It was never issued by
+# anything — the same test stubs it into GITHUB_APP_WEBHOOK_SECRET a line later,
+# so both halves of the check are the fixture. Unlike the entries below this one
+# reached master directly, so every PR opened since 2026-08-21 has been failing
+# gitleaks on it. The test now generates the secret per run, so the literal is
+# gone from the tree and only this commit still carries it.
+20cc664cf58008e3bc33af5164848288d22539f5:apps/web/src/app/api/webhooks/github/__tests__/route.test.ts:generic-api-key:6
+
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/cli/src/commands/harden.ts:generic-api-key:219
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/cli/src/commands/harden.ts:generic-api-key:226
 9d3e8d2aad79a7fb2549791115b94b9b0c2538de:apps/cli/src/commands/harden.ts:generic-api-key:233
