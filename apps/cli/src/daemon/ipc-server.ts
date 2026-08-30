@@ -4,7 +4,7 @@ import type { ThreatEvent } from '../types/events.js';
 import { PATHS } from './paths.js';
 import { issueControlToken, tokensMatch } from './control-token.js';
 import { bus } from './event-bus.js';
-import { getRecentEvents, getTopSources, getEventCount, getThreatCount } from '../core/state.js';
+import { getRecentEvents, getTopSources, getEventCount, getThreatCount, isStateDbAvailable } from '../core/state.js';
 import type {
   IpcRequest,
   IpcResponse,
@@ -149,6 +149,7 @@ export class IpcServer {
           },
           modules: this.moduleHost.summary(),
           counters: { ...this.counters },
+          stateDb: isStateDbAvailable(),
         };
         return this.send(client, { id: req.id, ok: true, result: status });
       }

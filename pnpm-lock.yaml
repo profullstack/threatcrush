@@ -24,6 +24,9 @@ importers:
       '@iarna/toml':
         specifier: ^2.2.5
         version: 2.2.5
+      '@profullstack/hqtui':
+        specifier: ^0.1.9
+        version: 0.1.9
       '@sentry/node':
         specifier: ^8.45.0
         version: 8.55.1
@@ -2863,6 +2866,11 @@ packages:
 
   '@profullstack/emailer@1.0.1':
     resolution: {integrity: sha512-/uhHJJGH+1xSSz3mJn6X+m6aruYjMD3JOaRp/d4R/YWlzpy07H9z0/JUleIyRyBPNmaANSIwjTZ7aVjaukOEpg==}
+
+  '@profullstack/hqtui@0.1.9':
+    resolution: {integrity: sha512-grOrw3KqbFTnjXKgMIa+HFiujVkdkEFScNSAnJ7GE/fGU6CVyowfw1wnKpFHt/Mv1A4n8QUTKJ3ws65tNKIvNg==}
+    engines: {bun: '>=1.1', node: '>=22.6'}
+    hasBin: true
 
   '@profullstack/pluginstore@0.1.1':
     resolution: {integrity: sha512-7mIyjXpYYxvwebsy7sYg17uROZSG9DJFrmnMN98rTiXODqbhPFdkLwYLIx0HYgRaLBA6PKXkFRzhwQGo16xpUg==}
@@ -11486,6 +11494,8 @@ snapshots:
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e': {}
 
   '@profullstack/emailer@1.0.1': {}
+
+  '@profullstack/hqtui@0.1.9': {}
 
   '@profullstack/pluginstore@0.1.1': {}
 

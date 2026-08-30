@@ -16,12 +16,16 @@ export default defineConfig({
   sourcemap: true,
   dts: false,
 
-  external: ['better-sqlite3', 'blessed', 'blessed-contrib', 'react', 'react-blessed', 'react-blessed-contrib'],
+  external: ['better-sqlite3'],
   // `@threatcrush/scan` is bundled, not externalised. It resolves to
   // TypeScript source rather than a build output — see its package.json — so
   // there is nothing for Node to require at runtime, and the published CLI
   // must not gain a dependency on a package that is not published.
-  noExternal: ['chalk', 'ora', '@iarna/toml', 'commander', '@threatcrush/scan'],
+  // `@profullstack/hqtui` is ESM-only and this bundle is CJS, so a plain
+  // `require` of it would throw ERR_REQUIRE_ESM at runtime. It has zero
+  // runtime dependencies and imports no node builtins, so bundling it in is
+  // both safe and what keeps the published CLI dependency-light.
+  noExternal: ['chalk', 'ora', '@iarna/toml', 'commander', '@threatcrush/scan', '@profullstack/hqtui'],
 
   async onSuccess() {
     // Ship the systemd unit template alongside the compiled bundle.

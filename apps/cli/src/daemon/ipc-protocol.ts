@@ -39,6 +39,13 @@ export interface DaemonStatusReply {
   };
   modules: Array<{ name: string; status: string; events: number }>;
   counters: { events: number; threats: number; alerts: number };
+  /**
+   * Whether the SQLite state DB opened. When false the daemon still detects
+   * and alerts, but everything it serves from disk — `top_sources`,
+   * `recent_events`, `counters` — comes back empty. Optional so a client can
+   * still read a status reply from an older daemon.
+   */
+  stateDb?: boolean;
 }
 
 export interface EventPush {

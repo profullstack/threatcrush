@@ -195,10 +195,12 @@ program
   .description("Real-time security monitoring (all ports, all protocols)")
   .option("-m, --module <modules>", "Comma-separated module filter (e.g. ssh-guard,log-watcher)")
   .option("--tui", "Launch the interactive TUI dashboard")
+  .option("--demo", "Run the dashboard on canned events (screenshots, no daemon)")
   .action(async (opts) => {
     await monitorCommand({
       module: opts.module,
       tui: opts.tui,
+      demo: opts.demo,
     });
   });
 
@@ -206,8 +208,9 @@ program
   .command("tui")
   .description("Interactive security dashboard (htop for security)")
   .alias("dashboard")
-  .action(async () => {
-    await monitorCommand({ tui: true });
+  .option("--demo", "Run on canned events instead of connecting to the daemon")
+  .action(async (opts) => {
+    await monitorCommand({ tui: true, demo: opts.demo });
   });
 
 program
