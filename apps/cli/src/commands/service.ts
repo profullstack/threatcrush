@@ -14,10 +14,25 @@ function resolveTemplate(): string {
   return readFileSync(templatePath, 'utf-8');
 }
 
+// pnpm installs a global package under a version-stamped directory
+// (`.pnpm/@profullstack+threatcrush@0.11.6/node_modules/…`) and points a stable
+// symlink at it from the store root. Baking the version-stamped path into
+// ExecStart means the very next upgrade leaves the unit pointing at a directory
+// that no longer exists — the unit then fails on every start, forever, and
+// `Restart=on-failure` turns that into a permanent loop. Observed in the wild at
+// 6315 restarts against a path last valid at 0.2.1.
+export function stableBinPath(binPath: string): string {
+  const stable = binPath.replace(/\/\.pnpm\/[^/]+\/node_modules\//, '/node_modules/');
+  if (stable === binPath) return binPath;
+  // Only take the rewrite if the symlink is really there; a layout we have not
+  // seen is better served by the path we were actually invoked with.
+  return existsSync(stable) ? stable : binPath;
+}
+
 function resolveBinPath(): string {
   // When installed globally the script path is the CLI bin.
   const arg = process.argv[1];
-  if (arg && existsSync(arg)) return arg;
+  if (arg && existsSync(arg)) return stableBinPath(arg);
   try {
     return execSync('command -v threatcrush', { encoding: 'utf-8' }).trim();
   } catch {
@@ -74,7 +89,9 @@ function ensureSystemDirs(): void {
     { path: '/etc/threatcrush/threatcrushd.conf.d', groupWritable: true },
     { path: '/var/log/threatcrush', groupWritable: false },
     { path: '/var/lib/threatcrush', groupWritable: false },
-    { path: '/var/run/threatcrush', groupWritable: false },
+    // /run/threatcrush is deliberately absent: it lives on a tmpfs, so creating
+    // it here only lasts until the next reboot. The unit's RuntimeDirectory=
+    // recreates it on every start instead.
   ];
   let admGid: number | null = null;
   try {
