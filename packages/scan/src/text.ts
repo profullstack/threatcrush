@@ -392,12 +392,12 @@ const NO_INLINE_TESTS: ReadonlySet<number> = new Set<number>();
  * at full severity from what is, by construction, test code.
  *
  * Measured on ferriskey/ferriskey (Rust IAM, 689 stars) at 0.11.8: 135 findings,
- * zero true positives, of which 22 are exactly this. `core/src/domain/trident/
- * services.rs` flags `new_password: "Str0ng!P@ssword#2024"` at line 2719 with its
- * `#[cfg(test)]` opening at 2137; `argon2_hasher.rs` flags `let password =
- * "my_password"` at 116 with the block opening at 109. Neither path can be
- * spelled into `isTestPath` without softening the production half of the file
- * along with it, which is the whole reason this is keyed on lines.
+ * zero true positives, of which 15 are exactly this. The sharpest is a fixture
+ * password assigned in a `#[tokio::test]` at `core/src/domain/trident/
+ * services.rs:2719`, whose `#[cfg(test)]` opens at 2137 of 4042 lines — so the
+ * block covers only the second half of the file, and neither half can be spelled
+ * into `isTestPath` without taking the other with it. That is the whole reason
+ * this is keyed on lines rather than on the path.
  *
  * Returns 0-based line indices, and only for Rust — the one language measured to
  * need it. Go's toolchain will not run a test outside a `_test.go` file, and
