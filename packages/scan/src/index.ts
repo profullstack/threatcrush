@@ -37,6 +37,7 @@ export {
 export {
   collectSuppressions,
   foreignSecurityMark,
+  inlineTestLines,
   isDocPath,
   isTestPath,
   languageOf,

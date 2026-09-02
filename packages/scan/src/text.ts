@@ -244,6 +244,183 @@ export function isTestPath(relativePath: string): boolean {
 }
 
 /**
+ * Rust source with its comments, strings and char literals blanked out.
+ *
+ * Brace counting is how the next function finds where a test module ends, and
+ * raw braces are everywhere in ordinary Rust that is not a block: `format!("{}",
+ * x)` is on more lines than most constructs this engine looks for. Counting
+ * those would close a module early and leave the rest of its tests reporting at
+ * full severity, which is the bug being fixed here wearing a different hat.
+ *
+ * Blanking rather than deleting keeps every column where it was, so a line's
+ * index and the offsets inside it still line up with the original text.
+ *
+ * Rust-specific in three ways a generic stripper gets wrong: block comments
+ * nest, so the first close does not necessarily end one; raw strings suspend
+ * escaping and close only on a quote followed by as many hashes as opened them
+ * (`r#"a "quoted" string"#`); and a lone `'` is far more often a lifetime
+ * (`&'a str`) than the start of a char literal.
+ */
+function rustCodeLines(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  let commentDepth = 0;
+  let str: { raw: boolean; hashes: number } | null = null;
+
+  for (const line of lines) {
+    let code = '';
+    let i = 0;
+
+    while (i < line.length) {
+      const c = line[i]!;
+      const d = line[i + 1];
+
+      if (commentDepth > 0) {
+        if (c === '*' && d === '/') { commentDepth -= 1; code += '  '; i += 2; continue; }
+        if (c === '/' && d === '*') { commentDepth += 1; code += '  '; i += 2; continue; }
+        code += ' '; i += 1; continue;
+      }
+
+      if (str) {
+        if (str.raw) {
+          if (c === '"') {
+            let hashes = 0;
+            while (line[i + 1 + hashes] === '#') hashes += 1;
+            if (hashes >= str.hashes) {
+              code += ' '.repeat(1 + str.hashes);
+              i += 1 + str.hashes;
+              str = null;
+              continue;
+            }
+          }
+          code += ' '; i += 1; continue;
+        }
+        // A backslash escapes the next character, a closing quote included.
+        if (c === '\\') { code += '  '; i += 2; continue; }
+        if (c === '"') { str = null; code += ' '; i += 1; continue; }
+        code += ' '; i += 1; continue;
+      }
+
+      if (c === '/' && d === '/') { code += ' '.repeat(line.length - i); break; }
+      if (c === '/' && d === '*') { commentDepth = 1; code += '  '; i += 2; continue; }
+
+      // `r"…"`, `r#"…"#`, `br##"…"##` — but only where `r` opens a token, so
+      // the `r` ending an identifier cannot be read as a raw string prefix.
+      if (i === 0 || !/[A-Za-z0-9_]/.test(line[i - 1]!)) {
+        const raw = /^b?r(#*)"/.exec(line.slice(i));
+        if (raw) {
+          str = { raw: true, hashes: raw[1]!.length };
+          code += ' '.repeat(raw[0].length);
+          i += raw[0].length;
+          continue;
+        }
+      }
+
+      if (c === '"') { str = { raw: false, hashes: 0 }; code += ' '; i += 1; continue; }
+
+      if (c === "'") {
+        const char = /^'(?:\\.|[^\\'])'/.exec(line.slice(i));
+        if (char) { code += ' '.repeat(char[0].length); i += char[0].length; continue; }
+        // A lifetime. Nothing to blank, and no string was opened.
+        code += c; i += 1; continue;
+      }
+
+      code += c;
+      i += 1;
+    }
+
+    out.push(code);
+  }
+
+  return out;
+}
+
+/** `not(test)` gates code compiled when tests are *off* — the opposite of a test block. */
+const RUST_CFG_NOT_TEST = /\bnot\s*\(\s*test\s*\)/;
+
+/** `#[test]`, `#[tokio::test]`, `#[rstest]`, `#[bench]` — an item only tests run. */
+const RUST_TEST_ITEM_ATTRIBUTE =
+  /^\s*#\s*\[\s*(?:[A-Za-z_]\w*\s*::\s*)*(?:test|bench|rstest|proptest|quickcheck|test_case)\b/;
+
+/**
+ * Does this (already blanked) line open an item that exists only under `cargo test`?
+ *
+ * The string blanking is what lets the `cfg` arm be written this loosely:
+ * `#[cfg(feature = "test-util")]` arrives here as `#[cfg(feature = "        ")]`,
+ * so a feature flag that merely has "test" in its name is not read as a gate.
+ */
+function isRustTestAttribute(code: string): boolean {
+  if (RUST_CFG_NOT_TEST.test(code)) return false;
+  if (/^\s*#\s*\[\s*cfg\s*\(/.test(code)) return /\btest\b/.test(code);
+  return RUST_TEST_ITEM_ATTRIBUTE.test(code);
+}
+
+/** The last line of the item beginning at `start`, by brace depth. */
+function rustItemEnd(code: readonly string[], start: number): number {
+  let depth = 0;
+  let opened = false;
+
+  for (let i = start; i < code.length; i += 1) {
+    for (const ch of code[i]!) {
+      if (ch === '{') {
+        depth += 1;
+        opened = true;
+      } else if (ch === '}') {
+        depth -= 1;
+        if (opened && depth <= 0) return i;
+      } else if (ch === ';' && !opened && depth === 0) {
+        // A declaration rather than a block: `#[cfg(test)] mod tests;`.
+        return i;
+      }
+    }
+  }
+
+  // Unbalanced — a truncated file, or a brace this stripper misread. Claiming
+  // the rest of the file would soften production code on the strength of a
+  // parse that has already gone wrong, so claim only what was certain.
+  return start;
+}
+
+const NO_INLINE_TESTS: ReadonlySet<number> = new Set<number>();
+
+/**
+ * The lines of a file that hold tests living *inside* it.
+ *
+ * `isTestPath` asks where a file sits, which is the whole answer in Go, Python
+ * and JavaScript, where tests occupy files of their own. Rust puts unit tests in
+ * the same file as the code they cover, behind `#[cfg(test)]` — so a path rule
+ * can never reach them, and every fixture password in every `mod tests` reports
+ * at full severity from what is, by construction, test code.
+ *
+ * Measured on ferriskey/ferriskey (Rust IAM, 689 stars) at 0.11.8: 135 findings,
+ * zero true positives, of which 15 are exactly this. The sharpest is a fixture
+ * password assigned in a `#[tokio::test]` at `core/src/domain/trident/
+ * services.rs:2719`, whose `#[cfg(test)]` opens at 2137 of 4042 lines — so the
+ * block covers only the second half of the file, and neither half can be spelled
+ * into `isTestPath` without taking the other with it. That is the whole reason
+ * this is keyed on lines rather than on the path.
+ *
+ * Returns 0-based line indices, and only for Rust — the one language measured to
+ * need it. Go's toolchain will not run a test outside a `_test.go` file, and
+ * Python and JavaScript convention give tests their own files; `isTestPath`
+ * already reads all three.
+ */
+export function inlineTestLines(relativePath: string, lines: readonly string[]): ReadonlySet<number> {
+  if (extensionOf(relativePath).toLowerCase() !== '.rs') return NO_INLINE_TESTS;
+
+  const code = rustCodeLines(lines);
+  const inside = new Set<number>();
+
+  for (let i = 0; i < code.length; i += 1) {
+    // Attributes on the tests *within* an already-claimed module add nothing.
+    if (inside.has(i) || !isRustTestAttribute(code[i]!)) continue;
+    const end = rustItemEnd(code, i);
+    for (let j = i; j <= end; j += 1) inside.add(j);
+  }
+
+  return inside;
+}
+
+/**
  * Does this path hold documentation or illustrative code?
  *
  * The same softening as `isTestPath`, and for the *code* rules only. A fenced
@@ -286,13 +463,16 @@ export function isDocPath(relativePath: string): boolean {
  * where code lives or what it is named, and heuristics of that kind are wrong
  * often enough that they may inform a severity and never a verdict.
  */
-type Softening = 'test' | 'docs' | 'suppressed' | 'placeholder' | 'self-describing';
+type Softening = 'test' | 'test-block' | 'docs' | 'suppressed' | 'placeholder' | 'self-describing';
 
 /** Most specific evidence first, so it is the reason the operator is shown. */
 const SOFTENING_ORDER: readonly Softening[] = [
   'suppressed',
   'placeholder',
   'self-describing',
+  // Before `test`, because it is the narrower claim: a path holds tests, but a
+  // block *is* one. A Rust file under `tests/` can be both.
+  'test-block',
   'test',
   'docs',
 ];
@@ -304,6 +484,8 @@ function softening(reasons: Partial<Record<Softening, boolean>>): Softening | nu
 /** The clause completing "Possible AWS Access Key detected …" on a secret. */
 const SECRET_SOFTENING: Record<Softening, string> = {
   test: 'in a test file — usually a fixture, still worth confirming it is not a live credential',
+  'test-block':
+    'in a test-only block — usually a fixture, still worth confirming it is not a live credential',
   docs: 'in documentation — usually an illustrative example, still worth confirming it is not a live credential',
   suppressed: "on a line already marked as a false positive for another linter's security rule",
   placeholder: 'in example text an empty input field shows, not in data',
@@ -314,6 +496,7 @@ const SECRET_SOFTENING: Record<Softening, string> = {
 /** The clause appended to a code finding's message to say why it was softened. */
 const CODE_SOFTENING: Record<Softening, string> = {
   test: 'in a test file, where the construct is ordinary',
+  'test-block': 'in a test-only block, where the construct is ordinary',
   docs: 'in documentation or example code, which nothing runs',
   suppressed: "on a line another linter's security suppression already covers",
   placeholder: 'in example text rather than in data',
@@ -331,6 +514,7 @@ export function scanText(
   const suppressions = collectSuppressions(lines);
   const inTests = isTestPath(relativePath);
   const inDocs = isDocPath(relativePath);
+  const inlineTests = inlineTestLines(relativePath, lines);
 
   // ── Credentials ────────────────────────────────────────────────────────
   lines.forEach((line, index) => {
@@ -364,8 +548,13 @@ export function scanText(
       // while a real DSN in the same README is still `high`. Softening secrets
       // by path would take that guarantee away, and a README is a perfectly
       // ordinary place to leak a key.
+      // Note that the fixture *exemption* above stays keyed on `inTests` alone.
+      // That one drops a finding, and dropping is a verdict; a block boundary
+      // this engine inferred from brace counting is evidence for a severity and
+      // not for silence. An inline test block softens, and only softens.
       const soft = softening({
         test: inTests,
+        'test-block': inlineTests.has(index),
         suppressed: foreignSecurityMark(line),
         placeholder: isPlaceholderAttribute(line, value),
         'self-describing': rule.keywordShaped === true && describesItsOwnKey(line, value),
@@ -411,6 +600,7 @@ export function scanText(
       // self-signed certificate. Each is the normal way to write that test.
       const soft = softening({
         test: inTests,
+        'test-block': inlineTests.has(index),
         docs: inDocs,
         suppressed: foreignSecurityMark(lines[index] ?? ''),
       });
@@ -443,6 +633,7 @@ export function scanText(
 
     const soft = softening({
       test: inTests,
+      'test-block': inlineTests.has(index),
       docs: inDocs,
       suppressed: foreignSecurityMark(lines[index] ?? ''),
     });
