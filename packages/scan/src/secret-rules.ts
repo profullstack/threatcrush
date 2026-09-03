@@ -205,6 +205,14 @@ export const SECRET_RULES: readonly SecretRule[] = [
  * placeholder — not a guess that something "looks like a test value". A
  * generous allow-list here is how a scanner talks itself out of a real finding.
  */
+/**
+ * A template expression, in the syntaxes that reach a connection string: Go
+ * and Handlebars `{{…}}`, shell and JavaScript `${…}`, bare `$VAR`, and
+ * printf `%s`/`%d`/`%v`. Anchored to the end of the credential segment so it
+ * has to fill the slot rather than merely appear somewhere near it.
+ */
+const INTERPOLATION = String.raw`(?:\{\{[^}]*\}\}|\$\{[^}]*\}|\$[A-Za-z_]\w*|%[sdv])`;
+
 const KNOWN_PLACEHOLDERS = [
   // Deliberately NOT here: AWS's published documentation key/secret pair
   // (`AKIAIOSFODNN7EXAMPLE`, `wJalrXUtnFEMI/…`). GitHub allow-lists them, and
@@ -229,6 +237,18 @@ const KNOWN_PLACEHOLDERS = [
   // Both halves have to be metasyntactic. `root:hunter2@` is not exempt, since
   // a real password beside a common username is the case this must not swallow.
   /:\/\/(?:user(?:name)?|admin|root|dbuser|myuser):(?:pass(?:word|wd)?|secret|dbpass|mypassword)@/i,
+  // A DSN whose password slot is an interpolation the runtime substitutes:
+  // `postgres://{{.user}}:{{.pass}}@{{.host}}/{{.name}}`. This is a stronger
+  // claim than the metasyntactic pair above rather than a looser one — that
+  // rule reads English words and infers intent, whereas `{{…}}`, `${…}` and
+  // `%s` cannot appear in a credential at all, because the value that reaches
+  // the driver is whatever the template engine puts there. A tool that builds
+  // connection strings holds these by the hundred and none of them is a secret.
+  //
+  // Only the password slot decides it. The username is not a credential, so a
+  // literal one beside a templated password leaks nothing, while the reverse —
+  // `postgres://{{.user}}:hunter2@` — is a real password and stays reported.
+  new RegExp(String.raw`://[^\s'"@/]*:${INTERPOLATION}@`),
 ];
 
 /**
