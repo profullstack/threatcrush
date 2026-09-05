@@ -84,7 +84,7 @@ function rateLimit(req: NextRequest): NextResponse | undefined {
   return undefined;
 }
 
-export async function middleware(req: NextRequest): Promise<NextResponse | undefined> {
+export async function middleware(req: NextRequest): Promise<Response | NextResponse | undefined> {
   // Crawl gateway first: AI training crawlers get 402 Payment Required (or the
   // sales page at /crawl) unless they present a paid pass. People, Googlebot
   // and retrieval crawlers fall through to everything below.
