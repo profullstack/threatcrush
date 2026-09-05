@@ -1,3 +1,4 @@
+import { gate } from "@/lib/crawl-gateway";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
@@ -83,7 +84,13 @@ function rateLimit(req: NextRequest): NextResponse | undefined {
   return undefined;
 }
 
-export function middleware(req: NextRequest): NextResponse | undefined {
+export async function middleware(req: NextRequest): Promise<NextResponse | undefined> {
+  // Crawl gateway first: AI training crawlers get 402 Payment Required (or the
+  // sales page at /crawl) unless they present a paid pass. People, Googlebot
+  // and retrieval crawlers fall through to everything below.
+  const answer = await gate(req);
+  if (answer) return answer;
+
   if (req.headers.get("next-action")) {
     return new NextResponse(null, { status: 410 });
   }
