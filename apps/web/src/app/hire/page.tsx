@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { SITE_URL } from "@/lib/blog";
 import { HireForm } from "@/components/HireForm";
+import { contactGuard } from "@/lib/contact-guard";
 
 export const metadata: Metadata = {
   title: "Hire Us — human-led security assessments",
@@ -88,7 +89,14 @@ const steps = [
   },
 ];
 
-export default function HirePage() {
+// The hire form carries a token minted at render time, so this page must
+// not be cached. A stale page would hand every visitor the same dead token.
+export const dynamic = "force-dynamic";
+
+export default async function HirePage() {
+  const token = contactGuard ? await contactGuard.issue() : null;
+  const guardFields = token ? contactGuard!.fields(token) : null;
+
   return (
     <div className="min-h-screen bg-tc-darker pt-24 pb-20">
       <script
@@ -182,7 +190,11 @@ export default function HirePage() {
             usually the same business day.
           </p>
           <div className="mt-6">
-            <HireForm />
+            <HireForm
+              token={token}
+              tokenName={guardFields?.token.name ?? null}
+              honeypotName={guardFields?.honeypot.name ?? null}
+            />
           </div>
         </section>
       </main>
