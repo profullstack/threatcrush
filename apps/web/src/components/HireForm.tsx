@@ -11,7 +11,16 @@ const labelClass = "block text-sm font-medium text-tc-text-dim mb-1.5";
 // Posts to the shared /api/contact route with topic "hire"; the extra fields
 // (target, stack, timeline) ride along as labelled rows in the notification
 // email and are appended to the persisted message.
-export function HireForm() {
+export function HireForm({
+  token,
+  tokenName,
+  honeypotName,
+}: {
+  /** Minted by the page at render time; proves the form was loaded. */
+  token: string | null;
+  tokenName: string | null;
+  honeypotName: string | null;
+}) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
@@ -20,6 +29,8 @@ export function HireForm() {
   const [timeline, setTimeline] = useState("");
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<Status>("idle");
+  // Honeypot. Nothing visible sets this, so anything in it came from a bot.
+  const [honeypot, setHoneypot] = useState("");
   const [error, setError] = useState("");
 
   const handleSubmit = useCallback(
@@ -41,6 +52,8 @@ export function HireForm() {
             timeline,
             message,
             topic: "hire",
+            ...(tokenName && token ? { [tokenName]: token } : {}),
+            ...(honeypotName ? { [honeypotName]: honeypot } : {}),
           }),
         });
 
@@ -91,6 +104,23 @@ export function HireForm() {
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Honeypot. Off-canvas rather than display:none, because some
+                bots skip fields they can tell are not rendered. */}
+            {honeypotName && (
+              <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
+                <label>
+                  Website
+                  <input
+                    type="text"
+                    name={honeypotName}
+                    value={honeypot}
+                    onChange={(e) => setHoneypot(e.target.value)}
+                    tabIndex={-1}
+                    autoComplete="off"
+                  />
+                </label>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="hire-name" className={labelClass}>

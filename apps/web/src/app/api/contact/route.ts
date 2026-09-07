@@ -1,4 +1,5 @@
 import { createContactRoute } from "@profullstack/stack/email";
+import { contactGuard } from "@/lib/contact-guard";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let supabase: SupabaseClient | undefined;
@@ -40,7 +41,12 @@ function messageWithExtras(s: {
 export const POST = createContactRoute({
   from: "ThreatCrush <hello@threatcrush.com>",
   to: "hello@threatcrush.com",
-  honeypot: false,
+  // Was `false`, with nothing in its place. The field is rendered now, so
+  // it can actually fire.
+  honeypot: "website",
+  // Requires a token minted when the form rendered. Runs before field
+  // validation, so a bot never learns which fields the route wants.
+  guard: contactGuard ?? undefined,
   fieldLabels: FIELD_LABELS,
   subject: (s) =>
     `[ThreatCrush] New ${s.fields.topic ?? "general"} inquiry from ${s.name}`,

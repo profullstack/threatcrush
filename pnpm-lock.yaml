@@ -332,8 +332,8 @@ importers:
         specifier: ^0.1.1
         version: 0.1.1
       '@profullstack/stack':
-        specifier: ^0.1.3
-        version: 0.1.3(next@16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
+        specifier: ^0.2.0
+        version: 0.2.0(next@16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
       '@profullstack/x402-gateway':
         specifier: ^0.1.0
         version: 0.1.0
@@ -364,6 +364,9 @@ importers:
       resend:
         specifier: ^6.12.2
         version: 6.12.2
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
     devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4
@@ -2845,6 +2848,10 @@ packages:
   '@profullstack/emailer@1.0.1':
     resolution: {integrity: sha512-/uhHJJGH+1xSSz3mJn6X+m6aruYjMD3JOaRp/d4R/YWlzpy07H9z0/JUleIyRyBPNmaANSIwjTZ7aVjaukOEpg==}
 
+  '@profullstack/form-guard@0.1.1':
+    resolution: {integrity: sha512-RGLGfQhjq40f+JqEhSmsJnS0I5sFWjYdrYx4VYtkUqz8xvioN2yyR+6uFK0mnDAStKrYytlngg3meUsrChm/OQ==}
+    engines: {node: '>=20'}
+
   '@profullstack/hqtui@0.1.9':
     resolution: {integrity: sha512-grOrw3KqbFTnjXKgMIa+HFiujVkdkEFScNSAnJ7GE/fGU6CVyowfw1wnKpFHt/Mv1A4n8QUTKJ3ws65tNKIvNg==}
     engines: {bun: '>=1.1', node: '>=22.6'}
@@ -2862,8 +2869,8 @@ packages:
       react:
         optional: true
 
-  '@profullstack/stack@0.1.3':
-    resolution: {integrity: sha512-NOseYE5cWMwH75/luUE46kJLyAd1xD+DSgGgwhxvgNMoJYfZ9W9vKmqdcGA/4Lgahzf7hWfjNvmLtVIzAqwhJw==}
+  '@profullstack/stack@0.2.0':
+    resolution: {integrity: sha512-4o7Bz58qyAOblgoIBpGiRNcAI9mS/JRheOtfdWxwv08iiPyWMdAQVe4Wrv0puiZAmJ9zI+JYjLUNpi0OdGY8yw==}
     engines: {node: '>=18'}
     peerDependencies:
       '@supabase/ssr': '>=0.5.0'
@@ -11288,6 +11295,8 @@ snapshots:
 
   '@profullstack/emailer@1.0.1': {}
 
+  '@profullstack/form-guard@0.1.1': {}
+
   '@profullstack/hqtui@0.1.9': {}
 
   '@profullstack/pluginstore@0.1.1': {}
@@ -11296,9 +11305,10 @@ snapshots:
     optionalDependencies:
       react: 19.2.4
 
-  '@profullstack/stack@0.1.3(next@16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)':
+  '@profullstack/stack@0.2.0(next@16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)':
     dependencies:
       '@profullstack/emailer': 1.0.1
+      '@profullstack/form-guard': 0.1.1
       '@profullstack/referrals': 0.1.0(react@19.2.4)
     optionalDependencies:
       next: 16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
