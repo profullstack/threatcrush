@@ -1,0 +1,29 @@
+{
+  "openaccess": "0.1",
+  "name": "ThreatCrush",
+  "url": "https://threatcrush.com",
+  "operator": "https://logicsrc.com/.well-known/openprofile.md",
+  "redirect_uris": [
+    "https://threatcrush.com/api/v1/openaccess/callback"
+  ],
+  "jwks": {
+    "keys": [
+      {
+        "kty": "OKP",
+        "crv": "Ed25519",
+        "kid": "gBnXQMQU1sN1",
+        "x": "J-CjZfjG84pt8VLgQ4EFYxOKlCUCP24EXPucykgNcvY",
+        "alg": "EdDSA",
+        "use": "sig"
+      }
+    ]
+  },
+  "scopes": {},
+  "honours": [
+    "profullstack.com/all-access"
+  ],
+  "webhooks": "https://threatcrush.com/api/v1/openaccess/events",
+  "hubs": [
+    "https://openaccess.logicsrc.com"
+  ]
+}
