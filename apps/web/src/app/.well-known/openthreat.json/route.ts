@@ -1,0 +1,28 @@
+import { NextResponse } from "next/server";
+import { loadOpenThreat } from "@/lib/open-threats";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+/**
+ * GET /.well-known/openthreat.json
+ *
+ * ThreatCrush's OpenThreat descriptor (logicsrc.com/openthreat): the threats
+ * it identified in the open, and nothing from any private repository or any
+ * customer. Public by definition; a reader verifies it by the origin it came
+ * from.
+ */
+export async function GET() {
+  try {
+    const descriptor = await loadOpenThreat();
+    return NextResponse.json(descriptor, {
+      headers: {
+        "cache-control": "public, max-age=300",
+        "access-control-allow-origin": "*",
+      },
+    });
+  } catch (err) {
+    console.error("[openthreat] could not build descriptor", (err as Error).message);
+    return NextResponse.json({ error: "descriptor unavailable" }, { status: 503 });
+  }
+}

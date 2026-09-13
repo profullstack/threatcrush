@@ -103,6 +103,18 @@ export default async function GitHubInstalledPage({
                 </Link>{" "}
                 for what the scanner looks for and how to wire it into CI.
               </li>
+              <li>
+                Findings in your <em>public</em> repositories are announced on{" "}
+                <Link href="/discovery" className={linkClass}>
+                  Discovery
+                </Link>{" "}
+                by default; private repositories never are. Turn announcements off for this
+                installation from{" "}
+                <Link href="/account" className={linkClass}>
+                  your account
+                </Link>{" "}
+                after signing in with GitHub.
+              </li>
             </ul>
           </section>
 
