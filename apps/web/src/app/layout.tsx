@@ -207,6 +207,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
         <link rel="alternate" type="application/rss+xml" title="ThreatCrush Blog" href="/blog/rss.xml" />
+        <link rel="openthreat" href="/.well-known/openthreat.json" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(organizationJsonLd) }}
