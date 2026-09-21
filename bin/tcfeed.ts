@@ -46,6 +46,8 @@
  *   npx tsx bin/tcfeed.ts pr owner/name --dry-run
  *   npx tsx bin/tcfeed.ts pr owner/name
  *   npx tsx bin/tcfeed.ts pr --all              # ask, offer, watch, fix
+ *   npx tsx bin/tcfeed.ts pr --apply            # the same word, as the
+ *                                               # other house tools spell it
  *
  * It throttles itself, because reddit throttles the address rather than the
  * account and one impatient afternoon costs everything on this machine the
@@ -1585,7 +1587,10 @@ async function openPr(
  */
 async function prCommand(argv: string[], cache: string): Promise<number> {
   const dryRun = argv.includes('--dry-run') || argv.includes('-n');
-  const all = argv.includes('--all');
+  // --apply is --all under the name the other house tools use for "do it"
+  // (gh-prs-merge-all --apply). Typed at the pit as `/tcfeed pr --apply`, it
+  // should not answer with a usage error over the spelling.
+  const all = argv.includes('--all') || argv.includes('--apply');
   // Both default on, and both are escapes rather than opt-ins: asking first
   // and cleaning up after are the courtesies, so they should be what happens
   // when nobody types anything.
@@ -1621,6 +1626,7 @@ async function prCommand(argv: string[], cache: string): Promise<number> {
     console.error('usage: tcfeed pr owner/name [owner/name ...] [--dry-run]');
     console.error('       tcfeed pr --all [--dry-run]');
     console.error('  --all is the last scan, worst first. Read the reports first.');
+    console.error('  --apply means the same as --all.');
     console.error('');
     console.error('  Each repository gets an issue asking the question, then the pull');
     console.error('  request so the diff is there to read. When every one is open it');
@@ -2585,6 +2591,7 @@ async function main(): Promise<number> {
     console.log('       tcfeed --forget                         make everything look new again');
     console.log('       tcfeed pr owner/name [...] [--dry-run]  ask, then offer the workflow');
     console.log('       tcfeed pr --all [--dry-run]             the last scan, worst first');
+    console.log('       tcfeed pr --apply                       the same, spelt like gh-prs-merge-all');
     console.log('         --no-issue   skip the question, open the request alone');
     console.log('         --no-follow  skip waiting on their checks afterwards');
     console.log('       tcfeed check [owner/name ...] [--fix]   how are the open requests doing');
