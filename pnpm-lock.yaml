@@ -109,7 +109,7 @@ importers:
         version: 18.3.7(@types/react@18.3.12)
       '@vitejs/plugin-react':
         specifier: ^4.3.0
-        version: 4.7.0(vite@6.4.1(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+        version: 4.7.0(vite@6.4.1(@types/node@22.19.17)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
       autoprefixer:
         specifier: ^10.4.20
         version: 10.4.27(postcss@8.5.8)
@@ -121,7 +121,7 @@ importers:
         version: 25.1.8(electron-builder-squirrel-windows@25.1.8)
       electron-vite:
         specifier: ^5.0.0
-        version: 5.0.0(vite@6.4.1(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+        version: 5.0.0(vite@6.4.1(@types/node@22.19.17)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
       jsdom:
         specifier: ^25.0.0
         version: 25.0.1
@@ -139,7 +139,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^6.0.0
-        version: 6.4.1(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
+        version: 6.4.1(@types/node@22.19.17)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.17)(jsdom@25.0.1)(lightningcss@1.32.0)(terser@5.46.1)
@@ -157,7 +157,7 @@ importers:
         version: 19.2.4(react@19.2.4)
       web-ext:
         specifier: ^9.2.0
-        version: 9.4.0(jiti@1.21.7)
+        version: 9.4.0(jiti@2.6.1)
       webextension-polyfill:
         specifier: ^0.12.0
         version: 0.12.0
@@ -182,7 +182,7 @@ importers:
         version: 0.12.5
       '@vitejs/plugin-react':
         specifier: ^4.3.4
-        version: 4.7.0(vite@6.4.1(@types/node@22.19.17)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+        version: 4.7.0(vite@6.4.1(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
       archiver:
         specifier: ^7.0.1
         version: 7.0.1
@@ -194,7 +194,7 @@ importers:
         version: 7.0.3
       eslint:
         specifier: ^9.17.0
-        version: 9.39.4(jiti@1.21.7)
+        version: 9.39.4(jiti@2.6.1)
       jsdom:
         specifier: ^27.3.0
         version: 27.4.0
@@ -206,7 +206,7 @@ importers:
         version: 3.4.19(yaml@2.8.3)
       vite:
         specifier: ^6.0.5
-        version: 6.4.1(@types/node@22.19.17)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
+        version: 6.4.1(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.17)(jsdom@27.4.0)(lightningcss@1.32.0)(terser@5.46.1)
@@ -335,8 +335,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0(next@16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
       '@profullstack/x402-gateway':
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.7.0
+        version: 0.7.0
       '@supabase/supabase-js':
         specifier: ^2.101.1
         version: 2.101.1
@@ -2857,6 +2857,10 @@ packages:
     engines: {bun: '>=1.1', node: '>=22.6'}
     hasBin: true
 
+  '@profullstack/keys@0.1.0':
+    resolution: {integrity: sha512-Vys47LvS5ivhdZu4SYOxh9Le3DEmWhjP0+CtrU45RhXAbY0ZFG/2Dk9V1bIIUGDp8UWMJqctvUD21JrNjfh04w==}
+    engines: {node: '>=20.11'}
+
   '@profullstack/pluginstore@0.1.1':
     resolution: {integrity: sha512-7mIyjXpYYxvwebsy7sYg17uROZSG9DJFrmnMN98rTiXODqbhPFdkLwYLIx0HYgRaLBA6PKXkFRzhwQGo16xpUg==}
 
@@ -2884,8 +2888,8 @@ packages:
       react:
         optional: true
 
-  '@profullstack/x402-gateway@0.1.0':
-    resolution: {integrity: sha512-B7tWvWk/bIEoqyec6UoyRF1pO7X/+b+wFRv2ZFIClqskmEpyxoA559ZgdTvnxqAIvuDeE9v56nVpYRQ+lmOZQQ==}
+  '@profullstack/x402-gateway@0.7.0':
+    resolution: {integrity: sha512-xsZRWHdOD9Y9EuRS4PsRmykVS2geOu/luY0jBlliOF3SEgxiLhgmx7ks+2jOUtGlq+cIfSonnk5eEObRGCOJ9w==}
     engines: {node: '>=20.11'}
 
   '@radix-ui/react-compose-refs@1.0.0':
@@ -10339,14 +10343,14 @@ snapshots:
   '@esbuild/win32-x64@0.27.7':
     optional: true
 
-  '@eslint-community/eslint-utils@4.9.1(eslint@9.39.2(jiti@1.21.7))':
+  '@eslint-community/eslint-utils@4.9.1(eslint@9.39.2(jiti@2.6.1))':
     dependencies:
-      eslint: 9.39.2(jiti@1.21.7)
+      eslint: 9.39.2(jiti@2.6.1)
       eslint-visitor-keys: 3.4.3
 
-  '@eslint-community/eslint-utils@4.9.1(eslint@9.39.4(jiti@1.21.7))':
+  '@eslint-community/eslint-utils@4.9.1(eslint@9.39.4(jiti@2.6.1))':
     dependencies:
-      eslint: 9.39.4(jiti@1.21.7)
+      eslint: 9.39.4(jiti@2.6.1)
       eslint-visitor-keys: 3.4.3
 
   '@eslint-community/regexpp@4.12.2': {}
@@ -11299,6 +11303,8 @@ snapshots:
 
   '@profullstack/hqtui@0.5.0': {}
 
+  '@profullstack/keys@0.1.0': {}
+
   '@profullstack/pluginstore@0.1.1': {}
 
   '@profullstack/referrals@0.1.0(react@19.2.4)':
@@ -11314,7 +11320,9 @@ snapshots:
       next: 16.2.2(@opentelemetry/api@1.9.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react: 19.2.4
 
-  '@profullstack/x402-gateway@0.1.0': {}
+  '@profullstack/x402-gateway@0.7.0':
+    dependencies:
+      '@profullstack/keys': 0.1.0
 
   '@radix-ui/react-compose-refs@1.0.0(react@18.3.1)':
     dependencies:
@@ -12154,7 +12162,7 @@ snapshots:
 
   acorn@8.16.0: {}
 
-  addons-linter@9.9.1(jiti@1.21.7):
+  addons-linter@9.9.1(jiti@2.6.1):
     dependencies:
       '@fluent/syntax': 0.19.0
       '@fregante/relaxed-json': 2.0.0
@@ -12167,8 +12175,8 @@ snapshots:
       columnify: 1.6.0
       common-tags: 1.8.2
       deepmerge: 4.3.1
-      eslint: 9.39.2(jiti@1.21.7)
-      eslint-plugin-no-unsanitized: 4.1.5(eslint@9.39.2(jiti@1.21.7))
+      eslint: 9.39.2(jiti@2.6.1)
+      eslint-plugin-no-unsanitized: 4.1.5(eslint@9.39.2(jiti@2.6.1))
       eslint-visitor-keys: 5.0.1
       espree: 11.1.1
       esprima: 4.0.1
@@ -13497,7 +13505,7 @@ snapshots:
 
   electron-to-chromium@1.5.331: {}
 
-  electron-vite@5.0.0(vite@6.4.1(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)):
+  electron-vite@5.0.0(vite@6.4.1(@types/node@22.19.17)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)):
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-arrow-functions': 7.27.1(@babel/core@7.29.0)
@@ -13505,7 +13513,7 @@ snapshots:
       esbuild: 0.25.12
       magic-string: 0.30.21
       picocolors: 1.1.1
-      vite: 6.4.1(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
+      vite: 6.4.1(@types/node@22.19.17)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
     transitivePeerDependencies:
       - supports-color
 
@@ -13683,9 +13691,9 @@ snapshots:
 
   escape-string-regexp@4.0.0: {}
 
-  eslint-plugin-no-unsanitized@4.1.5(eslint@9.39.2(jiti@1.21.7)):
+  eslint-plugin-no-unsanitized@4.1.5(eslint@9.39.2(jiti@2.6.1)):
     dependencies:
-      eslint: 9.39.2(jiti@1.21.7)
+      eslint: 9.39.2(jiti@2.6.1)
 
   eslint-scope@8.4.0:
     dependencies:
@@ -13698,9 +13706,9 @@ snapshots:
 
   eslint-visitor-keys@5.0.1: {}
 
-  eslint@9.39.2(jiti@1.21.7):
+  eslint@9.39.2(jiti@2.6.1):
     dependencies:
-      '@eslint-community/eslint-utils': 4.9.1(eslint@9.39.2(jiti@1.21.7))
+      '@eslint-community/eslint-utils': 4.9.1(eslint@9.39.2(jiti@2.6.1))
       '@eslint-community/regexpp': 4.12.2
       '@eslint/config-array': 0.21.2
       '@eslint/config-helpers': 0.4.2
@@ -13735,13 +13743,13 @@ snapshots:
       natural-compare: 1.4.0
       optionator: 0.9.4
     optionalDependencies:
-      jiti: 1.21.7
+      jiti: 2.6.1
     transitivePeerDependencies:
       - supports-color
 
-  eslint@9.39.4(jiti@1.21.7):
+  eslint@9.39.4(jiti@2.6.1):
     dependencies:
-      '@eslint-community/eslint-utils': 4.9.1(eslint@9.39.4(jiti@1.21.7))
+      '@eslint-community/eslint-utils': 4.9.1(eslint@9.39.4(jiti@2.6.1))
       '@eslint-community/regexpp': 4.12.2
       '@eslint/config-array': 0.21.2
       '@eslint/config-helpers': 0.4.2
@@ -13776,7 +13784,7 @@ snapshots:
       natural-compare: 1.4.0
       optionator: 0.9.4
     optionalDependencies:
-      jiti: 1.21.7
+      jiti: 2.6.1
     transitivePeerDependencies:
       - supports-color
 
@@ -17694,11 +17702,11 @@ snapshots:
     dependencies:
       defaults: 1.0.4
 
-  web-ext@9.4.0(jiti@1.21.7):
+  web-ext@9.4.0(jiti@2.6.1):
     dependencies:
       '@babel/runtime': 7.28.6
       '@devicefarmer/adbkit': 3.3.8
-      addons-linter: 9.9.1(jiti@1.21.7)
+      addons-linter: 9.9.1(jiti@2.6.1)
       camelcase: 8.0.0
       chrome-launcher: 1.2.0
       debounce: 1.2.1
