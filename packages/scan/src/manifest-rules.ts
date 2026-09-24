@@ -41,6 +41,9 @@ const POPULAR_NPM = [
   'cors', 'helmet', 'morgan', 'body-parser', 'multer', 'nodemailer', 'puppeteer',
   'playwright', 'cheerio', 'sharp', 'canvas', 'esbuild', 'babel', 'postcss',
   'tailwindcss', 'next', 'nuxt', 'vue', 'svelte', 'angular', 'rxjs', 'zod',
+  // One edit from `react` and a popular framework in its own right: listing it
+  // stops it being reported as a squat and starts protecting it from one.
+  'preact',
 ];
 
 const POPULAR_PYPI = [

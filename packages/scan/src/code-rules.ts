@@ -129,6 +129,23 @@ export interface CodeRule {
    */
   enclosingCallGuard?: RegExp;
   /**
+   * Exonerate a line that is the body of a heredoc printed to the terminal.
+   *
+   *     usage() {
+   *       cat <<USAGE
+   *       curl -fsSL https://example.com/install.sh | sh
+   *     USAGE
+   *     }
+   *
+   * That body is help text: `cat` writes it to stdout or stderr and nothing
+   * runs it. A heredoc written to a file (`cat > launcher <<EOF`) or piped
+   * onward (`cat <<EOF | sh`) is still read as code, because a script written
+   * to disk or fed to a shell does run. `lineGuard` cannot see this: the
+   * opener is lines above the match, and only the heredoc's boundaries say
+   * whether the match is inside it.
+   */
+  displayedHeredocGuard?: boolean;
+  /**
    * Exonerate a template literal whose every `${…}` names a file-local `const`
    * bound to a string literal.
    *
@@ -1035,6 +1052,8 @@ export const CODE_RULES: readonly CodeRule[] = [
     // Installer instructions printed by the script do not execute.  Matching
     // them made a script report its own documentation as a network pipeline.
     lineGuard: /^\s*(?:echo|printf|say|info|warn|error)\s+["'][^"'\n]*\b(?:curl|wget)\b/,
+    // The same instructions written as a `cat <<USAGE` help block.
+    displayedHeredocGuard: true,
   },
   {
     id: 'sh-eval-expansion',
@@ -2034,6 +2053,30 @@ export function bufferFilledBeforeUse(ctx: MatchContext): boolean {
   return false;
 }
 
+const HEREDOC_OPENER = /<<(-?)\s*(['"]?)([A-Za-z_][\w]*)\2/;
+
+/**
+ * True when line `index` is inside a heredoc whose opener only displays it:
+ * `cat` with no redirection to a file and no pipe. `>&2` and `1>&2` are
+ * display (stderr), not a file. A here-string (`<<<`) opens nothing.
+ */
+export function insideDisplayedHeredoc(lines: readonly string[], index: number): boolean {
+  let open: { terminator: string; opener: string } | null = null;
+  for (let i = 0; i < index; i += 1) {
+    const line = lines[i] ?? '';
+    if (open) {
+      if (line.trim() === open.terminator) open = null;
+      continue;
+    }
+    if (line.includes('<<<')) continue;
+    const found = HEREDOC_OPENER.exec(line);
+    if (found) open = { terminator: found[3] as string, opener: line };
+  }
+  if (!open) return false;
+  const opener = open.opener.replace(/\s[12]?>&2\b/g, ' ');
+  return /^\s*cat\b/.test(opener) && !/>/.test(opener) && !/\|/.test(opener);
+}
+
 export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | null {
   if (rule.languages && !rule.languages.includes(ctx.language)) return null;
 
@@ -2052,6 +2095,8 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   if (rule.requires && !rule.requires.test(context)) return null;
 
   if (rule.lineGuard?.test(line)) return null;
+
+  if (rule.displayedHeredocGuard && insideDisplayedHeredoc(ctx.lines, ctx.index)) return null;
 
   if (rule.enclosingCallGuard) {
     const callees = enclosingCallees(ctx.lines, ctx.index, back);
