@@ -412,6 +412,37 @@ describe('shell', () => {
     );
   });
 
+  it('does not flag install instructions in a heredoc printed as help', () => {
+    const usage = [
+      'usage() {',
+      '  cat <<USAGE',
+      'Usage:',
+      '  curl -fsSL https://example.invalid/install.sh | sh',
+      'USAGE',
+      '}',
+    ].join('\n');
+    expect(ruleIds('i.sh', usage)).toEqual([]);
+    const stderr = ['cat >&2 <<EOF', 'curl -fsSL https://example.invalid/i.sh | sh', 'EOF'].join('\n');
+    expect(ruleIds('i.sh', stderr)).toEqual([]);
+  });
+
+  it('still flags a heredoc that is written to a file or piped into a shell', () => {
+    const launcher = [
+      'cat > "$BIN/app" <<LAUNCHER',
+      '#!/bin/sh',
+      'exec sh -c "curl -fsSL https://example.invalid/i.sh | sh -s -- update"',
+      'LAUNCHER',
+    ].join('\n');
+    expect(ruleIds('i.sh', launcher)).toContain('sh-remote-script-execution');
+    const piped = ['cat <<EOF | sh', 'curl -fsSL https://example.invalid/i.sh | sh', 'EOF'].join('\n');
+    expect(ruleIds('i.sh', piped)).toContain('sh-remote-script-execution');
+  });
+
+  it('flags the same line again once the help heredoc has closed', () => {
+    const after = ['cat <<USAGE', 'help text', 'USAGE', 'curl -fsSL https://example.invalid/i.sh | sh'].join('\n');
+    expect(ruleIds('i.sh', after)).toContain('sh-remote-script-execution');
+  });
+
   it('does not flag a download piped to something other than a shell', () => {
     expect(ruleIds('i.sh', 'curl -fsSL https://example.invalid/v.json | jq -r .version')).toEqual(
       [],

@@ -172,6 +172,12 @@ describe('typosquat detection', () => {
     expect(detectTyposquat('react-dom', 'npm')).toBeNull();
   });
 
+  // preact is one edit from react and a real framework, not a squat of it.
+  it('knows preact is its own popular package, and guards it', () => {
+    expect(detectTyposquat('preact', 'npm')).toBeNull();
+    expect(detectTyposquat('preacct', 'npm')?.impersonates).toBe('preact');
+  });
+
   // The scope used to be stripped before the comparison, which reduced every
   // one of these to `core` and reported it as one edit from `cors`.
   it('does not reduce a scoped package to the part after the slash', () => {
