@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { listOrganizations, listServers, type Server } from "@/lib/organizations";
 import CreateOrgModal from "@/components/CreateOrgModal";
+import ConnectServerHint from "@/components/ConnectServerHint";
+import { serverConnectionState } from "@/lib/server-status";
+import { useVisiblePolling } from "@/lib/use-visible-polling";
 import Link from "next/link";
 
 interface Organization {
@@ -51,6 +54,14 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
     fetchData();
   }, [signedIn, authLoading, slug]);
 
+  // Keep online/offline current: it is derived from last_seen.
+  useVisiblePolling(() => {
+    if (!org) return;
+    listServers(org.id)
+      .then(({ servers: srvs }) => setServers(srvs as unknown as Server[]))
+      .catch(() => {});
+  }, 30_000, !!org);
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
@@ -72,6 +83,8 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
       </div>
     );
   }
+
+  const onlineCount = servers.filter((s) => serverConnectionState(s.last_seen) === "online").length;
 
   return (
     <div className="min-h-screen bg-black">
@@ -116,13 +129,13 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
           <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
             <p className="text-sm text-zinc-500">Online</p>
             <p className="text-2xl font-bold text-green-400 mt-1">
-              {servers.filter((s) => s.status === "online").length}
+              {onlineCount}
             </p>
           </div>
           <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
             <p className="text-sm text-zinc-500">Offline</p>
             <p className="text-2xl font-bold text-zinc-400 mt-1">
-              {servers.filter((s) => s.status === "offline").length}
+              {servers.length - onlineCount}
             </p>
           </div>
           <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
@@ -185,22 +198,10 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
                 />
               </svg>
               <h3 className="mt-4 text-sm font-medium text-white">No servers yet</h3>
-              <p className="mt-2 text-sm text-zinc-400">
-                Register a server running threatcrushd to start seeing telemetry in the web dashboard.
+              <p className="mt-2 mb-6 text-sm text-zinc-400">
+                Link a server running the ThreatCrush daemon to see its status, detections and bans here.
               </p>
-              <p className="mt-4 text-xs text-zinc-500">
-                For real-time management (modules, logs, commands), use the Desktop or CLI.
-              </p>
-              {["owner", "admin"].includes(org.user_role) && (
-                <div className="mt-6">
-                  <Link
-                    href={`/org/${org.slug}/servers/new`}
-                    className="inline-flex items-center rounded-lg px-4 py-2 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition-colors"
-                  >
-                    Add Server
-                  </Link>
-                </div>
-              )}
+              <ConnectServerHint />
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -264,7 +265,7 @@ function ServerCard({ server, orgSlug }: { server: Server; orgSlug: string }) {
             {server.hostname || server.ip_address}:{server.port}
           </p>
         </div>
-        <StatusBadge status={server.status} />
+        <StatusBadge status={serverConnectionState(server.last_seen)} />
       </div>
 
       <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">

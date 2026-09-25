@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { listOrganizations, listServers } from "@/lib/organizations";
 import { authHeaders } from "@/lib/auth-client";
+import { useVisiblePolling } from "@/lib/use-visible-polling";
+import ConnectServerHint from "@/components/ConnectServerHint";
 import Link from "next/link";
 
 interface Remediation {
@@ -14,6 +16,13 @@ interface Remediation {
   status: string;
   executed_at: string | null;
   expires_at: string | null;
+  metadata: {
+    source?: string;
+    rule_id?: string | null;
+    reason?: string | null;
+    error?: string | null;
+    dry_run?: boolean;
+  } | null;
   created_at: string;
 }
 
@@ -36,6 +45,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "text-yellow-400",
+  executing: "text-blue-300",
   executed: "text-green-400",
   failed: "text-red-400",
   expired: "text-zinc-400",
@@ -56,6 +66,7 @@ export default function RemediationsContent({ slug }: { slug: string }) {
   const [serverList, setServerList] = useState<Array<{ id: string; name: string }>>([]);
   const [allowIp, setAllowIp] = useState("");
   const [allowNote, setAllowNote] = useState("");
+  const [actionError, setActionError] = useState("");
 
   const fetchData = useCallback(async (orgId: string) => {
     const [remRes, alRes] = await Promise.all([
@@ -89,13 +100,23 @@ export default function RemediationsContent({ slug }: { slug: string }) {
     })();
   }, [signedIn, authLoading, slug, fetchData]);
 
+  // Dashboard-issued actions move pending → executing → executed/failed as
+  // the linked daemon picks them up, and daemon auto-bans arrive on their own.
+  useVisiblePolling(() => { if (org) fetchData(org.id); }, 30_000, !!org);
+
   const handleBlock = async () => {
     if (!org || !blockIp || !blockServer) return;
-    await fetch(`/api/orgs/${org.id}/remediations`, {
+    const res = await fetch(`/api/orgs/${org.id}/remediations`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ server_id: blockServer, action_type: "block", target_value: blockIp, ttl_seconds: parseInt(blockTtl) || 3600 }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setActionError(data.error || "Failed to queue the block");
+      return;
+    }
+    setActionError("");
     setBlockIp("");
     await fetchData(org.id);
   };
@@ -136,7 +157,12 @@ export default function RemediationsContent({ slug }: { slug: string }) {
     return <div className="min-h-screen bg-black flex items-center justify-center"><div className="text-zinc-400">Organization not found</div></div>;
   }
 
-  const activeBlocks = remediations.filter(r => r.action_type === "block" && (r.status === "pending" || r.status === "executed"));
+  const now = Date.now();
+  const activeBlocks = remediations.filter(r =>
+    r.action_type === "block"
+    && ["pending", "executing", "executed"].includes(r.status)
+    && !r.metadata?.dry_run
+    && (!r.expires_at || Date.parse(r.expires_at) > now));
 
   return (
     <div className="min-h-screen bg-black">
@@ -168,28 +194,64 @@ export default function RemediationsContent({ slug }: { slug: string }) {
           <div className="space-y-3">
             {remediations.length === 0 ? (
               <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-12 text-center">
-                <p className="text-zinc-400">No remediation actions yet</p>
+                <p className="text-zinc-400 text-lg mb-2">No remediation actions yet</p>
+                {serverList.length === 0 ? (
+                  <>
+                    <p className="text-zinc-600 text-sm mb-6">Blocks run on a linked server. Connect one first:</p>
+                    <ConnectServerHint />
+                  </>
+                ) : (
+                  <p className="text-zinc-600 text-sm">
+                    Blocks you queue on the Blocklist tab are picked up by the server&apos;s linked daemon within about
+                    15 seconds. Bans the daemon makes on its own show up here too.
+                  </p>
+                )}
               </div>
-            ) : remediations.map(r => (
-              <div key={r.id} className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-white font-medium">{ACTION_LABELS[r.action_type] || r.action_type}</span>
-                    <code className="text-zinc-300 ml-2">{r.target_value}</code>
-                    <span className="text-zinc-600 ml-2">on {servers[r.server_id] || r.server_id.slice(0, 8)}</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-sm ${STATUS_COLORS[r.status] || "text-zinc-400"}`}>{r.status}</span>
-                    {r.expires_at && (
-                      <span className="text-xs text-zinc-500">
-                        expires {new Date(r.expires_at).toLocaleString()}
+            ) : remediations.map(r => {
+              const fromDaemon = r.metadata?.source === "daemon";
+              const error = r.metadata?.error;
+              return (
+                <div key={r.id} className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div className="min-w-0">
+                      <span className="text-white font-medium">{ACTION_LABELS[r.action_type] || r.action_type}</span>
+                      <code className="text-zinc-300 ml-2">{r.target_value}</code>
+                      <span className="text-zinc-600 ml-2">on {servers[r.server_id] || r.server_id.slice(0, 8)}</span>
+                      <span className={`ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs ${
+                        fromDaemon ? "bg-purple-500/10 text-purple-300" : "bg-zinc-800 text-zinc-400"
+                      }`}>
+                        {fromDaemon ? (r.action_type === "block" ? "Daemon auto-ban" : "Daemon") : "Dashboard"}
                       </span>
-                    )}
-                    <span className="text-xs text-zinc-600">{new Date(r.created_at).toLocaleString()}</span>
+                      {r.metadata?.dry_run && (
+                        <span className="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-xs bg-yellow-500/10 text-yellow-300">
+                          dry run
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm ${STATUS_COLORS[r.status] || "text-zinc-400"}`}>{r.status}</span>
+                      {r.expires_at && (
+                        <span className="text-xs text-zinc-500">
+                          expires {new Date(r.expires_at).toLocaleString()}
+                        </span>
+                      )}
+                      <span className="text-xs text-zinc-600">
+                        {new Date(r.executed_at ?? r.created_at).toLocaleString()}
+                      </span>
+                    </div>
                   </div>
+                  {(r.metadata?.rule_id || r.metadata?.reason) && (
+                    <p className="text-xs text-zinc-500 mt-2">
+                      {r.metadata?.rule_id && <code className="text-zinc-400 mr-2">{r.metadata.rule_id}</code>}
+                      {r.metadata?.reason}
+                    </p>
+                  )}
+                  {r.status === "failed" && error && (
+                    <p className="text-xs text-red-400 mt-2">Error: {error}</p>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -212,11 +274,15 @@ export default function RemediationsContent({ slug }: { slug: string }) {
                   <option value="86400">24 hours</option>
                   <option value="604800">7 days</option>
                 </select>
-                <button onClick={handleBlock} disabled={!blockIp}
+                <button onClick={handleBlock} disabled={!blockIp || !blockServer}
                   className="rounded-lg px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-500 disabled:opacity-40">
                   Block
                 </button>
               </div>
+              {actionError && <p className="text-sm text-red-400 mt-3">{actionError}</p>}
+              {serverList.length === 0 && (
+                <p className="text-sm text-zinc-500 mt-3">No servers in this organization yet. Link one with <code className="text-zinc-300">threatcrush servers link</code>.</p>
+              )}
             </div>
             <div className="space-y-2">
               {activeBlocks.length === 0 ? (
@@ -226,6 +292,7 @@ export default function RemediationsContent({ slug }: { slug: string }) {
                   <div>
                     <code className="text-red-400 font-medium">{r.target_value}</code>
                     <span className="text-zinc-600 ml-2">{servers[r.server_id] || ""}</span>
+                    <span className={`text-xs ml-2 ${STATUS_COLORS[r.status] || "text-zinc-400"}`}>{r.status}</span>
                     {r.expires_at && (
                       <span className="text-xs text-zinc-500 ml-2">
                         expires {new Date(r.expires_at).toLocaleString()}
