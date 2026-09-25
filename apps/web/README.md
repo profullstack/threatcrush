@@ -50,7 +50,7 @@ All mutating routes expect a `Bearer` token.
 ## Pages
 
 - `/` — marketing + install snippet
-- `/auth/*` — login, signup, phone verify, forgot-password
+- `/auth/*` — login, signup, phone verify, forgot-password, reset-password (recovery links land here)
 - `/org/[slug]` — org dashboard, `/servers`, `/properties` (with detail + run history)
 - `/store` + `/store/[slug]` + `/store/publish` — module marketplace (catalog read-only in v0.1.0)
 - `/pricing`, `/privacy`, `/terms`, `/usage`
