@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
 import { loadAllRules } from '../daemon/rules/loader.js';
+import type { RuleMatch } from '../daemon/rules/engine.js';
 
 export async function rulesListCommand(): Promise<void> {
   banner();
@@ -72,7 +73,12 @@ export async function rulesShowCommand(ruleId: string): Promise<void> {
   }
   console.log();
   console.log(chalk.gray('  Match condition:'));
-  console.log(chalk.gray(`    ${rule.match.field} ${rule.match.operator} "${rule.match.value}"`));
+  const show = (m: RuleMatch, prefix: string, depth: number): void => {
+    console.log(chalk.gray(`${'  '.repeat(depth + 2)}${prefix}${m.field} ${m.operator} "${m.value}"`));
+    for (const sub of m.and ?? []) show(sub, 'and ', depth + 1);
+    for (const sub of m.or ?? []) show(sub, 'or ', depth + 1);
+  };
+  show(rule.match, '', 0);
   console.log();
 }
 

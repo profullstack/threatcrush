@@ -1,4 +1,19 @@
-import type { DetectionRule } from './engine.js';
+import type { DetectionRule, RuleMatch } from './engine.js';
+
+/**
+ * The web-attack rules match the structured CRS verdict log-watcher puts in
+ * `details` (`attack_type`), not message text: the wording is for people and
+ * already differs between `threatcrush monitor` and the daemon, which is how
+ * these rules came to match nothing the daemon emitted.
+ *
+ * `attack_type` is also set on requests that scored below the CRS anomaly
+ * threshold (a `low` "Suspicious …" or "Client error …" event), so each rule
+ * also requires the severity log-watcher gives a request at the threshold
+ * (`high`) or twice it (`critical`). The rules are `high`, not `critical`: a
+ * rule must not escalate one matching CRS rule past what `min_severity =
+ * "critical"` is documented to require (two).
+ */
+const AT_CRS_THRESHOLD: RuleMatch = { field: 'severity', operator: 'regex', value: '^(high|critical)$' };
 
 export const DEFAULT_RULES: DetectionRule[] = [
   {
@@ -123,13 +138,9 @@ export const DEFAULT_RULES: DetectionRule[] = [
     description: 'HTTP request with SQL injection patterns',
     version: '1.0.0',
     category: 'web',
-    severity: 'critical',
+    severity: 'high',
     source_types: ['log-watcher', 'web'],
-    match: {
-      field: 'message',
-      operator: 'contains',
-      value: 'Attack detected [SQLI]',
-    },
+    match: { field: 'attack_type', operator: 'equals', value: 'sqli', and: [AT_CRS_THRESHOLD] },
     threshold: 1,
     window_seconds: 60,
     cooldown_seconds: 300,
@@ -147,13 +158,9 @@ export const DEFAULT_RULES: DetectionRule[] = [
     description: 'HTTP request with path traversal patterns',
     version: '1.0.0',
     category: 'web',
-    severity: 'critical',
+    severity: 'high',
     source_types: ['log-watcher', 'web'],
-    match: {
-      field: 'message',
-      operator: 'contains',
-      value: 'Attack detected [PATH_TRAVERSAL]',
-    },
+    match: { field: 'attack_type', operator: 'equals', value: 'path_traversal', and: [AT_CRS_THRESHOLD] },
     threshold: 1,
     window_seconds: 60,
     cooldown_seconds: 300,
@@ -173,11 +180,7 @@ export const DEFAULT_RULES: DetectionRule[] = [
     category: 'web',
     severity: 'high',
     source_types: ['log-watcher', 'web'],
-    match: {
-      field: 'message',
-      operator: 'regex',
-      value: 'Attack detected \\[XSS\\]',
-    },
+    match: { field: 'attack_type', operator: 'equals', value: 'xss', and: [AT_CRS_THRESHOLD] },
     threshold: 1,
     window_seconds: 60,
     cooldown_seconds: 300,
@@ -330,10 +333,13 @@ export const DEFAULT_RULES: DetectionRule[] = [
     category: 'web',
     severity: 'high',
     source_types: ['log-watcher', 'web'],
+    // CRS files command injection under `rce`. There is no XXE type: an
+    // access log never shows the request body an XXE payload lives in.
     match: {
-      field: 'message',
+      field: 'attack_type',
       operator: 'regex',
-      value: 'Attack detected \\[(CMD_INJECTION|RCE|SSRF|XXE)\\]',
+      value: '^(rce|ssrf|rfi|php_injection|ssti)$',
+      and: [AT_CRS_THRESHOLD],
     },
     threshold: 1,
     window_seconds: 60,

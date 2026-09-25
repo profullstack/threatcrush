@@ -49,6 +49,12 @@ reaches the threshold, 5 by default — one CRITICAL rule.
 Set `min_severity = "critical"` to ban only on two or more matching rules. Each
 event carries `crs_score`, `crs_threshold`, `crs_rule_ids` and `attack_type`.
 
+The shipped web detection rules (`web-sqli-attack`, `web-path-traversal`,
+`web-xss-attack`, `exploit-probe-pattern`) match that `attack_type` on `high`
+and `critical` events only, so a request below the threshold never trips them.
+They are `high` themselves: under `min_severity = "critical"` they alert
+without banning, and a single matching CRS rule is still not enough for a ban.
+
 What an access log cannot show, these rules cannot see: request bodies,
 cookies and other headers. The two libinjection rules (942100 SQLi, 941100
 XSS) are not ported, so a bare `1' OR 1=1` scores nothing; `UNION SELECT`,
