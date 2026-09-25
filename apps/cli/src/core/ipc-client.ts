@@ -119,20 +119,16 @@ export class IpcClient {
   }
 
   /**
-   * Ban an address. The control token is read from disk here rather than by
-   * the caller, so the dashboard and the CLI go through the same gate.
+   * Ban an address.
    */
   async block(ip: string, reason?: string, ttl?: string): Promise<BlockedEntryReply> {
-    return this.request<BlockedEntryReply>('block', {
-      ip,
-      reason,
-      ttl,
-      token: readControlToken(),
-    });
+    // No control token: the daemon writes the rule, so the daemon is what needs
+    // the privilege. Who may ask is decided by the socket's permissions.
+    return this.request<BlockedEntryReply>('block', { ip, reason, ttl });
   }
 
   async unblock(ip: string, forget = true): Promise<{ ip: string }> {
-    return this.request<{ ip: string }>('unblock', { ip, forget, token: readControlToken() });
+    return this.request<{ ip: string }>('unblock', { ip, forget });
   }
 
   async shutdown(): Promise<void> {

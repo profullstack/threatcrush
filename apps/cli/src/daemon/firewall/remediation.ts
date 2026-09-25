@@ -54,6 +54,30 @@ const SEVERITY_RANK: Record<string, number> = {
   info: 0, low: 1, medium: 2, high: 3, critical: 4,
 };
 
+/**
+ * Turn a backend's own complaint into something that says what to do about it.
+ *
+ * `Command failed: nft add table inet threatcrush / Operation not permitted` is
+ * true and useless: it reads like the operator needs to be root, when the
+ * privilege that is missing belongs to the *daemon*. Nobody should have to
+ * work that out from a raw nft error at 3am.
+ */
+export function explainBlockFailure(err: Error, backend: string): string {
+  const raw = err.message || String(err);
+  const denied = /not permitted|EACCES|EPERM|permission denied|must be root/i.test(raw);
+  if (!denied) return `${raw} (backend: ${backend})`;
+
+  const who = typeof process.getuid === 'function' && process.getuid() === 0
+    ? 'as root'
+    : `as uid ${typeof process.getuid === 'function' ? process.getuid() : '?'}`;
+
+  return (
+    `threatcrushd is running ${who} and cannot manage ${backend}. ` +
+    'A ban is written by the daemon, not by whoever asked for it — run the daemon as root: ' +
+    'sudo threatcrush install-service && sudo systemctl enable --now threatcrushd'
+  );
+}
+
 export class RemediationManager {
   private config: RemediationConfig;
   private blocklist: BlockEntry[] = [];
@@ -150,14 +174,14 @@ export class RemediationManager {
       try {
         await this.adapter.block(ip);
       } catch (err) {
-        const message = (err as Error).message;
+        const message = explainBlockFailure(err as Error, this.adapter.name);
         this.logLine(`[firewall] error blocking ${ip}: ${message}`);
         this.bus.publish({
           timestamp: new Date(),
           module: 'firewall-rules',
           category: 'system',
           severity: 'medium',
-          message: `Failed to block ${ip}: ${message}. Ensure the daemon can manage ${this.adapter.name}.`,
+          message: `Failed to block ${ip}: ${message}`,
           source_ip: ip,
         });
         return { ok: false, error: message };
@@ -254,6 +278,7 @@ export class RemediationManager {
     min_severity: string;
     banned: number;
     max_ban_seconds: number;
+    warning?: string;
   } {
     return {
       enabled: this.config.enabled,
@@ -262,7 +287,22 @@ export class RemediationManager {
       min_severity: this.config.min_severity,
       banned: this.blocklist.length,
       max_ban_seconds: this.config.max_ban_seconds,
+      warning: this.privilegeWarning(),
     };
+  }
+
+  /**
+   * Set when the daemon intends to enforce but cannot. `nft --version` succeeds
+   * for anybody, so backend detection alone will happily pick nftables inside
+   * an unprivileged daemon — and then every ban fails at the moment it matters.
+   * Saying so up front beats a dashboard that looks armed and is not.
+   */
+  private privilegeWarning(): string | undefined {
+    if (!this.config.enabled || this.config.dry_run) return undefined;
+    if (this.adapter.enforces === false) return undefined;
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+    if (uid === 0) return undefined;
+    return `daemon runs as uid ${uid} and cannot write ${this.adapter.name} rules — bans will fail`;
   }
 
   addToAllowlist(ip: string): void {

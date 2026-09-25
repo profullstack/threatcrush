@@ -335,6 +335,14 @@ function bansPanel(parent: Container, state: State, theme: Theme, options: ViewO
         panel.label('[remediation] enabled = false', { fg: theme.muted });
         return;
       }
+      if (fw.warning) {
+        // The daemon intends to enforce and cannot. Saying it here beats a
+        // panel that looks armed until the first ban fails.
+        panel.text('NOT PRIVILEGED', { fg: severityColors.critical, bold: true });
+        panel.label(fw.warning, { fg: severityColors.high });
+        panel.label('sudo threatcrush install-service', { fg: theme.muted });
+        panel.spacer(1);
+      }
       if (state.bans.length === 0) {
         panel.label('nothing banned', { fg: theme.muted });
         panel.label(fw.dry_run ? 'dry-run: bans are simulated' : 'bans: 1m → 2m → 3m → 5m → 8m', {
