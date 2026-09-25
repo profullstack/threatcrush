@@ -42,19 +42,27 @@
 
 ---
 
-ThreatCrush is a security daemon that runs on your server, monitoring **every connection on every port**. It detects live attacks, scans your codebase, pentests your APIs, and alerts you in real-time.
+ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 21 attack signatures, runs 12 detection rules over auth, web and network events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
 
 ```
 $ threatcrush monitor
 
-  [12:03:41] ✓ Monitoring all ports · nginx · sshd · postgres
-  [12:03:42] ✓ Loaded 1,247 attack signatures
-  [12:03:45] ⚠ SQLi attempt — :443 185.43.21.8 → /api/users?id=1 OR 1=1
-  [12:03:47] ✗ SSH brute force — :22 91.232.105.3 → 47 failed attempts
-  [12:03:50] ⚠ Port scan — 45.33.32.156 scanning :21-:8080 (SYN flood)
-  [12:03:52] ⚠ DNS tunneling — :53 suspicious TXT queries from 103.44.8.2
-  [12:04:01] ✓ 3,891 connections analyzed · 4 threats · 1 blocked
+2026-09-25 12:03:41 [INFO]    Starting foreground monitor...
+2026-09-25 12:03:41 [INFO]    Monitoring 3 log source(s):
+  ● ssh-guard      → /var/log/auth.log
+  ● log-watcher    → /var/log/nginx/access.log
+  ● log-watcher    → /var/log/syslog
+
+  Press Ctrl+C to stop
+
+2026-09-25 12:03:45 [CRITICAL] [log-watcher]  Attack detected [SQLI]: GET /api/users?id=1%20OR%201=1 (185.43.21.8)
+2026-09-25 12:03:46 [CRITICAL] [log-watcher]  Attack detected [PATH_TRAVERSAL]: GET /../../etc/passwd (185.43.21.8)
+2026-09-25 12:03:47 [HIGH]     [ssh-guard]    Failed SSH login for root from 91.232.105.3 (91.232.105.3)
+2026-09-25 12:03:48 [HIGH]     [ssh-guard]    Invalid SSH user attempt: admin123 from 103.77.88.99 (103.77.88.99)
+2026-09-25 12:03:52 [LOW]      [log-watcher]  Client error 404: GET /wp-login.php (203.0.113.9)
 ```
+
+`monitor` tails your logs in the foreground. The daemon (`threatcrush start`) adds the connection poller, DNS monitor, journald, the rule engine and auto-ban.
 
 ## Install
 
@@ -91,11 +99,11 @@ bun add -g @profullstack/threatcrush
 
 ```bash
 threatcrush              # Get started
-threatcrush monitor      # Real-time security monitoring (all ports)
+threatcrush monitor      # Watch nginx, auth & syslog for attacks (foreground)
 threatcrush tui          # Interactive dashboard (htop for security)
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush scan . --format sarif --output out.sarif --fail-on critical,high
-threatcrush pentest URL  # Penetration test a URL/API
+threatcrush pentest URL  # Quick web security checks against a URL
 threatcrush init         # Auto-detect services, generate config
 threatcrush status       # Show daemon status & loaded modules
 threatcrush modules      # Manage security modules
@@ -107,10 +115,10 @@ threatcrush update       # Upgrade the CLI using the supported path
 
 | Feature | Description |
 |---------|-------------|
-| 🔍 **Live Attack Detection** | Monitors all inbound connections on every port. Detects SQLi, XSS, brute force, SSH attacks, port scans, DNS tunneling. |
+| 🔍 **Live Attack Detection** | Tails nginx, auth, syslog and journald, and polls inbound connections to the ports you serve. Detects SQLi, XSS, path traversal, RFI, SSH brute force, port scans, SYN floods, DNS tunneling. |
 | 🛡️ **Code Security Scanner** | Scan your codebase for vulnerabilities, hardcoded secrets, and misconfigurations. |
-| 💥 **Pentest Engine** | Automated penetration testing on your URLs and APIs. |
-| 🔀 **Network Monitor** | Watches all TCP/UDP traffic across every port — HTTP, SSH, DNS, FTP, databases. |
+| 💥 **Pentest Checks** | `threatcrush pentest URL` spot-checks security headers, CSP, CORS, cookie flags, server banners, directory listings and error leaks, then probes for SQL errors, path traversal and unsafe HTTP methods. |
+| 🔀 **Network Monitor** | Polls conntrack/`ss` every 5 s for inbound TCP connections to your listening ports. Flags port scans (10+ ports in 30 s) and SYN floods (50+ half-open from one source). No packet capture. |
 | 🔔 **Real-time Alerts** | Slack, email, webhook notifications the instant a threat is detected. |
 | ⚙️ **systemd Daemon** | Runs as a background service on your server. Auto-starts on boot, monitors 24/7. |
 | 📊 **TUI Dashboard** | Interactive terminal dashboard — htop for security. |
@@ -124,21 +132,22 @@ threatcrush modules list                # List installed
 threatcrush modules install ssh-guard   # Install a module
 threatcrush modules install docker-monitor
 threatcrush store search "firewall"     # Search marketplace
-threatcrush store publish ./my-module   # Publish your own
+threatcrush store publish https://github.com/you/my-module  # Publish your own
 ```
 
-### Core Modules (included)
+### Built in
 
-| Module | What it monitors |
-|--------|-----------------|
-| `network-monitor` | All TCP/UDP traffic, port scans, SYN floods |
-| `log-watcher` | nginx, Apache, syslog, journald |
-| `ssh-guard` | Failed logins, brute force, tunneling |
-| `code-scanner` | Vulnerabilities, secrets, dependency CVEs |
-| `pentest-engine` | SQLi, XSS, SSRF, API fuzzing |
-| `dns-monitor` | DNS tunneling, DGA detection |
-| `firewall-rules` | Auto-blocks via iptables/nftables |
-| `alert-system` | Slack, Discord, email, webhook, PagerDuty |
+| Component | What it covers |
+|-----------|----------------|
+| `log-watcher` | nginx access log + syslog — 21 attack signatures (SQLi, XSS, path traversal, RFI) on every request |
+| `ssh-guard` | auth.log / secure — failed logins, brute force, root logins, user enumeration |
+| `user-journal` | journald — the systemd journal |
+| `network-monitor` | Inbound connections to your listening ports — port scans, SYN floods |
+| `dns-monitor` | Resolver logs (systemd-resolved, dnsmasq, bind, Pi-hole) — DNS tunneling, DGA detection |
+| `threatcrush scan` | Vulnerabilities, secrets, dependency CVEs (OSV.dev, with `--deps`) |
+| `threatcrush pentest` | Header, CORS, cookie, SQL-error, path-traversal and HTTP-method checks |
+| auto-defend | Bans via fail2ban, nftables or iptables |
+| alerts | Slack, Discord, email, webhook, PagerDuty |
 
 ### Community Modules
 

@@ -131,7 +131,7 @@ The integration tax is enormous. Most teams under 200 engineers cannot afford to
 
 ThreatCrush is built around two ideas:
 
-1. **One agent per server, doing the boring parts well.** A single Linux daemon that handles inbound monitoring on every port, code scanning, automated pentesting against your URLs and APIs, and active defense (tar pits, honeypots, deception). Operators get CLI, TUI, desktop, and mobile clients that all talk to the same agent over an end-to-end-encrypted channel.
+1. **One agent per server, doing the boring parts well.** A single Linux daemon that reads your server's logs and watches inbound connections to the ports it serves, scans code, runs pentest checks against your URLs and APIs, and actively defends (auto-bans today; tar pits, honeypots and deception on the roadmap). Operators get CLI, TUI, desktop, and mobile clients that all talk to the same agent over an end-to-end-encrypted channel.
 
 2. **A marketplace for everything else.** Discovery sources, prioritization signals, validation checks, and mobilization integrations are modules. Some are first-party. Many are community-published. You install only what your environment needs, and you can publish your own.
 
@@ -142,7 +142,7 @@ This shape is deliberate. CTEM rewards organizations that can compose specific c
 | CTEM Stage      | ThreatCrush Capability                                                                                                  |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | Scoping         | Asset inventory from the agent + module-defined scope tags; you declare which servers and properties matter.            |
-| Discovery       | Built-in network monitor (every port, every protocol), code scanner, pentest engine, plus marketplace modules for ASM, identity, and supply-chain discovery. |
+| Discovery       | Built-in log watchers and inbound-connection monitor, code scanner, pentest checks, plus marketplace modules for ASM, identity, and supply-chain discovery. |
 | Prioritization  | Findings are normalized and tagged with module-driven severity hints; KEV/EPSS modules layer in exploitability data.    |
 | Validation      | Pentest engine re-runs checks on demand; active-defense modules confirm controls by attempting to defeat them.          |
 | Mobilization    | Real-time alerts (email, SMS, Slack, Discord, webhook), automated active-defense responses, and an API surface for SOAR/ticketing integrations. |
@@ -259,7 +259,7 @@ A CTEM program with no detection layer is a list of risks that you may or may no
 ThreatCrush is built to operate in both layers from a single agent:
 
 - **CTEM-side capabilities:** code scanner, pentest engine, marketplace ASM modules, exposure normalization, prioritization, validation re-runs.
-- **Detect-and-respond capabilities:** inbound monitoring on every port and protocol (SIEM-style log + event collection), the daemon as an EDR-style on-host agent, real-time alerts (SOC-style notification), and active-defense modules (tar pits, honeypots, deception, automated abuse reports) for EDR-style response.
+- **Detect-and-respond capabilities:** log and inbound-connection monitoring (SIEM-style log + event collection), the daemon as an EDR-style on-host agent, real-time alerts (SOC-style notification), and active defense for EDR-style response — auto-bans via fail2ban, nftables or iptables today; tar pits, honeypots, deception and automated abuse reports on the roadmap.
 
 This is deliberate. Most teams under 200 engineers cannot afford the full nine-tool stack, and bolting CTEM onto an existing SIEM+EDR is its own integration project. ThreatCrush gives small and mid-sized teams a single substrate that does the obvious detect-and-respond work and runs the CTEM loop on top, with marketplace modules filling in the long tail.
 

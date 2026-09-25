@@ -12,8 +12,8 @@ Detections today are hardcoded inside the `ssh-guard` module
 (`apps/cli/src/modules/ssh-guard`) and the journal/log watchers. There is no
 versioned, declarative rule format, no severity taxonomy, no
 suppression/cooldown, and no community contribution path — all of which the PRD
-calls for and which the README's "1,247 attack signatures" headline implies
-exist. A security product's credibility hinges on transparent, auditable rules.
+calls for and which the README's old four-digit "attack signatures" headline
+implied existed. A security product's credibility hinges on transparent, auditable rules.
 
 ## Goals
 
@@ -68,5 +68,7 @@ patterns where logs allow.
 ## Open questions
 
 - JSON vs YAML for authored rules? (YAML friendlier for contributors; JSON simpler to validate.)
-- Do the "1,247 signatures" claims need to be backed before launch, or is the README copy revised?
+- ~~Do the signature-count claims need to be backed before launch, or is the README copy revised?~~
+  Resolved: the copy now states the count the code loads, and
+  `apps/cli/src/__tests__/doc-claims.test.ts` fails if the two drift.
 </content>

@@ -273,16 +273,14 @@ const slides: Slide[] = [
                   </span>
                 </div>
                 <div className="line out out-ok">
-                  watching all ports · nginx · sshd · postgres · loaded 1,247 sigs
+                  [INFO] Monitoring 3 log source(s): auth · nginx · syslog
                 </div>
                 <div className="line out out-warn">
-                  SQLi attempt — :443 185.43.21.8 → /api/users?id=1 OR 1=1
+                  [CRITICAL] [log-watcher] Attack detected [SQLI]: GET /api/users?id=1%20OR%201=1
+                  (185.43.21.8)
                 </div>
                 <div className="line out out-warn">
-                  SSH brute force — :22 91.232.105.3 → 47 failed attempts
-                </div>
-                <div className="line out out-ok">
-                  ssh-guard banned 91.232.105.3 · tar-pit engaged
+                  [HIGH] [ssh-guard] Failed SSH login for root from 91.232.105.3
                 </div>
                 <div className="spacer" />
                 <div className="line">
@@ -295,7 +293,7 @@ const slides: Slide[] = [
                   </span>
                 </div>
                 <div className="line out out-ok">
-                  3 secrets · 7 CVEs (2 critical) · 4 misconfigs · sigma rules emitted
+                  1 critical · 2 high · 3 medium · 0 low — 6 issue(s) found
                 </div>
                 <div className="spacer" />
                 <div className="line">
@@ -309,7 +307,7 @@ const slides: Slide[] = [
                   </span>
                 </div>
                 <div className="line out out-pending">
-                  fuzzing endpoints… mapping ATT&amp;CK techniques · proposing fix #1 of 3
+                  headers · CORS · cookies · SQL-error · path-traversal · HTTP-method checks…
                 </div>
                 <div>
                   <span className="cursor" />
@@ -319,7 +317,7 @@ const slides: Slide[] = [
             <div className="verb-stack">
               <div className="verb-card">
                 <div className="verb-tag">01 — detect</div>
-                <div className="verb-label">Every port. Every protocol. Live signatures.</div>
+                <div className="verb-label">Logs + inbound connections. 21 attack signatures, live.</div>
               </div>
               <div className="verb-card">
                 <div className="verb-tag">02 — reduce</div>
@@ -624,7 +622,7 @@ const slides: Slide[] = [
             <div className="wedge-step">
               <div className="wedge-day">Minute 1</div>
               <div className="wedge-title">Daemon live</div>
-              <div className="wedge-cmd">systemd · all ports · all sigs</div>
+              <div className="wedge-cmd">systemd · logs + conntrack · 12 rules</div>
             </div>
             <div className="wedge-arrow" aria-hidden>
               →

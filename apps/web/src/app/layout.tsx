@@ -176,8 +176,8 @@ const softwareApplicationJsonLd = {
   featureList: [
     "Live attack detection (SQLi, XSS, brute force, port scans, DNS tunneling)",
     "Code vulnerability scanner",
-    "Automated pentest engine",
-    "All-port TCP/UDP network monitor",
+    "Pentest checks for URLs and APIs",
+    "Inbound-connection monitor — port scans & SYN floods",
     "Real-time email, SMS, Slack, Discord, and webhook alerts",
     "Active defense — tar pits, honeypots, deception",
     "systemd daemon — runs 24/7",
