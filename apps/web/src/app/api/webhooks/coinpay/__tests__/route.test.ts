@@ -16,6 +16,8 @@ const mockLicenseMaybeSingle = vi.fn();
 const mockCreditMaybeSingle = vi.fn();
 const mockWaitlistMaybeSingle = vi.fn();
 const mockWaitlistSingle = vi.fn();
+// Records every .update(patch) as (table, patch) so tests can assert on writes.
+const mockUpdate = vi.fn();
 
 // Build a chainable mock for a specific table
 function buildTableMock(table: string) {
@@ -87,7 +89,15 @@ function resetMocks(overrides: {
 
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
-    from: (table: string) => buildTableMock(table),
+    from: (table: string) => {
+      const tableMock = buildTableMock(table);
+      const update = tableMock.update;
+      tableMock.update = vi.fn().mockImplementation((patch: unknown) => {
+        mockUpdate(table, patch);
+        return update(patch);
+      });
+      return tableMock;
+    },
   }),
 }));
 
@@ -254,6 +264,62 @@ describe("POST /api/webhooks/coinpay", () => {
         ok: true,
       })
     );
+  });
+
+  // TC-10: a late payment.expired / payment.failed after settlement used to
+  // overwrite the settled funding and license rows.
+  it("ignores a late expired event for a settled funding payment", async () => {
+    mockFundingMaybeSingle.mockResolvedValue({
+      data: { id: "fund-001", status: "confirmed" },
+      error: null,
+    });
+
+    const res = await POST(makeRequest({
+      type: "payment.expired",
+      data: { payment_id: "pay-001", status: "expired" },
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ received: true, ignored: "stale event" });
+    expect(mockUpdate).not.toHaveBeenCalledWith("funding_payments", expect.anything());
+  });
+
+  it("still applies a forwarded event to a confirmed funding payment", async () => {
+    mockFundingMaybeSingle.mockResolvedValue({
+      data: { id: "fund-001", status: "confirmed" },
+      error: null,
+    });
+
+    const res = await POST(makeRequest({
+      type: "payment.forwarded",
+      data: { payment_id: "pay-001", status: "forwarded", tx_hash: "0xabc" },
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ received: true });
+    expect(mockUpdate).toHaveBeenCalledWith(
+      "funding_payments",
+      expect.objectContaining({ status: "forwarded", tx_hash: "0xabc" }),
+    );
+  });
+
+  it("ignores a late expired event for a settled license purchase", async () => {
+    mockLicenseMaybeSingle.mockResolvedValue({
+      data: { id: "lic-001", user_id: "user-001", email: "user@example.com", status: "confirmed" },
+      error: null,
+    });
+
+    const res = await POST(makeRequest({
+      type: "payment.expired",
+      data: { payment_id: "pay-001", status: "expired" },
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ received: true, ignored: "stale event" });
+    expect(mockUpdate).not.toHaveBeenCalledWith("license_purchases", expect.anything());
   });
 });
 
