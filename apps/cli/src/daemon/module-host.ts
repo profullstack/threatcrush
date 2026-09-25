@@ -124,7 +124,7 @@ export class ModuleHost {
       const dmod = this.modules.get('dns-monitor');
       if (dmod) {
         dmod.status = 'running';
-        dmod.detail = 'monitoring DNS queries';
+        dmod.detail = `monitoring DNS: ${this.dnsMonitor.sources().join(', ') || 'no source'}`;
         this.bus.announceModule('dns-monitor', 'running', dmod.detail);
       }
     }

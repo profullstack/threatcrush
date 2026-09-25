@@ -28,13 +28,21 @@ interface ScanTracker {
 export class NetworkMonitor {
   private active = false;
   private pollTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
   private scanTrackers = new Map<string, ScanTracker>();
   private halfOpenTrackers = new Map<string, { count: number; firstSeen: number }>();
   private lastConnections = new Set<string>();
 
+  // Proof-of-life accounting, reset each heartbeat.
+  private obsConnections = 0;
+  private obsSources = new Set<string>();
+  private noticed = new Set<string>();
+
   // Config
   private pollIntervalMs = 5000;
-  private portScanThreshold = 10;  // unique ports in window
+  private heartbeatMs = 900_000;   // 15 min: proof of life, low volume
+  private portScanThreshold = 10;  // unique listening ports -> high (bannable)
+  private portScanNoticeThreshold = 5; // 5-9 -> medium notice (never bans)
   private portScanWindowMs = 30_000;
   private synFloodThreshold = 50;  // half-open connections
   private synFloodWindowMs = 10_000;
@@ -47,13 +55,33 @@ export class NetworkMonitor {
     }
     this.active = true;
     this.pollTimer = setInterval(() => this.poll(), this.pollIntervalMs);
+    // Proof of life: a low-severity summary so "0 detections" reads as
+    // "watching, quiet" rather than "dead".
+    this.heartbeatTimer = setInterval(() => this.heartbeat(), this.heartbeatMs);
     return true;
   }
 
   stop(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.pollTimer = null;
+    this.heartbeatTimer = null;
     this.active = false;
+  }
+
+  private heartbeat(): void {
+    const conns = this.obsConnections;
+    const srcs = this.obsSources.size;
+    this.obsConnections = 0;
+    this.obsSources.clear();
+    this.noticed.clear();
+    const listening = this.listeningPorts().size;
+    this.emitEvent(
+      'info',
+      `network-monitor alive: ${conns} inbound connection(s) from ${srcs} source(s) across ${listening} listening port(s) in the last ${Math.round(this.heartbeatMs / 60000)}m`,
+      undefined,
+      { heartbeat: true, inbound: conns, sources: srcs, listening_ports: listening },
+    );
   }
 
   isActive(): boolean { return this.active; }
@@ -96,6 +124,8 @@ export class NetworkMonitor {
   private poll(): void {
     try {
       const connections = this.getConnections();
+      this.obsConnections += connections.length;
+      for (const c of connections) this.obsSources.add(c.source_ip);
       this.analyzePortScans(connections);
       this.analyzeSynFlood(connections);
       this.cleanupTrackers();
@@ -185,9 +215,10 @@ export class NetworkMonitor {
       tracker.lastSeen = now;
       tracker.count++;
 
+      const withinWindow = (now - tracker.firstSeen) <= this.portScanWindowMs;
+
       // Check threshold within window
-      if (tracker.ports.size >= this.portScanThreshold &&
-          (now - tracker.firstSeen) <= this.portScanWindowMs) {
+      if (tracker.ports.size >= this.portScanThreshold && withinWindow) {
         this.emitEvent(
           'high',
           `Port scan detected: ${conn.source_ip} probed ${tracker.ports.size} ports in ${Math.round((now - tracker.firstSeen) / 1000)}s`,
@@ -196,6 +227,22 @@ export class NetworkMonitor {
         );
         // Reset tracker after alert
         this.scanTrackers.delete(key);
+      } else if (
+        // A smaller spread across our listening ports is worth surfacing, but
+        // at `medium` so it is logged and never banned (auto-defence bans at
+        // `high`). These are inbound-to-listening only, so the ephemeral
+        // outbound-port bug that once banned our upstreams cannot recur here.
+        tracker.ports.size >= this.portScanNoticeThreshold &&
+        withinWindow &&
+        !this.noticed.has(key)
+      ) {
+        this.noticed.add(key);
+        this.emitEvent(
+          'medium',
+          `Possible port scan: ${conn.source_ip} touched ${tracker.ports.size} listening ports in ${Math.round((now - tracker.firstSeen) / 1000)}s`,
+          conn.source_ip,
+          { ports_scanned: tracker.ports.size, window_seconds: Math.round((now - tracker.firstSeen) / 1000), notice: true },
+        );
       }
     }
   }

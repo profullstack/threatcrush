@@ -6,7 +6,7 @@
  */
 
 import { existsSync, statSync, createReadStream, accessSync, constants } from 'node:fs';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { EventBus } from '../../daemon/event-bus.js';
 import { insertEvent } from '../../core/state.js';
@@ -25,6 +25,17 @@ const DNS_LOG_SOURCES = [
   '/var/log/named/queries.log', // bind9
   '/var/log/pihole.log',       // Pi-hole
 ];
+
+/**
+ * Resolvers that log a line per query to their own journal unit, tried by
+ * default so the module is not blind on a box that never touches the files
+ * above. `moshpit-dns` is ours and logs every query; the rest are the common
+ * per-query loggers. `systemd-resolved` is deliberately absent: it logs no
+ * individual queries without debug logging, so tailing it only ever adds a
+ * silent process. Units that do not exist are skipped, so this list is safe to
+ * try everywhere. `[dns-monitor] journal_units = [...]` overrides it.
+ */
+const DEFAULT_DNS_JOURNAL_UNITS = ['moshpit-dns', 'dnsmasq', 'named', 'unbound', 'pdns-recursor'];
 
 /**
  * DNS query types arrive as numbers in some resolver logs — `1` and `28` are
@@ -61,9 +72,31 @@ export class DnsMonitor {
   private journalUnits: string[] = [];
   private journalTails: ChildProcess[] = [];
 
+  /** What we ended up tailing, for an honest status line. */
+  private activeSources: string[] = [];
+  /** Queries seen since the last heartbeat, for a proof-of-life event. */
+  private observed = 0;
+  private analyzeTimer: NodeJS.Timeout | null = null;
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private heartbeatMs = 900_000; // 15 min: enough to prove life, low volume
+
   constructor(private bus: EventBus, options: { log_paths?: string[]; journal_units?: string[] } = {}) {
     this.extraPaths = options.log_paths ?? [];
-    this.journalUnits = options.journal_units ?? [];
+    // Default to the common per-query resolver units so a box with a real
+    // resolver is monitored without any config; an explicit list overrides.
+    this.journalUnits = options.journal_units ?? DEFAULT_DNS_JOURNAL_UNITS;
+  }
+
+  /** True if a systemd unit is loaded on this host (so we do not tail nothing). */
+  private unitExists(unit: string): boolean {
+    try {
+      const r = spawnSync('systemctl', ['show', unit, '--property=LoadState', '--value'], {
+        encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000,
+      });
+      return r.status === 0 && (r.stdout || '').trim() === 'loaded';
+    } catch {
+      return false;
+    }
   }
 
   start(): boolean {
@@ -74,8 +107,15 @@ export class DnsMonitor {
     });
 
     // A resolver that logs to journald — ours does — has no file to tail, and
-    // was therefore invisible to this module however much DNS it served.
-    for (const unit of this.journalUnits) this.tailJournalUnit(unit);
+    // was therefore invisible to this module however much DNS it served. Tail
+    // only units that actually exist so a default list is safe everywhere.
+    for (const unit of this.journalUnits) {
+      if (this.unitExists(unit)) {
+        this.tailJournalUnit(unit);
+        this.activeSources.push(`journal:${unit}`);
+      }
+    }
+    this.activeSources.push(...sources);
 
     if (sources.length === 0 && this.journalTails.length === 0) return false;
 
@@ -85,13 +125,32 @@ export class DnsMonitor {
     }
 
     // Periodic analysis
-    setInterval(() => this.analyzeBuffer(), 10_000);
+    this.analyzeTimer = setInterval(() => this.analyzeBuffer(), 10_000);
+    // Proof of life: a low-severity summary of what we are seeing, so an
+    // operator can tell "0 events" means "watching, quiet" rather than "dead".
+    this.heartbeatTimer = setInterval(() => this.heartbeat(), this.heartbeatMs);
     return true;
+  }
+
+  /** What the module is tailing, for the host's status line. */
+  sources(): string[] { return [...this.activeSources]; }
+
+  private heartbeat(): void {
+    const seen = this.observed;
+    this.observed = 0;
+    this.emitEvent(
+      'info',
+      `dns-monitor alive: ${seen} DNS quer${seen === 1 ? 'y' : 'ies'} in the last ${Math.round(this.heartbeatMs / 60000)}m (sources: ${this.activeSources.join(', ') || 'none'})`,
+      undefined,
+      { heartbeat: true, observed: seen, sources: this.activeSources },
+    );
   }
 
   stop(): void {
     for (const t of this.timers.values()) clearInterval(t);
     this.timers.clear();
+    if (this.analyzeTimer) { clearInterval(this.analyzeTimer); this.analyzeTimer = null; }
+    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     for (const child of this.journalTails) {
       try { child.kill('SIGTERM'); } catch { /* already gone */ }
     }
@@ -155,7 +214,7 @@ export class DnsMonitor {
       /\[dns\]\s+(?:udp|tcp|doh)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\w+)/i,
     );
     if (moshpit) {
-      this.domainBuffer.push({
+      this.record({
         type: qtypeName(Number.parseInt(moshpit[3], 10)),
         domain: moshpit[2],
         source_ip: moshpit[1],
@@ -167,7 +226,7 @@ export class DnsMonitor {
     // systemd-resolved pattern: "query[TXT] suspicious.domain.com from 192.168.1.1"
     const resolvedMatch = line.match(/query\[(\w+)\]\s+(\S+)\s+from\s+(\S+)/i);
     if (resolvedMatch) {
-      this.domainBuffer.push({
+      this.record({
         type: resolvedMatch[1],
         domain: resolvedMatch[2],
         source_ip: resolvedMatch[3],
@@ -179,7 +238,7 @@ export class DnsMonitor {
     // dnsmasq pattern: "query[TXT] suspicious.domain.com from 192.168.1.1"
     const dnsmasqMatch = line.match(/query\[(\w+)\]\s+(\S+)\s+from\s+(\S+)/i);
     if (dnsmasqMatch) {
-      this.domainBuffer.push({
+      this.record({
         type: dnsmasqMatch[1],
         domain: dnsmasqMatch[2],
         source_ip: dnsmasqMatch[3],
@@ -192,7 +251,7 @@ export class DnsMonitor {
     const genericMatch = line.match(/(?:query|lookup|resolve)[:\s]+(\S+)/i);
     if (genericMatch) {
       const typeMatch = line.match(/type[:\s]+(\w+)/i);
-      this.domainBuffer.push({
+      this.record({
         type: typeMatch?.[1] || 'A',
         domain: genericMatch[1],
         timestamp: Date.now(),
@@ -290,6 +349,12 @@ export class DnsMonitor {
       if (p > 0) entropy -= p * Math.log2(p);
     }
     return entropy;
+  }
+
+  /** Buffer a parsed query and count it toward the proof-of-life heartbeat. */
+  private record(q: DnsQuery): void {
+    this.domainBuffer.push(q);
+    this.observed++;
   }
 
   private emitEvent(severity: EventSeverity, message: string, sourceIp?: string, details?: Record<string, unknown>): void {
