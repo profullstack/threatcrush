@@ -359,8 +359,10 @@ program
 program
   .command("init")
   .description("Sign in, auto-detect services, and configure ThreatCrush")
-  .action(async () => {
-    await initCommand();
+  .option("-y, --yes", "Don't ask; answer yes to every question")
+  .option("--offline", "Skip signing in to threatcrush.com")
+  .action(async (opts: { yes?: boolean; offline?: boolean }) => {
+    await initCommand({ yes: opts.yes, offline: opts.offline });
   });
 
 program

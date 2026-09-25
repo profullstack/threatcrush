@@ -1,12 +1,19 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import readline from 'node:readline';
 import chalk from 'chalk';
 import ora from 'ora';
 import { generateDefaultConfig, generateModuleConfig } from '../core/config.js';
 import { banner, logger } from '../core/logger.js';
 import { isLoggedIn, readCliConfig } from '../core/cli-config.js';
+import { ask, stdinIsInteractive } from '../core/prompt.js';
 import { login } from './login.js';
+
+export interface InitOptions {
+  /** Answer yes to every question instead of asking. */
+  yes?: boolean;
+  /** Skip signing in to threatcrush.com. */
+  offline?: boolean;
+}
 
 interface DetectedService {
   name: string;
@@ -87,19 +94,50 @@ function findLogPath(paths: string[]): string | undefined {
   return paths.find((p) => existsSync(p));
 }
 
-async function promptYesNo(question: string, fallback: boolean): Promise<boolean> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+/** Resolves to null when stdin ends before an answer comes. */
+async function promptYesNo(question: string, fallback: boolean): Promise<boolean | null> {
   const hint = fallback ? '(Y/n)' : '(y/N)';
-  return new Promise((resolve) => rl.question(`${question} ${hint}: `, (answer) => {
-    rl.close();
-    const trimmed = answer.trim().toLowerCase();
-    if (!trimmed) return resolve(fallback);
-    resolve(trimmed === 'y' || trimmed === 'yes');
-  }));
+  const answer = await ask(`${question} ${hint}: `);
+  if (answer === null) return null;
+  const trimmed = answer.trim().toLowerCase();
+  if (!trimmed) return fallback;
+  return trimmed === 'y' || trimmed === 'yes';
 }
 
-async function ensureLoggedIn(): Promise<void> {
-  if (isLoggedIn()) {
+export type SignInStep = 'signed-in' | 'skip-offline' | 'skip-noninteractive' | 'sign-in' | 'ask';
+
+/**
+ * What init does about signing in. Credentials can only come from a person at
+ * a terminal, so without one (`</dev/null`, a pipe, CI) sign-in is skipped and
+ * setup carries on offline — it used to wait on a prompt that could never be
+ * answered and exit 0 having written nothing.
+ */
+export function signInStep(o: {
+  loggedIn: boolean;
+  offline?: boolean;
+  yes?: boolean;
+  interactive: boolean;
+}): SignInStep {
+  if (o.loggedIn) return 'signed-in';
+  if (o.offline) return 'skip-offline';
+  if (!o.interactive) return 'skip-noninteractive';
+  return o.yes ? 'sign-in' : 'ask';
+}
+
+function continueOffline(reason: string): void {
+  console.log(chalk.yellow(`  ${reason} — continuing setup offline.`));
+  console.log(chalk.dim(`  Sign in later with ${chalk.white('threatcrush login')}.\n`));
+}
+
+async function ensureLoggedIn(opts: InitOptions): Promise<void> {
+  const step = signInStep({
+    loggedIn: isLoggedIn(),
+    offline: opts.offline,
+    yes: opts.yes,
+    interactive: stdinIsInteractive(),
+  });
+
+  if (step === 'signed-in') {
     const cfg = readCliConfig();
     console.log(chalk.green(`  ✓ Signed in as ${chalk.white(cfg.email || cfg.user_id || 'unknown')}\n`));
     return;
@@ -107,11 +145,25 @@ async function ensureLoggedIn(): Promise<void> {
 
   console.log(chalk.green.bold('  Step 1 — Sign in to threatcrush.com'));
   console.log(chalk.gray('  ' + '─'.repeat(60)));
+
+  if (step === 'skip-offline') {
+    continueOffline('--offline given, skipping sign-in');
+    return;
+  }
+  if (step === 'skip-noninteractive') {
+    continueOffline('stdin is not a terminal, so there is nobody to sign in');
+    return;
+  }
+
   console.log(chalk.dim("  Your license, organizations, and module store access live on"));
   console.log(chalk.dim('  threatcrush.com. You can skip this and sign in later with'));
   console.log(chalk.dim(`  ${chalk.white('threatcrush login')}.\n`));
 
-  const wantsLogin = await promptYesNo(chalk.green('  Sign in now?'), true);
+  const wantsLogin = step === 'sign-in' || (await promptYesNo(chalk.green('  Sign in now?'), true));
+  if (wantsLogin === null) {
+    continueOffline('No answer (stdin closed)');
+    return;
+  }
   if (!wantsLogin) {
     console.log(chalk.yellow('\n  Skipped login — running setup in offline mode.\n'));
     return;
@@ -126,8 +178,9 @@ async function ensureLoggedIn(): Promise<void> {
     }
     attempts++;
     console.log(chalk.red(`\n  ✗ ${result.error}`));
+    if (result.inputClosed) break;
     if (attempts < 3) {
-      const retry = await promptYesNo(chalk.yellow('  Try again?'), true);
+      const retry = opts.yes || (await promptYesNo(chalk.yellow('  Try again?'), true));
       if (!retry) break;
     }
   }
@@ -136,11 +189,11 @@ async function ensureLoggedIn(): Promise<void> {
   console.log(chalk.dim(`  ${chalk.white('threatcrush login')} at any time.\n`));
 }
 
-export async function initCommand(): Promise<void> {
+export async function initCommand(opts: InitOptions = {}): Promise<void> {
   banner();
   logger.info('Initializing ThreatCrush...\n');
 
-  await ensureLoggedIn();
+  await ensureLoggedIn(opts);
 
   console.log(chalk.green.bold('  Step 2 — Detect services and write config'));
   console.log(chalk.gray('  ' + '─'.repeat(60)));

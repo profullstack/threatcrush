@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { banner, logger } from '../core/logger.js';
+import { BUILTIN_MODULES } from '../core/builtin-modules.js';
 import { discoverModules } from '../core/module-loader.js';
 import { initStateDB, getEventCount, getThreatCount, getRecentEvents } from '../core/state.js';
 import { IpcClient } from '../core/ipc-client.js';
@@ -63,15 +64,15 @@ export async function statusCommand(): Promise<void> {
       console.log(`  ${dot}  ${chalk.white.bold(mod.name.padEnd(18))} ${chalk.gray(mod.status.padEnd(10))} ${chalk.dim(`${mod.events} events`)}`);
     }
   } else {
-    const modules = discoverModules();
-    if (modules.length === 0) {
-      console.log(chalk.gray('  No modules discovered. Run `threatcrush init`.'));
-    } else {
-      for (const mod of modules) {
-        const enabled = mod.config.enabled !== false;
-        const status = enabled ? chalk.green('● enabled ') : chalk.gray('○ disabled');
-        console.log(`  ${status}  ${chalk.white.bold(mod.manifest.name.padEnd(18))} ${chalk.gray('v' + mod.manifest.version)}`);
-      }
+    // Built into threatcrushd, so they exist whether or not init ever ran.
+    for (const mod of BUILTIN_MODULES) {
+      console.log(`  ${chalk.cyan('○')}  ${chalk.white.bold(mod.name.padEnd(18))} ${chalk.gray('built-in')}`);
+    }
+    for (const mod of discoverModules()) {
+      if (BUILTIN_MODULES.some((b) => b.name === mod.manifest.name)) continue;
+      const enabled = mod.config.enabled !== false;
+      const status = enabled ? chalk.green('● enabled ') : chalk.gray('○ disabled');
+      console.log(`  ${status}  ${chalk.white.bold(mod.manifest.name.padEnd(18))} ${chalk.gray('v' + mod.manifest.version)}`);
     }
   }
   console.log();
