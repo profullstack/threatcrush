@@ -12,6 +12,12 @@ import type { DetectionRule, RuleMatch } from './engine.js';
  * (`high`) or twice it (`critical`). The rules are `high`, not `critical`: a
  * rule must not escalate one matching CRS rule past what `min_severity =
  * "critical"` is documented to require (two).
+ *
+ * Every attack type the ported CRS table can emit is claimed by exactly one of
+ * them. `attack_type` is never null on a `high`/`critical` event: every ported
+ * rule credits a type, so a request that scores at all has one. CRS's
+ * `attack-injection-generic` maps to `injection`, but every rule tagged with it
+ * is tagged `attack-rce` or `attack-ssti` first and credits that instead.
  */
 const AT_CRS_THRESHOLD: RuleMatch = { field: 'severity', operator: 'regex', value: '^(high|critical)$' };
 
@@ -183,6 +189,28 @@ export const DEFAULT_RULES: DetectionRule[] = [
     remediation: {
       action: 'block',
       description: 'Block source IP performing XSS attack',
+    },
+    enabled: true,
+  },
+  {
+    // CRS 913100: the User-Agent names a security scanner or attack tool
+    // (sqlmap, nikto, nuclei, …). One request is enough, like the rules above;
+    // `web-scanner-detection` is the volume rule for scanners that hide theirs.
+    id: 'web-scanner-user-agent',
+    title: 'Attack Tool User-Agent Detected',
+    description: 'HTTP request from a known vulnerability scanner or attack tool',
+    version: '1.0.0',
+    category: 'web',
+    severity: 'high',
+    source_types: ['log-watcher', 'web'],
+    match: { field: 'attack_type', operator: 'equals', value: 'scanner', and: [AT_CRS_THRESHOLD] },
+    threshold: 1,
+    window_seconds: 60,
+    cooldown_seconds: 300,
+    tags: ['web', 'scanner', 'reconnaissance'],
+    remediation: {
+      action: 'block',
+      description: 'Block source IP running a known attack tool',
     },
     enabled: true,
   },

@@ -41,6 +41,11 @@ const ATTACK_TYPES: Record<string, string> = {
   'attack-injection-generic': 'injection',
 };
 
+/** The attack type a matching rule credits its points to, or null for none. */
+export function crsAttackType(rule: Pick<CrsRule, 'tags'>): string | null {
+  return rule.tags.map((t) => ATTACK_TYPES[t]).find((t) => t !== undefined) ?? null;
+}
+
 /** The parts of an HTTP request an access log records. Strings are bytes, one char per byte. */
 export interface HttpRequestView {
   method?: string;
@@ -335,7 +340,7 @@ export class CrsEngine {
       test: compileOperator(rule.op),
       stepKeys: rule.transforms.map((_, k) => rule.transforms.slice(0, k + 1).join(',')),
       chain: (rule.chain ?? []).map((link) => ({ link, test: compileOperator(link.op) })),
-      attackType: rule.tags.map((t) => ATTACK_TYPES[t]).find((t) => t !== undefined) ?? null,
+      attackType: crsAttackType(rule),
     }));
     for (const compiled of this.rules) {
       if (compiled.chain.length > 0) {
