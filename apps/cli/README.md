@@ -42,7 +42,7 @@
 
 ---
 
-ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 94 OWASP CRS rules (paranoia level 1) with CRS anomaly scoring, runs 14 detection rules over auth, web and network events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
+ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 94 OWASP CRS rules (paranoia level 1) with CRS anomaly scoring, runs 15 detection rules over auth, web and network events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
 
 ```
 $ threatcrush monitor
