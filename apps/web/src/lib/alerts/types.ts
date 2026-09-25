@@ -1,4 +1,6 @@
-export type Severity = "info" | "low" | "medium" | "high" | "critical";
+import type { Severity } from "@/lib/ingest-events";
+
+export type { Severity };
 
 export const SEVERITY_RANK: Record<Severity, number> = {
   info: 0,

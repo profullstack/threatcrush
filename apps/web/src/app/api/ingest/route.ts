@@ -11,6 +11,7 @@ import {
   type HeartbeatEvent,
   type IngestEvent,
   type RemediationEvent,
+  type Severity,
 } from "@/lib/ingest-events";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -21,7 +22,7 @@ type IngestedDetection = {
   id: string;
   organization_id: string;
   server_id: string;
-  severity: string;
+  severity: Severity;
   title: string;
   description: string | null;
   source_ip: string | null;
