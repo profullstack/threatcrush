@@ -159,6 +159,30 @@ describe('fixture credentials in test files', () => {
     expect(ruleIds('tests/db.test.js', dsn)).toContain('secret-database-url');
   });
 
+  it('exempts a DSN whose password slot is a Python f-string or a <pw> usage line', () => {
+    // The code that BUILDS a connection string holds the password in a
+    // variable; the interpolation is the proof it is not a credential. Both
+    // shapes came off one pull request -- the f-string from the tool that
+    // assembles the DSN, the angle brackets from the usage comment above it.
+    const templated = [
+      'url = f"postgres://postgres:{pw}@{host}:5432/{db}"',
+      "dsn = f'mysql://{user}:{password}@{host}/{name}'",
+      '#   CLOUD_DB_URL=postgres://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres',
+    ];
+    for (const line of templated) {
+      expect(ruleIds('dev2/dev2-site', line), line).not.toContain('secret-database-url');
+    }
+
+    // A literal password in the same slot is still material, and a templated
+    // username beside a real password stays reported: only the password slot
+    // decides it.
+    expect(ruleIds('dev2/sites.d/site.json', 'postgres://postgres:7f3a9c21e4@db.internal:5432/app'))
+      .toContain('secret-database-url');
+    expect(ruleIds('a.py', 'url = f"postgres://{user}:hunter2hunter2@{host}/app"')).toContain(
+      'secret-database-url',
+    );
+  });
+
   it('does not read a fixture stem out of the middle of a word', () => {
     expect(isTestFixtureValue("const x = 'a'", 'latestbuildsecret')).toBe(false);
     expect(isTestFixtureValue("const x = 'a'", 'contestwinner2024')).toBe(false);

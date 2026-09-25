@@ -330,6 +330,14 @@ const XXE_GUARD =
 const XML_PARSING_FILE =
   /\b(?:javax\.xml|org\.xml\.sax|org\.w3c\.dom|org\.jdom2?|org\.dom4j|XmlPullParser|DocumentBuilderFactory|DocumentBuilder|SAXParserFactory|SAXParser|XMLInputFactory|XMLReaderFactory|XMLReader|SAXBuilder|SAXReader)\b/;
 
+/**
+ * Python only evaluates XPath through lxml or ElementTree; nothing else in the
+ * standard library takes an XPath expression. Joining on the file keeps the
+ * rule off the far more common f-string that simply holds a URL -- see the
+ * `://` exclusion in the pattern for the second half of that defence.
+ */
+const PY_XPATH_FILE = /\b(?:lxml|xml\.etree|ElementTree|etree|defusedxml|xpath)\b/i;
+
 /** A sink that executes whatever string reaches it. */
 const CODE_SINK =
   /\bglobalThis\s*\[|\bconstructor\b|\beval\b|\bFunction\b|\brun\s*\(|\bvm\s*\.\s*run/;
@@ -1456,9 +1464,12 @@ export const CODE_RULES: readonly CodeRule[] = [
     severity: 'high',
     languages: ['python'],
     // Per-quote, so an inner `'` in a `"`-delimited f-string (`text()='{x}'`)
-    // does not truncate the match before the interpolation.
+    // does not truncate the match before the interpolation. `(?<!:)` keeps the
+    // `//` of a URL scheme out of it: `f"https://{host}/v1"` is a URL, not a
+    // descendant-or-self step, and it was by far the commonest match here.
     pattern:
-      /\bf"[^"\n]*(?:\/\/|\/\w+\[)[^"\n]*\{[^}\n]+\}|\bf'[^'\n]*(?:\/\/|\/\w+\[)[^'\n]*\{[^}\n]+\}/,
+      /\bf"[^"\n]*(?:(?<!:)\/\/|\/\w+\[)[^"\n]*\{[^}\n]+\}|\bf'[^'\n]*(?:(?<!:)\/\/|\/\w+\[)[^'\n]*\{[^}\n]+\}/,
+    fileRequires: PY_XPATH_FILE,
   },
   {
     id: 'py-fast-password-hash',

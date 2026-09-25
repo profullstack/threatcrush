@@ -207,11 +207,20 @@ export const SECRET_RULES: readonly SecretRule[] = [
  */
 /**
  * A template expression, in the syntaxes that reach a connection string: Go
- * and Handlebars `{{…}}`, shell and JavaScript `${…}`, bare `$VAR`, and
- * printf `%s`/`%d`/`%v`. Anchored to the end of the credential segment so it
- * has to fill the slot rather than merely appear somewhere near it.
+ * and Handlebars `{{…}}`, shell and JavaScript `${…}`, bare `$VAR`, printf
+ * `%s`/`%d`/`%v`, the single brace of a Python f-string or `str.format`
+ * (`{pw}`), and the `<pw>` of a usage line in a comment or README. Anchored to
+ * the end of the credential segment so it has to fill the slot rather than
+ * merely appear somewhere near it.
+ *
+ * The single brace and the angle brackets are the two that a tool building
+ * DSNs actually writes — `f"postgres://postgres:{pw}@{host}/{db}"` is the code
+ * that assembles a connection string, not a credential sitting in a file. Note
+ * the angle-bracket form cannot be left to the `<[a-z-]+>` entry in
+ * KNOWN_PLACEHOLDERS below: that one is `\b`-anchored, and there is no word
+ * boundary between the `:` of the DSN and the `<` that follows it.
  */
-const INTERPOLATION = String.raw`(?:\{\{[^}]*\}\}|\$\{[^}]*\}|\$[A-Za-z_]\w*|%[sdv])`;
+const INTERPOLATION = String.raw`(?:\{\{[^}]*\}\}|\$\{[^}]*\}|\$[A-Za-z_]\w*|%[sdv]|\{[^{}\s'"@/]+\}|<[A-Za-z_][\w.-]*>)`;
 
 const KNOWN_PLACEHOLDERS = [
   // Deliberately NOT here: AWS's published documentation key/secret pair

@@ -869,10 +869,34 @@ describe('misconfiguration, weak crypto and injection', () => {
   it('flags an XPath expression with an inner quote around the interpolation', () => {
     // The `"`-delimited f-string contains a `'`; a class that excluded both
     // quotes stopped before the interpolation and missed it.
-    expect(ruleIds('a.py', "expr = f\"//user[name/text()='{username}']\"")).toContain(
-      'py-xpath-injection',
-    );
+    const src = [
+      'from lxml import etree',
+      'expr = f"//user[name/text()=\'{username}\']"',
+    ].join('\n');
+    expect(ruleIds('a.py', src)).toContain('py-xpath-injection');
     expect(ruleIds('a.py', 'result = doc.xpath("//user[name=$n]", n=username)')).toEqual([]);
+  });
+
+  it('does not read the // of a URL scheme as an XPath step', () => {
+    // The commonest false positive by far: an f-string holding a URL. `//`
+    // after a scheme is not a descendant-or-self step, and a file that does no
+    // XML at all cannot be evaluating XPath. Both halves are asserted here
+    // because either one alone still let the other shape through.
+    const urls = [
+      'url = f"https://{host}/v1/{path}"',
+      'dsn = f"postgres://postgres:{pw}@{host}:5432/{db}"',
+      "req = f'redis://{host}:{port}/0'",
+    ].join('\n');
+    expect(ruleIds('a.py', urls)).not.toContain('py-xpath-injection');
+
+    // Even with lxml in the file, a URL is still a URL.
+    expect(ruleIds('a.py', ['from lxml import etree', 'url = f"https://{host}/v1"'].join('\n'))).toEqual(
+      [],
+    );
+
+    // And a real XPath in a file that never imports an XML library is out of
+    // scope, the same way the Java XXE rule joins on its parser imports.
+    expect(ruleIds('a.py', 'expr = f"//user[@id={uid}]"')).toEqual([]);
   });
 
   it('flags a NoSQL query built from request data', () => {
