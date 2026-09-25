@@ -130,7 +130,7 @@ export default function Home() {
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-tc-green/5 rounded-full blur-3xl" />
           <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-tc-green/3 rounded-full blur-3xl" />
 
-          <div className="relative z-10 mx-auto max-w-4xl px-6 text-center pt-28 sm:pt-24">
+          <div className="relative z-10 mx-auto w-full min-w-0 max-w-4xl px-6 text-center pt-28 sm:pt-24">
             <ScrollReveal>
               <div className="inline-block rounded-full border border-tc-green/20 bg-tc-green/5 px-4 py-1.5 text-sm font-mono text-tc-green mb-8">
                 <span className="mr-2">●</span> PRIVATE BETA — LIMITED SPOTS
@@ -172,7 +172,7 @@ export default function Home() {
                     onClick={() => { navigator.clipboard?.writeText('curl -fsSL https://threatcrush.com/install.sh | sh'); }}
                   >
                     <span className="text-tc-text-dim">$ </span>
-                    <span className="text-tc-green">curl -fsSL https://threatcrush.com/install.sh | sh</span>
+                    <span className="text-tc-green break-all">curl -fsSL https://threatcrush.com/install.sh | sh</span>
                     <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 border border-tc-border/60 rounded px-2 py-0.5 shadow">📋 click to copy</span>
                   </div>
                   <div className="mt-3 text-left">
@@ -652,7 +652,7 @@ export default function Home() {
                   <p className="text-sm text-tc-text-dim mb-4">The core agent. On Linux servers it runs the monitoring daemon; on any machine it runs code scans and pentest checks and manages your organization.</p>
                   <div className="rounded-lg bg-black/60 border border-tc-border px-3 py-2 font-mono text-xs">
                     <span className="text-tc-text-dim">$ </span>
-                    <span className="text-tc-green">curl -fsSL https://threatcrush.com/install.sh | sh</span>
+                    <span className="text-tc-green break-all">curl -fsSL https://threatcrush.com/install.sh | sh</span>
                   </div>
                   <div className="mt-3 flex gap-2">
                     <a href="https://www.npmjs.com/package/@profullstack/threatcrush" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-tc-green/30 bg-tc-green/5 px-3 py-1.5 text-xs font-medium text-tc-green hover:bg-tc-green/10 transition-all">

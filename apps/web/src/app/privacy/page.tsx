@@ -49,7 +49,7 @@ export default function PrivacyPage() {
               </li>
               <li>
                 <span className="text-tc-text">Linked servers.</span> Only when you are signed in
-                and have run <code className={code}>threatcrush servers link</code> on a server, its
+                and have run <code className={code}>threatcrush servers link</code>{" "}on a server, its
                 daemon sends us: the server&apos;s hostname and daemon version, a heartbeat; each
                 detection, including the source IP address, the username involved (for example in a
                 failed SSH login), the rule, severity, and log or request details (up to 16 KB per
@@ -78,7 +78,7 @@ export default function PrivacyPage() {
                 parameters, and your IP address and browser user agent.
               </li>
               <li>
-                <span className="text-tc-text">Push notifications.</span> If you enable them, your
+                <span className="text-tc-text">Push notifications.</span>{" "}If you enable them, your
                 browser&apos;s push subscription (endpoint and keys) or your mobile app&apos;s Expo
                 push token, tied to your account and organization.
               </li>
@@ -150,7 +150,7 @@ export default function PrivacyPage() {
                 never published.
               </li>
               <li>
-                <span className="text-tc-text">Contributions.</span> For confirmed contributions,
+                <span className="text-tc-text">Contributions.</span>{" "}For confirmed contributions,
                 the name you entered and the amount are shown under &ldquo;Recent backers&rdquo; on
                 /investors.
               </li>
