@@ -1,10 +1,11 @@
 import { AuthProvider } from "@/lib/auth-context";
 import ServerDetailContent from "./server-detail-content";
 
-export default function ServerDetailPage({ params }: { params: { slug: string; id: string } }) {
+export default async function ServerDetailPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
+  const { slug, id } = await params;
   return (
     <AuthProvider>
-      <ServerDetailContent orgSlug={params.slug} serverId={params.id} />
+      <ServerDetailContent orgSlug={slug} serverId={id} />
     </AuthProvider>
   );
 }
