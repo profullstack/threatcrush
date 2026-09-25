@@ -70,3 +70,27 @@ jobs:
 
       - name: Build browser extension
         run: pnpm --filter @profullstack/threatcrush-extension build
+
+  libinjection-wasm:
+    # The checked-in libinjection.wasm must be exactly what the vendored C
+    # sources build (apps/cli/scripts/build-libinjection-wasm.mjs), so the
+    # binary shipped to npm is reviewable through its sources.
+    name: libinjection.wasm is reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+          use-cache: false
+
+      - name: Rebuild and compare
+        run: node apps/cli/scripts/build-libinjection-wasm.mjs --check

@@ -35,7 +35,9 @@ export type CrsTransform =
 export type CrsOperator =
   | { type: 'rx'; source: string; flags: string; negated: boolean }
   | { type: 'pm'; phrases: string[]; negated: boolean }
-  | { type: 'contains' | 'streq' | 'beginsWith' | 'endsWith' | 'within'; arg: string; negated: boolean };
+  | { type: 'contains' | 'streq' | 'beginsWith' | 'endsWith' | 'within'; arg: string; negated: boolean }
+  /** libinjection's SQLi and XSS detectors (./libinjection.ts). */
+  | { type: 'detectSQLi' | 'detectXSS'; negated: boolean };
 
 /** A chained SecRule, evaluated against what the rule before it matched. */
 export interface CrsChainLink {

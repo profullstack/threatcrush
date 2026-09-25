@@ -213,6 +213,53 @@ describe('web attack detection (OWASP CRS, PL1)', () => {
     expect(attackSeverity(assessment)).toBeNull();
   });
 
+  it('bans tautology and comment SQLi that only libinjection sees (CRS 942100)', () => {
+    // No regex rule at PL1 matches these; libinjection's tokenizer does.
+    for (const request of [
+      'GET /login?user=1%27%20OR%201=1 HTTP/1.1',
+      'GET /login?user=1\\x27+OR+1=1 HTTP/1.1',
+      'GET /login?user=admin%27--&pass=x HTTP/1.1',
+      'GET /item?id=1%20or%202%201.e%2F1 HTTP/1.1',
+    ]) {
+      const assessment = assessNginxRequest(line(request));
+      expect(assessment.matches.map((m) => m.id), request).toContain(942100);
+      expect(assessment.attackType, request).toBe('sqli');
+      expect(attackSeverity(assessment), request).not.toBeNull();
+    }
+    // 942100 also reads the User-Agent and Referer, as CRS does.
+    expect(assessNginxRequest(line('GET / HTTP/1.1', { ua: "1' OR 1=1--" })).matches.map((m) => m.id)).toContain(942100);
+    expect(assessNginxRequest(line('GET / HTTP/1.1', { referer: 'x%27 OR 1=1--' })).matches.map((m) => m.id)).toContain(942100);
+  });
+
+  it('scores XSS libinjection finds (CRS 941100) in arguments and the User-Agent', () => {
+    for (const entry of [
+      line('GET /x?q=%22%3E%3Csvg%20onload=alert(1)%3E HTTP/1.1'),
+      line('GET /x?%3Cimg%20src=x%20onerror=alert(1)%3E=1 HTTP/1.1'),
+      line('GET / HTTP/1.1', { ua: '\\x22><svg onload=alert(1)>' }),
+    ]) {
+      const assessment = assessNginxRequest(entry);
+      expect(assessment.matches.map((m) => m.id), entry.raw).toContain(941100);
+      expect(assessment.attackType, entry.raw).toBe('xss');
+      expect(attackSeverity(assessment), entry.raw).not.toBeNull();
+    }
+  });
+
+  it('leaves apostrophes, quotes and SQL words in ordinary input alone', () => {
+    for (const path of [
+      "/search?q=O'Brien",
+      '/search?q=O%27Brien+and+Smith',
+      '/search?q=rock+%27n%27+roll',
+      '/search?q=%22exact+phrase%22',
+      '/search?q=don%27t+stop+believin%27',
+      '/search?q=where+is+george',
+      '/search?q=1+or+2',
+      '/api/items?filter=%7B%22status%22%3A%22open%22%2C%22n%22%3A1%7D',
+      '/profile?email=o%27brien%40example.com',
+    ]) {
+      expect(assessNginxRequest(line(`GET ${path} HTTP/1.1`, { referer: `https://example.com${path}` })).score, path).toBe(0);
+    }
+  });
+
   it('keeps detectAttackPattern answering with the attack type', () => {
     expect(detectAttackPattern('/../../etc/passwd')).toBe('path_traversal');
     expect(detectAttackPattern('/topics/rochester/podcasts.rss')).toBeNull();

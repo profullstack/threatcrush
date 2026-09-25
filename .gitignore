@@ -42,6 +42,8 @@ node_modules
 
 # Project-specific
 data/
+# libinjection's upstream test vectors, run by src/core/crs/__tests__
+!/apps/cli/vendor/libinjection/data/
 supabase/supabase/.temp/
 .qwen/
 .claude/
