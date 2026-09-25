@@ -27,8 +27,12 @@ export const DEFAULT_RULES: DetectionRule[] = [
   },
   {
     id: 'ssh-success-after-failures',
-    title: 'SSH Login After Failed Attempts',
-    description: 'Successful SSH login from an IP that had recent failures',
+    title: 'SSH Login Accepted',
+    // Honest description: this rule does NOT correlate with earlier failures —
+    // it matches any accepted login. It is an alert, and it declares no
+    // remediation precisely because banning the person who just logged in is
+    // never the right response.
+    description: 'Successful SSH login (alert only — never grounds for a ban)',
     version: '1.0.0',
     category: 'auth',
     severity: 'critical',
@@ -55,7 +59,9 @@ export const DEFAULT_RULES: DetectionRule[] = [
     match: {
       field: 'message',
       operator: 'regex',
-      value: '(failed|accepted).*\\broot\\b',
+      // Attempts only. Matching `accepted` here meant a successful root login
+      // banned the administrator who had just made it.
+      value: 'failed.*\\broot\\b',
     },
     threshold: 1,
     window_seconds: 60,

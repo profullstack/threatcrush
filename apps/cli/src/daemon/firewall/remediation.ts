@@ -68,6 +68,18 @@ const SEVERITY_RANK: Record<string, number> = {
  * privilege that is missing belongs to the *daemon*. Nobody should have to
  * work that out from a raw nft error at 3am.
  */
+/**
+ * Does this event describe an authentication that *succeeded*?
+ *
+ * Such an event may well be worth alerting on — a root login at 3am is worth
+ * knowing about — but banning the address it came from punishes the operator
+ * who just logged in, and does it while they are connected.
+ */
+export function isSuccessfulAuth(message: string): boolean {
+  return /login accepted|accepted (?:publickey|password|keyboard-interactive)|session opened/i
+    .test(message);
+}
+
 export function explainBlockFailure(err: Error, backend: string): string {
   const raw = err.message || String(err);
   const denied = /not permitted|EACCES|EPERM|permission denied|must be root/i.test(raw);
@@ -142,6 +154,24 @@ export class RemediationManager {
     const eventRank = SEVERITY_RANK[event.severity] ?? 0;
     const minRank = SEVERITY_RANK[this.config.min_severity] ?? 3;
     if (eventRank < minRank) return;
+
+    // A successful authentication is never grounds for a ban, whatever
+    // severity a rule gives it. `ssh-success-after-failures` is `critical`
+    // with threshold 1 and matches "SSH login accepted", so with severity
+    // alone deciding, **every successful ssh login banned the person who just
+    // logged in** — seconds after they did. It never fired before the RFC3339
+    // parser fix taught ssh-guard to read auth.log at all, and enforcing by
+    // default turned it into a lockout.
+    if (isSuccessfulAuth(event.message)) return;
+
+    // A rule-engine detection bans only when the rule asked for it. Banning on
+    // severity alone means any rule author who writes `critical` writes a
+    // firewall rule by accident — three of the twelve shipped rules declare no
+    // remediation at all and were banning anyway.
+    if (event.details?.rule_id) {
+      const remediation = event.details?.remediation as { action?: string } | undefined;
+      if (remediation?.action !== 'block') return;
+    }
 
     const ip = event.source_ip;
     if (!ip || isIP(ip) === 0) return;
