@@ -1,10 +1,11 @@
-import { execSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { execSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
 
 const UNIT_PATH = '/etc/systemd/system/threatcrushd.service';
+export const DAEMON_UNIT_NAME = 'threatcrushd.service';
 
 function resolveTemplate(): string {
   const templatePath = join(__dirname, 'systemd', 'threatcrushd.service');
@@ -44,6 +45,89 @@ function isRoot(): boolean {
   return typeof process.getuid === 'function' && process.getuid() === 0;
 }
 
+/**
+ * Re-run ourselves under sudo instead of telling the operator to do it.
+ *
+ * A command whose whole job needs root should ask for root, not print a line
+ * for a human to retype. sudo's own prompt appears in their terminal because we
+ * inherit stdio, so this is exactly as safe as them typing it — and one step
+ * shorter.
+ *
+ * Returns false when there is no sudo to use, or the operator declined it.
+ */
+export function reexecWithSudo(args: string[]): boolean {
+  if (spawnSync('sudo', ['--version'], { stdio: 'pipe' }).status !== 0) return false;
+
+  console.log(chalk.dim('  This needs root. Re-running under sudo...\n'));
+  const bin = resolveBinPath();
+  // `sudo -E` would carry the caller's environment into a root process; we pass
+  // SUDO_USER only, which sudo sets itself, and let the rest be root's.
+  const result = spawnSync('sudo', [bin, ...args], { stdio: 'inherit' });
+  return result.status === 0;
+}
+
+/**
+ * The home directory of whoever invoked sudo, so a root install can find the
+ * user-mode daemon it is replacing.
+ */
+function callerHome(): string | null {
+  const user = process.env.SUDO_USER;
+  if (!user) return null;
+  try {
+    const line = execSync(`getent passwd ${user}`, { encoding: 'utf-8' }).trim();
+    const home = line.split(':')[5];
+    return home && existsSync(home) ? home : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stop a user-mode daemon before the system one starts.
+ *
+ * Both would otherwise run at once, and `resolveClientSocket` prefers the
+ * user's socket — so the dashboard would keep talking to the unprivileged
+ * daemon that cannot ban anything, which is the exact confusion this install is
+ * meant to end.
+ */
+function stopUserModeDaemon(): void {
+  const home = callerHome();
+  if (!home) return;
+
+  const runDir = join(home, '.threatcrush', 'run');
+  const pidFile = join(runDir, 'threatcrushd.pid');
+  const socket = join(runDir, 'threatcrushd.sock');
+  if (!existsSync(pidFile) && !existsSync(socket)) return;
+
+  let pid: number | null = null;
+  try {
+    pid = Number.parseInt(readFileSync(pidFile, 'utf-8').trim(), 10);
+  } catch {
+    pid = null;
+  }
+
+  if (pid && Number.isFinite(pid)) {
+    try {
+      process.kill(pid, 'SIGTERM');
+      console.log(chalk.dim(`  Stopped the user-mode daemon (pid ${pid}).`));
+    } catch {
+      // Already gone, or not ours to signal. Either way it is not in the way.
+    }
+  }
+
+  // A daemon killed mid-flight leaves its socket behind, and a stale socket
+  // still wins the client's preference order.
+  for (const path of [socket, pidFile]) {
+    try { if (existsSync(path)) rmSync(path); } catch { /* best-effort */ }
+  }
+}
+
+/** Is systemd actually running the daemon right now? */
+function unitIsActive(): boolean {
+  const result = spawnSync('systemctl', ['is-active', '--quiet', DAEMON_UNIT_NAME], { stdio: 'pipe' });
+  return result.status === 0;
+}
+
 export async function installServiceCommand(): Promise<void> {
   banner();
 
@@ -53,7 +137,10 @@ export async function installServiceCommand(): Promise<void> {
   }
 
   if (!isRoot()) {
-    console.log(chalk.red('  Must run as root (try `sudo threatcrush install-service`).'));
+    // Asking for root ourselves, rather than printing a command to retype.
+    if (reexecWithSudo(['install-service'])) return;
+    console.log(chalk.red('  Needs root and sudo is unavailable or was declined.'));
+    console.log(chalk.dim('  Run this as root:  threatcrush install-service'));
     return;
   }
 
@@ -63,15 +150,32 @@ export async function installServiceCommand(): Promise<void> {
 
   ensureSystemDirs();
 
+  // The daemon this service replaces has to go first, or two daemons run at
+  // once and the client prefers the wrong one.
+  stopUserModeDaemon();
+
   try {
     execSync('systemctl daemon-reload', { stdio: 'inherit' });
-    execSync('systemctl enable threatcrushd.service', { stdio: 'inherit' });
-    console.log(chalk.green('  ✓ Service enabled on boot.'));
-    console.log(chalk.dim('  Start now with: systemctl start threatcrushd'));
-    console.log(chalk.dim('  View logs with: journalctl -u threatcrushd -f'));
+    // `--now` enables *and* starts. Enabling alone left the operator with a
+    // service that would come up at the next boot and not one minute sooner,
+    // which is not what "install the service" means to anybody.
+    execSync(`systemctl enable --now ${DAEMON_UNIT_NAME}`, { stdio: 'inherit' });
   } catch (err) {
     console.log(chalk.yellow(`  ! systemctl error: ${(err as Error).message}`));
+    console.log(chalk.dim(`  Logs:  journalctl -u ${DAEMON_UNIT_NAME} -n 50`));
+    return;
   }
+
+  if (unitIsActive()) {
+    console.log(chalk.green('  ✓ Service enabled on boot and running now, as root.'));
+    console.log(chalk.dim('  It can write firewall rules, so bans from the dashboard will apply.'));
+    console.log(chalk.dim(`  Logs:  journalctl -u ${DAEMON_UNIT_NAME} -f`));
+  } else {
+    // Say so rather than letting a green tick imply a daemon that is not there.
+    console.log(chalk.yellow('  ! The unit is installed but did not come up.'));
+    console.log(chalk.dim(`  Logs:  journalctl -u ${DAEMON_UNIT_NAME} -n 50`));
+  }
+  console.log();
 }
 
 // systemd `ReadWritePaths=` requires these to exist before the unit starts,
@@ -123,7 +227,11 @@ export async function uninstallServiceCommand(): Promise<void> {
     return;
   }
   if (!isRoot()) {
-    console.log(chalk.red('  Must run as root (try `sudo threatcrush uninstall-service`).'));
+    // Same reasoning as the install: ask for the privilege, do not assign
+    // homework.
+    if (reexecWithSudo(['uninstall-service'])) return;
+    console.log(chalk.red('  Needs root and sudo is unavailable or was declined.'));
+    console.log(chalk.dim('  Run this as root:  threatcrush uninstall-service'));
     return;
   }
 
