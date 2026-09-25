@@ -40,5 +40,12 @@ export default defineConfig({
     const crsDir = join(__dirname, 'dist', 'crs');
     mkdirSync(crsDir, { recursive: true });
     for (const f of ['LICENSE', 'NOTICE']) cpSync(join(__dirname, 'src', 'core', 'crs', f), join(crsDir, f));
+    // libinjection (BSD-3-Clause), compiled to WebAssembly, is loaded from
+    // dist/libinjection/ at run time (src/core/crs/libinjection.ts); its
+    // licence ships with it.
+    const libinjectionDir = join(__dirname, 'dist', 'libinjection');
+    mkdirSync(libinjectionDir, { recursive: true });
+    cpSync(join(__dirname, 'src', 'core', 'crs', 'libinjection', 'libinjection.wasm'), join(libinjectionDir, 'libinjection.wasm'));
+    cpSync(join(__dirname, 'vendor', 'libinjection', 'COPYING'), join(libinjectionDir, 'COPYING'));
   },
 });

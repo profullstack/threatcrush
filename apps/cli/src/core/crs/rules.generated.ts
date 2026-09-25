@@ -133,18 +133,6 @@ export const CRS_SKIPPED: ReadonlyArray<{ reason: string; ids: number[] }> = [
     "ids": [
       941010
     ]
-  },
-  {
-    "reason": "operator @detectXSS",
-    "ids": [
-      941100
-    ]
-  },
-  {
-    "reason": "operator @detectSQLi",
-    "ids": [
-      942100
-    ]
   }
 ];
 
@@ -4443,6 +4431,31 @@ export const CRS_RULES: readonly CrsRule[] = [
     }
   },
   {
+    "id": 941100,
+    "msg": "XSS Attack Detected via libinjection",
+    "severity": "CRITICAL",
+    "tags": [
+      "attack-xss"
+    ],
+    "targets": [
+      "REQUEST_HEADERS:User-Agent",
+      "ARGS_NAMES",
+      "ARGS"
+    ],
+    "transforms": [
+      "utf8toUnicode",
+      "urlDecodeUni",
+      "htmlEntityDecode",
+      "jsDecode",
+      "cssDecode",
+      "removeNulls"
+    ],
+    "op": {
+      "type": "detectXSS",
+      "negated": false
+    }
+  },
+  {
     "id": 941110,
     "msg": "XSS Filter - Category 1: Script Tag Vector",
     "severity": "CRITICAL",
@@ -5125,6 +5138,30 @@ export const CRS_RULES: readonly CrsRule[] = [
       "type": "rx",
       "source": "((?:\\[[^\\]]*\\]|Reflect)[^\\.]*\\.).*(?:map|sort|apply)[^\\.]*\\..*call[^`]*`.*`",
       "flags": "s",
+      "negated": false
+    }
+  },
+  {
+    "id": 942100,
+    "msg": "SQL Injection Attack Detected via libinjection",
+    "severity": "CRITICAL",
+    "tags": [
+      "attack-sqli"
+    ],
+    "targets": [
+      "REQUEST_HEADERS:User-Agent",
+      "REQUEST_HEADERS:Referer",
+      "ARGS_NAMES",
+      "ARGS"
+    ],
+    "transforms": [
+      "utf8toUnicode",
+      "urlDecodeUni",
+      "removeNulls"
+    ],
+    "multiMatch": true,
+    "op": {
+      "type": "detectSQLi",
       "negated": false
     }
   },

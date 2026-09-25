@@ -42,7 +42,7 @@
 
 ---
 
-ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 94 OWASP CRS rules (paranoia level 1) + 1 ThreatCrush rule with CRS anomaly scoring, runs 15 detection rules over auth, web and network events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
+ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 96 OWASP CRS rules (paranoia level 1) + 1 ThreatCrush rule with CRS anomaly scoring, runs 15 detection rules over auth, web and network events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
 
 ```
 $ threatcrush monitor
@@ -139,7 +139,7 @@ threatcrush store publish https://github.com/you/my-module  # Publish your own
 
 | Component | What it covers |
 |-----------|----------------|
-| `log-watcher` | nginx access log + syslog — 94 OWASP CRS rules (PL1: SQLi, XSS, path traversal, RFI, RCE, PHP/Java injection, SSRF, scanners) + 1 ThreatCrush rule (OS files in the path) scored on every request |
+| `log-watcher` | nginx access log + syslog — 96 OWASP CRS rules (PL1: SQLi, XSS, path traversal, RFI, RCE, PHP/Java injection, SSRF, scanners) + 1 ThreatCrush rule (OS files in the path) scored on every request |
 | `ssh-guard` | auth.log / secure — failed logins, brute force, root logins, user enumeration |
 | `user-journal` | journald — the systemd journal |
 | `network-monitor` | Inbound connections to your listening ports — port scans, SYN floods |

@@ -16,9 +16,13 @@ Changes made: the paranoia-level-1 rules from REQUEST-913, 930, 931, 932,
 933, 934, 941, 942 and 944 whose targets appear in a web server access log
 were converted by apps/cli/scripts/build-crs-rules.mjs into a JSON rule table
 (regular expressions translated from PCRE to JavaScript syntax, phrase files
-inlined, targets an access log cannot record removed). Rules that could not be
-translated faithfully were left out. The evaluation engine is ThreatCrush's
-own; it is not ModSecurity.
+inlined, targets an access log cannot record removed). Rules 942100 and
+941100 (@detectSQLi, @detectXSS) call libinjection, which is not CRS: it ships
+compiled to WebAssembly in this package's dist/libinjection/, with its own
+licence (BSD-3-Clause) in COPYING there; its sources are vendored under
+apps/cli/vendor/libinjection. Rules that could not be translated faithfully
+were left out. The evaluation engine is ThreatCrush's own; it is not
+ModSecurity.
 
 Also derived from CRS: ThreatCrush's own rule 10001 (THREATCRUSH_RULES in
 rules.generated.ts), which is not part of CRS. It applies the phrases of CRS's

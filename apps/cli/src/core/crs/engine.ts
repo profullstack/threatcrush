@@ -13,6 +13,7 @@
 
 import { CRS_RULES, THREATCRUSH_RULES } from './rules.generated.js';
 import { TRANSFORMS, lowercase } from './transforms.js';
+import { detectSQLi, detectXSS, loadLibinjection } from './libinjection.js';
 import type { CrsChainLink, CrsOperator, CrsRule, CrsSeverity, CrsTarget } from './types.js';
 
 export const SEVERITY_POINTS: Record<CrsSeverity, number> = { CRITICAL: 5, ERROR: 4, WARNING: 3, NOTICE: 2 };
@@ -155,6 +156,16 @@ function compileOperator(op: CrsOperator): (value: string) => boolean {
     case 'beginsWith': test = (v) => v.startsWith(op.arg); break;
     case 'endsWith': test = (v) => v.endsWith(op.arg); break;
     case 'within': test = (v) => op.arg.includes(v); break;
+    // ModSecurity v3 counts libinjection's ERROR (parser in an invalid state) as
+    // a match, fail-safe, like TRUE.
+    case 'detectSQLi':
+      loadLibinjection();
+      test = (v) => detectSQLi(v).result !== 0;
+      break;
+    case 'detectXSS':
+      loadLibinjection();
+      test = (v) => detectXSS(v) !== 0;
+      break;
   }
   return op.negated ? (v) => !test(v) : test;
 }

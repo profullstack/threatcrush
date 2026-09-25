@@ -50,7 +50,7 @@ const TRANSFORMS = new Set([
 ]);
 
 /** Operators implemented in src/core/crs/engine.ts. */
-const OPERATORS = new Set(['rx', 'pm', 'pmFromFile', 'contains', 'streq', 'beginsWith', 'endsWith', 'within']);
+const OPERATORS = new Set(['rx', 'pm', 'pmFromFile', 'contains', 'streq', 'beginsWith', 'endsWith', 'within', 'detectSQLi', 'detectXSS']);
 
 const SEVERITIES = new Set(['CRITICAL', 'ERROR', 'WARNING', 'NOTICE']);
 
@@ -234,6 +234,11 @@ function buildOperator(text) {
       for (const f of op.arg.split(/\s+/).filter(Boolean)) phrases.push(...readPhraseFile(f));
       return { type: 'pm', phrases, negated: op.negated };
     }
+    case 'detectSQLi':
+    case 'detectXSS':
+      // libinjection, compiled to WebAssembly (scripts/build-libinjection-wasm.mjs).
+      if (op.arg) throw new Skip(`@${op.name} with an argument`);
+      return { type: op.name, negated: op.negated };
     default:
       return { type: op.name, arg: op.arg, negated: op.negated };
   }

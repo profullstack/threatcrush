@@ -94,9 +94,20 @@ under `min_severity = "critical"` they alert without banning, and a single
 matching CRS rule is still not enough for a ban.
 
 What an access log cannot show, these rules cannot see: request bodies,
-cookies and other headers. The two libinjection rules (942100 SQLi, 941100
-XSS) are not ported, so a bare `1' OR 1=1` scores nothing; `UNION SELECT`,
-`SLEEP(`, script tags, traversal and the rest do.
+cookies and other headers.
+
+CRS's two libinjection rules run on libinjection itself (v4.0.0, BSD-3-Clause,
+the version ModSecurity v3 builds against), compiled to WebAssembly and shipped
+in the package: 942100 (`@detectSQLi`, on arguments, argument names, the
+User-Agent and the Referer) and 941100 (`@detectXSS`, on arguments, argument
+names and the User-Agent). They catch what no regex rule does, such as a bare
+`1' OR 1=1` or `admin'--`. libinjection judges a value by its SQL token shape,
+so a few ordinary strings look like SQLi to it, as they do under ModSecurity: a
+number followed by `--` (`2019 -- 2020`, `10--20`) and a word followed by a
+`/* … */` comment. Apostrophes, quotes and SQL words in prose (`O'Brien`,
+`rock 'n' roll`, `"exact phrase"`, `where is george`, JSON) are not. A site
+whose visitors search for number ranges written with `--` should set
+`exclude_rules = [942100]`.
 
 One rule of ThreatCrush's own is scored alongside CRS, the same way. It is not
 CRS and is not counted as CRS; its id is in the local range (1–99,999), clear of
