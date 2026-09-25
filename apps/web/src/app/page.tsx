@@ -789,7 +789,7 @@ export default function Home() {
                     </a>
                   </div>
                   <p className="mt-2 text-[11px] text-tc-text-dim">
-                    .dmg (Apple silicon + Intel), Windows x64 installer, AppImage and .deb. macOS and Windows builds are not code-signed yet, so Gatekeeper and SmartScreen will warn on first launch.
+                    .dmg (Apple silicon + Intel), Windows x64 installer, AppImage and .deb. macOS and Windows builds are not code-signed yet, so Gatekeeper and SmartScreen block or warn on first launch.
                   </p>
                 </div>
               </ScrollReveal>

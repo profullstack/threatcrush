@@ -22,13 +22,13 @@ Status values:
 | Interface | Status | Repo path | Primary channels | Notes |
 |---|---|---|---|---|
 | **PWA / Web** | `shipping` | `apps/web/` | Railway → [threatcrush.com](https://threatcrush.com), Docker image | Next.js 16, Supabase, Tailwind 4. `output: standalone`. |
-| **CLI** | `shipping` | `apps/cli/` | npm (`@profullstack/threatcrush`), `curl \| sh` | v0.13.7 on npm. `threatcrushd` daemon, IPC socket, systemd unit. |
+| **CLI** | `shipping` | `apps/cli/` | npm (`@profullstack/threatcrush`), `curl \| sh` | v0.13.7 on npm. `threatcrushd` daemon, IPC socket, systemd unit. Pending [#239](https://github.com/profullstack/threatcrush/pull/239) (open): CRS 942100 (`@detectSQLi`) and 941100 (`@detectXSS`) on libinjection v4.0.0 compiled to WebAssembly, for 96 OWASP CRS rules + 1 ThreatCrush rule loaded by default. |
 | **TUI** | `shipping` | `apps/cli/src/tui/` | Bundled with CLI | `@profullstack/hqtui` dashboard, live over daemon IPC. `threatcrush tui` (add `--demo` for canned events). |
 | **API** | `shipping` | `apps/web/src/app/api/` | Same origin as web | REST, bearer-token auth. Used by CLI, desktop, extension. |
 | **Webhooks (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/` | Slack, generic webhook | Threat alerts emit when severity ≥ high. |
 | **Email (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/smtp.ts` | SMTP via `nodemailer` | Configure `[alerts.email]` in `threatcrushd.conf`. |
 | **Desktop** | `preview` | `apps/desktop/` | GitHub Releases (macOS/Windows unsigned) | Electron. IPC bridge to local `threatcrushd` via Unix socket. Every tag since v0.13.2 publishes macOS arm64/x64, Windows x64, AppImage and .deb; the Linux builds start and render under Xvfb. The dashboard still streams generated demo events (`generateFakeEvent` in `StatsBar.tsx`) whether or not a daemon is connected, and the sidebar shows a hard-coded `v0.1.3`. |
-| **Browser extension** | `preview` | `apps/extension/` | Sideload from source | Vite + React 19 + MV3. Store submissions post-v0.1.0. |
+| **Browser extension** | `preview` | `apps/extension/` | Sideload from source | Vite + React 19 + MV3 (Chrome/Firefox/Safari builds). Pending [#240](https://github.com/profullstack/threatcrush/pull/240) (open): local checks of the active page (HSTS, CSP weaknesses, framing, nosniff, Referrer-Policy, Permissions-Policy, mixed content, insecure forms, session-cookie flags) with a per-tab badge; site access is an optional host permission requested at first use; nothing leaves the browser unless you click "Scan with ThreatCrush" (origin + path only). Smoke-tested in Chromium. |
 | **SDK** | `alpha` | `apps/sdk/` | npm (`@threatcrush/sdk`), not published (npm 404) | Types for module authors. `npm-publish.yml` publishes only the CLI. |
 | **Plugin / integration** | `preview` | `apps/cli/src/daemon/module-host.ts`, `apps/web/src/app/store/` | Module marketplace ([threatcrush.com/store](https://threatcrush.com/store), `/api/modules`) | 10 listed modules, all free. `threatcrush modules install <name>` installs from the marketplace, a local path or git. |
 | **Chat / bot** | `not-started` | — | Slack, Discord, Matrix | Inbound (query state from chat) not built. Outbound alerts work today. |
@@ -61,9 +61,9 @@ Columns read: **which interfaces ship through this channel**.
 | **Snap** | `not-started` | Desktop | — | The AppImage works, so Snap is optional. |
 | **Flatpak** | `not-started` | Desktop | — | Only if Linux distro asks. |
 | **Nix** | `not-started` | CLI | — | Community interest → flake.nix. |
-| **Chrome Web Store** | `not-started` | Extension | `apps/extension/` | Screenshots + privacy policy + review. |
-| **Firefox AMO** | `not-started` | Extension | `apps/extension/` | Same build, separate review. |
-| **Safari Web Extensions** | `not-started` | Extension | `apps/extension/` | Requires Apple Developer account. |
+| **Chrome Web Store** | `not-started` | Extension | `apps/extension/` | Not submitted. Blocked on a Chrome Web Store developer account; then screenshots + privacy policy + review. |
+| **Firefox AMO** | `not-started` | Extension | `apps/extension/` | Not submitted. The Firefox build passes `web-ext lint` with 0 errors; blocked on an AMO account + API key/secret (`WEB_EXT_API_KEY` / `WEB_EXT_API_SECRET`). |
+| **Safari Web Extensions** | `not-started` | Extension | `apps/extension/` | Not submitted. Blocked on an Apple Developer account + an Xcode Safari Web Extension wrapper; header checks may show Unknown there (limited `webRequest`). |
 | **Apple App Store** | `not-started` | Mobile | `apps/mobile/` | No iOS build yet; needs Apple Developer Program + EAS iOS credentials. |
 | **Google Play** | `not-started` | Mobile | `apps/mobile/`, `.github/workflows/mobile-release.yml` | Tag builds already produce the AAB; needs a Play Console account and an EAS submit key (`--auto-submit` on a production dispatch). |
 

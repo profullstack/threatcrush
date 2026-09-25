@@ -27,6 +27,10 @@ workflows below.
 - Docker Hub (optional): `DOCKER_USERNAME`, `DOCKER_TOKEN`.
 - Package managers: `PKG_SUBMIT_TOKEN` (a PAT, so the release event triggers
   `submit-packages.yml`) plus the per-manager secrets that workflow reads.
+- Extension stores (no workflow yet, sideload only): Chrome Web Store
+  developer account; Firefox AMO account + `WEB_EXT_API_KEY` /
+  `WEB_EXT_API_SECRET`; Safari needs the same Apple Developer Program
+  membership plus an Xcode Safari Web Extension wrapper.
 
 ## Supporting docs
 
