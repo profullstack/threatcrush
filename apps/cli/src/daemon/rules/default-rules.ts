@@ -214,6 +214,38 @@ export const DEFAULT_RULES: DetectionRule[] = [
     enabled: true,
   },
   {
+    // A 402 is a paywall saying "pay first". A caller that means to pay gets
+    // one and pays; a podcast app polling a paid feed gets a handful an hour.
+    // Thirty in a minute from one address is a scraper that ignores the answer
+    // and keeps walking URLs: GoogleOther did ~40/min per IP against r4ck's
+    // /api/v1/search on dev2, 2026-09-25. `web-scanner-detection` saw it too,
+    // but it is `medium`, and auto-defence bans at `high` and above, so it fired
+    // every minute and never banned. This one is `high` on purpose.
+    //
+    // It cannot see a proxy swarm that asks once per address; nothing per-IP can.
+    id: 'paywall-hammering',
+    title: 'Paywall Hammering',
+    description: 'Repeated 402 Payment Required responses to the same source',
+    version: '1.0.0',
+    category: 'web',
+    severity: 'high',
+    source_types: ['log-watcher', 'web'],
+    match: {
+      field: 'message',
+      operator: 'regex',
+      value: 'Client error 402:',
+    },
+    threshold: 30,
+    window_seconds: 60,
+    cooldown_seconds: 600,
+    tags: ['web', 'scraper', 'x402', 'paywall'],
+    remediation: {
+      action: 'block',
+      description: 'Block a scraper that keeps walking a paywall without paying',
+    },
+    enabled: true,
+  },
+  {
     id: 'port-scan-indicator',
     title: 'Port Scan Indicators',
     description: 'Connection attempts to many ports from a single source',
