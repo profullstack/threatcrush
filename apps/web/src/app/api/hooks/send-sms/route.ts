@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizePhone, reservePhoneSmsSend } from "@/lib/phone-verification";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY!;
@@ -81,6 +82,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: { message: "Missing phone or OTP" } },
         { status: 400 },
+      );
+    }
+
+    // The same per-number ceiling as our own verification SMS: Supabase Auth's
+    // phone OTPs bill the same Telnyx account.
+    try {
+      await reservePhoneSmsSend(normalizePhone(phone), null);
+    } catch (err) {
+      const status = (err as Error & { status?: number }).status ?? 500;
+      return NextResponse.json(
+        { error: { http_code: status, message: (err as Error).message } },
+        { status },
       );
     }
 
