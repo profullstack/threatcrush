@@ -125,6 +125,39 @@ export function currentSshClient(env: NodeJS.ProcessEnv = process.env): string |
   return ip && isIP(ip) ? ip : null;
 }
 
+/**
+ * Peers of SSH sessions that are open right now.
+ *
+ * `currentSshClient` reads `SSH_CLIENT`, which only exists when a human started
+ * the daemon from their own shell. Under systemd — which is exactly when the
+ * daemon runs as root and can actually write firewall rules — that variable is
+ * absent, so the anti-lockout guard protected nothing at the moment it mattered
+ * most. Asking the kernel who is connected works in both cases, and keeps
+ * working for sessions that begin after startup.
+ */
+export function establishedSshPeers(): string[] {
+  const peers = new Set<string>();
+  try {
+    const out = execFileSync('ss', ['-tnpH'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 3000,
+    });
+    for (const line of out.split('\n')) {
+      // Match on the process rather than on port 22: sshd is frequently moved.
+      if (!/users:\(\("sshd/.test(line)) continue;
+      const parts = line.trim().split(/\s+/);
+      const peer = parts[4];
+      if (!peer) continue;
+      const ip = peer.slice(0, peer.lastIndexOf(':')).replace(/^\[|\]$/g, '');
+      if (ip && isIP(ip)) peers.add(ip);
+    }
+  } catch {
+    // No `ss`, or it refused. Nothing to add.
+  }
+  return [...peers];
+}
+
 /** Default gateway(s), so a misread of upstream traffic cannot cut the route. */
 export function defaultGateways(): string[] {
   const found = new Set<string>();

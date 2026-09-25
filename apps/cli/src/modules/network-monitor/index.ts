@@ -65,6 +65,34 @@ export class NetworkMonitor {
     return existsSync('/proc/net/tcp');
   }
 
+  /**
+   * The TCP ports this host actually listens on.
+   *
+   * Everything else in a socket table is an *outbound* connection, whose local
+   * port is an ephemeral one picked per connection. Counting those as "ports
+   * probed" is what made every busy upstream look like a port scanner: open ten
+   * connections to a registry, a database or an API inside thirty seconds and
+   * the peer had "probed 10 ports". With auto-defence enforcing, that banned
+   * our own dependencies — and any host we ssh out to.
+   */
+  private listeningPorts(): Set<number> {
+    const ports = new Set<number>();
+    try {
+      const out = spawnSync('ss', ['-ltnH'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], timeout: 3000 });
+      if (out.status === 0 && out.stdout) {
+        for (const line of out.stdout.split('\n')) {
+          const parts = line.trim().split(/\s+/);
+          // State Recv-Q Send-Q Local:Port Peer:Port
+          const local = parts[3];
+          if (!local) continue;
+          const port = Number.parseInt(local.slice(local.lastIndexOf(':') + 1), 10);
+          if (Number.isFinite(port)) ports.add(port);
+        }
+      }
+    } catch { /* no ss: fall back to counting nothing, which is the safe side */ }
+    return ports;
+  }
+
   private poll(): void {
     try {
       const connections = this.getConnections();
@@ -80,6 +108,12 @@ export class NetworkMonitor {
     const records: ConnectionRecord[] = [];
     const now = Date.now();
 
+    // Only traffic arriving at a port we serve can be a scan of us. Without a
+    // listener list we record nothing rather than guess: a missed detection is
+    // recoverable, a banned upstream is an outage.
+    const listening = this.listeningPorts();
+    if (listening.size === 0) return records;
+
     try {
       // Try conntrack first
       const ct = spawnSync('conntrack', ['-L', '-p', 'tcp', '-o', 'extended'], {
@@ -90,7 +124,11 @@ export class NetworkMonitor {
           const srcMatch = line.match(/src=(\d+\.\d+\.\d+\.\d+)/);
           const dportMatch = line.match(/dport=(\d+)/);
           if (srcMatch && dportMatch) {
-            records.push({ source_ip: srcMatch[1], dest_port: parseInt(dportMatch[1]), timestamp: now });
+            const port = parseInt(dportMatch[1]);
+            // Inbound only: an entry whose destination is not a port we serve
+            // is a connection *we* opened, and its peer is not probing us.
+            if (!listening.has(port)) continue;
+            records.push({ source_ip: srcMatch[1], dest_port: port, timestamp: now });
           }
         }
         if (records.length > 0) return records;
@@ -112,7 +150,15 @@ export class NetworkMonitor {
           if (peerParts.length >= 2 && localParts.length >= 2) {
             const sourceIp = peerParts.slice(0, -1).join(':');
             const destPort = parseInt(localParts[localParts.length - 1]);
-            if (sourceIp && !isNaN(destPort) && !this.isLocalIp(sourceIp)) {
+            // `destPort` here is our *local* port. It only means "the port
+            // this peer reached us on" when we are the listener; otherwise it
+            // is the ephemeral port we chose for an outbound connection.
+            if (
+              sourceIp &&
+              !isNaN(destPort) &&
+              listening.has(destPort) &&
+              !this.isLocalIp(sourceIp)
+            ) {
               records.push({ source_ip: sourceIp, dest_port: destPort, timestamp: now });
             }
           }
