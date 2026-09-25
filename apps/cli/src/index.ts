@@ -479,7 +479,8 @@ program
   .command("harden")
   .description("Run hardening security scan")
   .option("--json", "Output results as JSON")
-  .action(async (opts: { json?: boolean }) => {
+  .option("--no-upload", "Do not upload findings to the dashboard (uploaded when this machine is linked)")
+  .action(async (opts: { json?: boolean; upload?: boolean }) => {
     await hardenCommand(opts);
   });
 
@@ -986,6 +987,22 @@ serversCmd
   .description("List servers in current organization")
   .action(async (opts) => {
     await serversCommand({ action: "list", org: opts.org });
+  });
+
+serversCmd
+  .command("link")
+  .option("--org <id|slug>", "Organization to link into (default: current org, or your only org)")
+  .option("--name <name>", "Name for the server on the dashboard (default: hostname)")
+  .description("Link this machine to the dashboard so the daemon reports to it")
+  .action(async (opts: { org?: string; name?: string }) => {
+    await serversCommand({ action: "link", org: opts.org, name: opts.name });
+  });
+
+serversCmd
+  .command("unlink")
+  .description("Stop this machine reporting to the dashboard")
+  .action(async () => {
+    await serversCommand({ action: "unlink" });
   });
 
 // ─── Properties ───
