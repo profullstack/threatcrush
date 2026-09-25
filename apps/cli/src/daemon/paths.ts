@@ -54,10 +54,33 @@ export const PATHS = isRoot() ? SYSTEM_PATHS : USER_PATHS;
 // reach a daemon that root started. Prefer this process's own socket, but fall
 // back to the other mode's socket when only that one is present.
 export function resolveClientSocket(): string {
-  if (existsSync(PATHS.socket)) return PATHS.socket;
-  const other = PATHS.mode === 'system' ? USER_PATHS.socket : SYSTEM_PATHS.socket;
-  if (existsSync(other)) return other;
+  // An explicit override always wins: an operator who names a socket has a
+  // reason, and no heuristic should argue.
+  const override = process.env.THREATCRUSH_SOCKET;
+  if (override) return override;
+
+  // The system daemon comes first when it exists, even for a non-root caller.
+  // It is the one that runs as root and can actually write firewall rules, so
+  // it is the authority on what is banned — and its socket is 0660 root:adm
+  // precisely so the adm group can ask it.
+  //
+  // Preferring the user socket cost us a recovery: `threatcrush restart` run as
+  // a normal user started a second, user-mode daemon, and from then on every
+  // `blocklist` and `unblock` went to that one. It answered cheerfully with an
+  // empty list while the root daemon's nftables table kept dropping three
+  // hosts. A stale socket file left by a dead daemon shadowed it just as well,
+  // because this only ever tested for the file.
+  if (existsSync(SYSTEM_PATHS.socket)) return SYSTEM_PATHS.socket;
+  if (existsSync(USER_PATHS.socket)) return USER_PATHS.socket;
   return PATHS.socket;
+}
+
+/**
+ * Is a system-mode daemon present? Used to stop a non-root `start`/`restart`
+ * from quietly standing up a second daemon beside the real one.
+ */
+export function systemDaemonPresent(): boolean {
+  return existsSync(SYSTEM_PATHS.socket) || existsSync(SYSTEM_PATHS.pidFile);
 }
 
 export function ensureRuntimeDirs(): void {
