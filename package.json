@@ -1,7 +1,7 @@
 {
   "name": "threatcrush",
   "packageManager": "pnpm@10.33.0",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @profullstack/threatcrush-web dev",
@@ -19,7 +19,7 @@
     "version:minor": "node scripts/version-bump.mjs minor",
     "version:major": "node scripts/version-bump.mjs major",
     "publish:cli": "pnpm --filter @profullstack/threatcrush publish",
-    "setup:hooks": "git config core.hooksPath .githooks && git config push.followTags true && echo '\u2705 Git hooks and push.followTags configured'",
+    "setup:hooks": "git config core.hooksPath .githooks && git config push.followTags true && echo '✅ Git hooks and push.followTags configured'",
     "setup": "pnpm setup:hooks",
     "postinstall": "git config core.hooksPath .githooks && git config push.followTags true 2>/dev/null || true",
     "release": "node scripts/release.mjs",
