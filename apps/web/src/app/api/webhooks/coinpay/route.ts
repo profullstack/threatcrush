@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyCoinpayWebhook, type CoinpayWebhookPayload } from '@/lib/coinpay-client';
+import { isSettledStatus, SETTLED_STATUS_LIST } from '@/lib/payment-status';
 
 /**
  * Webhook fields land in log lines, and a value containing CRLF can forge a
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
   // Check funding payments first.
   const { data: fundingRow } = await supabase
     .from('funding_payments')
-    .select('id, status')
+    .select('id')
     .eq('coinpay_payment_id', paymentId)
     .maybeSingle();
 
@@ -79,13 +80,13 @@ export async function POST(request: NextRequest) {
     if (!signatureValid) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
-    return handleFundingWebhook(supabase, fundingRow, data, eventType, paymentId);
+    return handleFundingWebhook(supabase, data, eventType, paymentId);
   }
 
   // Check credit deposits (usage top-ups).
   const { data: creditRow } = await supabase
     .from('credit_deposits')
-    .select('id, user_id, email, amount_usd, status')
+    .select('id, user_id, email, amount_usd')
     .eq('coinpay_payment_id', paymentId)
     .maybeSingle();
 
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
   // Check license purchases.
   const { data: licenseRow } = await supabase
     .from('license_purchases')
-    .select('id, user_id, email, status')
+    .select('id, user_id, email')
     .eq('coinpay_payment_id', paymentId)
     .maybeSingle();
 
@@ -126,22 +127,40 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * TC-10: nothing guarded against replayed or out-of-order webhook delivery. A
- * late `payment.expired` arriving after `payment.forwarded` would flip a paid
- * funding payment, credit deposit or license purchase back to expired. Once a
- * payment has settled, only another settled state may overwrite it.
+ * Writes a new payment status, refusing a settled → unsettled regression (TC-10)
+ * atomically: the condition is part of the UPDATE, so a concurrent settle that
+ * commits first makes this write match zero rows instead of overwriting it.
+ * Returns whether the row was updated.
  */
-const SETTLED_STATUSES = new Set(['confirmed', 'forwarded']);
-
-function isStatusRegression(current: unknown, next: string): boolean {
-  return typeof current === 'string'
-    && SETTLED_STATUSES.has(current)
-    && !SETTLED_STATUSES.has(next);
+async function updatePaymentStatus(
+  supabase: ReturnType<typeof getSupabase>,
+  table: 'funding_payments' | 'credit_deposits' | 'license_purchases',
+  paymentId: string,
+  nextStatus: string,
+  patch: Record<string, unknown>,
+): Promise<{ applied: boolean; error: unknown }> {
+  let query = supabase
+    .from(table)
+    .update({ ...patch, status: nextStatus })
+    .eq('coinpay_payment_id', paymentId);
+  if (!isSettledStatus(nextStatus)) {
+    query = query.not('status', 'in', SETTLED_STATUS_LIST);
+  }
+  const { data, error } = await query.select('id');
+  if (error) return { applied: false, error };
+  if (!data || data.length === 0) {
+    console.warn(
+      `[coinpay webhook] ignoring out-of-order ${nextStatus} for already-settled ${table} row ${logSafe(paymentId)}`,
+    );
+    return { applied: false, error: null };
+  }
+  return { applied: true, error: null };
 }
+
+const STALE_EVENT = { received: true, ignored: 'stale event' } as const;
 
 async function handleFundingWebhook(
   supabase: ReturnType<typeof getSupabase>,
-  fundingRow: { id: string; status?: unknown },
   data: CoinpayWebhookPayload['data'],
   eventType: string,
   paymentId: string,
@@ -170,36 +189,32 @@ async function handleFundingWebhook(
       return NextResponse.json({ received: true, ignored: eventType });
   }
 
-  if (isStatusRegression(fundingRow.status, nextStatus)) {
-    console.warn(
-      `[coinpay webhook] ignoring out-of-order ${logSafe(eventType)} for already-settled funding payment ${logSafe(paymentId)}`,
-    );
-    return NextResponse.json({ received: true, ignored: 'stale event' });
-  }
-
   const update: Record<string, unknown> = {
-    status: nextStatus,
     updated_at: now,
     tx_hash: data.tx_hash ?? null,
   };
   if (amountCrypto !== null) update.amount_crypto = amountCrypto;
-  if (nextStatus === 'confirmed' || nextStatus === 'forwarded') update.paid_at = now;
+  if (isSettledStatus(nextStatus)) update.paid_at = now;
 
-  const { error } = await supabase
-    .from('funding_payments')
-    .update(update)
-    .eq('coinpay_payment_id', paymentId);
+  const { applied, error } = await updatePaymentStatus(
+    supabase,
+    'funding_payments',
+    paymentId,
+    nextStatus,
+    update,
+  );
 
   if (error) {
     console.error('[coinpay webhook] funding update failed:', error);
     return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
   }
+  if (!applied) return NextResponse.json(STALE_EVENT);
   return NextResponse.json({ received: true });
 }
 
 async function handleCreditDepositWebhook(
   supabase: ReturnType<typeof getSupabase>,
-  creditRow: { id: string; user_id: string; email: string; amount_usd: unknown; status?: unknown },
+  creditRow: { id: string; user_id: string; email: string; amount_usd: unknown },
   data: CoinpayWebhookPayload['data'],
   eventType: string,
   paymentId: string,
@@ -225,32 +240,26 @@ async function handleCreditDepositWebhook(
       return NextResponse.json({ received: true, ignored: eventType });
   }
 
-  if (isStatusRegression(creditRow.status, nextStatus)) {
-    console.warn(
-      `[coinpay webhook] ignoring out-of-order ${logSafe(eventType)} for already-settled deposit ${logSafe(paymentId)}`,
-    );
-    return NextResponse.json({ received: true, ignored: 'stale event' });
-  }
+  const update: Record<string, unknown> = { updated_at: now };
+  if (isSettledStatus(nextStatus)) update.confirmed_at = now;
 
-  const update: Record<string, unknown> = {
-    status: nextStatus,
-    updated_at: now,
-  };
-  if (nextStatus === 'confirmed' || nextStatus === 'forwarded') {
-    update.confirmed_at = now;
-    // TC-26: the deposit amount and account email used to be logged in the
-    // clear on every settlement.
-    console.log(`[coinpay webhook] crediting deposit ${creditRow.id} (status: ${nextStatus})`);
-  }
-
-  const { error } = await supabase
-    .from('credit_deposits')
-    .update(update)
-    .eq('coinpay_payment_id', paymentId);
+  const { applied, error } = await updatePaymentStatus(
+    supabase,
+    'credit_deposits',
+    paymentId,
+    nextStatus,
+    update,
+  );
 
   if (error) {
     console.error('[coinpay webhook] credit deposit update failed:', JSON.stringify(error));
     return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+  }
+  if (!applied) return NextResponse.json(STALE_EVENT);
+  if (isSettledStatus(nextStatus)) {
+    // TC-26: the deposit amount and account email used to be logged in the
+    // clear on every settlement.
+    console.log(`[coinpay webhook] credited deposit ${creditRow.id} (status: ${nextStatus})`);
   }
   console.log(`[coinpay webhook] credit_deposits updated: ${logSafe(paymentId)} -> ${nextStatus}`);
   return NextResponse.json({ received: true });
@@ -258,7 +267,7 @@ async function handleCreditDepositWebhook(
 
 async function handleLicenseWebhook(
   supabase: ReturnType<typeof getSupabase>,
-  licenseRow: { id: string; user_id: string; email: string; status?: unknown },
+  licenseRow: { id: string; user_id: string; email: string },
   data: CoinpayWebhookPayload['data'],
   eventType: string,
   paymentId: string,
@@ -281,21 +290,21 @@ async function handleLicenseWebhook(
       return NextResponse.json({ received: true, ignored: eventType });
   }
 
-  if (isStatusRegression(licenseRow.status, status)) {
-    console.warn(
-      `[coinpay webhook] ignoring out-of-order ${logSafe(eventType)} for already-settled license purchase ${logSafe(paymentId)}`,
-    );
-    return NextResponse.json({ received: true, ignored: 'stale event' });
+  const { applied, error } = await updatePaymentStatus(
+    supabase,
+    'license_purchases',
+    paymentId,
+    status,
+    { updated_at: now },
+  );
+  if (error) {
+    console.error('[coinpay webhook] license purchase update failed:', error);
+    return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
   }
-
-  // Update license_purchases row
-  await supabase
-    .from('license_purchases')
-    .update({ status, updated_at: now })
-    .eq('coinpay_payment_id', paymentId);
+  if (!applied) return NextResponse.json(STALE_EVENT);
 
   // If confirmed, activate the license
-  if (status === 'confirmed' || status === 'forwarded') {
+  if (status === 'confirmed') {
     const { error: profileErr } = await supabase
       .from('user_profiles')
       .update({

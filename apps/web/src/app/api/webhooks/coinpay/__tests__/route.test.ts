@@ -4,8 +4,9 @@ import { createHmac } from "node:crypto";
 // ─── Mock setup ───
 // The coinpay route creates its own supabase client via createClient directly.
 // Chain patterns used:
-//   .from("funding_payments").select("id").eq("coinpay_payment_id", paymentId).maybeSingle()
-//   .from("funding_payments").update({...}).eq("coinpay_payment_id", paymentId)  ← awaited
+//   .from(<payment table>).select("id, …").eq("coinpay_payment_id", paymentId).maybeSingle()
+//   .from(<payment table>).update({...}).eq("coinpay_payment_id", paymentId)
+//       [.not("status", "in", '("confirmed","forwarded")')].select("id")  ← awaited
 //   .from("waitlist").select("id, email, paid").eq("payment_id", paymentId).maybeSingle()
 //   .from("waitlist").update({...}).eq("id", entry.id)       ← awaited directly
 //   .from("waitlist").select("referred_by").eq("id", entry.id).single()
@@ -19,39 +20,58 @@ const mockWaitlistSingle = vi.fn();
 // Records every .update(patch) as (table, patch) so tests can assert on writes.
 const mockUpdate = vi.fn();
 
+const PAYMENT_TABLES = ["funding_payments", "credit_deposits", "license_purchases"];
+// Status the payment row holds at the moment the UPDATE runs, per table. A test
+// can make it differ from what the lookup returned to model another delivery
+// for the same payment committing between this request's read and its write.
+let storedStatus: Record<string, string | undefined> = {};
+
+/**
+ * An UPDATE on a payment table: applies only when the stored row passes every
+ * `.not(column, "in", list)` filter, like PostgREST, and resolves with the rows
+ * it touched when `.select()` asks for them.
+ */
+function paymentUpdateChain(table: string, patch: { status?: string }) {
+  const excluded: string[][] = [];
+  const run = () => {
+    const current = storedStatus[table];
+    const matches = current !== undefined && excluded.every((list) => !list.includes(current));
+    if (matches && patch.status) storedStatus[table] = patch.status;
+    return matches;
+  };
+  const chain = {
+    eq: vi.fn().mockImplementation(() => chain),
+    not: vi.fn().mockImplementation((column: string, op: string, list: string) => {
+      expect([column, op]).toEqual(["status", "in"]);
+      excluded.push(list.replace(/^\(|\)$/g, "").split(",").map((v) => v.replace(/^"|"$/g, "")));
+      return chain;
+    }),
+    select: vi.fn().mockImplementation(() => ({
+      then: (resolve: (v: unknown) => void) =>
+        resolve({ data: run() ? [{ id: `${table}-row` }] : [], error: null }),
+    })),
+    then: (resolve: (v: unknown) => void) => {
+      run();
+      resolve({ error: null });
+    },
+  };
+  return chain;
+}
+
 // Build a chainable mock for a specific table
 function buildTableMock(table: string) {
-  if (table === "funding_payments") {
+  if (PAYMENT_TABLES.includes(table)) {
+    const lookup =
+      table === "funding_payments" ? mockFundingMaybeSingle
+      : table === "credit_deposits" ? mockCreditMaybeSingle
+      : mockLicenseMaybeSingle;
     const chainableEq = () => ({
       eq: vi.fn().mockImplementation(() => chainableEq()),
-      maybeSingle: mockFundingMaybeSingle,
-      then: (resolve: (v: unknown) => void) => resolve({ error: null }),
+      maybeSingle: lookup,
     });
     return {
       select: vi.fn().mockImplementation(() => chainableEq()),
-      update: vi.fn().mockImplementation(() => chainableEq()),
-    };
-  }
-  if (table === "license_purchases") {
-    const chainableEq = () => ({
-      eq: vi.fn().mockImplementation(() => chainableEq()),
-      maybeSingle: mockLicenseMaybeSingle,
-      then: (resolve: (v: unknown) => void) => resolve({ error: null }),
-    });
-    return {
-      select: vi.fn().mockImplementation(() => chainableEq()),
-      update: vi.fn().mockImplementation(() => chainableEq()),
-    };
-  }
-  if (table === "credit_deposits") {
-    const chainableEq = () => ({
-      eq: vi.fn().mockImplementation(() => chainableEq()),
-      maybeSingle: mockCreditMaybeSingle,
-      then: (resolve: (v: unknown) => void) => resolve({ error: null }),
-    });
-    return {
-      select: vi.fn().mockImplementation(() => chainableEq()),
-      update: vi.fn().mockImplementation(() => chainableEq()),
+      update: vi.fn().mockImplementation((patch: { status?: string }) => paymentUpdateChain(table, patch)),
     };
   }
   // waitlist table
@@ -85,6 +105,7 @@ function resetMocks(overrides: {
   mockCreditMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockWaitlistMaybeSingle.mockResolvedValue(findEntryResult);
   mockWaitlistSingle.mockResolvedValue(referralResult);
+  storedStatus = {};
 }
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -269,10 +290,8 @@ describe("POST /api/webhooks/coinpay", () => {
   // TC-10: a late payment.expired / payment.failed after settlement used to
   // overwrite the settled funding and license rows.
   it("ignores a late expired event for a settled funding payment", async () => {
-    mockFundingMaybeSingle.mockResolvedValue({
-      data: { id: "fund-001", status: "confirmed" },
-      error: null,
-    });
+    mockFundingMaybeSingle.mockResolvedValue({ data: { id: "fund-001" }, error: null });
+    storedStatus.funding_payments = "confirmed";
 
     const res = await POST(makeRequest({
       type: "payment.expired",
@@ -282,14 +301,12 @@ describe("POST /api/webhooks/coinpay", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual({ received: true, ignored: "stale event" });
-    expect(mockUpdate).not.toHaveBeenCalledWith("funding_payments", expect.anything());
+    expect(storedStatus.funding_payments).toBe("confirmed");
   });
 
   it("still applies a forwarded event to a confirmed funding payment", async () => {
-    mockFundingMaybeSingle.mockResolvedValue({
-      data: { id: "fund-001", status: "confirmed" },
-      error: null,
-    });
+    mockFundingMaybeSingle.mockResolvedValue({ data: { id: "fund-001" }, error: null });
+    storedStatus.funding_payments = "confirmed";
 
     const res = await POST(makeRequest({
       type: "payment.forwarded",
@@ -299,6 +316,7 @@ describe("POST /api/webhooks/coinpay", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual({ received: true });
+    expect(storedStatus.funding_payments).toBe("forwarded");
     expect(mockUpdate).toHaveBeenCalledWith(
       "funding_payments",
       expect.objectContaining({ status: "forwarded", tx_hash: "0xabc" }),
@@ -307,9 +325,10 @@ describe("POST /api/webhooks/coinpay", () => {
 
   it("ignores a late expired event for a settled license purchase", async () => {
     mockLicenseMaybeSingle.mockResolvedValue({
-      data: { id: "lic-001", user_id: "user-001", email: "user@example.com", status: "confirmed" },
+      data: { id: "lic-001", user_id: "user-001", email: "user@example.com" },
       error: null,
     });
+    storedStatus.license_purchases = "confirmed";
 
     const res = await POST(makeRequest({
       type: "payment.expired",
@@ -319,7 +338,50 @@ describe("POST /api/webhooks/coinpay", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual({ received: true, ignored: "stale event" });
-    expect(mockUpdate).not.toHaveBeenCalledWith("license_purchases", expect.anything());
+    expect(storedStatus.license_purchases).toBe("confirmed");
+  });
+
+  // The guard used to be read-then-write: two deliveries for the same payment
+  // could both read "pending", and the expired one then overwrote the confirm
+  // that committed in between. The lookup here returns that stale snapshot.
+  it.each([
+    ["funding_payments", mockFundingMaybeSingle, { id: "fund-001", status: "pending" }],
+    ["credit_deposits", mockCreditMaybeSingle,
+      { id: "dep-001", user_id: "user-001", email: "user@example.com", amount_usd: 25, status: "pending" }],
+    ["license_purchases", mockLicenseMaybeSingle,
+      { id: "lic-001", user_id: "user-001", email: "user@example.com", status: "pending" }],
+  ])("does not regress a %s row settled by a concurrent delivery", async (table, lookup, row) => {
+    lookup.mockResolvedValue({ data: row, error: null });
+    storedStatus[table] = "confirmed";
+
+    const res = await POST(makeRequest({
+      type: "payment.failed",
+      data: { payment_id: "pay-001", status: "failed" },
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ received: true, ignored: "stale event" });
+    expect(storedStatus[table]).toBe("confirmed");
+    expect(mockUpdate).not.toHaveBeenCalledWith("user_profiles", expect.anything());
+  });
+
+  it("still expires a deposit that never settled", async () => {
+    mockCreditMaybeSingle.mockResolvedValue({
+      data: { id: "dep-001", user_id: "user-001", email: "user@example.com", amount_usd: 25 },
+      error: null,
+    });
+    storedStatus.credit_deposits = "pending";
+
+    const res = await POST(makeRequest({
+      type: "payment.expired",
+      data: { payment_id: "pay-001", status: "expired" },
+    }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ received: true });
+    expect(storedStatus.credit_deposits).toBe("expired");
   });
 });
 
