@@ -61,3 +61,6 @@ jobs:
 
       - name: Test modules
         run: pnpm --filter './modules/*' test
+
+      - name: Test desktop app
+        run: pnpm --filter @profullstack/threatcrush-desktop test
