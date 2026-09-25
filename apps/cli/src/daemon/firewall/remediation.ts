@@ -6,7 +6,13 @@ import { getModuleState, setModuleState } from '../../core/state.js';
 import { PATHS } from '../paths.js';
 import type { ThreatEvent } from '../../types/events.js';
 import { banSeconds, formatDuration, pruneStrikes, recordStrike, type Strike } from './backoff.js';
-import { DEFAULT_PROTECTED, currentSshClient, defaultGateways, isProtected } from './protected.js';
+import {
+  DEFAULT_PROTECTED,
+  currentSshClient,
+  defaultGateways,
+  establishedSshPeers,
+  isProtected,
+} from './protected.js';
 
 export interface BlockEntry {
   ip: string;
@@ -96,11 +102,8 @@ export class RemediationManager {
     // Assembled once, here, because R1 is only true if every write path shares
     // the same list.
     this.protectedList = [...DEFAULT_PROTECTED, ...this.config.allowlist];
-    if (this.config.protect_current_ssh_client) {
-      const ssh = currentSshClient();
-      if (ssh) this.protectedList.push(ssh);
-    }
     for (const gateway of defaultGateways()) this.protectedList.push(gateway);
+    this.refreshSshProtection();
 
     // A dry-run adapter cannot enforce whatever the config says.
     if (this.adapter.enforces === false) this.config.dry_run = true;
@@ -112,6 +115,22 @@ export class RemediationManager {
 
   /** Every address that can never be blocked, built-ins included. */
   getProtected(): string[] { return [...this.protectedList]; }
+
+  /**
+   * Add whoever is connected over SSH to the never-block set.
+   *
+   * Re-run on every sweep, not just at startup: a session opened after the
+   * daemon started is just as much a lockout risk as one that predates it, and
+   * an operator who ssh's in to investigate an incident must not be banned
+   * while doing so.
+   */
+  private refreshSshProtection(): void {
+    if (!this.config.protect_current_ssh_client) return;
+    const candidates = [currentSshClient(), ...establishedSshPeers()];
+    for (const ip of candidates) {
+      if (ip && !this.protectedList.includes(ip)) this.protectedList.push(ip);
+    }
+  }
 
   isAllowlisted(ip: string): boolean {
     return isProtected(ip, this.protectedList);
@@ -359,6 +378,7 @@ export class RemediationManager {
 
   private async processExpiries(): Promise<void> {
     const now = Date.now();
+    this.refreshSshProtection();
     for (const entry of this.blocklist.filter((b) => b.expires_at <= now)) {
       await this.unban(entry.ip);
     }
