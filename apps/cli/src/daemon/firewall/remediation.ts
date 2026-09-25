@@ -13,6 +13,7 @@ import {
   establishedSshPeers,
   isProtected,
 } from './protected.js';
+import { crawlerVerifier } from './crawlers.js';
 
 export interface BlockEntry {
   ip: string;
@@ -44,6 +45,12 @@ export interface RemediationConfig {
   /** Operator additions to the never-block set. */
   allowlist: string[];
   protect_current_ssh_client: boolean;
+  /**
+   * Never auto-ban a search crawler verified by forward-confirmed reverse DNS
+   * (Googlebot, Bingbot). The event is still recorded; only the ban is skipped.
+   * A manual `threatcrush block` still works.
+   */
+  spare_verified_crawlers: boolean;
 }
 
 const DEFAULT_CONFIG: RemediationConfig = {
@@ -54,6 +61,7 @@ const DEFAULT_CONFIG: RemediationConfig = {
   strike_memory_seconds: 86400,
   allowlist: [],
   protect_current_ssh_client: true,
+  spare_verified_crawlers: true,
 };
 
 const SEVERITY_RANK: Record<string, number> = {
@@ -107,6 +115,7 @@ export class RemediationManager {
     private adapter: FirewallAdapter,
     private bus: EventBus,
     config?: Partial<RemediationConfig>,
+    private verifyCrawler: (ip: string) => Promise<string | null> = crawlerVerifier(),
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
 
@@ -179,6 +188,14 @@ export class RemediationManager {
     // Already contained. The ladder climbs on the *next* offence after this
     // ban expires, not on every packet that arrives while it is in force.
     if (this.blocklist.some((b) => b.ip === ip)) return;
+
+    if (this.config.spare_verified_crawlers) {
+      const crawler = await this.verifyCrawler(ip);
+      if (crawler) {
+        this.logLine(`[remediation] not banning ${ip}: verified crawler ${crawler} (${event.message})`);
+        return;
+      }
+    }
 
     const ruleId = event.details?.rule_id as string | undefined;
     await this.ban(ip, event.message, { ruleId, source: 'auto' });

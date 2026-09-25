@@ -44,6 +44,8 @@ export interface RemediationSection {
   /** Historical spelling of `protected`. */
   allowlist?: string[];
   protect_current_ssh_client?: boolean;
+  /** Never auto-ban a Googlebot/Bingbot verified by forward-confirmed reverse DNS. Default true. */
+  spare_verified_crawlers?: boolean;
   /** Historical spelling, seconds. Superseded by the Fibonacci ladder. */
   default_ttl_seconds?: number;
 }
