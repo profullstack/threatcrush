@@ -120,6 +120,12 @@ export class LogWatcher {
       // site it adds nothing; on a box serving five it is the difference
       // between "someone is being probed" and knowing which site.
       if (entry.fields.host) details.host = entry.fields.host;
+      // The path (without querystring) and UA travel in details so aggregate
+      // rules can group by endpoint and a UA rule can match the client — a
+      // distributed paywall scrape is invisible per-IP but obvious per-endpoint.
+      const reqPath = (entry.fields.path || '').split('?')[0];
+      if (reqPath) details.path = reqPath;
+      if (entry.fields.user_agent) details.ua = entry.fields.user_agent;
       if (crs.score > 0) {
         Object.assign(details, {
           attack_type: crs.attackType,

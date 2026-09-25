@@ -246,6 +246,40 @@ export const DEFAULT_RULES: DetectionRule[] = [
     enabled: true,
   },
   {
+    // The distributed twin of paywall-hammering. A proxy swarm asks once per
+    // address — 189k 402s across 111k IPs, ~1.7 each, observed on dev2's
+    // r4ck.dev/rssamplifier paywalls 2026-09-25 — so nothing per-IP ever trips,
+    // and the busiest single address (which was real Googlebot) barely moved.
+    // Group by endpoint instead: the paywalled path lights up even though every
+    // caller is unique. It fires an ALERT, not a block — you cannot ban 100k
+    // one-shot IPs, and half of them are crawlers you want. The real mitigation
+    // is an nginx limit_req on the named endpoint; this is what tells you which
+    // endpoint and how hard. Tune the threshold to sit above the endpoint's
+    // legitimate 402 rate (a handful an hour per real client).
+    id: 'paywall-scrape-distributed',
+    title: 'Distributed Paywall Scrape',
+    description: 'A paywalled endpoint is taking 402s from many addresses at once',
+    version: '1.0.0',
+    category: 'web',
+    severity: 'high',
+    source_types: ['log-watcher', 'web'],
+    match: {
+      field: 'message',
+      operator: 'regex',
+      value: 'Client error 402:',
+    },
+    group_by: 'endpoint',
+    threshold: 120,
+    window_seconds: 60,
+    cooldown_seconds: 600,
+    tags: ['web', 'scraper', 'x402', 'paywall', 'distributed'],
+    remediation: {
+      action: 'alert',
+      description: 'Rate-limit this endpoint at the edge (nginx limit_req); per-IP bans cannot touch a swarm this wide',
+    },
+    enabled: true,
+  },
+  {
     id: 'port-scan-indicator',
     title: 'Port Scan Indicators',
     description: 'Connection attempts to many ports from a single source',
