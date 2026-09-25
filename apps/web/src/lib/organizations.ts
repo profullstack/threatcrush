@@ -20,7 +20,8 @@ export interface Server {
   last_seen: string | null;
   threatcrushd_version: string | null;
   org_id: string;
-  created_by: string;
+  /** Null once the member who added the server has deleted their account. */
+  created_by: string | null;
   created_at: string;
 }
 

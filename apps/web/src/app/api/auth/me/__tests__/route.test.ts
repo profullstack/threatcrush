@@ -125,6 +125,17 @@ describe("GET /api/auth/me", () => {
     expect(body.error).toContain("Not authenticated");
   });
 
+  it.each([
+    ["a password account", { provider: "email", providers: ["email"] }, true],
+    ["a GitHub-only account", { provider: "github", providers: ["github"] }, false],
+  ])("tells %s whether it has a password", async (_label, app_metadata, expected) => {
+    resetMocks({ getUserResult: { data: { user: { id: "user-123", app_metadata } } } });
+
+    const res = await GET(makeGetRequest("valid-token"));
+
+    expect((await res.json()).has_password).toBe(expected);
+  });
+
   it("response shape matches contract", async () => {
     const req = makeGetRequest("valid-token");
     const res = await GET(req);
