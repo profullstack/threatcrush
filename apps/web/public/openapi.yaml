@@ -23,16 +23,20 @@ paths:
     get:
       summary: Health check
       operationId: health
+      description: Unauthenticated. Checks the database with a 2-second timeout.
       responses:
         '200':
-          description: Service is up
+          description: Service and database are up
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: The database is unreachable or timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
 
   /api/modules:
     get:
@@ -165,6 +169,21 @@ paths:
 
 components:
   schemas:
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        db:
+          type: string
+          enum: [ok, error]
+        version:
+          type: string
+          description: Version of the deployed web app
+        uptime:
+          type: integer
+          description: Seconds since the server process started
     Module:
       type: object
       properties:
