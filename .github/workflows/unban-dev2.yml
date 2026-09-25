@@ -91,6 +91,14 @@ jobs:
           threatcrush blocklist 2>&1 | grep -oE '^  [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | while read -r ip; do
             threatcrush unblock "$ip" >/dev/null 2>&1 && echo "unbanned $ip"
           done
+          # The daemon reads its config once, at startup. Editing the file and
+          # walking away left it enforcing with a conf that said dry_run — the
+          # step reported success and changed nothing. Restart is over IPC and
+          # needs no sudo; reconcile then also prunes rules state cannot explain.
+          echo "== restarting so the new mode takes effect"
+          threatcrush restart 2>&1 | tail -3
+          sleep 3
+          threatcrush blocklist 2>&1 | grep -E 'Auto-defence|Backend' || true
           REMOTE
 
       - name: Confirm
