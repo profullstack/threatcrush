@@ -44,16 +44,6 @@ have_sudo() {
   command_exists sudo
 }
 
-run_cmd() {
-  if [ "$(id -u)" -eq 0 ]; then
-    "$@"
-  elif command_exists sudo; then
-    sudo "$@"
-  else
-    "$@"
-  fi
-}
-
 # npm first, deliberately. It ships with Node, and its global install is the one
 # path that behaves the same on every machine. The alternatives each have a way
 # to fail a `curl | sh` run that the user never opted into:
@@ -210,6 +200,119 @@ ensure_global_prefix() {
   esac
 }
 
+# Can this user write where npm puts global packages?
+#
+# This is the question that decides whether to elevate, and asking it properly
+# matters because the wrong answer is not a harmless extra `sudo`. Checking the
+# prefix path against `$HOME` is not enough: npm writes packages under
+# <prefix>/lib/node_modules and links executables into <prefix>/bin, either of
+# which can be owned by someone else whatever the prefix looks like, and on a
+# freshly configured prefix neither directory exists yet -- so the probe walks
+# up to the nearest parent that does.
+global_prefix_writable() {
+  PREFIX=$(npm config get prefix 2>/dev/null || echo "")
+  [ -n "$PREFIX" ] || return 1
+
+  for dir in "$PREFIX/lib/node_modules" "$PREFIX/bin"; do
+    probe="$dir"
+    while [ ! -e "$probe" ] && [ "$probe" != "/" ] && [ "$probe" != "." ]; do
+      probe=$(dirname "$probe")
+    done
+    [ -w "$probe" ] || return 1
+  done
+
+  return 0
+}
+
+# Install the package globally, elevating only when that is actually required.
+#
+# The old version elevated whenever `sudo` merely existed on the box, which is
+# wrong on any machine using a Node version manager -- mise, nvm, asdf, volta.
+# Those put npm behind a shim on the user's PATH and the global prefix inside
+# $HOME. `sudo` resets PATH to a safe default, the shim is not on it, and the
+# install dies with:
+#
+#   sudo: 'npm': command not found
+#
+# which names neither the real cause nor anything the user can act on. And in
+# the case where sudo *did* resolve an npm, the package would be installed into
+# root's toolchain rather than the one the user actually runs.
+#
+# So: if the prefix is writable, never elevate -- there is nothing sudo could
+# add. Only a genuinely system-owned prefix gets the escalation, and then npm
+# is invoked by absolute path so a resolvable binary survives PATH being reset.
+npm_global_install() {
+  SPEC="$1"
+  ATTEMPT_LOG=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/threatcrush-npm-$$.log")
+
+  if npm_try_install "$SPEC" "$ATTEMPT_LOG"; then
+    rm -f "$ATTEMPT_LOG"
+    return
+  fi
+
+  # A native dependency that has no prebuilt binary for this exact Node version
+  # falls through to a source build, and then wants a compiler the machine may
+  # not have. That is not a reason to fail the whole install: the native module
+  # backs the daemon's local event store, and the scanner itself runs without
+  # it. Retrying with --ignore-scripts is what this project's own CI repair
+  # rule already does for the same signature.
+  if native_build_failed "$ATTEMPT_LOG"; then
+    say "${YELLOW}→ A native dependency had no prebuilt binary for $(node --version 2>/dev/null || echo 'this Node') and could not be compiled.${RESET}"
+    say "${DIM}  Retrying without build scripts; the CLI works, the daemon's local store will not.${RESET}"
+    if npm_try_install "$SPEC --ignore-scripts" "$ATTEMPT_LOG"; then
+      rm -f "$ATTEMPT_LOG"
+      return
+    fi
+  fi
+
+  say "${RED}Could not install ${PACKAGE_NAME}. npm said:${RESET}"
+  tail -n 40 "$ATTEMPT_LOG" >&2
+  rm -f "$ATTEMPT_LOG"
+  exit 1
+}
+
+# One install attempt, with its output kept rather than discarded.
+#
+# The output is the point. The previous version sent the unprivileged attempt's
+# stderr to /dev/null and then reported whatever the sudo fallback said, so a
+# native-build failure surfaced as "sudo: npm: command not found" -- an error
+# about the wrong thing entirely, with the real cause nowhere on screen.
+npm_try_install() {
+  # shellcheck disable=SC2086 -- $1 may carry flags and must word-split.
+  SPEC_AND_FLAGS="$1"
+  LOG="$2"
+
+  if [ "$(id -u)" -eq 0 ] || global_prefix_writable || ! command_exists sudo; then
+    # shellcheck disable=SC2086
+    npm i -g $SPEC_AND_FLAGS >"$LOG" 2>&1 || return 1
+    cat "$LOG"
+    return 0
+  fi
+
+  # shellcheck disable=SC2086
+  if npm i -g $SPEC_AND_FLAGS >"$LOG" 2>&1; then
+    cat "$LOG"
+    return 0
+  fi
+
+  if native_build_failed "$LOG"; then
+    # sudo will not fix a missing compiler; let the caller retry differently.
+    return 1
+  fi
+
+  say "${YELLOW}→ Global prefix is not writable by $(id -un); retrying with sudo...${RESET}"
+  NPM_BIN=$(command -v npm 2>/dev/null || echo npm)
+  # shellcheck disable=SC2086
+  sudo "$NPM_BIN" i -g $SPEC_AND_FLAGS >"$LOG" 2>&1 || return 1
+  cat "$LOG"
+  return 0
+}
+
+# Did this fail because a native module tried to build from source?
+native_build_failed() {
+  grep -qiE 'gyp ERR!|node-gyp rebuild|No prebuilt binaries found|not found: make|prebuild-install.*(warn|fail)' "$1" 2>/dev/null
+}
+
 # A previous install made with a different package manager leaves its own shim
 # behind, and that shim often sorts ahead of npm's on PATH. The install then
 # succeeds while the user keeps running the old binary - which reads as "the
@@ -276,17 +379,7 @@ install_global_package() {
     npm)
       say "${GREEN}→ Installing ${PACKAGE_NAME} via npm...${RESET}"
       ensure_global_prefix
-      if [ "$(id -u)" -eq 0 ]; then
-        npm i -g "$PACKAGE_SPEC"
-      elif command_exists sudo; then
-        if npm i -g "$PACKAGE_SPEC" 2>/dev/null; then
-          :
-        else
-          run_cmd npm i -g "$PACKAGE_SPEC"
-        fi
-      else
-        npm i -g "$PACKAGE_SPEC"
-      fi
+      npm_global_install "$PACKAGE_SPEC"
       ;;
     *)
       say "${RED}No supported package manager found even after bootstrapping Node.js.${RESET}"
