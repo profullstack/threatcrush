@@ -107,7 +107,7 @@ threatcrush license                   # Show license status
 
 | Module | Description | What it monitors |
 |--------|-------------|-----------------|
-| `network-monitor` | Watches all TCP/UDP traffic on all ports | Connections, port scans, SYN floods, anomalous traffic patterns |
+| `network-monitor` | Watches inbound connections to the host's listening ports (conntrack/ss) | Connections, port scans, SYN floods, anomalous traffic patterns |
 | `log-watcher` | Tails and analyzes server logs | nginx, Apache, syslog, journald, custom log paths |
 | `ssh-guard` | Monitors SSH connections | Failed logins, brute force, key-based auth anomalies, tunneling |
 | `code-scanner` | Static analysis on codebases | Vulnerabilities, secrets, misconfigs, dependency CVEs |

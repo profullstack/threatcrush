@@ -164,7 +164,7 @@ ssh threatcrush@threatcrush.local
 
 # 3. It auto-detects your setup on first boot
 threatcrush status
-# ✓ Monitoring all ports · nginx · sshd · postgres
+# ✓ Watching nginx · sshd · syslog · inbound connections
 # ✓ 6 modules active · 0 threats · uptime 3m
 
 # That's it. You're protected.

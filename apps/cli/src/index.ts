@@ -298,8 +298,8 @@ program
   .description(
     `${chalk.green("⚡ ThreatCrush")} — All-in-one security agent
 
-  Monitor every connection on every port. Detect live attacks,
-  scan your code, pentest your APIs, and alert you in real-time.
+  Read your logs and watch inbound connections for live attacks,
+  scan your code, spot-check your URLs, and alert you in real-time.
 
   ${chalk.dim("Website:")}  ${chalk.green("https://threatcrush.com")}
   ${chalk.dim("GitHub:")}   ${chalk.green("https://github.com/profullstack/threatcrush")}
@@ -310,7 +310,7 @@ ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush monitor          ${chalk.dim("# Real-time monitoring")}
   ${chalk.green("$")} threatcrush tui              ${chalk.dim("# Interactive dashboard")}
   ${chalk.green("$")} threatcrush scan ./src       ${chalk.dim("# Scan code for vulns")}
-  ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Pen test a URL")}
+  ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
   ${chalk.green("$")} threatcrush modules install  ${chalk.dim("# Install a module")}
   ${chalk.green("$")} threatcrush update           ${chalk.dim("# Update to latest")}
   ${chalk.green("$")} threatcrush remove           ${chalk.dim("# Uninstall completely")}`)
@@ -319,15 +319,14 @@ ${chalk.dim("Examples:")}
   .addHelpText("after", `
 ${chalk.dim("─────────────────────────────────────────────────────")}
 ${chalk.dim("Modules:")}
-  ThreatCrush uses pluggable security modules. Core modules included:
-  ${chalk.green("network-monitor")}  All TCP/UDP traffic, port scans, SYN floods
-  ${chalk.green("log-watcher")}      nginx, Apache, syslog, journald
-  ${chalk.green("ssh-guard")}        Failed logins, brute force, tunneling
-  ${chalk.green("code-scanner")}     Vulnerabilities, secrets, dependency CVEs
-  ${chalk.green("pentest-engine")}   SQLi, XSS, SSRF, API fuzzing
+  ThreatCrush uses pluggable security modules. Built in:
+  ${chalk.green("log-watcher")}      nginx access log + syslog, attack signatures
+  ${chalk.green("ssh-guard")}        Failed logins, brute force, root logins, user enumeration
+  ${chalk.green("user-journal")}     journald
+  ${chalk.green("network-monitor")}  Inbound connections (conntrack/ss): port scans, SYN floods
   ${chalk.green("dns-monitor")}      DNS tunneling, DGA detection
-  ${chalk.green("firewall-rules")}   Auto-blocks via iptables/nftables
-  ${chalk.green("alert-system")}     Slack, Discord, email, webhook, PagerDuty
+  Plus: ${chalk.green("scan")} (code, secrets, dependency CVEs), ${chalk.green("pentest")} (web checks),
+  auto-defend (fail2ban/nftables/iptables) and alerts (Slack, Discord, email, webhook, PagerDuty).
 
   Browse community modules: ${chalk.green("threatcrush store")}
 `);
@@ -336,7 +335,7 @@ ${chalk.dim("Modules:")}
 
 program
   .command("monitor")
-  .description("Real-time security monitoring (all ports, all protocols)")
+  .description("Watch nginx, auth and syslog for attacks in the foreground")
   .option("-m, --module <modules>", "Comma-separated module filter (e.g. ssh-guard,log-watcher)")
   .option("--tui", "Launch the interactive TUI dashboard")
   .option("--demo", "Run the dashboard on canned events (screenshots, no daemon)")

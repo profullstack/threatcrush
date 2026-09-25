@@ -10,7 +10,7 @@ const features = [
   {
     icon: "🔍",
     title: "Live Attack Detection",
-    desc: "Monitors all inbound connections — every port, every protocol. Detects SQLi, XSS, brute force, SSH attacks, port scans, DNS tunneling, and more in real-time.",
+    desc: "Reads your nginx, auth, syslog and journald logs and watches inbound connections to the ports you serve. Every nginx request is checked against 21 attack signatures — SQLi, XSS, path traversal, RFI — alongside SSH brute force, port scan, SYN flood and DNS tunneling detection, in real-time.",
   },
   {
     icon: "🛡️",
@@ -19,13 +19,13 @@ const features = [
   },
   {
     icon: "💥",
-    title: "Pentest Engine",
-    desc: "Automated penetration testing on your URLs and APIs. Discovers attack vectors and rates their severity.",
+    title: "Pentest Checks",
+    desc: "Point it at a URL: security headers, CSP, CORS, cookie flags, server banners, directory listings and error leaks, then SQL-error, path-traversal and unsafe-HTTP-method probes. Every finding rated by severity.",
   },
   {
     icon: "🔀",
     title: "Network Monitor",
-    desc: "Watches all TCP/UDP traffic across every port — HTTP, SSH, DNS, FTP, database connections. See exactly what's hitting your server and flag anomalies.",
+    desc: "Polls the kernel's connection table (conntrack / ss) every 5 seconds for inbound TCP connections to the ports you actually serve. Flags port scans and SYN floods — and ignores your own outbound traffic, so your upstreams never get banned.",
   },
   {
     icon: "🔔",
@@ -55,7 +55,7 @@ const faqs = [
   },
   {
     q: "What servers does it support?",
-    a: "Any Linux server. ThreatCrush monitors all network connections (not just web traffic), plus application logs from nginx, Apache, SSH, and more. Auto-detects your setup during `threatcrush init`.",
+    a: "Any Linux server. ThreatCrush reads your nginx, SSH (auth.log), syslog and journald logs, and watches inbound connections to the ports you serve — not just web traffic. Auto-detects your setup during `threatcrush init`.",
   },
   {
     q: "What payment methods do you accept?",
@@ -82,8 +82,8 @@ const faqs = [
 const included = [
   "Live attack detection & blocking",
   "Code vulnerability scanner",
-  "Automated pentest engine",
-  "Network monitor — all ports, all protocols",
+  "Pentest checks for your URLs",
+  "Network monitor — port scans & SYN floods",
   "Real-time email + SMS alerts",
   "Webhook support for custom integrations",
   "Active defense — tar pits, honeypots, deception",
@@ -334,7 +334,7 @@ export default function Home() {
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-12">
               {[
                 { n: "01", t: "Scope", d: "Protect business outcomes — not tool inventories." },
-                { n: "02", t: "Discover", d: "Network monitor on every port, code scanner, pentest engine, plus marketplace ASM." },
+                { n: "02", t: "Discover", d: "Inbound-connection monitor, code scanner, pentest checks, plus marketplace ASM." },
                 { n: "03", t: "Prioritize", d: "Exploitability × reachability × blast radius — beyond raw CVSS." },
                 { n: "04", t: "Validate", d: "Re-run the exploit. Re-test the control. Don’t trust dashboards." },
                 { n: "05", t: "Mobilize", d: "Real-time alerts, automated active defense, API for SOAR/ticketing." },
@@ -372,9 +372,9 @@ export default function Home() {
                 {
                   tag: "SIEM",
                   title: "Central log brain",
-                  desc: "Inbound monitoring on every port and protocol. Correlates suspicious patterns — failed logins, traffic to known-bad domains, lateral movement signatures.",
+                  desc: "Tails nginx, auth, syslog and journald and watches inbound connections. Correlates suspicious patterns — failed logins, traffic to known-bad domains, lateral movement signatures.",
                   capabilities: [
-                    "All-port network monitor",
+                    "Log + inbound-connection monitor",
                     "Event correlation modules",
                     "OCSF / ECS-shaped events",
                   ],
