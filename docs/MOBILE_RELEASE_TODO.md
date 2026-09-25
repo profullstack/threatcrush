@@ -13,6 +13,10 @@ Ship real native mobile builds for ThreatCrush using Expo / EAS under a separate
   Manual dispatches produced Android `preview` builds (2026-08-08).
 - iOS has never been built, and nothing has been submitted to Google Play or
   the App Store.
+- The app shows real account data from the threatcrush.com API. Push
+  registration is built; delivery needs the FCM (Android) and APNs (iOS)
+  credentials described in `apps/mobile/README.md`, and nothing sends pushes
+  until servers upload detections.
 - Site/product copy should not imply public app-store availability until real artifacts are shipping.
 
 ## Desired project identity
