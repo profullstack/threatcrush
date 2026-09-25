@@ -31,6 +31,33 @@ Detections of severity `high` and above — SSH brute force, invalid users, and
 web attacks from the access log. Routine 4xx noise is `low` and never triggers a
 ban; a paywall returning 402 to thousands of crawlers is traffic, not an attack.
 
+### SSH
+
+`ssh-guard` reads sshd's failed, invalid-user and accepted logins from exactly
+one place, chosen at startup:
+
+| Host                                              | Source                                   |
+|---------------------------------------------------|------------------------------------------|
+| `/var/log/auth.log` or `/var/log/secure` readable | that file                                |
+| neither (journald only: Fedora/RHEL, minimal Debian/Ubuntu, containers) | the system journal, `sshd` and `sshd-session` records |
+
+Never both. On an rsyslog box every sshd line is in the auth log *and* the
+journal; counting both would put each failed login in twice and halve every
+SSH threshold — five attempts would ban at three. So while an auth log is
+tailed, sshd's journal records stay out of the SSH rules (they still show as
+`user-journal` lines in system mode). The choice is made once: install or
+remove rsyslog and restart the daemon.
+
+A journal record counts only if journald itself says root's `sshd` or
+`sshd-session` process wrote it (`_UID=0`, `_COMM`). `SYSLOG_IDENTIFIER` is
+whatever the sender claims, and `logger -t sshd "Failed password for root from
+<address>"` from any local account must not ban that address.
+
+In system mode (root) the journal is always readable. A user-mode daemon needs
+the `adm`, `systemd-journal` or `wheel` group to read the system journal; without
+it, and with no auth log, `ssh-guard` says so in `threatcrush status` instead of
+running blind.
+
 ### Web attacks
 
 Every nginx request — its request line, User-Agent and Referer — is scored

@@ -1,7 +1,7 @@
 import { existsSync, statSync, createReadStream, accessSync, constants } from 'node:fs';
 import { createInterface } from 'node:readline';
 import type { EventBus } from '../event-bus.js';
-import { assessNginxRequest, attackSeverity, autoDetectParser, parseAuthLog, parseNginxLog } from '../../core/log-parser.js';
+import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, parseAuthLog, parseNginxLog } from '../../core/log-parser.js';
 import { insertEvent } from '../../core/state.js';
 import type { ThreatEvent, EventCategory, EventSeverity } from '../../types/events.js';
 
@@ -46,6 +46,15 @@ export class LogWatcher {
 
   activeModules(): string[] {
     return [...this.active];
+  }
+
+  /**
+   * The auth logs being tailed. While there is one, it is the only source of
+   * SSH events: sshd's journald records carry the same lines, and counting
+   * both would halve every SSH threshold.
+   */
+  authLogs(): string[] {
+    return this.sources.filter((s) => s.category === 'auth' && this.timers.has(s.path)).map((s) => s.path);
   }
 
   private tail(src: LogSource): void {
@@ -94,20 +103,9 @@ export class LogWatcher {
     if (parsed.source === 'auth') {
       const entry = parseAuthLog(line);
       if (!entry) return;
-      sourceIp = entry.fields.ip;
-      const msg = entry.fields.message;
-      if (/failed password/i.test(msg)) {
-        severity = 'high';
-        message = `Failed SSH login for ${entry.fields.user || 'unknown'} from ${entry.fields.ip || 'unknown'}`;
-      } else if (/invalid user/i.test(msg)) {
-        severity = 'high';
-        message = `Invalid SSH user: ${entry.fields.user || 'unknown'} from ${entry.fields.ip || 'unknown'}`;
-      } else if (/accepted/i.test(msg)) {
-        severity = 'info';
-        message = `SSH login accepted for ${entry.fields.user || 'unknown'}`;
-      } else {
-        return;
-      }
+      const verdict = classifySshAuth(entry);
+      if (!verdict) return;
+      ({ severity, message, source_ip: sourceIp } = verdict);
     } else if (parsed.source === 'nginx') {
       const entry = parseNginxLog(line);
       if (!entry) return;

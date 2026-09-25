@@ -75,6 +75,24 @@ export class ModuleHost {
       }
     }
 
+    // sshd's lines are in auth.log (or /var/log/secure) *and* the journal on
+    // most rsyslog boxes. Count them from one place: the auth log when one is
+    // tailed, else the journal — a journald-only host (Fedora/RHEL, minimal
+    // Debian, containers) would otherwise see no SSH attack at all. Both would
+    // count every failed login twice and halve the brute-force threshold.
+    if (this.logWatcher.authLogs().length === 0) {
+      const sshd = this.journalWatcher.startSshd();
+      const mod = this.modules.get('ssh-guard');
+      if (mod && sshd === 'running') {
+        mod.status = 'running';
+        mod.detail = 'no auth log; following sshd in the system journal';
+        this.bus.announceModule('ssh-guard', 'running', mod.detail);
+      } else if (mod && sshd === 'unreadable') {
+        mod.detail = 'no auth log, and the system journal is unreadable: add this user to the adm, systemd-journal or wheel group';
+        this.bus.announceModule('ssh-guard', mod.status, mod.detail);
+      }
+    }
+
     // Network monitor (PRD 04)
     this.networkMonitor = new NetworkMonitor(this.bus);
     if (this.networkMonitor.start()) {
