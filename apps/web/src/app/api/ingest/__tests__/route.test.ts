@@ -13,10 +13,8 @@ const state = {
   servers: [] as Array<{ id: string; org_id: string }>,
   memberOrgs: [] as string[],
   serverCalls: [] as QueryCall[],
-  remediationCalls: [] as QueryCall[],
   rpc: vi.fn(),
   rpcResult: {} as Record<string, { data: unknown; error: unknown }>,
-  remediationError: null as unknown,
 };
 
 vi.mock("@/lib/supabase", () => ({
@@ -36,14 +34,13 @@ vi.mock("@/lib/supabase", () => ({
       if (table === "organization_members") {
         return recordQuery({ data: state.memberOrgs.map((org_id) => ({ org_id })), error: null });
       }
-      if (table === "remediation_actions") {
-        return recordQuery({ data: null, error: state.remediationError }, state.remediationCalls);
-      }
       throw new Error(`Unexpected table ${table}`);
     },
-    rpc: (name: string, args: unknown) => {
+    rpc: (name: string, args: { p_rows: unknown[] }) => {
       state.rpc(name, args);
-      return Promise.resolve(state.rpcResult[name] ?? { data: [], error: null });
+      // By default every remediation row is new.
+      const fallback = name === "ingest_remediations" ? args.p_rows.length : [];
+      return Promise.resolve(state.rpcResult[name] ?? { data: fallback, error: null });
     },
   }),
 }));
@@ -67,8 +64,7 @@ function rpcArgs(name: string): Array<Record<string, unknown>> {
 }
 
 function insertedRemediations(): Array<Record<string, unknown>> {
-  const insert = state.remediationCalls.find(([m]) => m === "insert");
-  return insert ? (insert[1] as Array<Record<string, unknown>>) : [];
+  return rpcArgs("ingest_remediations");
 }
 
 const detection = (overrides: Record<string, unknown> = {}) => ({
@@ -91,10 +87,8 @@ describe("POST /api/ingest", () => {
     ];
     state.memberOrgs = ["org-a", "org-b"];
     state.serverCalls = [];
-    state.remediationCalls = [];
     state.rpc = vi.fn();
     state.rpcResult = {};
-    state.remediationError = null;
   });
 
   it("rejects a missing or invalid bearer token", async () => {
@@ -271,6 +265,32 @@ describe("POST /api/ingest", () => {
     });
   });
 
+  it("counts remediations the database skipped as already recorded as deduplicated", async () => {
+    const eventId = "5d9f3a2e-8c1b-4f6a-9e7d-2b3c4d5e6f70";
+    const ban = { type: "remediation", server_id: OWN_SERVER, action_type: "block", target_value: "203.0.113.9", status: "executed" };
+    state.rpcResult.ingest_remediations = { data: 1, error: null };
+
+    const res = await post({ events: [{ ...ban, event_id: eventId }, { ...ban, event_id: eventId.toUpperCase() }] });
+    const body = await res.json();
+    expect(body.accepted).toMatchObject({ remediations: 1, deduplicated: 1 });
+    expect(insertedRemediations().map((r) => (r.metadata as { event_id: string }).event_id)).toEqual([eventId, eventId]);
+  });
+
+  it("records remediations without event_id as separate rows", async () => {
+    const ban = { type: "remediation", server_id: OWN_SERVER, action_type: "block", target_value: "203.0.113.9", status: "executed" };
+    const res = await post({ events: [ban, ban] });
+    const body = await res.json();
+    expect(body.accepted).toMatchObject({ remediations: 2, deduplicated: 0 });
+    expect(insertedRemediations().map((r) => (r.metadata as { event_id: unknown }).event_id)).toEqual([null, null]);
+  });
+
+  it("rejects a remediation whose event_id isn't a UUID", async () => {
+    const res = await post({
+      events: [{ type: "remediation", server_id: OWN_SERVER, action_type: "block", target_value: "1.2.3.4", status: "executed", event_id: "replay-1" }],
+    });
+    expect((await res.json()).rejected).toEqual([{ index: 0, error: "event_id must be a UUID" }]);
+  });
+
   it("never lets the daemon queue pending remediations", async () => {
     const res = await post({
       events: [{ type: "remediation", server_id: OWN_SERVER, action_type: "block", target_value: "1.2.3.4", status: "pending" }],
@@ -299,7 +319,7 @@ describe("POST /api/ingest", () => {
     state.rpcResult.ingest_detections = { data: null, error: { message: "connection reset" } };
     const res = await post({ events: [detection(), { type: "remediation", server_id: OWN_SERVER, action_type: "block", target_value: "1.2.3.4", status: "executed" }] });
     expect(res.status).toBe(500);
-    // Remediation rows aren't idempotent, so they must not be written before
+    // Remediations without event_id aren't idempotent, so they must not be written before
     // a failure that makes the daemon resend the whole batch.
     expect(insertedRemediations()).toEqual([]);
   });

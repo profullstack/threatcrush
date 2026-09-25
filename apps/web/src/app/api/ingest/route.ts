@@ -136,8 +136,8 @@ export async function POST(req: NextRequest) {
     rejected.sort((a, b) => a.index - b.index);
 
     // Order matters for retries after a 5xx: heartbeats, detections (deduped)
-    // and findings (upserted) are idempotent, remediation rows are not, so
-    // they are written last.
+    // and findings (upserted) are idempotent; remediations are only idempotent
+    // when the daemon sends event_id, so they are written last.
     await Promise.all(
       [...heartbeats.values()].map(async (hb) => {
         const updates: Record<string, unknown> = { last_seen: now, status: "online" };
@@ -164,9 +164,12 @@ export async function POST(req: NextRequest) {
       findingCount = findings.length;
     }
 
+    // A replayed remediation (same event_id) inserts nothing and counts as
+    // deduplicated; events from daemons that don't send event_id always insert.
+    let remediationCount = 0;
     if (remediations.length > 0) {
-      const { error } = await admin.from("remediation_actions").insert(
-        remediations.map((r) => ({
+      const { data, error } = await admin.rpc("ingest_remediations", {
+        p_rows: remediations.map((r) => ({
           organization_id: r.organization_id,
           server_id: r.server_id,
           action_type: r.action_type,
@@ -180,20 +183,22 @@ export async function POST(req: NextRequest) {
             reason: r.reason,
             error: r.error,
             dry_run: r.dry_run,
+            event_id: r.event_id,
           },
         })),
-      );
+      });
       if (error) throw new Error(`remediations: ${error.message}`);
+      remediationCount = typeof data === "number" ? data : 0;
     }
 
     return NextResponse.json({
       success: true,
       accepted: {
         detections: newDetections.length,
-        deduplicated: detections.length - newDetections.length,
+        deduplicated: detections.length - newDetections.length + remediations.length - remediationCount,
         heartbeats: heartbeatCount,
         findings: findingCount,
-        remediations: remediations.length,
+        remediations: remediationCount,
       },
       rejected,
     });

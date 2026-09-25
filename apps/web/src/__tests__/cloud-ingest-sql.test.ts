@@ -1,8 +1,9 @@
 /**
  * Exercises the SQL behind the daemon ↔ cloud pipeline
  * (supabase/migrations/20260925100000_cloud_ingest.sql) against a real
- * Supabase: detection dedupe, the hardening-finding state rules and the
- * remediation claim lease. The route tests mock the database, so this is the
+ * Supabase: detection dedupe, the hardening-finding state rules, daemon
+ * remediation dedupe on event_id and the remediation claim lease. The route
+ * tests mock the database, so this is the
  * only place those rules are checked.
  *
  * Runs only when pointed at a database with the migration applied:
@@ -196,6 +197,48 @@ describe.skipIf(!url || !key)("cloud ingest SQL", () => {
       const { data } = await db.from("hardening_findings").select("status")
         .eq("server_id", serverId).eq("finding_key", "batch").single();
       expect(data!.status).toBe("pass");
+    });
+  });
+
+  describe("daemon remediations", () => {
+    const ban = (eventId: string | null, server = serverId) => ({
+      organization_id: orgId, server_id: server, action_type: "block",
+      target_value: "203.0.113.60", status: "executed",
+      executed_at: new Date().toISOString(), expires_at: null,
+      metadata: { source: "daemon", event_id: eventId },
+    });
+
+    async function ingest(rows: Array<Record<string, unknown>>) {
+      const { data, error } = await db.rpc("ingest_remediations", { p_rows: rows });
+      if (error) throw error;
+      return data as number;
+    }
+
+    async function rowsFor(eventId: string) {
+      const { data } = await db.from("remediation_actions").select("server_id")
+        .eq("organization_id", orgId).eq("metadata->>event_id", eventId);
+      return data ?? [];
+    }
+
+    it("records a replayed event_id once, within a batch and across batches", async () => {
+      const eventId = crypto.randomUUID();
+      expect(await ingest([ban(eventId), ban(eventId)])).toBe(1);
+      expect(await ingest([ban(eventId)])).toBe(0);
+      expect(await rowsFor(eventId)).toHaveLength(1);
+    });
+
+    it("keeps the same event_id on different servers apart", async () => {
+      const eventId = crypto.randomUUID();
+      expect(await ingest([ban(eventId), ban(eventId, otherServerId)])).toBe(2);
+    });
+
+    it("inserts every event without an event_id", async () => {
+      const before = await db.from("remediation_actions").select("id", { count: "exact", head: true })
+        .eq("server_id", serverId).is("metadata->>event_id", null);
+      expect(await ingest([ban(null), ban(null)])).toBe(2);
+      const after = await db.from("remediation_actions").select("id", { count: "exact", head: true })
+        .eq("server_id", serverId).is("metadata->>event_id", null);
+      expect((after.count ?? 0) - (before.count ?? 0)).toBe(2);
     });
   });
 

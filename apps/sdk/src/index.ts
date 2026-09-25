@@ -223,6 +223,11 @@ export interface RemediationPayload {
   action_type: 'block' | 'unblock';
   target_value: string;
   status: 'executed' | 'failed';
+  /**
+   * UUID v4 generated when the event is created and kept in the spool, so a
+   * replay resends the same id and the cloud records the action once.
+   */
+  event_id?: string;
   rule_id?: string;
   reason?: string;
   error?: string;

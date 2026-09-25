@@ -49,6 +49,8 @@ export type RemediationEvent = {
   action_type: "block" | "unblock";
   target_value: string;
   status: "executed" | "failed";
+  /** Daemon-generated id that survives spool replays; null from older daemons. */
+  event_id: string | null;
   rule_id: string | null;
   reason: string | null;
   error: string | null;
@@ -107,6 +109,13 @@ function serverId(obj: Record<string, unknown>): string {
   if (typeof value !== "string" || !UUID_RE.test(value)) {
     throw new InvalidField("server_id must be a server UUID");
   }
+  return value.toLowerCase();
+}
+
+function optionalUuid(obj: Record<string, unknown>, key: string): string | null {
+  const value = obj[key];
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || !UUID_RE.test(value)) throw new InvalidField(`${key} must be a UUID`);
   return value.toLowerCase();
 }
 
@@ -180,6 +189,7 @@ export function parseIngestEvent(raw: unknown, now: string): ParsedEvent {
             action_type: oneOf(raw, "action_type", ["block", "unblock"] as const),
             target_value: requiredString(raw, "target_value", 128),
             status: oneOf(raw, "status", ["executed", "failed"] as const),
+            event_id: optionalUuid(raw, "event_id"),
             rule_id: optionalString(raw, "rule_id", 200),
             reason: optionalString(raw, "reason", 1_000),
             error: optionalString(raw, "error", 2_000),

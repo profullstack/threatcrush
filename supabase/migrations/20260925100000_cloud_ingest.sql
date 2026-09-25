@@ -7,7 +7,9 @@
 --    migration have no dedupe_key and are never merged.
 -- 2. Hardening findings are upserted with state rules that respect what a human
 --    decided in the dashboard (acknowledged / resolved).
--- 3. Remediations queued in the dashboard are claimed by the daemon with a
+-- 3. Remediations the daemon reports carry an event_id kept in its spool, so a
+--    replayed batch doesn't record the same ban twice.
+-- 4. Remediations queued in the dashboard are claimed by the daemon with a
 --    5-minute lease (`executing`), mirroring claim_next_property_run.
 --
 -- Additive and idempotent. All functions are service-role only.
@@ -179,6 +181,52 @@ alter table public.remediation_actions
 alter table public.remediation_actions
   add constraint remediation_actions_status_check
   check (status in ('pending', 'executing', 'executed', 'failed', 'expired', 'reversed'));
+
+-- ─── Remediation actions: daemon-reported, deduped on event_id ───
+
+create unique index if not exists idx_remediation_daemon_event
+  on public.remediation_actions (server_id, (metadata->>'event_id'))
+  where metadata->>'event_id' is not null;
+
+-- p_rows: [{organization_id, server_id, action_type, target_value, status,
+--           executed_at, expires_at, metadata}]
+-- Rows whose (server_id, metadata.event_id) already exists, in the table or
+-- earlier in the batch, are skipped. Returns how many rows were inserted.
+create or replace function public.ingest_remediations(p_rows jsonb)
+returns integer
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  inserted integer;
+begin
+  insert into public.remediation_actions (
+    organization_id, server_id, action_type, target_value, status,
+    executed_at, expires_at, metadata
+  )
+  select r.organization_id, r.server_id, r.action_type, r.target_value, r.status,
+         r.executed_at, r.expires_at, coalesce(r.metadata, '{}'::jsonb)
+    from jsonb_to_recordset(p_rows) as r(
+      organization_id uuid,
+      server_id uuid,
+      action_type text,
+      target_value text,
+      status text,
+      executed_at timestamptz,
+      expires_at timestamptz,
+      metadata jsonb
+    )
+  on conflict (server_id, (metadata->>'event_id')) where metadata->>'event_id' is not null
+  do nothing;
+
+  get diagnostics inserted = row_count;
+  return inserted;
+end;
+$$;
+
+revoke execute on function public.ingest_remediations(jsonb) from public, anon, authenticated;
+grant execute on function public.ingest_remediations(jsonb) to service_role;
 
 create index if not exists idx_remediation_server_queue
   on public.remediation_actions (server_id, created_at)
