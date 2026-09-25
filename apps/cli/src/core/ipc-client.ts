@@ -18,9 +18,25 @@ export interface IpcClientOptions {
   onModule?: (info: { name: string; status: string; detail?: string }) => void;
 }
 
+// Long enough for a ban, which shells out to the firewall; short enough that
+// a daemon that will never answer doesn't look like a hung CLI.
+const REQUEST_TIMEOUT_MS = 10_000;
+
+/**
+ * The daemon's error, in terms the operator can act on. Every command prints
+ * `err.message` from here, so this is the one place to translate it.
+ */
+function daemonError(error: string | undefined): Error {
+  if (error?.startsWith('unknown method')) {
+    return new Error(`threatcrushd is older than this CLI (${error}); update it`);
+  }
+  return new Error(error || 'ipc error');
+}
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
+  timer: NodeJS.Timeout;
 };
 
 export class IpcClient {
@@ -80,10 +96,18 @@ export class IpcClient {
       : ({ id, method } as IpcRequest);
 
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      // Older daemons never answer a method they don't know, so without this
+      // a newer CLI waits on an older daemon forever.
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(
+          `threatcrushd did not answer "${method}" within ${REQUEST_TIMEOUT_MS / 1000}s; if it is older than this CLI, update it`,
+        ));
+      }, REQUEST_TIMEOUT_MS);
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
       this.socket!.write(JSON.stringify(frame) + '\n', (err) => {
-        if (err) {
-          this.pending.delete(id);
+        if (err && this.pending.delete(id)) {
+          clearTimeout(timer);
           reject(err);
         }
       });
@@ -159,8 +183,9 @@ export class IpcClient {
         const pending = this.pending.get(msg.id);
         if (!pending) continue;
         this.pending.delete(msg.id);
+        clearTimeout(pending.timer);
         if (msg.ok) pending.resolve(msg.result);
-        else pending.reject(new Error(msg.error || 'ipc error'));
+        else pending.reject(daemonError(msg.error));
       } catch {
         // skip malformed frame
       }
@@ -168,7 +193,8 @@ export class IpcClient {
   }
 
   private onClose(): void {
-    for (const { reject } of this.pending.values()) {
+    for (const { reject, timer } of this.pending.values()) {
+      clearTimeout(timer);
       reject(new Error('daemon connection closed'));
     }
     this.pending.clear();

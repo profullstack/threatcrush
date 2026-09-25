@@ -127,13 +127,35 @@ export class IpcServer {
   }
 
   private async handleLine(client: ClientState, line: string): Promise<void> {
-    let req: IpcRequest;
+    let frame: unknown;
     try {
-      req = JSON.parse(line) as IpcRequest;
+      frame = JSON.parse(line);
     } catch {
       return this.send(client, { id: 0, ok: false, error: 'invalid json' });
     }
 
+    // Every frame gets an answer. A client waits on the id it sent, so an
+    // unanswered frame is a hung CLI; when the id itself is unusable, fall back
+    // to 0 as for invalid JSON.
+    const { id, method } = (frame ?? {}) as { id?: unknown; method?: unknown };
+    if (typeof id !== 'number' || typeof method !== 'string') {
+      return this.send(client, {
+        id: typeof id === 'number' ? id : 0,
+        ok: false,
+        error: 'invalid request: expected {"id": number, "method": string}',
+      });
+    }
+
+    try {
+      await this.dispatch(client, frame as IpcRequest);
+    } catch (err) {
+      // e.g. a known method with missing params. Answer on the request's id so
+      // the client gets the error instead of waiting for a reply.
+      this.send(client, { id, ok: false, error: String((err as Error)?.message || err) });
+    }
+  }
+
+  private async dispatch(client: ClientState, req: IpcRequest): Promise<void> {
     switch (req.method) {
       case 'ping':
         return this.send(client, { id: req.id, ok: true, result: 'pong' });
@@ -267,6 +289,13 @@ export class IpcServer {
         this.send(client, { id: req.id, ok: true, result: 'shutting down' });
         setTimeout(() => process.emit('SIGTERM' as NodeJS.Signals), 50);
         return;
+
+      default: {
+        // A newer CLI talking to an older daemon. Staying silent here left
+        // the client hanging; name the method so the CLI can say what is wrong.
+        const unknown = req as { id: number; method: string };
+        return this.send(client, { id: unknown.id, ok: false, error: `unknown method: ${unknown.method}` });
+      }
     }
   }
 
