@@ -35,5 +35,10 @@ export default defineConfig({
       mkdirSync(destDir, { recursive: true });
       cpSync(src, join(destDir, 'threatcrushd.service'));
     }
+    // The bundle carries rules derived from OWASP CRS (Apache-2.0), so its
+    // licence and notice ship with it.
+    const crsDir = join(__dirname, 'dist', 'crs');
+    mkdirSync(crsDir, { recursive: true });
+    for (const f of ['LICENSE', 'NOTICE']) cpSync(join(__dirname, 'src', 'core', 'crs', f), join(crsDir, f));
   },
 });

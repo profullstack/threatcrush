@@ -13,7 +13,8 @@
     "dev": "tsup --watch",
     "start": "node dist/index.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "crs:build": "node scripts/build-crs-rules.mjs"
   },
   "keywords": [
     "security",
@@ -29,6 +30,8 @@
     "dist/**/*.js",
     "dist/**/*.js.map",
     "dist/systemd/*.service",
+    "dist/crs/LICENSE",
+    "dist/crs/NOTICE",
     "README.md",
     "LICENSE"
   ],

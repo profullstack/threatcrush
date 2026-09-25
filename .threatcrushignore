@@ -17,3 +17,8 @@ packages/scan/src/code-rules.ts
 packages/scan/src/secret-rules.ts
 packages/scan/src/manifest-rules.ts
 modules/code-scanner/src/**/rules.ts
+
+# The vendored OWASP Core Rule Set and the rule table generated from it: attack
+# payload patterns by design.
+apps/cli/vendor/coreruleset
+apps/cli/src/core/crs/rules.generated.ts
