@@ -31,9 +31,26 @@ export function resolveDaemonPaths(): DaemonPaths {
   }
 }
 
+// Long enough for a ban, which shells out to the firewall; short enough that
+// a daemon that will never answer doesn't look like a hung app.
+//
+// This mirrors apps/cli/src/core/ipc-client.ts. The CLI client pulls in the
+// daemon's paths, control token and protocol types, so it is duplicated here
+// rather than bundled into the Electron main process.
+const REQUEST_TIMEOUT_MS = 10_000
+
+/** The daemon's error, in terms the operator can act on. */
+function daemonError(error: string | undefined): Error {
+  if (error?.startsWith('unknown method')) {
+    return new Error(`threatcrushd is older than this app (${error}); update it`)
+  }
+  return new Error(error || 'ipc error')
+}
+
 type Pending = {
   resolve: (value: unknown) => void
   reject: (err: Error) => void
+  timer: NodeJS.Timeout
 }
 
 export class DaemonClient {
@@ -96,10 +113,18 @@ export class DaemonClient {
     const id = this.nextId++
     const frame = params ? { id, method, params } : { id, method }
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject })
+      // Older daemons never answer a method they don't know, so without this
+      // the app waits on an older daemon forever.
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(
+          `threatcrushd did not answer "${method}" within ${REQUEST_TIMEOUT_MS / 1000}s; if it is older than this app, update it`,
+        ))
+      }, REQUEST_TIMEOUT_MS)
+      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer })
       this.socket!.write(JSON.stringify(frame) + '\n', (err) => {
-        if (err) {
-          this.pending.delete(id)
+        if (err && this.pending.delete(id)) {
+          clearTimeout(timer)
           reject(err)
         }
       })
@@ -123,8 +148,9 @@ export class DaemonClient {
         const pending = this.pending.get(id)
         if (!pending) continue
         this.pending.delete(id)
+        clearTimeout(pending.timer)
         if (msg.ok === true) pending.resolve(msg.result)
-        else pending.reject(new Error((msg.error as string) || 'ipc error'))
+        else pending.reject(daemonError(msg.error as string | undefined))
       } catch {
         // skip bad frame
       }
@@ -133,7 +159,8 @@ export class DaemonClient {
 
   private onClose(): void {
     this.connected = false
-    for (const { reject } of this.pending.values()) {
+    for (const { reject, timer } of this.pending.values()) {
+      clearTimeout(timer)
       reject(new Error('daemon connection closed'))
     }
     this.pending.clear()

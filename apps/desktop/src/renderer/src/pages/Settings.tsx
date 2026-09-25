@@ -1,20 +1,38 @@
 import { useState } from 'react'
 import { cn } from '../lib/utils'
+import type { ConnectResult } from '../api'
 
 export default function Settings() {
-  const [daemonHost, setDaemonHost] = useState('127.0.0.1')
-  const [daemonPort, setDaemonPort] = useState('9800')
   const [connected, setConnected] = useState(false)
   const [connecting, setConnecting] = useState(false)
+  const [result, setResult] = useState<ConnectResult | null>(null)
 
-  const handleConnect = () => {
+  const handleConnect = async () => {
+    const api = window.api
+    if (!api) {
+      setResult({ connected: false, error: 'not running inside ThreatCrush Desktop' })
+      return
+    }
     setConnecting(true)
-    // Simulate connection attempt
-    setTimeout(() => {
+    try {
+      // The main process bounds every daemon request, so this settles with
+      // either a connection or an error to show.
+      const res = await api.connectDaemon()
+      setConnected(res.connected)
+      setResult(res)
+    } catch (err) {
+      setConnected(false)
+      setResult({ connected: false, error: err instanceof Error ? err.message : String(err) })
+    } finally {
       setConnecting(false)
-      // Always fail for now since daemon doesn't exist
-    }, 2000)
+    }
   }
+
+  const statusText = connected
+    ? `Connected to threatcrushd${result?.version ? ` v${result.version}` : ''}${result?.socket ? ` at ${result.socket}` : ''}`
+    : result?.error
+      ? `Not connected: ${result.error}`
+      : 'Not connected — using demo data'
 
   return (
     <div className="flex flex-col h-full p-4 gap-6 max-w-2xl">
@@ -27,29 +45,11 @@ export default function Settings() {
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-bold text-text mb-1">Daemon Connection</h3>
         <p className="text-[10px] text-dim mb-4">
-          Connect to the ThreatCrush daemon for live monitoring data.
-          The daemon is not yet available — using simulated data.
+          Connect to the local threatcrushd over its unix socket.
+          Dashboards still show simulated data.
         </p>
 
         <div className="flex gap-3 items-end">
-          <div className="flex-1">
-            <label className="text-[10px] text-dim uppercase tracking-wider block mb-1">Host</label>
-            <input
-              type="text"
-              value={daemonHost}
-              onChange={(e) => setDaemonHost(e.target.value)}
-              className="w-full bg-bg border border-border rounded px-3 py-1.5 text-xs text-text font-mono focus:border-primary/50 focus:outline-none transition-colors"
-            />
-          </div>
-          <div className="w-24">
-            <label className="text-[10px] text-dim uppercase tracking-wider block mb-1">Port</label>
-            <input
-              type="text"
-              value={daemonPort}
-              onChange={(e) => setDaemonPort(e.target.value)}
-              className="w-full bg-bg border border-border rounded px-3 py-1.5 text-xs text-text font-mono focus:border-primary/50 focus:outline-none transition-colors"
-            />
-          </div>
           <button
             onClick={handleConnect}
             disabled={connecting}
@@ -71,7 +71,7 @@ export default function Settings() {
             connected ? 'bg-primary' : 'bg-threat'
           )} />
           <span className={connected ? 'text-primary' : 'text-threat'}>
-            {connected ? 'Connected to daemon' : 'Not connected — using demo data'}
+            {statusText}
           </span>
         </div>
       </div>

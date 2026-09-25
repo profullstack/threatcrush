@@ -88,7 +88,7 @@ async function connectToDaemon(socketPathOverride?: string): Promise<
     // subscription is best-effort; we still return connected
   }
 
-  daemonUnsub = client.onPush((frame) => {
+  const unsub = client.onPush((frame) => {
     const push = frame.push as string
     const payload = frame.payload
     if (push === 'event') {
@@ -97,14 +97,26 @@ async function connectToDaemon(socketPathOverride?: string): Promise<
       broadcast('threat-event', { type: 'module', data: payload })
     }
   })
+  daemonUnsub = unsub
 
-  // Fetch initial status for the handshake response.
+  // Fetch initial status for the handshake response. A daemon that can't
+  // answer `status` (e.g. it timed out) isn't a working connection; report the
+  // error instead of claiming to be connected.
   try {
     const status = await client.request<{ pid: number; version: string }>('status')
     broadcast('threat-event', { type: 'connected', data: status })
     return { connected: true, pid: status.pid, version: status.version, socket: socketPath }
-  } catch {
-    return { connected: true, socket: socketPath }
+  } catch (err) {
+    // Only clear the globals if a newer connect hasn't replaced them meanwhile.
+    unsub()
+    if (daemonUnsub === unsub) daemonUnsub = null
+    if (daemon === client) daemon = null
+    client.close()
+    return {
+      connected: false,
+      error: err instanceof Error ? err.message : String(err),
+      socket: socketPath,
+    }
   }
 }
 
