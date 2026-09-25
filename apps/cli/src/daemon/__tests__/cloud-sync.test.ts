@@ -163,6 +163,7 @@ describe('cloud sync batching', () => {
     expect(detectionsIn(cloud.requests)).toEqual([{
       type: 'remediation',
       server_id: 'srv-1',
+      event_id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
       action_type: 'block',
       target_value: '203.0.113.9',
       status: 'executed',
@@ -252,6 +253,38 @@ describe('cloud sync failure handling', () => {
     // Delivered events are gone from disk too.
     const third = makeSync(new EventBus(), path);
     expect(third.sync.queued).toBe(0);
+  });
+
+  it('replays a spooled remediation with the event_id it was created with', async () => {
+    const path = spoolPath();
+    let down = true;
+    const cloud = fakeCloud(() => (down ? 'network-down' : ingestOk));
+    const bus = new EventBus();
+    const first = makeSync(bus, path);
+    first.sync.start();
+    bus.publish({
+      timestamp: new Date(),
+      module: 'firewall-rules',
+      category: 'system',
+      severity: 'info',
+      message: 'Banned 203.0.113.9 for 1m',
+      source_ip: '203.0.113.9',
+      details: { action: 'block', ttl_seconds: 60 },
+    });
+    await first.sync.flush();
+    await first.sync.stop();
+    const attempted = detectionsIn(cloud.requests);
+
+    down = false;
+    const second = makeSync(new EventBus(), path);
+    second.sync.start();
+    await second.sync.flush();
+    await second.sync.stop();
+
+    const [original, replayed] = detectionsIn(cloud.requests).filter((e) => e.type === 'remediation');
+    expect(attempted).toHaveLength(1);
+    expect(typeof original.event_id).toBe('string');
+    expect(replayed.event_id).toBe(original.event_id);
   });
 
   it('backs off after a 5xx instead of retrying on every flush', async () => {

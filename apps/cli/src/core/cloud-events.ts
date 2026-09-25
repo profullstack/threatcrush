@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import { readCliConfig, hasSession } from './cli-config.js';
 import type { EventSeverity, ThreatEvent } from '../types/events.js';
@@ -18,6 +19,8 @@ export type IngestEvent =
     }
   | {
       type: 'remediation'; server_id: string; action_type: 'block' | 'unblock';
+      /** Minted once, when the event is created, and spooled with it: the server dedupes replays on it. */
+      event_id: string;
       target_value: string; status: 'executed' | 'failed'; rule_id?: string;
       reason?: string; error?: string; dry_run?: boolean;
       executed_at?: string; expires_at?: string | null;
@@ -130,6 +133,7 @@ export function remediationEvent(serverId: string, event: ThreatEvent): IngestEv
   return {
     type: 'remediation',
     server_id: serverId,
+    event_id: randomUUID(),
     action_type: d.action,
     target_value: event.source_ip,
     status: d.failed === true ? 'failed' : 'executed',
