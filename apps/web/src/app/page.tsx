@@ -10,7 +10,7 @@ const features = [
   {
     icon: "🔍",
     title: "Live Attack Detection",
-    desc: "Reads your nginx, auth, syslog and journald logs and watches inbound connections to the ports you serve. Every nginx request is scored against the OWASP Core Rule Set (paranoia level 1, with libinjection for SQLi and XSS) — SQLi, XSS, path traversal, RFI, RCE — alongside SSH brute force, sudo abuse, port scan, SYN flood and DNS tunneling detection. Add your own JSON rules in /etc/threatcrush/rules.d.",
+    desc: "Reads your nginx, auth, syslog and journald logs and watches inbound connections to the ports you serve. Every nginx request is scored against 96 OWASP CRS rules (paranoia level 1, with libinjection for SQLi and XSS) plus 1 ThreatCrush rule — SQLi, XSS, path traversal, RFI, RCE — alongside SSH brute force, sudo abuse, port scan, SYN flood and DNS tunneling detection. Add your own JSON rules in /etc/threatcrush/rules.d.",
   },
   {
     icon: "🛡️",
