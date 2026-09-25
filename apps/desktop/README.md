@@ -2,7 +2,7 @@
 
 Electron app that connects to a local `threatcrushd` over its Unix socket and shows live events / module state.
 
-**Status:** public preview. macOS and Windows builds aren't signed yet — the Linux `.AppImage` and `.deb` artifacts produced by CI are the most tested path.
+**Status:** public preview. Every `v*` tag publishes macOS (arm64 + x64 `.dmg`/`.zip`), Windows x64 (`-setup.exe`), Linux `.AppImage` and `.deb` to GitHub Releases. macOS and Windows builds are unsigned until the signing secrets exist (see [Signing](#signing)); the Linux builds are the most tested path.
 
 ## Dev
 
@@ -106,8 +106,35 @@ sudo apparmor_parser -r /etc/apparmor.d/threatcrush-appimage
 Prefer the `.deb` on Ubuntu; it is the artifact that can fix itself at install
 time.
 
+### Runtime libraries
+
+The Electron binary links `libgbm.so.1` and `libasound.so.2`. The `.deb`
+declares `libgbm1` and `libasound2t64 | libasound2` (electron-builder's stock
+`Depends:` omits both), so `apt install ./threatcrush-desktop-*.deb` pulls them
+in. `libasound2t64` comes first because on Ubuntu 24.04+ a bare `libasound2`
+can resolve to `liboss4-salsa-asound2`, which lacks ALSA symbols Electron
+needs. The AppImage cannot declare anything: on a minimal system without them
+it exits with `libgbm.so.1: cannot open shared object file`; install
+`libgbm1` and `libasound2t64` (Ubuntu 24.04+/Debian 13) or `libasound2`
+(older). Desktop installs already have both.
+
+## Signing
+
+`.github/workflows/desktop-release.yml` runs `scripts/desktop-signing-env.sh`,
+which exports electron-builder's signing variables only for the secrets that
+are set. With none set (today) the build is unsigned and the job summary says
+so; nothing in `electron-builder.yml` needs to change once they are added.
+
+| Secrets | Effect |
+|---|---|
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` | macOS app signed with the Developer ID Application identity (hardened runtime) |
+| `APPLE_API_KEY`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` (recommended) or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | the signed app is also notarized and stapled |
+| `WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD` | Windows installer and executables Authenticode-signed |
+
+How to obtain each one: [`docs/DESKTOP_RELEASE_TODO.md`](../../docs/DESKTOP_RELEASE_TODO.md).
+
 ## Known gaps
 
-- macOS signing + notarization uses GitHub secrets (`APPLE_*`); missing secrets mean unsigned artifacts
-- Windows signing likewise (`WINDOWS_CERTIFICATE`)
+- macOS/Windows builds unsigned until the secrets above exist
+- No Linux arm64 or Windows arm64 builds
 - Auto-update feed not configured

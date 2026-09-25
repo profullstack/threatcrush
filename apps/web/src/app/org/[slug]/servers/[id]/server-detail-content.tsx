@@ -242,7 +242,9 @@ export default function ServerDetailContent({ orgSlug, serverId }: { orgSlug: st
                     Open the Desktop app and connect to this server for a full GUI experience.
                   </p>
                   <a
-                    href="/releases"
+                    href="https://github.com/profullstack/threatcrush/releases/latest"
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="inline-block mt-2 text-xs font-medium text-green-400 hover:text-green-300 underline"
                   >
                     Download Desktop →

@@ -780,7 +780,7 @@ export default function Home() {
                       Public beta
                     </span>
                     <a
-                      href="https://github.com/profullstack/threatcrush/releases"
+                      href="https://github.com/profullstack/threatcrush/releases/latest"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs text-tc-text-dim hover:text-tc-green font-mono"
@@ -788,6 +788,9 @@ export default function Home() {
                       Download →
                     </a>
                   </div>
+                  <p className="mt-2 text-[11px] text-tc-text-dim">
+                    .dmg (Apple silicon + Intel), Windows x64 installer, AppImage and .deb. macOS and Windows builds are not code-signed yet, so Gatekeeper and SmartScreen will warn on first launch.
+                  </p>
                 </div>
               </ScrollReveal>
 

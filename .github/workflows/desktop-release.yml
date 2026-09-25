@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  # Package (never publish) on PRs that touch desktop packaging, so a broken
+  # matrix leg shows up before a tag instead of silently skipping a release.
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'scripts/desktop-signing-env.sh'
+      - '.github/workflows/desktop-release.yml'
   workflow_dispatch:
     inputs:
       version:
@@ -58,34 +65,42 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --filter "@profullstack/threatcrush-desktop..."
 
-      # macOS code signing
-      - name: Import macOS certificates
-        if: matrix.platform == 'mac'
+      # Code signing and notarization switch on by themselves once their
+      # secrets exist and are skipped cleanly while they don't (the builds are
+      # then unsigned, as they have been so far). scripts/desktop-signing-env.sh
+      # exports only what is set; how to obtain each secret is in
+      # docs/DESKTOP_RELEASE_TODO.md.
+      #
+      # macOS signing (both):
+      #   APPLE_CERTIFICATE            base64 of a "Developer ID Application" .p12 (certificate + private key)
+      #   APPLE_CERTIFICATE_PASSWORD   password of that .p12
+      # macOS notarization (runs only on a signed app). Set ONE group; the App
+      # Store Connect API key is what electron-builder recommends for CI:
+      #   APPLE_API_KEY                contents of the AuthKey_<KEY_ID>.p8 file
+      #   APPLE_API_KEY_ID             its 10-character Key ID
+      #   APPLE_API_ISSUER             Issuer ID (UUID) shown on the App Store Connect keys page
+      # or
+      #   APPLE_ID                     Apple ID email of a team member
+      #   APPLE_APP_SPECIFIC_PASSWORD  app-specific password for that Apple ID
+      #   APPLE_TEAM_ID                10-character Team ID
+      # Windows signing (both):
+      #   WINDOWS_CERTIFICATE          base64 of an Authenticode code-signing .pfx
+      #   WINDOWS_CERTIFICATE_PASSWORD password of that .pfx
+      - name: Configure code signing
+        shell: bash
         env:
+          PLATFORM: ${{ matrix.platform }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          if [ -n "$APPLE_CERTIFICATE" ]; then
-            echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
-            security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-            security default-keychain -s build.keychain
-            security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
-            security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
-            rm certificate.p12
-          fi
-
-      # Windows code signing
-      - name: Setup Windows signing
-        if: matrix.platform == 'win'
-        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-        run: |
-          if ($env:WINDOWS_CERTIFICATE) {
-            [IO.File]::WriteAllBytes("certificate.pfx", [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          }
-        shell: pwsh
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: bash scripts/desktop-signing-env.sh
 
       # Linux dependencies for electron-builder
       - name: Install Linux dependencies
@@ -116,6 +131,7 @@ jobs:
 
   release:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
