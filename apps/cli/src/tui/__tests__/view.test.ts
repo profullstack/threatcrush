@@ -169,6 +169,45 @@ describe('vhost on feed rows', () => {
   it('shows the site on the live feed', () => {
     let state = reducer(initialState(), { type: 'connected', label: 'daemon pid 4242', status });
     state = reducer(state, { type: 'event', event: hit({ host: 'rssamplifier.com' }) });
+    state = reducer(state, { type: 'toggle_noise' });
     expect(screen(state)).toContain('rssamplifier.com · Client error 402');
+  });
+});
+
+describe('routine 4xx noise', () => {
+  const at = (severity: ThreatEvent['severity'], message: string): ThreatEvent => ({
+    timestamp: new Date('2026-09-25T16:30:00Z'),
+    module: 'log-watcher',
+    category: 'web',
+    severity,
+    message,
+    source_ip: '47.79.201.10',
+  });
+  const base = () => reducer(initialState(), { type: 'connected', label: 'daemon pid 4242', status });
+
+  it('is hidden by default and counted in the feed subtitle', () => {
+    let state = base();
+    for (let i = 0; i < 3; i++) state = reducer(state, { type: 'event', event: at('low', `Client error 402: GET /ring/x${i}`) });
+    state = reducer(state, { type: 'event', event: at('high', 'Attack detected [RFI]: GET /?u=http://x/y.php') });
+    const out = screen(state);
+    expect(out).toContain('Attack detected [RFI]');
+    expect(out).not.toContain('Client error 402');
+    expect(out).toContain('3 routine 4xx hidden');
+  });
+
+  it('comes back with n', () => {
+    let state = reducer(base(), { type: 'event', event: at('low', 'Client error 404: GET /wp-login.php') });
+    state = reducer(state, { type: 'toggle_noise' });
+    expect(screen(state)).toContain('Client error 404');
+  });
+
+  it('never hides a 4xx a rule raised above low', () => {
+    const state = reducer(base(), { type: 'event', event: at('medium', 'Client error 401: GET /admin') });
+    expect(screen(state)).toContain('Client error 401');
+  });
+
+  it('says why the feed is empty when everything is noise', () => {
+    const state = reducer(base(), { type: 'event', event: at('low', 'Client error 403: GET /') });
+    expect(screen(state)).toContain('Nothing but routine 4xx');
   });
 });
