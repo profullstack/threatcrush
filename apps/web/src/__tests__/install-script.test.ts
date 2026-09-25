@@ -1,9 +1,59 @@
-import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { afterEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const repoRoot = join(__dirname, "..", "..");
-const installScript = readFileSync(join(repoRoot, "public", "install.sh"), "utf8");
+const installScriptPath = join(repoRoot, "public", "install.sh");
+const installScript = readFileSync(installScriptPath, "utf8");
+const PKG = "@profullstack/threatcrush";
+
+/** Host tools the installer shells out to; everything else on PATH is a stub. */
+const HOST_TOOLS = ["cat", "dirname", "grep", "id", "mkdir", "mktemp", "rm", "tail", "uname"];
+
+/**
+ * Run install.sh against a sandboxed PATH whose only package manager is a stub
+ * that records its argv, and return the recorded invocations.
+ */
+function runInstallerWith(pm: "npm" | "pnpm" | "yarn" | "bun", sandboxes: string[]): string[] {
+  const root = mkdtempSync(join(tmpdir(), "tc-install-"));
+  sandboxes.push(root);
+  const bin = join(root, "bin");
+  const home = join(root, "home");
+  const calls = join(root, "calls.log");
+  mkdirSync(bin);
+  mkdirSync(join(home, ".npm-global", "lib", "node_modules"), { recursive: true });
+  mkdirSync(join(home, ".npm-global", "bin"), { recursive: true });
+  writeFileSync(calls, "");
+
+  for (const tool of HOST_TOOLS) {
+    const hostPath = execFileSync("sh", ["-c", `command -v ${tool}`], { encoding: "utf8" }).trim();
+    symlinkSync(hostPath, join(bin, tool));
+  }
+
+  const stub = (name: string, body: string) => {
+    writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
+    chmodSync(join(bin, name), 0o755);
+  };
+  stub("node", 'if [ "$1" = "--version" ]; then echo v22.0.0; exit 0; fi\nexit 1');
+  stub(
+    pm,
+    [
+      `echo "$*" >> "${calls}"`,
+      'if [ "$1 $2 $3" = "config get prefix" ]; then echo "$HOME/.npm-global"; fi',
+      'if [ "$1" = "root" ]; then exit 1; fi',
+      "exit 0",
+    ].join("\n"),
+  );
+
+  execFileSync("/bin/sh", [installScriptPath], {
+    env: { PATH: bin, HOME: home, THREATCRUSH_INSTALL_MODE: "server" },
+    stdio: "pipe",
+  });
+
+  return readFileSync(calls, "utf8").split("\n").filter(Boolean);
+}
 
 describe("install.sh", () => {
   it("documents the blessed curl pipe sh install path", () => {
@@ -41,15 +91,26 @@ describe("install.sh", () => {
     expect(installScript).not.toContain("@profullstack/threatcrush-desktop");
   });
 
-  it("installs an explicit @latest so a reinstall cannot resolve to the old copy", () => {
+  describe("reinstalling over an existing copy", () => {
     // Regression: a bare package name lets pnpm's global lockfile pin (and
     // npm's satisfying tree) hand back the version already on disk, so
     // rerunning the installer over an old install reported success and changed
-    // nothing.
-    expect(installScript).toContain('PACKAGE_SPEC="${PACKAGE_NAME}@latest"');
-    expect(installScript).toContain('pnpm add -g "$PACKAGE_SPEC"');
-    expect(installScript).toContain('npm i -g "$PACKAGE_SPEC"');
-    expect(installScript).not.toContain('pnpm add -g "$PACKAGE_NAME"');
+    // nothing. Whatever package manager is used, it must be asked for @latest.
+    const sandboxes: string[] = [];
+    afterEach(() => {
+      for (const dir of sandboxes.splice(0)) rmSync(dir, { recursive: true, force: true });
+    });
+
+    it.skipIf(process.platform === "win32").each([
+      ["npm", `i -g ${PKG}@latest`],
+      ["pnpm", `add -g ${PKG}@latest`],
+      ["yarn", `global add ${PKG}@latest`],
+      ["bun", `add -g ${PKG}@latest`],
+    ] as const)("asks %s for the latest release, never a bare package name", (pm, expected) => {
+      const calls = runInstallerWith(pm, sandboxes);
+      expect(calls).toContain(expected);
+      expect(calls.some((call) => call.split(" ").includes(PKG))).toBe(false);
+    });
   });
 
   it("reads the installed version from whichever package manager installed it", () => {
