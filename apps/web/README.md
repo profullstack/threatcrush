@@ -32,7 +32,7 @@ Optional:
 pnpm build                 # next build → .next/standalone/...
 ```
 
-The production image is built via the repo-root `Dockerfile` and served by Railway.
+The image is built from the repo-root `Dockerfile`; its `HEALTHCHECK` polls `/api/health`, which answers 503 when the database is unreachable. threatcrush.com is deployed on every merge to `master` by `.github/workflows/deploy-dev2.yml`.
 
 ## API surface
 
