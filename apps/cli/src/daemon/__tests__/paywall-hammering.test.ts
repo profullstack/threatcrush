@@ -92,3 +92,65 @@ describe('paywall-hammering', () => {
     expect(adapter.blocked.size).toBe(0);
   });
 });
+
+/** A 402 to `path` from `ip`, carrying the endpoint the aggregate rule groups on. */
+function hitPath(ip: string, path: string): ThreatEvent {
+  return {
+    timestamp: new Date(),
+    module: 'log-watcher',
+    category: 'web',
+    severity: 'low',
+    message: `Client error 402: GET ${path}`,
+    source_ip: ip,
+    details: { host: 'r4ck.dev', path },
+  };
+}
+
+/** Captures raw detections so we can inspect what an aggregate rule reported. */
+function captureEngine() {
+  const detections: Array<Record<string, unknown>> = [];
+  const engine = new RuleEngine((d) => detections.push(d as never));
+  engine.loadRules(DEFAULT_RULES);
+  return { engine, detections };
+}
+
+describe('paywall-scrape-distributed', () => {
+  it('is high and alert-only — you cannot ban a 100k-IP swarm', () => {
+    const rule = DEFAULT_RULES.find((r) => r.id === 'paywall-scrape-distributed');
+    expect(rule?.severity).toBe('high');
+    expect(rule?.group_by).toBe('endpoint');
+    expect(rule?.remediation?.action).toBe('alert');
+  });
+
+  it('fires on a swarm that asks once per address against one endpoint', () => {
+    const { engine, detections } = captureEngine();
+    // 130 distinct IPs, one 402 each, all against the same paywalled path.
+    for (let i = 0; i < 130; i++) engine.evaluate(hitPath(`198.51.${i >> 8}.${i & 255}`, '/api/v1/search'));
+
+    const d = detections.find((x) => x.rule_id === 'paywall-scrape-distributed');
+    expect(d, 'the distributed rule should have fired').toBeTruthy();
+    // No single culprit: it must not pin the crowd on one arbitrary address,
+    // which is what would send a lone Googlebot IP to the firewall.
+    expect(d!.source_ip).toBeUndefined();
+    const meta = d!.raw_metadata as Record<string, unknown>;
+    // It fires the instant the window crosses the threshold (120), so it reports
+    // the 120 distinct addresses seen so far — the point is that it counts the
+    // crowd, not that it waits for all of it.
+    expect(meta.distinct_ips).toBe(120);
+    expect(meta.group).toBe('/api/v1/search');
+  });
+
+  it('does not fire when the same volume is spread across many endpoints', () => {
+    const { engine, detections } = captureEngine();
+    // 130 hits, each a different path — no single endpoint crosses the threshold.
+    for (let i = 0; i < 130; i++) engine.evaluate(hitPath(`198.51.${i >> 8}.${i & 255}`, `/p/${i}`));
+    expect(detections.some((x) => x.rule_id === 'paywall-scrape-distributed')).toBe(false);
+  });
+
+  it('never bans, even though the swarm trips it', async () => {
+    const { adapter, engine, settle } = harness();
+    for (let i = 0; i < 150; i++) engine.evaluate(hitPath(`198.51.${i >> 8}.${i & 255}`, '/api/v1/search'));
+    await settle();
+    expect(adapter.blocked.size).toBe(0);
+  });
+});

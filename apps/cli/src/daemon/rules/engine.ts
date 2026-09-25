@@ -12,6 +12,15 @@ export interface DetectionRule {
   threshold: number;
   window_seconds: number;
   cooldown_seconds: number;
+  /**
+   * What the threshold counts within. Default `source_ip` keeps the original
+   * per-address behaviour: N events from ONE address. `endpoint` and `global`
+   * count across ALL addresses, which is the only way to see a distributed
+   * swarm — 100k IPs asking once each never trips a per-address rule (the
+   * paywall-hammering case). An aggregate detection names no single offender,
+   * so it fires as an alert and never bans one arbitrary IP out of the crowd.
+   */
+  group_by?: 'source_ip' | 'endpoint' | 'global';
   tags: string[];
   remediation?: {
     action?: string;
@@ -68,8 +77,20 @@ export class RuleEngine {
       // Check match conditions
       if (!this.matchesCondition(event, rule.match)) continue;
 
-      // Window key: rule_id + source_ip (or 'global')
-      const windowKey = `${rule.id}:${event.source_ip || 'global'}`;
+      // Window key: rule_id + the dimension the threshold counts within.
+      //   source_ip (default) — N events from one address
+      //   endpoint            — N events to one path across every address
+      //   global              — N events anywhere across every address
+      // The endpoint/global keys are what catch a distributed swarm that a
+      // per-address rule structurally cannot see.
+      const groupBy = rule.group_by ?? 'source_ip';
+      const groupValue =
+        groupBy === 'endpoint'
+          ? (event.details?.path as string | undefined) || 'unknown'
+          : groupBy === 'global'
+            ? 'all'
+            : event.source_ip || 'global';
+      const windowKey = `${rule.id}:${groupBy}:${groupValue}`;
       let window = this.windows.get(windowKey);
       if (!window) {
         window = { events: [], lastAlert: 0 };
@@ -89,22 +110,38 @@ export class RuleEngine {
       // Check cooldown
       if (window.lastAlert > 0 && (now - window.lastAlert) < (rule.cooldown_seconds * 1000)) continue;
 
-      // Fire detection
+      // Fire detection.
+      const hits = window.events.length;
+      const distinctIps = new Set(
+        window.events.map((e) => e.event.source_ip).filter(Boolean),
+      ).size;
       window.lastAlert = now;
       window.events = []; // Reset window after detection
+
+      // An aggregate detection has no single culprit — attributing it to the
+      // last event's IP would ban one arbitrary member of the crowd (often the
+      // one legitimate crawler in it) and imply the other 100k were handled.
+      // Report the crowd instead: no source_ip, the count, and what was hit.
+      const aggregate = groupBy !== 'source_ip';
+      const spread = aggregate
+        ? ` from ${distinctIps} address${distinctIps === 1 ? '' : 'es'}${groupBy === 'endpoint' ? ` against ${groupValue}` : ''}`
+        : '';
 
       this.onDetection({
         rule_id: rule.id,
         severity: rule.severity,
         title: rule.title,
-        description: `${rule.description} (${rule.threshold} events in ${rule.window_seconds}s)`,
-        source_ip: event.source_ip,
+        description: `${rule.description} (${hits} events in ${rule.window_seconds}s${spread})`,
+        source_ip: aggregate ? undefined : event.source_ip,
         username: event.details?.user as string || undefined,
         raw_metadata: {
           rule_version: rule.version,
           tags: rule.tags,
           category: rule.category,
           remediation: rule.remediation,
+          ...(aggregate
+            ? { group_by: groupBy, group: groupValue, distinct_ips: distinctIps, hits }
+            : {}),
         },
       });
     }

@@ -90,6 +90,8 @@ export class LogWatcher {
     let message = line;
     let sourceIp: string | undefined;
     let host: string | undefined;
+    let reqPath: string | undefined;
+    let ua: string | undefined;
 
     if (parsed.source === 'auth') {
       const entry = parseAuthLog(line);
@@ -118,6 +120,11 @@ export class LogWatcher {
       // site it adds nothing; on a box serving five it is the difference
       // between "someone is being probed" and knowing which site.
       host = entry.fields.host;
+      // The path (without querystring) and UA travel in details so aggregate
+      // rules can group by endpoint and a UA rule can match the client — a
+      // distributed paywall scrape is invisible per-IP but obvious per-endpoint.
+      reqPath = (entry.fields.path || '').split('?')[0] || undefined;
+      ua = entry.fields.user_agent || undefined;
       if (attack) {
         severity = 'critical';
         message = `Attack [${attack.toUpperCase()}]: ${entry.fields.method} ${entry.fields.path}`;
@@ -141,7 +148,9 @@ export class LogWatcher {
       severity,
       message,
       source_ip: sourceIp,
-      ...(host ? { details: { host } } : {}),
+      ...((host || reqPath || ua)
+        ? { details: { ...(host ? { host } : {}), ...(reqPath ? { path: reqPath } : {}), ...(ua ? { ua } : {}) } }
+        : {}),
     };
 
     try { insertEvent(event); } catch { /* db optional */ }
