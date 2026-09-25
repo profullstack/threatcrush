@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ThreatCrush",
   "version": "0.1.10",
-  "description": "Real-time security monitoring, threat detection, and site scanning from your browser",
+  "description": "Checks the page you are on for weak security headers, cookies, forms and mixed content, locally. Plus ThreatCrush account alerts.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -26,8 +26,16 @@
     "page": "options/index.html",
     "open_in_tab": true
   },
-  "permissions": ["storage", "alarms", "notifications"],
-  "optional_permissions": ["tabs", "activeTab"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "activeTab",
+    "scripting",
+    "webRequest",
+    "cookies"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "host_permissions": [
     "https://threatcrush.com/*",
     "https://*.supabase.co/*",

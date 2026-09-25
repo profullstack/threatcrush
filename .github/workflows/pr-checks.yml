@@ -64,3 +64,9 @@ jobs:
 
       - name: Test desktop app
         run: pnpm --filter @profullstack/threatcrush-desktop test
+
+      - name: Test browser extension
+        run: pnpm --filter @profullstack/threatcrush-extension test
+
+      - name: Build browser extension
+        run: pnpm --filter @profullstack/threatcrush-extension build

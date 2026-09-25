@@ -1,18 +1,15 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuthStore } from '../store/auth';
 import { useEventsStore } from '../store/events';
 import StatusBadge from './components/StatusBadge';
 import QuickActions from './components/QuickActions';
 import EventFeed from './components/EventFeed';
 import LoginForm from './components/LoginForm';
+import PageChecks from './components/PageChecks';
 
-export default function App() {
-  const { user, loading: authLoading, initialize } = useAuthStore();
+function Account() {
+  const { user, loading: authLoading } = useAuthStore();
   const { stats, fetchStats } = useEventsStore();
-
-  useEffect(() => {
-    initialize();
-  }, [initialize]);
 
   useEffect(() => {
     if (user) {
@@ -22,7 +19,7 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="flex items-center justify-center h-[520px]">
+      <div className="flex-1 flex items-center justify-center">
         <div className="animate-spin-slow w-8 h-8 border-2 border-[#00ff41] border-t-transparent rounded-full" />
       </div>
     );
@@ -33,22 +30,15 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#222]">
-        <div className="flex items-center gap-2">
-          <span className="text-[#00ff41] text-lg font-bold font-mono">⛨</span>
-          <span className="text-sm font-bold text-white">ThreatCrush</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 truncate max-w-[140px]">{user.email}</span>
-          <button
-            onClick={() => useAuthStore.getState().logout()}
-            className="text-xs text-gray-500 hover:text-[#00ff41] transition-colors"
-          >
-            Logout
-          </button>
-        </div>
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex items-center justify-between px-4 pt-2 gap-2">
+        <span className="text-xs text-gray-500 truncate">{user.email}</span>
+        <button
+          onClick={() => useAuthStore.getState().logout()}
+          className="text-xs text-gray-500 hover:text-[#00ff41] transition-colors"
+        >
+          Logout
+        </button>
       </div>
 
       {/* Status Badge */}
@@ -75,6 +65,49 @@ export default function App() {
 
       {/* Quick Actions */}
       <QuickActions />
+    </div>
+  );
+}
+
+const VIEWS = [
+  ['page', 'This page'],
+  ['account', 'Account'],
+];
+
+export default function App() {
+  const [view, setView] = useState('page');
+  const initialize = useAuthStore((state) => state.initialize);
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  return (
+    <div className="flex flex-col h-[560px]">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#222]">
+        <div className="flex items-center gap-2">
+          <span className="text-[#00ff41] text-lg font-bold font-mono">⛨</span>
+          <span className="text-sm font-bold text-white">ThreatCrush</span>
+        </div>
+        <div className="flex gap-1" role="tablist">
+          {VIEWS.map(([id, label]) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={view === id}
+              onClick={() => setView(id)}
+              className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                view === id ? 'bg-[#00ff41]/10 text-[#00ff41]' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === 'page' ? <PageChecks /> : <Account />}
     </div>
   );
 }

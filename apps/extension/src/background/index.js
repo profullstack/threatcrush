@@ -1,10 +1,15 @@
 /**
  * ThreatCrush Background Service Worker
  *
- * Handles periodic security event checks, badge updates, and notifications.
+ * Handles periodic security event checks, badge updates, notifications, and
+ * the local checks on the page in each tab (see ./page-checks.js).
  */
 
-import { getUsageStats, scanUrl as apiScanUrl } from '../lib/api.js';
+import { getAuthToken, getUsageStats, scanUrl as apiScanUrl } from '../lib/api.js';
+import { scanTargetUrl } from '../lib/page-checks.js';
+import { checkTab, registerPageChecks } from './page-checks.js';
+
+registerPageChecks();
 
 const ALARM_NAME = 'threatcrush-event-check';
 const CHECK_INTERVAL_MINUTES = 5;
@@ -45,17 +50,14 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
  */
 async function checkForEvents() {
   try {
-    // Get stored auth token
-    const { authToken } = await chrome.storage.local.get(['authToken']);
-
-    if (!authToken) {
+    if (!(await getAuthToken())) {
       // Not logged in, clear badge
       await updateBadge({ threats: 0, warnings: 0 });
       return;
     }
 
     // Fetch real usage stats from the API
-    const usage = await getUsageStats(authToken);
+    const usage = await getUsageStats();
 
     const threats = usage.threats || 0;
     const warnings = usage.warnings || 0;
@@ -100,13 +102,13 @@ async function updateBadge({ threats, warnings }) {
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_STATS') {
-    chrome.storage.local.get(['authToken']).then(async ({ authToken }) => {
-      if (!authToken) {
+    getAuthToken().then(async (token) => {
+      if (!token) {
         sendResponse({ threats: 0, warnings: 0, eventsToday: 0, modulesRunning: 0 });
         return;
       }
       try {
-        const usage = await getUsageStats(authToken);
+        const usage = await getUsageStats();
         sendResponse({
           threats: usage.threats || 0,
           warnings: usage.warnings || 0,
@@ -126,6 +128,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'PAGE_CHECKS') {
+    checkTab(message.tabId)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ supported: false, error: err?.message || String(err), checks: [] }));
+    return true;
+  }
+
   if (message.type === 'SCAN_URL') {
     scanUrl(message.url).then(sendResponse);
     return true;
@@ -133,17 +142,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 /**
- * Scan a URL for security issues using the real API
+ * Server-side scan of a URL. Only runs when the user clicks "Scan with
+ * ThreatCrush". Only the origin and path are sent; the query string and
+ * fragment are dropped. The endpoint is public, so no sign-in is needed.
  */
 async function scanUrl(url) {
-  const { authToken } = await chrome.storage.local.get(['authToken']);
-  if (!authToken) {
-    return { url, status: 'unauthenticated', error: 'Not logged in' };
-  }
   try {
-    return await apiScanUrl(url, authToken);
+    return await apiScanUrl(scanTargetUrl(url));
   } catch (err) {
     console.error('[ThreatCrush] Scan failed:', err);
-    return { url, status: 'error', error: err.message };
+    return { url, error: err.message };
   }
 }

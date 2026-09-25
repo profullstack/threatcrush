@@ -14,7 +14,7 @@ export default function LoginForm() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center h-[520px] px-6">
+    <div className="flex-1 flex flex-col items-center justify-center px-6 py-4">
       {/* Logo */}
       <div className="mb-6 text-center">
         <div className="text-4xl mb-2">⛨</div>

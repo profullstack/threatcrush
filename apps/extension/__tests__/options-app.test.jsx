@@ -10,6 +10,9 @@ describe('extension options app', () => {
       alarms: {
         create: vi.fn().mockResolvedValue(undefined),
       },
+      permissions: {
+        contains: vi.fn().mockResolvedValue(false),
+      },
       storage: {
         local: {
           get: vi.fn((keys, callback) => callback({})),

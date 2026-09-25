@@ -1,12 +1,16 @@
 /**
  * ThreatCrush API client for browser extension.
  * All data routes through our API — never direct to Supabase/CoinPayPortal.
+ * Sign-in itself goes through the Supabase client (store/auth.js); requests
+ * here carry that session's access token.
  */
+
+import { supabase } from './supabase.js';
 
 const API_URL = import.meta.env.VITE_APP_URL || 'https://threatcrush.com';
 
 async function request(path, options = {}) {
-  const token = await getToken();
+  const token = await getAuthToken();
   const headers = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -26,27 +30,18 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-async function getToken() {
+/** Access token of the signed-in Supabase session, or null. */
+export async function getAuthToken() {
+  if (!supabase) return null;
   try {
-    const { session } = await chrome.storage.local.get('session');
-    return session?.access_token || null;
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token || null;
   } catch {
     return null;
   }
 }
 
 // ─── Auth ───
-
-export async function login(email, password) {
-  const data = await request('/api/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  });
-  if (data.session) {
-    await chrome.storage.local.set({ session: data.session, user: data.user });
-  }
-  return data;
-}
 
 export async function signup(email, phone, password, displayName, referralCode) {
   return request('/api/auth/signup', {
@@ -74,10 +69,6 @@ export async function updateProfile(updates) {
 
 export async function checkVerification() {
   return request('/api/auth/check');
-}
-
-export async function logout() {
-  await chrome.storage.local.remove(['session', 'user']);
 }
 
 // ─── Usage ───
@@ -141,12 +132,11 @@ export async function scanCode(content, { filename, language } = {}) {
 }
 
 export default {
-  login,
+  getAuthToken,
   signup,
   getProfile,
   updateProfile,
   checkVerification,
-  logout,
   getUsageStats,
   topUpCredits,
   getModules,
