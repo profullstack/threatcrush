@@ -1,7 +1,7 @@
 import { existsSync, statSync, createReadStream, accessSync, constants } from 'node:fs';
 import { createInterface } from 'node:readline';
 import type { EventBus } from '../event-bus.js';
-import { autoDetectParser, detectAttackPattern, parseAuthLog, parseNginxLog } from '../../core/log-parser.js';
+import { assessNginxRequest, attackSeverity, autoDetectParser, parseAuthLog, parseNginxLog } from '../../core/log-parser.js';
 import { insertEvent } from '../../core/state.js';
 import type { ThreatEvent, EventCategory, EventSeverity } from '../../types/events.js';
 
@@ -89,9 +89,7 @@ export class LogWatcher {
     let severity: EventSeverity = 'info';
     let message = line;
     let sourceIp: string | undefined;
-    let host: string | undefined;
-    let reqPath: string | undefined;
-    let ua: string | undefined;
+    const details: Record<string, unknown> = {};
 
     if (parsed.source === 'auth') {
       const entry = parseAuthLog(line);
@@ -115,25 +113,40 @@ export class LogWatcher {
       if (!entry) return;
       sourceIp = entry.fields.ip;
       const status = parseInt(entry.fields.status, 10);
-      const attack = detectAttackPattern(entry.fields.path);
+      const crs = assessNginxRequest(entry);
+      const attack = attackSeverity(crs);
+      const type = (crs.attackType ?? 'unknown').toUpperCase();
       // Present only when the log format carries `$host`. On a box serving one
       // site it adds nothing; on a box serving five it is the difference
       // between "someone is being probed" and knowing which site.
-      host = entry.fields.host;
+      if (entry.fields.host) details.host = entry.fields.host;
       // The path (without querystring) and UA travel in details so aggregate
       // rules can group by endpoint and a UA rule can match the client — a
       // distributed paywall scrape is invisible per-IP but obvious per-endpoint.
-      reqPath = (entry.fields.path || '').split('?')[0] || undefined;
-      ua = entry.fields.user_agent || undefined;
+      const reqPath = (entry.fields.path || '').split('?')[0];
+      if (reqPath) details.path = reqPath;
+      if (entry.fields.user_agent) details.ua = entry.fields.user_agent;
+      if (crs.score > 0) {
+        Object.assign(details, {
+          attack_type: crs.attackType,
+          crs_score: crs.score,
+          crs_threshold: crs.threshold,
+          crs_rule_ids: crs.matches.map((m) => m.id),
+        });
+      }
       if (attack) {
-        severity = 'critical';
-        message = `Attack [${attack.toUpperCase()}]: ${entry.fields.method} ${entry.fields.path}`;
+        severity = attack;
+        message = `Attack [${type}]: ${entry.fields.method} ${entry.fields.path}`;
       } else if (status >= 500) {
         severity = 'medium';
         message = `Server error ${status}: ${entry.fields.method} ${entry.fields.path}`;
       } else if (status >= 400) {
         severity = 'low';
         message = `Client error ${status}: ${entry.fields.method} ${entry.fields.path}`;
+      } else if (crs.score > 0) {
+        // Matched, but below the threshold: worth seeing, not worth a ban.
+        severity = 'low';
+        message = `Suspicious [${type}] (score ${crs.score}/${crs.threshold}): ${entry.fields.method} ${entry.fields.path}`;
       } else {
         return;
       }
@@ -148,9 +161,7 @@ export class LogWatcher {
       severity,
       message,
       source_ip: sourceIp,
-      ...((host || reqPath || ua)
-        ? { details: { ...(host ? { host } : {}), ...(reqPath ? { path: reqPath } : {}), ...(ua ? { ua } : {}) } }
-        : {}),
+      ...(Object.keys(details).length ? { details } : {}),
     };
 
     try { insertEvent(event); } catch { /* db optional */ }

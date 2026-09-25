@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: alert-system, routing, deduplication, escalation, notifications, modules
+tags: [alert-system, routing, deduplication, escalation, notifications, modules]
 supersedes:
 superseded-by:
 ---

@@ -14,6 +14,7 @@ import { remediationSettings } from './firewall/settings.js';
 import { bus } from './event-bus.js';
 import { initStateDB, closeDB } from '../core/state.js';
 import { loadConfig } from '../core/config.js';
+import { configureAttackDetection } from '../core/log-parser.js';
 import { captureException, flushTelemetry, initTelemetry } from '../core/telemetry.js';
 import type { ThreatEvent } from '../types/events.js';
 
@@ -63,6 +64,7 @@ export async function runDaemon(): Promise<void> {
   }
 
   const config = loadConfig(existsSync(PATHS.configFile) ? PATHS.configFile : undefined);
+  configureAttackDetection(config.detection);
 
   bus.on('event', (event: ThreatEvent) => {
     logLine(`[event] ${event.severity} ${event.module} ${event.message}`);

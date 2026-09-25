@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: spend-guard, billing, fraud, sms-pumping, irsf, auto-recharge, containment, modules
+tags: [spend-guard, billing, fraud, sms-pumping, irsf, auto-recharge, containment, modules]
 supersedes:
 superseded-by:
 ---

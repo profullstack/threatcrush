@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: ssh-guard, brute-force, authentication, tunneling, posture, modules
+tags: [ssh-guard, brute-force, authentication, tunneling, posture, modules]
 supersedes:
 superseded-by:
 ---

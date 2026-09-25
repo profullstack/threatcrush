@@ -42,7 +42,7 @@
 
 ---
 
-ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 21 attack signatures, runs 14 detection rules over auth, web and network events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
+ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 95 OWASP CRS rules (paranoia level 1) with CRS anomaly scoring, runs 14 detection rules over auth, web and network events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
 
 ```
 $ threatcrush monitor
@@ -55,7 +55,7 @@ $ threatcrush monitor
 
   Press Ctrl+C to stop
 
-2026-09-25 12:03:45 [CRITICAL] [log-watcher]  Attack detected [SQLI]: GET /api/users?id=1%20OR%201=1 (185.43.21.8)
+2026-09-25 12:03:45 [CRITICAL] [log-watcher]  Attack detected [SQLI]: GET /api/users?id=1%20UNION%20SELECT%20password%20FROM%20users (185.43.21.8)
 2026-09-25 12:03:46 [CRITICAL] [log-watcher]  Attack detected [PATH_TRAVERSAL]: GET /../../etc/passwd (185.43.21.8)
 2026-09-25 12:03:47 [HIGH]     [ssh-guard]    Failed SSH login for root from 91.232.105.3 (91.232.105.3)
 2026-09-25 12:03:48 [HIGH]     [ssh-guard]    Invalid SSH user attempt: admin123 from 103.77.88.99 (103.77.88.99)
@@ -138,7 +138,7 @@ threatcrush store publish https://github.com/you/my-module  # Publish your own
 
 | Component | What it covers |
 |-----------|----------------|
-| `log-watcher` | nginx access log + syslog — 21 attack signatures (SQLi, XSS, path traversal, RFI) on every request |
+| `log-watcher` | nginx access log + syslog — 95 OWASP CRS rules (PL1: SQLi, XSS, path traversal, RFI, RCE, PHP/Java injection, SSRF, scanners) scored on every request |
 | `ssh-guard` | auth.log / secure — failed logins, brute force, root logins, user enumeration |
 | `user-journal` | journald — the systemd journal |
 | `network-monitor` | Inbound connections to your listening ports — port scans, SYN floods |

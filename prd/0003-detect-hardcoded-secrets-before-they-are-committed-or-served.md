@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation: modules/code-scanner (secrets subsystem)
-tags: code-scanner, secrets, credentials, entropy, redaction, modules
+tags: [code-scanner, secrets, credentials, entropy, redaction, modules]
 supersedes:
 superseded-by:
 ---

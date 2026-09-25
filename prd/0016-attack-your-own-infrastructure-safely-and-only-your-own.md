@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: pentest-engine, authorization, blast-radius, dast, scanning, modules
+tags: [pentest-engine, authorization, blast-radius, dast, scanning, modules]
 supersedes:
 superseded-by:
 ---

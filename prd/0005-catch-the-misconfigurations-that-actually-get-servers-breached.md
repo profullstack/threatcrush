@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation: modules/code-scanner (config subsystem)
-tags: code-scanner, config, misconfiguration, hardening, exposure, modules
+tags: [code-scanner, config, misconfiguration, hardening, exposure, modules]
 supersedes:
 superseded-by:
 ---

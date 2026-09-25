@@ -14,7 +14,7 @@ these numbered PRDs cover individual changes to it.
 | ID | Title | Status | Tags |
 | --- | --- | --- | --- |
 | [0001](./0001-detect-and-contain-balance-drain-attacks-on-third-party-services.md) | Detect and contain balance-drain attacks on third-party services | Draft | spend-guard, billing, fraud, sms-pumping, irsf, auto-recharge, containment, modules |
-| [0002](./0002-detect-vulnerable-and-malicious-dependencies-on-running-servers.md) | Detect vulnerable and malicious dependencies on running servers | Draft | code-scanner, deps, supply-chain, sbom, cve, osv, install-scripts, drift, modules |
+| [0002](./0002-detect-vulnerable-and-malicious-dependencies-on-running-servers.md) | Detect vulnerable and malicious dependencies on running servers | Draft | code-scanner, deps, supply-chain, sbom, cve, osv, install-scripts, drift, supply-chain-scanning, modules |
 | [0003](./0003-detect-hardcoded-secrets-before-they-are-committed-or-served.md) | Detect hardcoded secrets before they are committed or served | Draft | code-scanner, secrets, credentials, entropy, redaction, modules |
 | [0004](./0004-find-dangerous-code-patterns-without-pretending-to-be-a-compiler.md) | Find dangerous code patterns without pretending to be a compiler | Draft | code-scanner, sast, static-analysis, injection, taint, modules |
 | [0005](./0005-catch-the-misconfigurations-that-actually-get-servers-breached.md) | Catch the misconfigurations that actually get servers breached | Draft | code-scanner, config, misconfiguration, hardening, exposure, modules |
@@ -29,3 +29,5 @@ these numbered PRDs cover individual changes to it.
 | [0014](./0014-learn-about-a-breach-when-the-stolen-credential-is-used.md) | Learn about a breach when the stolen credential is used | Draft | deception, canary-tokens, breach-detection, dwell-time, modules |
 | [0015](./0015-report-abuse-without-becoming-a-source-of-it.md) | Report abuse without becoming a source of it | Draft | abuse-reporter, abuseipdb, reputation, false-positives, modules |
 | [0016](./0016-attack-your-own-infrastructure-safely-and-only-your-own.md) | Attack your own infrastructure, safely, and only your own | Draft | pentest-engine, authorization, blast-radius, dast, scanning, modules |
+| [0017](./0017-add-build-and-agent-exposure-controls.md) | Add build and agent exposure controls to ThreatCrush Surface | Draft | surface, build-security, agent-guard, supply-chain, cache-isolation, openstack, moshcode, chovy |
+| [0018](./0018-check-your-own-sites-against-known-exposures-with-nuclei-templates.md) | Check your own sites against known exposures with nuclei templates | Draft | pentest-engine, nuclei, templates, exposures, misconfiguration, dast, scanning, modules |

@@ -25,8 +25,10 @@ export interface NginxLogEntry extends ParsedLogLine {
     ip: string;
     method: string;
     path: string;
+    protocol: string;
     status: string;
     size: string;
+    referer: string;
     user_agent: string;
     [key: string]: string;
   };

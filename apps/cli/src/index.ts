@@ -320,7 +320,7 @@ ${chalk.dim("Examples:")}
 ${chalk.dim("─────────────────────────────────────────────────────")}
 ${chalk.dim("Modules:")}
   ThreatCrush uses pluggable security modules. Built in:
-  ${chalk.green("log-watcher")}      nginx access log + syslog, attack signatures
+  ${chalk.green("log-watcher")}      nginx access log + syslog, OWASP CRS rules
   ${chalk.green("ssh-guard")}        Failed logins, brute force, root logins, user enumeration
   ${chalk.green("user-journal")}     journald
   ${chalk.green("network-monitor")}  Inbound connections (conntrack/ss): port scans, SYN floods
