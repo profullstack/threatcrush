@@ -50,12 +50,23 @@ export interface RemediationSection {
   default_ttl_seconds?: number;
 }
 
+/**
+ * `[detection]` — web attack detection on access logs (OWASP CRS, PL1).
+ */
+export interface DetectionSection {
+  /** Inbound anomaly score at which a request is an attack. CRS default: 5 (one CRITICAL rule). */
+  anomaly_threshold?: number;
+  /** CRS rule ids to switch off, as SecRuleRemoveById would, e.g. [942550]. */
+  exclude_rules?: number[];
+}
+
 export interface ThreatCrushConfig {
   daemon: DaemonConfig;
   api: ApiConfig;
   alerts: Record<string, AlertChannelConfig>;
   modules: ModulesConfig;
   remediation?: RemediationSection;
+  detection?: DetectionSection;
   license?: {
     key_file?: string;
     key?: string;

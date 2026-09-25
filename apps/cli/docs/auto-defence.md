@@ -27,10 +27,38 @@ important for a reason nobody remembers.
 
 ## What gets banned
 
-Detections of severity `high` and above — SSH brute force, invalid users, SQL
-injection, path traversal, real remote file inclusion. Routine 4xx noise is
-`low` and never triggers a ban; a paywall returning 402 to thousands of crawlers
-is traffic, not an attack.
+Detections of severity `high` and above — SSH brute force, invalid users, and
+web attacks from the access log. Routine 4xx noise is `low` and never triggers a
+ban; a paywall returning 402 to thousands of crawlers is traffic, not an attack.
+
+### Web attacks
+
+Every nginx request — its request line, User-Agent and Referer — is scored
+against the OWASP Core Rule Set (v4.29.0, paranoia level 1): the rules whose
+targets an access log records, ported by `scripts/build-crs-rules.mjs`. CRS
+anomaly scoring applies: each matching rule adds its severity's points (CRITICAL
+5, ERROR 4, WARNING 3, NOTICE 2), and a request is an attack when the total
+reaches the threshold, 5 by default — one CRITICAL rule.
+
+| Score                 | Event severity | Banned at the default `min_severity`? |
+|-----------------------|----------------|---------------------------------------|
+| below the threshold   | `low`          | no                                    |
+| at the threshold      | `high`         | yes                                   |
+| twice the threshold   | `critical`     | yes                                   |
+
+Set `min_severity = "critical"` to ban only on two or more matching rules. Each
+event carries `crs_score`, `crs_threshold`, `crs_rule_ids` and `attack_type`.
+
+What an access log cannot show, these rules cannot see: request bodies,
+cookies and other headers. The two libinjection rules (942100 SQLi, 941100
+XSS) are not ported, so a bare `1' OR 1=1` scores nothing; `UNION SELECT`,
+`SLEEP(`, script tags, traversal and the rest do.
+
+```toml
+[detection]
+anomaly_threshold = 5         # CRS inbound threshold
+exclude_rules = [941130]      # CRS rule ids to switch off, like SecRuleRemoveById
+```
 
 ## What can never be banned
 

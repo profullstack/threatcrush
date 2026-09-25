@@ -1,0 +1,21 @@
+ThreatCrush web attack detection — OWASP Core Rule Set attribution
+
+The rule table in rules.generated.ts, bundled into this package's dist/, is
+derived from the OWASP Core Rule Set (CRS), version 4.29.0:
+
+  OWASP CRS
+  Copyright (c) 2006-2020 Trustwave and contributors. All rights reserved.
+  Copyright (c) 2021-2026 CRS project. All rights reserved.
+  https://github.com/coreruleset/coreruleset
+
+CRS is licensed under the Apache License, Version 2.0; a copy is in LICENSE
+next to this file. The unmodified rule and data files used are vendored in the
+ThreatCrush repository under apps/cli/vendor/coreruleset.
+
+Changes made: the paranoia-level-1 rules from REQUEST-913, 930, 931, 932,
+933, 934, 941, 942 and 944 whose targets appear in a web server access log
+were converted by apps/cli/scripts/build-crs-rules.mjs into a JSON rule table
+(regular expressions translated from PCRE to JavaScript syntax, phrase files
+inlined, targets an access log cannot record removed). Rules that could not be
+translated faithfully were left out. The evaluation engine is ThreatCrush's
+own; it is not ModSecurity.

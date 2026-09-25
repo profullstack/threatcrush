@@ -276,7 +276,7 @@ const slides: Slide[] = [
                   [INFO] Monitoring 3 log source(s): auth · nginx · syslog
                 </div>
                 <div className="line out out-warn">
-                  [CRITICAL] [log-watcher] Attack detected [SQLI]: GET /api/users?id=1%20OR%201=1
+                  [CRITICAL] [log-watcher] Attack detected [SQLI]: GET /api/users?id=1%20UNION%20SELECT%20password%20FROM%20users
                   (185.43.21.8)
                 </div>
                 <div className="line out out-warn">
@@ -317,7 +317,7 @@ const slides: Slide[] = [
             <div className="verb-stack">
               <div className="verb-card">
                 <div className="verb-tag">01 — detect</div>
-                <div className="verb-label">Logs + inbound connections. 21 attack signatures, live.</div>
+                <div className="verb-label">Logs + inbound connections. 95 OWASP CRS rules, live.</div>
               </div>
               <div className="verb-card">
                 <div className="verb-tag">02 — reduce</div>

@@ -174,7 +174,7 @@ const softwareApplicationJsonLd = {
     `${SITE_URL}/images/gallery-mobile.png`,
   ],
   featureList: [
-    "Live attack detection (SQLi, XSS, brute force, port scans, DNS tunneling)",
+    "Live attack detection (OWASP CRS rules for SQLi, XSS and more; brute force, port scans, DNS tunneling)",
     "Code vulnerability scanner",
     "Pentest checks for URLs and APIs",
     "Inbound-connection monitor — port scans & SYN floods",

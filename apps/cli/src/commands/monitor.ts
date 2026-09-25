@@ -3,7 +3,8 @@ import { createInterface } from 'node:readline';
 import { watch } from 'node:fs';
 import chalk from 'chalk';
 import { formatEvent, logger, banner } from '../core/logger.js';
-import { autoDetectParser, detectAttackPattern, parseAuthLog, parseNginxLog } from '../core/log-parser.js';
+import { assessNginxRequest, attackSeverity, autoDetectParser, configureAttackDetection, parseAuthLog, parseNginxLog } from '../core/log-parser.js';
+import { loadConfig } from '../core/config.js';
 import { initStateDB, insertEvent } from '../core/state.js';
 import type { ThreatEvent, EventSeverity, EventCategory } from '../types/events.js';
 
@@ -87,6 +88,9 @@ export async function monitorCommand(options: MonitorOptions): Promise<void> {
     // State DB optional for monitoring
   }
 
+  // The same [detection] settings the daemon uses, so both agree on what is an attack.
+  configureAttackDetection(loadConfig().detection);
+
   logger.info(`Monitoring ${availableSources.length} log source(s):`);
   for (const src of availableSources) {
     console.log(`  ${chalk.green('●')} ${chalk.white(src.name.padEnd(14))} → ${chalk.gray(src.path)}`);
@@ -150,6 +154,7 @@ function processLine(line: string, moduleName: string, category: EventCategory):
 
   let severity: EventSeverity = 'info';
   let message = line;
+  let details: Record<string, unknown> | undefined;
 
   if (parsed.source === 'auth') {
     const authEntry = parseAuthLog(line);
@@ -170,17 +175,30 @@ function processLine(line: string, moduleName: string, category: EventCategory):
     if (!nginxEntry) return;
 
     const status = parseInt(nginxEntry.fields.status);
-    const attack = detectAttackPattern(nginxEntry.fields.path);
+    const crs = assessNginxRequest(nginxEntry);
+    const attack = attackSeverity(crs);
+    const type = (crs.attackType ?? 'unknown').toUpperCase();
+    if (crs.score > 0) {
+      details = {
+        attack_type: crs.attackType,
+        crs_score: crs.score,
+        crs_threshold: crs.threshold,
+        crs_rule_ids: crs.matches.map((m) => m.id),
+      };
+    }
 
     if (attack) {
-      severity = 'critical';
-      message = `Attack detected [${attack.toUpperCase()}]: ${nginxEntry.fields.method} ${nginxEntry.fields.path}`;
+      severity = attack;
+      message = `Attack detected [${type}]: ${nginxEntry.fields.method} ${nginxEntry.fields.path}`;
     } else if (status >= 500) {
       severity = 'medium';
       message = `Server error ${status}: ${nginxEntry.fields.method} ${nginxEntry.fields.path}`;
     } else if (status >= 400) {
       severity = 'low';
       message = `Client error ${status}: ${nginxEntry.fields.method} ${nginxEntry.fields.path}`;
+    } else if (crs.score > 0) {
+      severity = 'low';
+      message = `Suspicious [${type}] (score ${crs.score}/${crs.threshold}): ${nginxEntry.fields.method} ${nginxEntry.fields.path}`;
     } else {
       severity = 'info';
       message = `${nginxEntry.fields.method} ${nginxEntry.fields.path} → ${status}`;
@@ -194,6 +212,7 @@ function processLine(line: string, moduleName: string, category: EventCategory):
     severity,
     message,
     source_ip: parsed.fields.ip as string | undefined,
+    ...(details ? { details } : {}),
   };
 
   console.log(formatEvent(event.module, event.severity, event.message, event.source_ip));
@@ -212,7 +231,7 @@ async function runDemoMode(): Promise<void> {
     { module: 'ssh-guard', category: 'auth', severity: 'high', message: 'Failed SSH login for root', source_ip: '45.33.22.11' },
     { module: 'log-watcher', category: 'web', severity: 'low', message: 'GET /admin → 404', source_ip: '91.121.44.55' },
     { module: 'ssh-guard', category: 'auth', severity: 'high', message: 'Failed SSH login for admin', source_ip: '45.33.22.11' },
-    { module: 'log-watcher', category: 'web', severity: 'critical', message: 'Attack detected [SQLI]: GET /search?q=1%27+OR+1%3D1', source_ip: '185.220.101.44' },
+    { module: 'log-watcher', category: 'web', severity: 'critical', message: 'Attack detected [SQLI]: GET /search?q=1%27+UNION+SELECT+username,password+FROM+users--', source_ip: '185.220.101.44' },
     { module: 'log-watcher', category: 'web', severity: 'medium', message: 'Server error 502: GET /api/users', source_ip: '10.0.0.2' },
     { module: 'ssh-guard', category: 'auth', severity: 'high', message: 'Invalid SSH user attempt: admin123', source_ip: '103.77.88.99' },
     { module: 'log-watcher', category: 'web', severity: 'critical', message: 'Attack detected [PATH_TRAVERSAL]: GET /../../etc/passwd', source_ip: '185.220.101.44' },
