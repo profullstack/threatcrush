@@ -75,9 +75,7 @@ curl -fsSL https://threatcrush.com/install.sh | sh
 The installer detects whether the machine is a server or desktop, uses your existing package manager when available, and can bootstrap Node.js with `mise` on bare machines.
 
 - **Linux server** → installs the CLI
-- **Linux desktop** → installs the CLI + desktop app
-- **Windows desktop** → installs the desktop app to connect to a ThreatCrush server elsewhere
-- **macOS desktop** → desktop-oriented install for connecting to a ThreatCrush server
+- **Desktop (Linux, macOS, Windows)** → installs the CLI and points you to the desktop app, a separate download from [GitHub Releases](https://github.com/profullstack/threatcrush/releases/latest). The desktop app talks to a ThreatCrush daemon on the same machine; log monitoring and firewall bans need Linux.
 
 After install, the blessed lifecycle commands are:
 
@@ -103,22 +101,30 @@ threatcrush monitor      # Watch nginx, auth & syslog for attacks (foreground)
 threatcrush tui          # Interactive dashboard (htop for security)
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush pentest URL  # Quick web security checks against a URL
+threatcrush harden       # Check the host's SSH, firewall, updates and exposed ports
 threatcrush init         # Auto-detect services, generate config
 threatcrush status       # Show daemon status & loaded modules
+threatcrush block IP     # Ban an IP at the firewall (unblock, blocklist, allowlist too)
+threatcrush servers link # Send this server's detections to the cloud dashboard (next release)
 threatcrush modules      # Manage security modules
 threatcrush store        # Browse the module marketplace
 threatcrush update       # Upgrade the CLI using the supported path
 ```
+
+Full command reference: [threatcrush.com/docs](https://threatcrush.com/docs).
 
 ## Features
 
 | Feature | Description |
 |---------|-------------|
 | 🔍 **Live Attack Detection** | Tails nginx, auth, syslog and journald, and polls inbound connections to the ports you serve. Detects SQLi, XSS, path traversal, RFI, SSH brute force, port scans, SYN floods, DNS tunneling. |
-| 🛡️ **Code Security Scanner** | Scan your codebase for vulnerabilities, hardcoded secrets, and misconfigurations. |
+| 🛡️ **Code Security Scanner** | Scan a codebase for hardcoded secrets and risky code patterns; `--deps` checks lockfile versions against OSV.dev. Text, JSON or SARIF output. |
 | 💥 **Pentest Checks** | `threatcrush pentest URL` spot-checks security headers, CSP, CORS, cookie flags, server banners, directory listings and error leaks, then probes for SQL errors, path traversal and unsafe HTTP methods. |
 | 🔀 **Network Monitor** | Polls conntrack/`ss` every 5 s for inbound TCP connections to your listening ports. Flags port scans (10+ ports in 30 s) and SYN floods (50+ half-open from one source). No packet capture. |
-| 🔔 **Real-time Alerts** | Slack, email, webhook notifications the instant a threat is detected. |
+| 🚫 **Automatic IP Bans** | Bans attacking IPs via nftables, iptables or fail2ban, with longer bans for repeat offenders. Allowlisted ranges and verified Google/Bing crawlers are never auto-banned. |
+| 🧱 **Hardening Checks** | `threatcrush harden` checks SSH password/root login, sshd weaknesses, automatic security updates, an active firewall, risky exposed ports and fail2ban. |
+| 🔔 **Alerts** | Email, Slack, Discord, PagerDuty and webhook notifications when a threat is detected. |
+| 📡 **Cloud Dashboard** | `threatcrush servers link` (next release) sends detections, hardening findings, bans and heartbeats to your organization's dashboard at threatcrush.com, where you can also queue bans. |
 | ⚙️ **systemd Daemon** | Runs as a background service on your server. Auto-starts on boot, monitors 24/7. |
 | 📊 **TUI Dashboard** | Interactive terminal dashboard — htop for security. |
 
@@ -128,8 +134,7 @@ ThreatCrush uses a pluggable module system. Install from the marketplace or buil
 
 ```bash
 threatcrush modules list                # List installed
-threatcrush modules install ssh-guard   # Install a module
-threatcrush modules install docker-monitor
+threatcrush modules available           # List modules you can install
 threatcrush store search "firewall"     # Search marketplace
 threatcrush store publish https://github.com/you/my-module  # Publish your own
 ```
@@ -150,7 +155,9 @@ threatcrush store publish https://github.com/you/my-module  # Publish your own
 
 ### Community Modules
 
-Build and sell your own modules on the ThreatCrush marketplace:
+Anyone can publish a module to the marketplace; publishing is free and listings go live after review. Browse what exists with `threatcrush store` or at [threatcrush.com/store](https://threatcrush.com/store).
+
+Module ideas we would like to see (none of these exist yet):
 - `docker-monitor` — Container escape detection
 - `k8s-watcher` — Kubernetes cluster security
 - `honeypot` — Deploy decoy services
@@ -167,17 +174,17 @@ Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/et
 
 ## Pricing
 
-Contact us for pricing → [threatcrush.com/pricing](https://threatcrush.com/pricing)
+Contact us for pricing → [threatcrush.com/hire](https://threatcrush.com/hire)
 
 ## Browser Extension
 
-Monitor security from your browser:
+Check the site you're on from your browser:
 
-- **Chrome** — Chrome Web Store (coming soon)
+- **Chrome / Edge** — Chrome Web Store (coming soon)
 - **Firefox** — Firefox Add-ons (coming soon)
 - **Safari** — Coming soon
 
-Features: scan any site, real-time alerts, security headers check, dashboard popup.
+Page checks (HTTPS, security headers, CSP, clickjacking, mixed content, forms, cookie flags) run entirely in your browser. Signed in, the toolbar badge counts new detections for your organization. Until the store listings are live, sideload it from [`apps/extension`](apps/extension).
 
 ## Links
 

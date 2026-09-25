@@ -75,9 +75,7 @@ curl -fsSL https://threatcrush.com/install.sh | sh
 The installer detects whether the machine is a server or desktop, uses your existing package manager when available, and can bootstrap Node.js with `mise` on bare machines.
 
 - **Linux server** → installs the CLI
-- **Linux desktop** → installs the CLI + desktop app
-- **Windows desktop** → installs the desktop app to connect to a ThreatCrush server elsewhere
-- **macOS desktop** → desktop-oriented install for connecting to a ThreatCrush server
+- **Desktop (Linux, macOS, Windows)** → installs the CLI and points you to the desktop app, a separate download from [GitHub Releases](https://github.com/profullstack/threatcrush/releases/latest). The desktop app talks to a ThreatCrush daemon on the same machine; log monitoring and firewall bans need Linux.
 
 After install, the supported lifecycle commands are:
 
