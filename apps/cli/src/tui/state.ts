@@ -24,9 +24,9 @@ export type Connection = 'searching' | 'live' | 'lost';
  * which left no way to point at a source — and you cannot ban what you cannot
  * point at. Tab cycles.
  */
-export type Focus = 'feed' | 'threats' | 'bans';
+export type Focus = 'feed' | 'modules' | 'threats' | 'bans';
 
-export const FOCUS_ORDER: Focus[] = ['feed', 'threats', 'bans'];
+export const FOCUS_ORDER: Focus[] = ['feed', 'modules', 'threats', 'bans'];
 
 /** A transient line in the status bar: the result of a ban or unban. */
 export interface Notice {
@@ -78,6 +78,14 @@ export interface State {
   notice: Notice | null;
   /** Set while a ban/unban is in flight, so the key does not fire twice. */
   busy: boolean;
+  /** Selected row in MODULES. */
+  moduleIndex: number;
+  /**
+   * When set, the feed shows only this module. One module can drown out every
+   * other: a resolver logging each query put thousands of INFO lines through
+   * `user-journal`, and there was no way to look past them.
+   */
+  moduleFilter: string | null;
 }
 
 export type Action =
@@ -99,6 +107,8 @@ export type Action =
   | { type: 'select_at'; index: number }
   | { type: 'notice'; text: string; tone: 'ok' | 'error'; now?: number }
   | { type: 'busy'; busy: boolean }
+  | { type: 'toggle_module_filter' }
+  | { type: 'clear_module_filter' }
   | { type: 'reset' };
 
 export const TIMELINE_SLOTS = 60;
@@ -134,7 +144,15 @@ export function initialState(now: number = Date.now()): State {
     banIndex: 0,
     notice: null,
     busy: false,
+    moduleIndex: 0,
+    moduleFilter: null,
   };
+}
+
+/** The events the feed should show, honouring the module filter. */
+export function visibleEvents(state: State): ThreatEvent[] {
+  if (!state.moduleFilter) return state.events;
+  return state.events.filter((e) => e.module === state.moduleFilter);
 }
 
 /** True when `ip` currently has a ban in force. */
@@ -262,6 +280,10 @@ export function reducer(state: State, action: Action): State {
     }
 
     case 'select': {
+      if (state.focus === 'modules') {
+        const max = Math.max(0, state.modules.length - 1);
+        return { ...state, moduleIndex: Math.min(max, Math.max(0, state.moduleIndex + action.delta)) };
+      }
       if (state.focus === 'threats') {
         const max = Math.max(0, state.topSources.length - 1);
         return { ...state, threatIndex: Math.min(max, Math.max(0, state.threatIndex + action.delta)) };
@@ -275,6 +297,10 @@ export function reducer(state: State, action: Action): State {
 
     case 'select_at': {
       // A click lands on a row directly, and focuses the panel it landed in.
+      if (state.focus === 'modules') {
+        const max = Math.max(0, state.modules.length - 1);
+        return { ...state, moduleIndex: Math.min(max, Math.max(0, action.index)) };
+      }
       if (state.focus === 'bans') {
         const max = Math.max(0, state.bans.length - 1);
         return { ...state, banIndex: Math.min(max, Math.max(0, action.index)) };
@@ -295,6 +321,19 @@ export function reducer(state: State, action: Action): State {
 
     case 'busy':
       return { ...state, busy: action.busy };
+
+    case 'toggle_module_filter': {
+      const name = state.modules[state.moduleIndex]?.name;
+      if (!name) return state;
+      // Clicking the module already being shown clears the filter, so the same
+      // gesture both focuses and un-focuses.
+      const moduleFilter = state.moduleFilter === name ? null : name;
+      // Filtering changes what "scrolled back" means; go back to following.
+      return { ...state, moduleFilter, scrollBack: 0 };
+    }
+
+    case 'clear_module_filter':
+      return { ...state, moduleFilter: null, scrollBack: 0 };
 
     case 'counters':
       return {
@@ -333,6 +372,8 @@ export function reducer(state: State, action: Action): State {
         protectedList: state.protectedList,
         firewall: state.firewall,
         focus: state.focus,
+        moduleFilter: state.moduleFilter,
+        moduleIndex: state.moduleIndex,
       };
   }
 }

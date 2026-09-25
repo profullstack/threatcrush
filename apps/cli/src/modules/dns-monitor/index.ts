@@ -6,6 +6,7 @@
  */
 
 import { existsSync, statSync, createReadStream, accessSync, constants } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type { EventBus } from '../../daemon/event-bus.js';
 import { insertEvent } from '../../core/state.js';
@@ -25,6 +26,20 @@ const DNS_LOG_SOURCES = [
   '/var/log/pihole.log',       // Pi-hole
 ];
 
+/**
+ * DNS query types arrive as numbers in some resolver logs — `1` and `28` are
+ * simply A and AAAA, not counts, which is a reliable source of confusion when
+ * the raw lines reach a human.
+ */
+export function qtypeName(qtype: number): string {
+  const names: Record<number, string> = {
+    1: 'A', 2: 'NS', 5: 'CNAME', 6: 'SOA', 12: 'PTR', 15: 'MX', 16: 'TXT',
+    28: 'AAAA', 33: 'SRV', 35: 'NAPTR', 43: 'DS', 48: 'DNSKEY', 65: 'HTTPS',
+    255: 'ANY',
+  };
+  return names[qtype] ?? `TYPE${qtype}`;
+}
+
 export class DnsMonitor {
   private active = false;
   private timers = new Map<string, NodeJS.Timeout>();
@@ -41,16 +56,28 @@ export class DnsMonitor {
   private dgaWindowMs = 60_000;
   private entropyThreshold = 3.5;     // Shannon entropy threshold for DGA
 
-  constructor(private bus: EventBus) {}
+  /** Extra files and journal units from `[modules.dns-monitor]` in the config. */
+  private extraPaths: string[] = [];
+  private journalUnits: string[] = [];
+  private journalTails: ChildProcess[] = [];
+
+  constructor(private bus: EventBus, options: { log_paths?: string[]; journal_units?: string[] } = {}) {
+    this.extraPaths = options.log_paths ?? [];
+    this.journalUnits = options.journal_units ?? [];
+  }
 
   start(): boolean {
-    const sources = DNS_LOG_SOURCES.filter(p => {
+    const sources = [...DNS_LOG_SOURCES, ...this.extraPaths].filter(p => {
       if (!existsSync(p)) return false;
       try { accessSync(p, constants.R_OK); return true; }
       catch { return false; }
     });
 
-    if (sources.length === 0) return false;
+    // A resolver that logs to journald — ours does — has no file to tail, and
+    // was therefore invisible to this module however much DNS it served.
+    for (const unit of this.journalUnits) this.tailJournalUnit(unit);
+
+    if (sources.length === 0 && this.journalTails.length === 0) return false;
 
     this.active = true;
     for (const src of sources) {
@@ -65,7 +92,27 @@ export class DnsMonitor {
   stop(): void {
     for (const t of this.timers.values()) clearInterval(t);
     this.timers.clear();
+    for (const child of this.journalTails) {
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
+    }
+    this.journalTails = [];
     this.active = false;
+  }
+
+  /** Follow one systemd unit's journal, feeding its lines to the same parser. */
+  private tailJournalUnit(unit: string): void {
+    try {
+      const child = spawn('journalctl', ['-u', unit, '-f', '-n', '0', '--output=cat'], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      if (!child.stdout) return;
+      const rl = createInterface({ input: child.stdout });
+      rl.on('line', (line) => this.parseDnsLine(line));
+      child.on('error', () => { /* journalctl missing or not permitted */ });
+      this.journalTails.push(child);
+    } catch {
+      // No journalctl, or we cannot read that unit. Files still work.
+    }
   }
 
   isActive(): boolean { return this.active; }
@@ -97,6 +144,26 @@ export class DnsMonitor {
   }
 
   private parseDnsLine(line: string): void {
+    // Our own resolver (moshpit-dns), which logs every query it answers:
+    //   [dns] udp 127.0.0.1 app.moshcode.sh 28 forwarded 11ms
+    //   [dns] udp 10.0.0.5 shop.moshpit 1 registry 4ms
+    // proto, client, name, numeric qtype, action, latency. Without this the
+    // box's only DNS source was invisible to the DNS monitor: the lines went
+    // to the journal watcher instead, which has no idea they are DNS and
+    // reported thousands of them as unlabelled INFO.
+    const moshpit = line.match(
+      /\[dns\]\s+(?:udp|tcp|doh)\s+(\S+)\s+(\S+)\s+(\d+)\s+(\w+)/i,
+    );
+    if (moshpit) {
+      this.domainBuffer.push({
+        type: qtypeName(Number.parseInt(moshpit[3], 10)),
+        domain: moshpit[2],
+        source_ip: moshpit[1],
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
     // systemd-resolved pattern: "query[TXT] suspicious.domain.com from 192.168.1.1"
     const resolvedMatch = line.match(/query\[(\w+)\]\s+(\S+)\s+from\s+(\S+)/i);
     if (resolvedMatch) {
