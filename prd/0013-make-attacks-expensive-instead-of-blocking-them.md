@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: tar-pit, throttling, cost-asymmetry, containment, modules
+tags: [tar-pit, throttling, cost-asymmetry, containment, modules]
 supersedes:
 superseded-by:
 ---

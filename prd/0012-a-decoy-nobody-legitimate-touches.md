@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: honeypot, deception, decoy, high-precision, modules
+tags: [honeypot, deception, decoy, high-precision, modules]
 supersedes:
 superseded-by:
 ---

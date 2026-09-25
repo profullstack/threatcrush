@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation: modules/code-scanner (sast subsystem)
-tags: code-scanner, sast, static-analysis, injection, taint, modules
+tags: [code-scanner, sast, static-analysis, injection, taint, modules]
 supersedes:
 superseded-by:
 ---

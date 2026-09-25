@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: dns-monitor, exfiltration, tunneling, dga, c2, modules
+tags: [dns-monitor, exfiltration, tunneling, dga, c2, modules]
 supersedes:
 superseded-by:
 ---
