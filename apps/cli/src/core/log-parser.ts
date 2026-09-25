@@ -59,21 +59,55 @@ export function parseNginxLog(line: string): NginxLogEntry | null {
 export function parseAuthLog(line: string): AuthLogEntry | null {
   const match = line.match(AUTH_REGEX);
   if (!match) return null;
+  return parseAuthMessage(match[2], match[3], parseSyslogTimestamp(match[1]), line);
+}
 
-  const ipMatch = match[3].match(IP_REGEX);
-  const userMatch = match[3].match(INVALID_USER_REGEX) || match[3].match(USER_REGEX);
+/**
+ * The address and user in one auth message body, however it arrived: a line
+ * of auth.log (via parseAuthLog) or a journald record's MESSAGE, which has no
+ * syslog prefix to strip.
+ */
+export function parseAuthMessage(process: string, message: string, timestamp: Date, raw = message): AuthLogEntry {
+  const ipMatch = message.match(IP_REGEX);
+  const userMatch = message.match(INVALID_USER_REGEX) || message.match(USER_REGEX);
 
   return {
-    timestamp: parseSyslogTimestamp(match[1]),
-    raw: line,
+    timestamp,
+    raw,
     source: 'auth',
     fields: {
-      process: match[2],
-      message: match[3],
+      process,
+      message,
       ip: ipMatch?.[1],
       user: userMatch?.[1],
     },
   };
+}
+
+/** What an SSH auth message means to the rules: its severity, wording and address. */
+export interface SshAuthVerdict {
+  severity: EventSeverity;
+  message: string;
+  source_ip?: string;
+}
+
+/**
+ * Classifies an auth message as a failed login, an invalid user or an accepted
+ * login, or null for anything else. The SSH rules match this wording, so every
+ * source of sshd messages must go through here to be seen by them.
+ */
+export function classifySshAuth(entry: AuthLogEntry): SshAuthVerdict | null {
+  const { ip, user, message } = entry.fields;
+  if (/failed password/i.test(message)) {
+    return { severity: 'high', message: `Failed SSH login for ${user || 'unknown'} from ${ip || 'unknown'}`, source_ip: ip };
+  }
+  if (/invalid user/i.test(message)) {
+    return { severity: 'high', message: `Invalid SSH user: ${user || 'unknown'} from ${ip || 'unknown'}`, source_ip: ip };
+  }
+  if (/accepted/i.test(message)) {
+    return { severity: 'info', message: `SSH login accepted for ${user || 'unknown'}`, source_ip: ip };
+  }
+  return null;
 }
 
 export function parseSyslog(line: string): SyslogEntry | null {
