@@ -3,7 +3,8 @@ FROM node:22-slim AS builder
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # git needed for postinstall hook
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+# git for the postinstall hook; python3/make/g++ so better-sqlite3 can build when no prebuilt binary matches
+RUN apt-get update && apt-get install -y --no-install-recommends git python3 make g++ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
