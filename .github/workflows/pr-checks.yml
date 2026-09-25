@@ -52,3 +52,12 @@ jobs:
 
       - name: Test web app
         run: pnpm --filter @profullstack/threatcrush-web test
+
+      - name: Test CLI
+        run: pnpm --filter @profullstack/threatcrush test
+
+      - name: Test scan package
+        run: pnpm --filter @threatcrush/scan test
+
+      - name: Test modules
+        run: pnpm --filter './modules/*' test
