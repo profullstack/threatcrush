@@ -39,7 +39,8 @@ function hit(ip: string, status = 402): ThreatEvent {
 /** The daemon's wiring, minus the bus: rule engine detections go to remediation. */
 function harness() {
   const adapter = new FakeAdapter();
-  const manager = new RemediationManager(adapter, bus, { protect_current_ssh_client: false });
+  // No live DNS: no address here is a verified crawler.
+  const manager = new RemediationManager(adapter, bus, { protect_current_ssh_client: false }, async () => null);
   const pending: Promise<void>[] = [];
   const engine = new RuleEngine((d) => {
     pending.push(manager.handleDetection({
@@ -65,9 +66,9 @@ describe('paywall-hammering', () => {
 
   it('bans a scraper that keeps hitting 402s', async () => {
     const { adapter, engine, settle } = harness();
-    for (let i = 0; i < 30; i++) engine.evaluate(hit('66.249.73.129'));
+    for (let i = 0; i < 30; i++) engine.evaluate(hit('45.156.87.133'));
     await settle();
-    expect(adapter.blocked.has('66.249.73.129')).toBe(true);
+    expect(adapter.blocked.has('45.156.87.133')).toBe(true);
   });
 
   it('leaves a caller who got a few 402s alone', async () => {

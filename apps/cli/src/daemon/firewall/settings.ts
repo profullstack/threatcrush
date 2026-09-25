@@ -37,5 +37,9 @@ export function remediationSettings(section?: RemediationSection): Partial<Remed
     settings.protect_current_ssh_client = section.protect_current_ssh_client;
   }
 
+  if (typeof section.spare_verified_crawlers === 'boolean') {
+    settings.spare_verified_crawlers = section.spare_verified_crawlers;
+  }
+
   return settings;
 }
