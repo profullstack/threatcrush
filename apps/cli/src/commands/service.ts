@@ -41,6 +41,45 @@ function resolveBinPath(): string {
   }
 }
 
+/**
+ * mise, nvm, fnm and friends install node under a version-stamped directory and
+ * keep a `latest` symlink beside it. Baking the stamped path into a unit file
+ * means the next node upgrade leaves ExecStart pointing at a directory that no
+ * longer exists — the same failure mode `stableBinPath` exists for.
+ */
+export function stableNodePath(execPath: string): string {
+  const stable = execPath.replace(/(\/installs\/node\/)[^/]+\//, '$1latest/');
+  if (stable === execPath) return execPath;
+  return existsSync(stable) ? stable : execPath;
+}
+
+/**
+ * Does this file start with a `#!... node` shebang?
+ *
+ * It matters because such a file can only be executed when `node` is on the
+ * PATH of whoever executes it. Under sudo, and under systemd, it is not: a
+ * version-managed node lives in the user's PATH and nowhere else, which is why
+ * `sudo threatcrush install-service` died with
+ * `env: 'node': No such file or directory`. When we see that shebang we run the
+ * script through an explicit node instead of relying on someone else's PATH.
+ */
+export function looksLikeNodeScript(path: string): boolean {
+  try {
+    const head = readFileSync(path, 'utf-8').slice(0, 120);
+    return /^#!.*\bnode\b/.test(head);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The ExecStart line for the unit: an explicit node when the CLI is a shebang
+ * script, so systemd never has to find node on a PATH it does not have.
+ */
+export function execStartCommand(binPath: string, nodePath: string, isNodeScript: boolean): string {
+  return isNodeScript ? `${nodePath} ${binPath} daemon` : `${binPath} daemon`;
+}
+
 function isRoot(): boolean {
   return typeof process.getuid === 'function' && process.getuid() === 0;
 }
@@ -58,11 +97,19 @@ function isRoot(): boolean {
 export function reexecWithSudo(args: string[]): boolean {
   if (spawnSync('sudo', ['--version'], { stdio: 'pipe' }).status !== 0) return false;
 
-  console.log(chalk.dim('  This needs root. Re-running under sudo...\n'));
+  console.log(chalk.dim('  This needs root — sudo will ask for your password.\n'));
   const bin = resolveBinPath();
-  // `sudo -E` would carry the caller's environment into a root process; we pass
-  // SUDO_USER only, which sudo sets itself, and let the rest be root's.
-  const result = spawnSync('sudo', [bin, ...args], { stdio: 'inherit' });
+
+  // Running the script directly makes the kernel honour its `#!/usr/bin/env
+  // node` shebang, and root's PATH has no version-managed node, so it died with
+  // `env: 'node': No such file or directory`. Pass our own node explicitly.
+  const argv = looksLikeNodeScript(bin)
+    ? [stableNodePath(process.execPath), bin, ...args]
+    : [bin, ...args];
+
+  // `sudo -E` would carry the caller's environment into a root process; we let
+  // sudo set SUDO_USER itself and leave the rest to root.
+  const result = spawnSync('sudo', argv, { stdio: 'inherit' });
   return result.status === 0;
 }
 
@@ -144,9 +191,19 @@ export async function installServiceCommand(): Promise<void> {
     return;
   }
 
-  const unit = resolveTemplate().replace('{{BIN_PATH}}', resolveBinPath());
+  // The template's `{{BIN_PATH}} daemon` becomes `<node> <script> daemon` for a
+  // shebang script: systemd has no more chance of finding a version-managed
+  // node on its PATH than sudo did.
+  const binPath = resolveBinPath();
+  const exec = execStartCommand(
+    binPath,
+    stableNodePath(process.execPath),
+    looksLikeNodeScript(binPath),
+  );
+  const unit = resolveTemplate().replace('{{BIN_PATH}} daemon', exec).replace('{{BIN_PATH}}', binPath);
   writeFileSync(UNIT_PATH, unit, { mode: 0o644 });
   console.log(chalk.green(`  ✓ Installed unit file: ${UNIT_PATH}`));
+  console.log(chalk.dim(`    ExecStart=${exec}`));
 
   ensureSystemDirs();
 

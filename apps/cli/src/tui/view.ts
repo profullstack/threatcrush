@@ -340,7 +340,8 @@ function bansPanel(parent: Container, state: State, theme: Theme, options: ViewO
         // panel that looks armed until the first ban fails.
         panel.text('NOT PRIVILEGED', { fg: severityColors.critical, bold: true });
         panel.label(fw.warning, { fg: severityColors.high });
-        panel.label('sudo threatcrush install-service', { fg: theme.muted });
+        // No `sudo` prefix: the command elevates itself.
+        panel.label('threatcrush install-service', { fg: theme.muted });
         panel.spacer(1);
       }
       if (state.bans.length === 0) {

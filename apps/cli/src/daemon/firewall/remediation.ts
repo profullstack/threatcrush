@@ -73,8 +73,8 @@ export function explainBlockFailure(err: Error, backend: string): string {
 
   return (
     `threatcrushd is running ${who} and cannot manage ${backend}. ` +
-    'A ban is written by the daemon, not by whoever asked for it — run the daemon as root: ' +
-    'sudo threatcrush install-service && sudo systemctl enable --now threatcrushd'
+    'A ban is written by the daemon, not by whoever asked for it. Fix it with one command, ' +
+    'which asks for root itself: threatcrush install-service'
   );
 }
 
