@@ -202,6 +202,14 @@ export interface CodeRule {
   sanitizedHtmlGuard?: boolean;
   /** Exonerate a redirect destination derived by a named redirect validator. */
   safeRedirectGuard?: boolean;
+  /**
+   * Exonerate an outbound request whose destination host is a literal.
+   *
+   * SSRF is control of the *destination*, not of the path. A request built as
+   * `f"https://api.example.com/v1/{path}"` cannot be steered to the metadata
+   * endpoint or to localhost however `path` is chosen.
+   */
+  constantRequestHostGuard?: boolean;
   /** Lines of context searched backwards for guards and required evidence. */
   guardBack?: number;
   /**
@@ -717,6 +725,7 @@ export const CODE_RULES: readonly CodeRule[] = [
     pattern:
       /\brequests\.(?:get|request|head)\s*\(\s*[a-zA-Z_]\w*\s*[,)]|\burlopen\s*\(\s*[a-zA-Z_]\w*\s*[,)]|\bhttpx\.get\s*\(\s*[a-zA-Z_]\w*\s*[,)]/,
     needsContext: true,
+    constantRequestHostGuard: true,
   },
   {
     id: 'go-ssrf-outbound-request',
@@ -1915,6 +1924,46 @@ function identifierAfter(text: string, start: number): string | null {
   return text.slice(from, index);
 }
 
+/**
+ * The authority of a URL literal: what sits between `scheme://` and the first
+ * `/`, `?`, `#` or closing quote. Null when the text holds no URL literal.
+ */
+function urlAuthority(text: string): string | null {
+  const found = /['"]\s*https?:\/\/([^'"/?#\s]*)/.exec(text);
+  return found ? found[1]! : null;
+}
+
+/**
+ * Does the request handed to this sink go to a fixed host?
+ *
+ * SSRF is control of the destination. `urlopen(req)` where `req` was built
+ * from `f"https://api.example.com/v1/{path}"` reaches api.example.com for
+ * every possible `path`, so reporting it is not a weaker finding -- it is a
+ * wrong one, and it teaches the reader to skip the rule.
+ *
+ * Resolve the variable to its assignments *in the file* and exonerate only
+ * when every one of them names a literal host. An interpolation anywhere in
+ * the authority (`f"https://{host}/"`), a bare variable (`Request(url)`), or a
+ * name this cannot find an assignment for all leave the finding standing.
+ * Collisions are deliberately conservative: a name assigned in two functions
+ * is exonerated only if both destinations are fixed.
+ */
+function requestHostIsConstant(line: string, fileText: string): boolean {
+  const call =
+    /(?:urlopen|requests\.(?:get|request|head)|httpx\.get)\s*\(\s*([A-Za-z_]\w*)\s*[,)]/.exec(line);
+  if (!call) return false;
+
+  // The name came out of `[A-Za-z_]\w*`, so it carries no regex metacharacter.
+  const assignment = new RegExp(String.raw`^[ \t]*${call[1]!}[ \t]*=[ \t]*(.+)$`, 'gm');
+  const values = [...fileText.matchAll(assignment)].map((m) => m[1]!);
+  if (!values.length) return false;
+
+  return values.every((value) => {
+    const authority = urlAuthority(value);
+    return authority !== null && /^[A-Za-z0-9.-]+(?::\d+)?$/.test(authority);
+  });
+}
+
 /** Does the redirected variable come from an explicit local-path validator? */
 function hasSafeRedirectValue(line: string, fileText: string): boolean {
   const location = line.indexOf('window.location');
@@ -2123,6 +2172,10 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   }
 
   if (rule.safeRedirectGuard && hasSafeRedirectValue(line, fileTextOf(ctx.lines))) {
+    return null;
+  }
+
+  if (rule.constantRequestHostGuard && requestHostIsConstant(line, fileTextOf(ctx.lines))) {
     return null;
   }
 

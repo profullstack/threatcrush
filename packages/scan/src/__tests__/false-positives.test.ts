@@ -183,6 +183,41 @@ describe('fixture credentials in test files', () => {
     );
   });
 
+  it('does not call a request to a literal host an SSRF', () => {
+    // SSRF is control of the destination. Both of these reach one fixed host
+    // for every possible input, and both were reported as high severity on a
+    // Python ops CLI that talks to exactly two APIs.
+    const constantUrl = [
+      'def gql(query):',
+      '    req = urllib.request.Request("https://backboard.railway.com/graphql/v2", data=body)',
+      '    with urllib.request.urlopen(req, timeout=120) as r: return json.load(r)',
+    ].join('\n');
+    expect(ruleIds('dev2/tool.py', constantUrl)).not.toContain('py-ssrf-outbound-request');
+
+    const constantHost = [
+      'def sb_api(path):',
+      '    req = urllib.request.Request(f"https://api.supabase.com/v1/{path}")',
+      '    with urllib.request.urlopen(req, timeout=60) as r: return json.load(r)',
+    ].join('\n');
+    expect(ruleIds('dev2/tool.py', constantHost)).not.toContain('py-ssrf-outbound-request');
+
+    // A destination that is actually reachable by the caller stays reported:
+    // an interpolated authority, and a bare variable with no URL in sight.
+    const attackerHost = [
+      'def fetch(host):',
+      '    req = urllib.request.Request(f"https://{host}/v1/thing")',
+      '    with urllib.request.urlopen(req, timeout=60) as r: return r.read()',
+    ].join('\n');
+    expect(ruleIds('dev2/tool.py', attackerHost)).toContain('py-ssrf-outbound-request');
+
+    const bareVariable = [
+      'def fetch(url):',
+      '    req = urllib.request.Request(url)',
+      '    with urllib.request.urlopen(req, timeout=60) as r: return r.read()',
+    ].join('\n');
+    expect(ruleIds('dev2/tool.py', bareVariable)).toContain('py-ssrf-outbound-request');
+  });
+
   it('does not read a fixture stem out of the middle of a word', () => {
     expect(isTestFixtureValue("const x = 'a'", 'latestbuildsecret')).toBe(false);
     expect(isTestFixtureValue("const x = 'a'", 'contestwinner2024')).toBe(false);
