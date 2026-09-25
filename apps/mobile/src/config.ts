@@ -1,8 +1,11 @@
 import Constants from 'expo-constants';
 
+const extra = Constants.expoConfig?.extra ?? {};
+
 export const config = {
-  apiUrl: Constants.expoConfig?.extra?.apiUrl || 'https://threatcrush.com',
-  appVersion: Constants.expoConfig?.version || '0.1.14',
+  apiUrl: String(extra.apiUrl || 'https://threatcrush.com').replace(/\/$/, ''),
+  appVersion: Constants.expoConfig?.version ?? 'dev',
+  easProjectId: (extra.eas?.projectId as string | undefined) ?? null,
 };
 
 export const theme = {
@@ -11,16 +14,9 @@ export const theme = {
   card: '#111111',
   border: '#222222',
   text: '#e0e0e0',
-  dim: '#666666',
+  dim: '#888888',
   red: '#ff4444',
+  orange: '#ff8800',
   yellow: '#ffaa00',
+  blue: '#4aa3ff',
 } as const;
-
-export type Severity = 'low' | 'medium' | 'high' | 'critical';
-
-export const severityColors: Record<Severity, string> = {
-  low: theme.dim,
-  medium: theme.yellow,
-  high: '#ff8800',
-  critical: theme.red,
-};
