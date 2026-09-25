@@ -30,7 +30,7 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }));
 
-import { DELETE, POST } from "@/app/api/orgs/[id]/push-subscriptions/route";
+import { DELETE, GET, POST } from "@/app/api/orgs/[id]/push-subscriptions/route";
 
 function request(method: string, body: unknown, token: string | null = "good-token") {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -99,6 +99,43 @@ describe("POST /api/orgs/:id/push-subscriptions", () => {
     expect(res.status).toBe(200);
   });
 
+  const webpush = (endpoint: string, keys: Record<string, unknown> = { p256dh: "B".repeat(87), auth: "a".repeat(22) }) => ({
+    kind: "webpush",
+    subscription: { endpoint, expirationTime: null, keys },
+  });
+
+  it("stores a browser Web Push subscription with its encryption keys", async () => {
+    const endpoint = "https://fcm.googleapis.com/fcm/send/dXk3:APA91b";
+    const res = await POST(request("POST", webpush(endpoint)), ctx());
+    expect(res.status).toBe(200);
+
+    const upsert = state.subCalls.find(([m]) => m === "upsert");
+    expect(upsert).toEqual([
+      "upsert",
+      {
+        user_id: "user-1",
+        organization_id: "org-1",
+        endpoint,
+        keys: { provider: "webpush", p256dh: "B".repeat(87), auth: "a".repeat(22) },
+      },
+      { onConflict: "user_id,endpoint" },
+    ]);
+  });
+
+  it.each([
+    ["an http endpoint", webpush("http://fcm.googleapis.com/fcm/send/abc")],
+    ["an endpoint that is not a push service", webpush("https://evil.example/collect")],
+    ["an internal address", webpush("https://127.0.0.1/push")],
+    ["missing keys", webpush("https://fcm.googleapis.com/fcm/send/abc", {})],
+    ["a short auth secret", webpush("https://fcm.googleapis.com/fcm/send/abc", { p256dh: "B".repeat(87), auth: "abc" })],
+    ["non-base64url keys", webpush("https://fcm.googleapis.com/fcm/send/abc", { p256dh: "<script>".repeat(11), auth: "a".repeat(22) })],
+    ["no subscription object", { kind: "webpush" }],
+  ])("rejects a Web Push subscription with %s", async (_label, body) => {
+    const res = await POST(request("POST", body), ctx());
+    expect(res.status).toBe(400);
+    expect(state.subCalls).toEqual([]);
+  });
+
   it("reports a failed write as 500", async () => {
     state.write = { data: null, error: { message: "fk violation" } };
     const res = await POST(request("POST", { token: TOKEN, platform: "ios" }), ctx());
@@ -133,9 +170,53 @@ describe("DELETE /api/orgs/:id/push-subscriptions", () => {
     expect(res.status).toBe(200);
   });
 
+  it("deletes the caller's Web Push subscription by endpoint", async () => {
+    const endpoint = "https://updates.push.services.mozilla.com/wpush/v2/gAAAA";
+    const res = await DELETE(request("DELETE", { endpoint }));
+    expect(res.status).toBe(200);
+    expect(state.subCalls).toContainEqual(["eq", "user_id", "user-1"]);
+    expect(state.subCalls).toContainEqual(["eq", "endpoint", endpoint]);
+  });
+
+  it("rejects an endpoint that is not a push service", async () => {
+    const res = await DELETE(request("DELETE", { endpoint: "*" }));
+    expect(res.status).toBe(400);
+    expect(state.subCalls).toEqual([]);
+  });
+
   it("rejects a token that is not an Expo push token", async () => {
     const res = await DELETE(request("DELETE", { token: "*" }));
     expect(res.status).toBe(400);
+    expect(state.subCalls).toEqual([]);
+  });
+});
+
+describe("GET /api/orgs/:id/push-subscriptions", () => {
+  beforeEach(() => {
+    state.membership = { role: "member" };
+    state.subCalls = [];
+    state.write = {
+      data: [{ id: "sub-1", endpoint: "https://fcm.googleapis.com/fcm/send/x", keys: { provider: "webpush", p256dh: "k", auth: "s" }, created_at: "2026-09-25T00:00:00Z" }],
+      error: null,
+    };
+  });
+
+  it("lists only the caller's own devices in the org, without key material", async () => {
+    const res = await GET(request("GET", undefined), ctx());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      subscriptions: [
+        { id: "sub-1", endpoint: "https://fcm.googleapis.com/fcm/send/x", provider: "webpush", created_at: "2026-09-25T00:00:00Z" },
+      ],
+    });
+    expect(state.subCalls).toContainEqual(["eq", "organization_id", "org-1"]);
+    expect(state.subCalls).toContainEqual(["eq", "user_id", "user-1"]);
+  });
+
+  it("refuses non-members", async () => {
+    state.membership = null;
+    const res = await GET(request("GET", undefined), ctx());
+    expect(res.status).toBe(403);
     expect(state.subCalls).toEqual([]);
   });
 });

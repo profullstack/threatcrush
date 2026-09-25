@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sendTestAlert } from "@/lib/alerts/senders";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 // PATCH /api/orgs/[id]/alert-destinations/[dest_id]
@@ -150,8 +151,11 @@ export async function POST(
           });
           break;
         }
-        default:
-          return NextResponse.json({ message: `Test for ${dest.type} acknowledged (delivery not yet implemented server-side)` });
+        default: {
+          const outcome = await sendTestAlert(dest);
+          if (!outcome.ok) return NextResponse.json({ error: `Test failed: ${outcome.error}` }, { status: 502 });
+          break;
+        }
       }
     } catch (sendErr) {
       return NextResponse.json({ error: `Test failed: ${(sendErr as Error).message}` }, { status: 502 });

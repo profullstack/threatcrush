@@ -35,7 +35,7 @@ Detections will stay empty for most orgs until the daemon uploads them. `threatc
 
 ## Push notifications
 
-After sign-in the Threats tab explains alerts before the OS permission prompt appears. Accepting registers the device's Expo push token for the current org with `POST /api/orgs/:id/push-subscriptions`, stored in `push_subscriptions` with `keys.provider = "expo"`. Sign-out unregisters it. Nothing sends pushes yet, because no detections reach the server (see above).
+After sign-in the Threats tab explains alerts before the OS permission prompt appears. Accepting registers the device's Expo push token for the current org with `POST /api/orgs/:id/push-subscriptions`, stored in `push_subscriptions` with `keys.provider = "expo"`. Sign-out unregisters it. The server sends a push to every registered device in the org when an alert rule routes a detection to a Push destination (Settings → Alerts).
 
 Delivery credentials, one-time:
 
