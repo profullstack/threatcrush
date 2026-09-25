@@ -129,18 +129,34 @@ export async function allowlistCommand(opts: { action?: string; value?: string }
   console.log(chalk.green.bold('  Allowlist (never banned)'));
   console.log(chalk.gray('  ' + '─'.repeat(50)));
 
+  const client = await connect();
+  if (!client) return;
+
+  // Name the config of the daemon we are actually talking to, not this
+  // process's own default. A non-root CLI defaults to ~/.threatcrush/, so it
+  // sent an operator to edit a file the root daemon never reads — and on dev2
+  // the real /etc/threatcrush/threatcrushd.conf was a 0-byte file while the
+  // advice pointed elsewhere. The daemon reports its own paths; use them.
+  let configPath = PATHS.configFile;
+  let mode: 'system' | 'user' | null = null;
+  try {
+    const status = await client.status();
+    configPath = status.paths.config;
+    mode = status.mode;
+  } catch {
+    // Older daemon, or none answering — fall back to our own default.
+  }
+
   if (action === 'list' || action === 'ls') {
-    const client = await connect();
-    if (!client) return;
     try {
       const reply = await client.blocklist();
       for (const entry of reply.protected) {
         console.log(`  ${chalk.green('⛊')} ${chalk.white(entry)}`);
       }
       console.log();
-      console.log(chalk.gray('  Loopback, private ranges, the default gateway and the SSH client'));
-      console.log(chalk.gray('  that started the daemon are always protected. Add more under'));
-      console.log(chalk.gray(`  [remediation] protected = [...] in ${PATHS.configFile}`));
+      console.log(chalk.gray('  Loopback, private ranges, the default gateway and every live SSH'));
+      console.log(chalk.gray('  peer are always protected. Add more under'));
+      console.log(chalk.gray(`  [remediation] protected = [...] in ${configPath}`));
     } catch (err) {
       console.log(`  ${chalk.red('✗')} ${(err as Error).message}`);
     } finally {
@@ -150,14 +166,21 @@ export async function allowlistCommand(opts: { action?: string; value?: string }
     return;
   }
 
+  client.close();
+
   // Adding and removing are config edits: the daemon rebuilds the protected set
   // at start, so a live mutation would be forgotten on restart and the two
   // would silently disagree.
-  console.log(chalk.gray(`  Edit ${PATHS.configFile}:`));
+  console.log(chalk.gray(`  Edit ${configPath}:`));
   console.log();
   console.log(chalk.gray('    [remediation]'));
   console.log(chalk.gray(`    protected = ["${opts.value || '203.0.113.7/32'}"]`));
   console.log();
-  console.log(chalk.gray('  then: threatcrush restart'));
+  // A system daemon is not restarted by `threatcrush restart` run as a user.
+  console.log(chalk.gray(
+    mode === 'system'
+      ? '  then: sudo systemctl restart threatcrushd'
+      : '  then: threatcrush restart',
+  ));
   console.log();
 }
