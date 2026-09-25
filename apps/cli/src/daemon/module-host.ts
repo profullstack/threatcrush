@@ -87,7 +87,21 @@ export class ModuleHost {
     }
 
     // DNS monitor (PRD 05)
-    this.dnsMonitor = new DnsMonitor(this.bus);
+    // A resolver that logs to journald, or anywhere but the four classic paths
+    // this module knows, was invisible to it. Point it at one:
+    //
+    //   # /etc/threatcrush/threatcrushd.conf.d/dns-monitor.conf
+    //   [dns-monitor]
+    //   journal_units = ["moshpit-dns"]
+    //   log_paths = ["/home/anthony/moshpit-dns/dns.log"]
+    const dnsConfig = (loadModuleConfigs(PATHS.confD).get('dns-monitor') ?? {}) as
+      Partial<{ log_paths: unknown; journal_units: unknown }>;
+    this.dnsMonitor = new DnsMonitor(this.bus, {
+      log_paths: Array.isArray(dnsConfig.log_paths) ? (dnsConfig.log_paths as string[]) : undefined,
+      journal_units: Array.isArray(dnsConfig.journal_units)
+        ? (dnsConfig.journal_units as string[])
+        : undefined,
+    });
     if (this.dnsMonitor.start()) {
       const dmod = this.modules.get('dns-monitor');
       if (dmod) {

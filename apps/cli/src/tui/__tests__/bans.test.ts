@@ -72,6 +72,8 @@ describe('ban state', () => {
 
   it('selects a source once the threats panel is focused', () => {
     let state = withSources(initialState());
+    // feed → modules → threats
+    state = reducer(state, { type: 'focus_next' });
     state = reducer(state, { type: 'focus_next' });
     expect(state.focus).toBe('threats');
     expect(selectedIp(state)).toBe('45.33.22.11');
@@ -114,14 +116,14 @@ describe('ban state', () => {
     expect(selectedIp(state)).toBe('185.220.101.44');
   });
 
-  it('cycles focus feed → threats → bans → feed', () => {
+  it('cycles focus feed → modules → threats → bans → feed', () => {
     let state = initialState();
     const seen = [state.focus];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       state = reducer(state, { type: 'focus_next' });
       seen.push(state.focus);
     }
-    expect(seen).toEqual(['feed', 'threats', 'bans', 'feed']);
+    expect(seen).toEqual(['feed', 'modules', 'threats', 'bans', 'feed']);
   });
 
   it('ages a notice out on the tick that passes its deadline', () => {

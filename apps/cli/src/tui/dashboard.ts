@@ -218,10 +218,18 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
 
   app.on('key', (event) => {
     switch (event.key) {
-      case 'q':
       case 'escape':
+        // Escape backs out of a filter first; only quits when there is none.
+        if (state.moduleFilter) dispatch({ type: 'clear_module_filter' });
+        else quit();
+        break;
+      case 'q':
       case 'ctrl+c':
         quit();
+        break;
+      case 'enter':
+      case 'return':
+        dispatch({ type: 'toggle_module_filter' });
         break;
       case 'p':
       case 'space':
@@ -279,6 +287,13 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
       onBanSelect: (row) => {
         dispatch({ type: 'focus', focus: 'bans' });
         dispatch({ type: 'select_at', index: row });
+      },
+      // One click on a module both selects it and pins the feed to it; a
+      // second click on the same module releases the feed.
+      onModuleSelect: (row) => {
+        dispatch({ type: 'focus', focus: 'modules' });
+        dispatch({ type: 'select_at', index: row });
+        dispatch({ type: 'toggle_module_filter' });
       },
     });
   });

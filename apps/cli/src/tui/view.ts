@@ -8,6 +8,7 @@ import {
   formatUptime,
   isBanned,
   severityTotal,
+  visibleEvents,
   type State,
 } from './state.js';
 import { formatDuration } from '../daemon/firewall/backoff.js';
@@ -18,6 +19,8 @@ export interface ViewOptions {
   /** Click on a row of TOP THREATS / BANNED — selects it and focuses the panel. */
   onThreatSelect?: (visibleRow: number) => void;
   onBanSelect?: (visibleRow: number) => void;
+  /** Click a module row to show only its events. */
+  onModuleSelect?: (visibleRow: number) => void;
   demo?: boolean;
 }
 
@@ -111,9 +114,15 @@ function tiles(ui: Container, state: State, theme: Theme): void {
   });
 }
 
-function modulesPanel(parent: Container, state: State, theme: Theme): void {
+function modulesPanel(parent: Container, state: State, theme: Theme, options: ViewOptions): void {
+  const focused = state.focus === 'modules';
   parent.panel(
-    { title: ' MODULES ', size: 'fill', border: 'rounded', borderColor: theme.border, titleColor: theme.primary,
+    { title: ' MODULES ', size: 'fill',
+      border: 'rounded',
+      borderColor: focused ? theme.borderFocused : theme.border,
+      titleColor: theme.primary,
+      subtitle: focused ? 'enter filters feed' : undefined,
+      subtitleColor: theme.muted,
       footer: state.modules.length > 0
         ? `${state.modules.filter((m) => m.status === 'running').length}/${state.modules.length} active`
         : undefined,
@@ -126,7 +135,17 @@ function modulesPanel(parent: Container, state: State, theme: Theme): void {
       panel.table({
         rows: state.modules,
         header: false,
+        selected: focused ? state.moduleIndex : -1,
+        followSelection: true,
+        onSelectRow: options.onModuleSelect,
         columns: [
+          {
+            // Marks the module the feed is currently pinned to.
+            key: 'name',
+            width: 2,
+            render: (m) => (state.moduleFilter === m.name ? '▶' : ' '),
+            color: () => theme.primary,
+          },
           {
             key: 'status',
             width: 2,
@@ -168,18 +187,30 @@ function severityPanel(parent: Container, state: State, theme: Theme): void {
 
 function feedPanel(parent: Container, state: State, theme: Theme, options: ViewOptions): void {
   const following = state.scrollBack === 0;
+  const shown = visibleEvents(state);
+  const filtered = state.moduleFilter !== null;
   parent.panel(
     {
-      title: ' LIVE EVENTS ',
+      title: filtered ? ` LIVE EVENTS · ${state.moduleFilter} ` : ' LIVE EVENTS ',
       size: '2.4fr',
       border: 'rounded',
       borderColor: state.connection === 'live' ? theme.borderFocused : theme.border,
       titleColor: theme.primary,
-      subtitle: following ? undefined : `↑ ${state.scrollBack} back · end to follow`,
-      subtitleColor: severityColors.medium,
+      subtitle: filtered
+        ? `${shown.length}/${state.events.length} · esc clears filter`
+        : (following ? undefined : `↑ ${state.scrollBack} back · end to follow`),
+      subtitleColor: filtered ? theme.primary : severityColors.medium,
       padding: [0, 1],
     },
     (panel) => {
+      if (filtered && shown.length === 0 && state.events.length > 0) {
+        panel.spacer(1);
+        panel.text(`No events from ${state.moduleFilter} yet.`, { fg: theme.muted, align: 'center' });
+        panel.spacer(1);
+        panel.label('esc shows everything again', { fg: theme.muted, align: 'center' });
+        return;
+      }
+
       if (state.events.length === 0) {
         panel.spacer(1);
         if (state.connection === 'live') {
@@ -205,7 +236,7 @@ function feedPanel(parent: Container, state: State, theme: Theme, options: ViewO
       }
 
       panel.log({
-        entries: state.events.map(toLogEntry),
+        entries: shown.map(toLogEntry),
         follow: following,
         fromEnd: state.scrollBack,
         scrollbar: true,
@@ -414,8 +445,9 @@ function footer(ui: Container, state: State, theme: Theme): void {
       { key: 'q', label: 'quit' },
       { key: 'tab', label: state.focus },
       { key: '↑↓', label: onFeed ? 'scroll' : 'select' },
-      { key: 'b', label: 'ban' },
-      { key: 'u', label: 'unban' },
+      ...(state.focus === 'modules'
+        ? [{ key: '⏎', label: state.moduleFilter ? 'unfilter' : 'filter' }]
+        : [{ key: 'b', label: 'ban' }, { key: 'u', label: 'unban' }]),
       { key: 'p', label: state.paused ? 'resume' : 'pause' },
       { key: 'r', label: 'reset' },
     ],
@@ -427,6 +459,7 @@ function footer(ui: Container, state: State, theme: Theme): void {
         label: state.paused && state.parked.length > 0 ? `${state.parked.length} held` : '',
         color: severityColors.medium,
       },
+      { label: state.moduleFilter ? `filter: ${state.moduleFilter}` : '', color: theme.primary },
       {
         label: state.firewall
           ? `${state.bans.length} banned${state.firewall.dry_run ? ' (dry-run)' : ''}`
@@ -457,7 +490,7 @@ export function renderDashboard(
 
     col.row({ size: 'fill', gap: 0 }, (row) => {
       row.column({ size: '1fr' }, (left) => {
-        modulesPanel(left, state, theme);
+        modulesPanel(left, state, theme, options);
         severityPanel(left, state, theme);
       });
 
