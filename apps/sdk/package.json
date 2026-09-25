@@ -7,8 +7,8 @@
   "type": "module",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
@@ -34,7 +34,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/profullstack/threatcrush.git",
-    "directory": "sdk"
+    "directory": "apps/sdk"
   },
   "homepage": "https://threatcrush.com",
   "bugs": {

@@ -11,7 +11,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@threatcrush/sdk": "^0.2.0"
+    "@threatcrush/sdk": "^0.7.9"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
