@@ -23,8 +23,16 @@
     "type": "module"
   },
   "options_page": "options/index.html",
-  "permissions": ["storage", "alarms", "notifications"],
-  "optional_permissions": ["tabs", "activeTab"],
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "activeTab",
+    "scripting",
+    "webRequest",
+    "cookies"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "host_permissions": [
     "https://threatcrush.com/*",
     "https://*.supabase.co/*"

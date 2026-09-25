@@ -1,12 +1,18 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 
+const NOT_CONFIGURED = 'Sign-in is not configured in this build (no Supabase URL/key).';
+
 export const useAuthStore = create((set) => ({
   user: null,
   loading: true,
   error: null,
 
   initialize: async () => {
+    if (!supabase) {
+      set({ user: null, loading: false, error: NOT_CONFIGURED });
+      return;
+    }
     try {
       // Check for stored session
       const { data: { session } } = await supabase.auth.getSession();
@@ -23,6 +29,10 @@ export const useAuthStore = create((set) => ({
   },
 
   login: async (email, password) => {
+    if (!supabase) {
+      set({ error: NOT_CONFIGURED });
+      return;
+    }
     set({ loading: true, error: null });
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -39,6 +49,7 @@ export const useAuthStore = create((set) => ({
   },
 
   logout: async () => {
+    if (!supabase) return;
     try {
       await supabase.auth.signOut();
       set({ user: null, error: null });
