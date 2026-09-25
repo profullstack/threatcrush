@@ -29,11 +29,24 @@ function clock(d: Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+/**
+ * Lead the row with the vhost: `rssamplifier.com · Client error 402: GET /…`.
+ * On a box serving several sites the path alone cannot say which one was hit,
+ * and the feed truncates on the right, so the site goes first or a long URL
+ * pushes it off screen. `details.host` is only there when the nginx format
+ * logs `$host`; without it the message is unchanged.
+ */
+export function withHost(event: ThreatEvent): string {
+  const host = event.details?.host;
+  if (typeof host !== 'string' || host === '' || host === '-') return event.message;
+  return `${host} · ${event.message}`;
+}
+
 function toLogEntry(event: ThreatEvent) {
   return {
     time: clock(event.timestamp),
     level: event.severity.toUpperCase(),
-    message: event.message,
+    message: withHost(event),
     meta: event.source_ip ? `${event.module} · ${event.source_ip}` : event.module,
   };
 }
