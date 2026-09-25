@@ -23,11 +23,37 @@ export interface ModulesConfig {
   config_dir: string;
 }
 
+/**
+ * `[remediation]` — automatic defence. Present in the type because `loadConfig`
+ * used to drop the whole section on the floor, so nothing an operator wrote
+ * here ever reached the daemon.
+ */
+export interface RemediationSection {
+  enabled?: boolean;
+  /** `enforce` (default) or `dry_run`. `dry_run` also accepted as a boolean. */
+  mode?: 'enforce' | 'dry_run';
+  dry_run?: boolean;
+  backend?: 'auto' | 'fail2ban' | 'nftables' | 'iptables' | 'dry-run';
+  min_severity?: 'info' | 'low' | 'medium' | 'high' | 'critical';
+  /** Ceiling on the escalating ladder, e.g. "24h". */
+  max_ban?: string;
+  /** How long an offence counts towards escalation, e.g. "24h". */
+  strike_memory?: string;
+  /** Extra never-block addresses or CIDRs, on top of the built-in set. */
+  protected?: string[];
+  /** Historical spelling of `protected`. */
+  allowlist?: string[];
+  protect_current_ssh_client?: boolean;
+  /** Historical spelling, seconds. Superseded by the Fibonacci ladder. */
+  default_ttl_seconds?: number;
+}
+
 export interface ThreatCrushConfig {
   daemon: DaemonConfig;
   api: ApiConfig;
   alerts: Record<string, AlertChannelConfig>;
   modules: ModulesConfig;
+  remediation?: RemediationSection;
   license?: {
     key_file?: string;
     key?: string;

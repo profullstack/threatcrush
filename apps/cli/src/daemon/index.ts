@@ -10,6 +10,7 @@ import { RuleEngine } from './rules/engine.js';
 import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
 import { RemediationManager } from './firewall/remediation.js';
+import { remediationSettings } from './firewall/settings.js';
 import { bus } from './event-bus.js';
 import { initStateDB, closeDB } from '../core/state.js';
 import { loadConfig } from '../core/config.js';
@@ -94,15 +95,27 @@ export async function runDaemon(): Promise<void> {
   logLine(`[daemon] rule engine loaded ${ruleEngine.getRules().length} rules`);
   setInterval(() => ruleEngine.cleanup(), 300_000);
 
-  // Firewall auto-remediation (PRD 02)
-  const firewallAdapter = detectFirewallAdapter();
-  const remediation = new RemediationManager(firewallAdapter, bus, (config as any).remediation);
+  // Firewall auto-remediation (PRD 02 / PRD 0010)
+  const settings = remediationSettings(config.remediation);
+  const firewallAdapter = detectFirewallAdapter(config.remediation?.backend ?? 'auto');
+  const remediation = new RemediationManager(firewallAdapter, bus, settings);
   bus.on('event', (event) => {
     if (event.module !== 'firewall-rules') {
       void remediation.handleDetection(event);
     }
   });
-  logLine(`[daemon] firewall remediation active (backend=${firewallAdapter.name}, dry_run=${(config as any).remediation?.dry_run ?? true})`);
+  const remediationStatus = remediation.status();
+  logLine(
+    `[daemon] auto-defence ${remediationStatus.enabled ? 'ON' : 'OFF'} ` +
+    `(backend=${remediationStatus.backend}, mode=${remediationStatus.dry_run ? 'dry_run' : 'enforce'}, ` +
+    `min_severity=${remediationStatus.min_severity}, bans escalate 1m→2m→3m→5m→8m…)`,
+  );
+  if (remediationStatus.dry_run && firewallAdapter.enforces !== false) {
+    logLine('[daemon] dry_run is set in [remediation] — detections will be logged, not blocked');
+  }
+  if (firewallAdapter.enforces === false) {
+    logLine('[daemon] no manageable firewall found (need fail2ban, nftables or iptables) — bans are simulated');
+  }
 
   new AlertDispatcher(bus, config);
 
@@ -113,7 +126,7 @@ export async function runDaemon(): Promise<void> {
     logLine(`[daemon] runs-worker failed to start: ${(err as Error).message}`);
   }
 
-  const ipc = new IpcServer(version, moduleHost);
+  const ipc = new IpcServer(version, moduleHost, remediation);
   await ipc.start();
   logLine(`[daemon] ipc listening on ${PATHS.socket}`);
 

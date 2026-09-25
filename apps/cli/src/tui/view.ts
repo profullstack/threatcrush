@@ -6,13 +6,18 @@ import {
   eventsPerSecond,
   formatCount,
   formatUptime,
+  isBanned,
   severityTotal,
   type State,
 } from './state.js';
+import { formatDuration } from '../daemon/firewall/backoff.js';
 
 export interface ViewOptions {
   /** Wired by the app so the wheel can scroll the feed. */
   onFeedScroll?: (delta: number) => void;
+  /** Click on a row of TOP THREATS / BANNED — selects it and focuses the panel. */
+  onThreatSelect?: (visibleRow: number) => void;
+  onBanSelect?: (visibleRow: number) => void;
   demo?: boolean;
 }
 
@@ -213,9 +218,19 @@ function feedPanel(parent: Container, state: State, theme: Theme, options: ViewO
   );
 }
 
-function threatsPanel(parent: Container, state: State, theme: Theme): void {
+function threatsPanel(parent: Container, state: State, theme: Theme, options: ViewOptions): void {
+  const focused = state.focus === 'threats';
   parent.panel(
-    { title: ' TOP THREATS ', size: 'fill', border: 'rounded', borderColor: theme.border, titleColor: theme.primary, padding: [0, 1] },
+    {
+      title: ' TOP THREATS ',
+      size: 'fill',
+      border: 'rounded',
+      borderColor: focused ? theme.borderFocused : theme.border,
+      titleColor: theme.primary,
+      subtitle: focused ? 'b ban · u unban' : undefined,
+      subtitleColor: theme.muted,
+      padding: [0, 1],
+    },
     (panel) => {
       if (state.topSources.length === 0) {
         // Ranking is the one panel that reads from SQLite. Say so when the DB
@@ -233,7 +248,22 @@ function threatsPanel(parent: Container, state: State, theme: Theme): void {
       panel.table({
         rows: state.topSources,
         header: false,
+        selected: focused ? state.threatIndex : -1,
+        followSelection: true,
+        scrollbar: true,
+        onSelectRow: options.onThreatSelect,
         columns: [
+          {
+            // A source is either banned, protected, or neither — and which one
+            // it is decides what the b key will do to it.
+            key: 'ip',
+            width: 2,
+            render: (s) => (isBanned(state, s.ip) ? '✖' : isProtectedRow(state, s.ip) ? '⛊' : ' '),
+            color: (s) =>
+              isBanned(state, s.ip) ? severityColors.critical
+                : isProtectedRow(state, s.ip) ? theme.success
+                  : theme.muted,
+          },
           { key: 'ip', width: 'fill', color: () => theme.foreground },
           {
             key: 'count',
@@ -247,6 +277,103 @@ function threatsPanel(parent: Container, state: State, theme: Theme): void {
                 : s.count >= worst * 0.33
                   ? severityColors.medium
                   : theme.muted,
+          },
+        ],
+      });
+    },
+  );
+}
+
+/** Protected addresses are listed as bare IPs and as CIDRs; both count. */
+function isProtectedRow(state: State, ip: string): boolean {
+  return state.protectedList.some((entry) => entry === ip || ipInCidrLabel(ip, entry));
+}
+
+/**
+ * A deliberately cheap prefix test for display only. The daemon does the real
+ * matching before it writes a rule; this just decides whether to draw a shield.
+ */
+function ipInCidrLabel(ip: string, entry: string): boolean {
+  const slash = entry.indexOf('/');
+  if (slash < 0) return false;
+  const network = entry.slice(0, slash);
+  const prefix = Number(entry.slice(slash + 1));
+  if (!Number.isFinite(prefix)) return false;
+  if (network.includes(':') !== ip.includes(':')) return false;
+  if (ip.includes(':')) return ip.toLowerCase().startsWith(network.toLowerCase().replace(/:+$/, ''));
+  const octets = Math.floor(prefix / 8);
+  if (octets === 0) return false;
+  return ip.split('.').slice(0, octets).join('.') === network.split('.').slice(0, octets).join('.');
+}
+
+function bansPanel(parent: Container, state: State, theme: Theme, options: ViewOptions): void {
+  const focused = state.focus === 'bans';
+  const fw = state.firewall;
+  const footer = fw
+    ? `${fw.backend}${fw.dry_run ? ' · DRY-RUN' : ''} · ≥${fw.min_severity}`
+    : undefined;
+
+  parent.panel(
+    {
+      title: ' BANNED ',
+      size: 'fill',
+      border: 'rounded',
+      borderColor: focused ? theme.borderFocused : theme.border,
+      titleColor: theme.primary,
+      subtitle: focused ? 'u unban' : undefined,
+      subtitleColor: theme.muted,
+      footer,
+      padding: [0, 1],
+    },
+    (panel) => {
+      if (!fw) {
+        panel.label('firewall state unknown', { fg: theme.muted });
+        return;
+      }
+      if (!fw.enabled) {
+        panel.text('auto-defence OFF', { fg: severityColors.high, bold: true });
+        panel.label('[remediation] enabled = false', { fg: theme.muted });
+        return;
+      }
+      if (state.bans.length === 0) {
+        panel.label('nothing banned', { fg: theme.muted });
+        panel.label(fw.dry_run ? 'dry-run: bans are simulated' : 'bans: 1m → 2m → 3m → 5m → 8m', {
+          fg: fw.dry_run ? severityColors.medium : theme.muted,
+        });
+        return;
+      }
+
+      const now = Date.now();
+      panel.table({
+        rows: state.bans,
+        header: false,
+        selected: focused ? state.banIndex : -1,
+        followSelection: true,
+        scrollbar: true,
+        onSelectRow: options.onBanSelect,
+        columns: [
+          {
+            key: 'ip',
+            width: 2,
+            // A manual ban reads differently from one the daemon decided on.
+            render: (b) => (b.source === 'manual' ? '⊘' : '✖'),
+            color: (b) => (b.dry_run ? theme.muted : severityColors.critical),
+          },
+          { key: 'ip', width: 'fill', color: () => theme.foreground },
+          {
+            key: 'strikes',
+            width: 3,
+            align: 'right',
+            // Which rung of the ladder produced this ban's length.
+            render: (b) => `#${b.strikes}`,
+            color: (b) => (b.strikes > 1 ? severityColors.high : theme.muted),
+          },
+          {
+            key: 'expires_at',
+            width: 7,
+            align: 'right',
+            render: (b) => formatDuration(Math.round((b.expires_at - now) / 1000)),
+            color: () => severityColors.medium,
           },
         ],
       });
@@ -271,19 +398,31 @@ function throughputPanel(parent: Container, state: State, theme: Theme): void {
 }
 
 function footer(ui: Container, state: State, theme: Theme): void {
+  const onFeed = state.focus === 'feed';
   ui.statusBar({
     size: 1,
     items: [
       { key: 'q', label: 'quit' },
+      { key: 'tab', label: state.focus },
+      { key: '↑↓', label: onFeed ? 'scroll' : 'select' },
+      { key: 'b', label: 'ban' },
+      { key: 'u', label: 'unban' },
       { key: 'p', label: state.paused ? 'resume' : 'pause' },
       { key: 'r', label: 'reset' },
-      { key: '↑↓', label: 'scroll' },
-      { key: 'end', label: 'follow' },
     ],
     right: [
+      // The notice is the answer to "did my keypress do anything", so it takes
+      // the slot for as long as it lives.
+      { label: state.notice?.text ?? '', color: state.notice?.tone === 'error' ? severityColors.high : theme.success },
       {
         label: state.paused && state.parked.length > 0 ? `${state.parked.length} held` : '',
         color: severityColors.medium,
+      },
+      {
+        label: state.firewall
+          ? `${state.bans.length} banned${state.firewall.dry_run ? ' (dry-run)' : ''}`
+          : '',
+        color: state.firewall?.dry_run ? severityColors.medium : theme.muted,
       },
       { label: state.daemon ? `v${state.daemon.version} · ${state.daemon.mode}` : 'no daemon', color: theme.muted },
     ].filter((item) => item.label !== ''),
@@ -316,7 +455,8 @@ export function renderDashboard(
       feedPanel(row, state, theme, options);
 
       row.column({ size: '1fr' }, (right) => {
-        threatsPanel(right, state, theme);
+        threatsPanel(right, state, theme, options);
+        bansPanel(right, state, theme, options);
         throughputPanel(right, state, theme);
       });
     });
