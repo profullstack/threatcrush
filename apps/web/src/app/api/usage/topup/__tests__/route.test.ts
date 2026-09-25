@@ -1,10 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { NextRequest } from "next/server";
 
 // ─── Mocks ───
 
-const mockGetUser = vi.fn();
-const mockInsert = vi.fn();
-const mockCreatePayment = vi.fn();
+// vi.mock factories are hoisted above the imports, so anything they close over
+// must be hoisted with them.
+const { mockGetUser, mockInsert, mockCreatePayment } = vi.hoisted(() => ({
+  mockGetUser: vi.fn(),
+  mockInsert: vi.fn(),
+  mockCreatePayment: vi.fn(),
+}));
 
 vi.mock("@/lib/supabase", () => ({
   getSupabaseClient: () => ({
@@ -21,12 +26,12 @@ vi.mock("@/lib/coinpay-client", () => ({
 
 import { POST } from "@/app/api/usage/topup/route";
 
-function makeRequest(body: unknown) {
+function makeRequest(body: unknown, headers: Record<string, string> = { Authorization: "Bearer tok-abc" }) {
   return new Request("http://localhost/api/usage/topup", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer tok-abc" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
-  }) as unknown as import("next/server").NextRequest;
+  }) as unknown as NextRequest;
 }
 
 describe("POST /api/usage/topup", () => {
@@ -43,18 +48,45 @@ describe("POST /api/usage/topup", () => {
     mockInsert.mockResolvedValue({ error: null });
   });
 
-  it("rejects a non-numeric amount_usd instead of forwarding a garbage amount", async () => {
-    const res = await POST(makeRequest({ amount_usd: "abc", currency: "usdc_sol" }));
-    const body = await res.json();
-    expect(res.status).toBe(400);
-    expect(body.error).toContain("between $1 and $10,000");
+  it("returns 401 without an auth token and never creates a payment", async () => {
+    const res = await POST(makeRequest({ amount_usd: 10 }, {}));
+    expect(res.status).toBe(401);
     expect(mockCreatePayment).not.toHaveBeenCalled();
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
-  it("rejects out-of-range amounts", async () => {
-    expect((await POST(makeRequest({ amount_usd: 0, currency: "usdc_sol" }))).status).toBe(400);
-    expect((await POST(makeRequest({ amount_usd: 20000, currency: "usdc_sol" }))).status).toBe(400);
+  it("rejects a missing amount_usd without creating a payment", async () => {
+    const res = await POST(makeRequest({ currency: "usdc_sol" }));
+    expect(res.status).toBe(400);
+    expect(mockCreatePayment).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-numeric amount_usd instead of forwarding a garbage amount", async () => {
+    const res = await POST(makeRequest({ amount_usd: "abc", currency: "usdc_sol" }));
+    expect(res.status).toBe(400);
+    expect(mockCreatePayment).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it("rejects out-of-range amounts at both bounds", async () => {
+    for (const amount_usd of [0, 0.99, 10000.01, 20000]) {
+      expect((await POST(makeRequest({ amount_usd, currency: "usdc_sol" }))).status).toBe(400);
+    }
+    expect(mockCreatePayment).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  it("accepts the inclusive bounds $1 and $10,000", async () => {
+    for (const amount_usd of [1, 10000]) {
+      expect((await POST(makeRequest({ amount_usd, currency: "usdc_sol" }))).status).toBe(200);
+    }
+    expect(mockCreatePayment).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an unsupported currency without creating a payment", async () => {
+    const res = await POST(makeRequest({ amount_usd: 10, currency: "card" }));
+    expect(res.status).toBe(400);
     expect(mockCreatePayment).not.toHaveBeenCalled();
   });
 
@@ -69,5 +101,6 @@ describe("POST /api/usage/topup", () => {
     const res = await POST(makeRequest({ amount_usd: "50", currency: "usdc_sol" }));
     expect(res.status).toBe(200);
     expect(mockCreatePayment).toHaveBeenCalledWith(expect.objectContaining({ amount_usd: 50 }));
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ amount_usd: 50 }));
   });
 });
