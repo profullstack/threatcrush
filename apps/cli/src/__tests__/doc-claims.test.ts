@@ -10,14 +10,17 @@ import { DEFAULT_RULES } from '../daemon/rules/default-rules.js';
  * and deck print must be the count the code actually loads — derived here,
  * never hand-typed. The copy says every request is checked against that many
  * rules, so it is the count a default config loads, after default exclusions.
+ * ThreatCrush's own web rules are not CRS and are stated separately.
  *
  * When the signature source changes, update `countAttackSignatures` and
  * `SIGNATURE_NOUN` (the phrase the copy uses) and nothing else.
  */
 function countAttackSignatures(): number {
-  return new CrsEngine().ruleCount;
+  return new CrsEngine().ruleCounts.crs;
 }
 const SIGNATURE_NOUN = 'OWASP CRS rules';
+/** Matches "1 ThreatCrush rule" and "2 ThreatCrush rules". */
+const OWN_SIGNATURE_NOUN = 'ThreatCrush rules?';
 const RULE_NOUN = 'detection rules';
 
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
@@ -42,6 +45,12 @@ describe('public copy matches what the code loads', () => {
       const claims = claimedCounts(text, SIGNATURE_NOUN);
       expect(claims.length, `${file} should say how many ${SIGNATURE_NOUN} ship`).toBeGreaterThan(0);
       for (const n of claims) expect(n).toBe(countAttackSignatures());
+    });
+
+    it(`${file} states ThreatCrush's own web rules apart from CRS`, () => {
+      const claims = claimedCounts(text, OWN_SIGNATURE_NOUN);
+      expect(claims.length, `${file} should say how many ThreatCrush rules ship beside CRS`).toBeGreaterThan(0);
+      for (const n of claims) expect(n).toBe(new CrsEngine().ruleCounts.threatcrush);
     });
 
     it(`${file} states the real detection rule count, if any`, () => {

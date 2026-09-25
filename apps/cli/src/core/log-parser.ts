@@ -127,8 +127,9 @@ export function parseSyslog(line: string): SyslogEntry | null {
 }
 
 // Web attack detection: the OWASP Core Rule Set, paranoia level 1, ported to
-// what an access log records (see ./crs). A request is an attack when its
-// anomaly score reaches the threshold — by default one CRITICAL rule.
+// what an access log records, plus ThreatCrush's own rules (see ./crs). A
+// request is an attack when its anomaly score reaches the threshold — by
+// default one CRITICAL rule.
 let crsEngine: CrsEngine | undefined;
 
 /**

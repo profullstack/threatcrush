@@ -57,7 +57,8 @@ export interface DetectionSection {
   /** Inbound anomaly score at which a request is an attack. CRS default: 5 (one CRITICAL rule). */
   anomaly_threshold?: number;
   /**
-   * CRS rule ids to switch off, as SecRuleRemoveById would, e.g. [942550].
+   * Rule ids to switch off, as SecRuleRemoveById would: CRS ids, e.g. [942550],
+   * or ThreatCrush's own (10001, an OS file named by the request path).
    * Added to the rules ThreatCrush already leaves off by default.
    */
   exclude_rules?: number[];

@@ -1,6 +1,6 @@
-// Shapes of the generated OWASP CRS table (rules.generated.ts). Every string a
-// rule matches against is a byte string: one char per byte, codes 0-255, the
-// way ModSecurity sees a request.
+// Shapes of the generated rule table (rules.generated.ts: OWASP CRS, and
+// ThreatCrush's own rules). Every string a rule matches against is a byte
+// string: one char per byte, codes 0-255, the way ModSecurity sees a request.
 
 export type CrsSeverity = 'CRITICAL' | 'ERROR' | 'WARNING' | 'NOTICE';
 
@@ -48,7 +48,7 @@ export interface CrsRule {
   id: number;
   msg: string;
   severity: CrsSeverity;
-  /** The rule's `attack-*` tags. */
+  /** The rule's `attack-*` tags, and `threatcrush` on ThreatCrush's own rules. */
   tags: string[];
   targets: CrsTarget[];
   transforms: CrsTransform[];

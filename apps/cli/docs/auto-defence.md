@@ -88,15 +88,41 @@ type CRS can report belongs to exactly one rule:
 | `scanner` (attack-tool User-Agent, 913100)    | `web-scanner-user-agent` |
 | `rce`, `rfi`, `ssrf`, `php_injection`, `ssti` | `exploit-probe-pattern`  |
 
-Every ported CRS rule carries one of these types, so a request that scores at
-all has one. They are `high` themselves: under `min_severity = "critical"` they
-alert without banning, and a single matching CRS rule is still not enough for a
-ban.
+Every ported CRS rule, and ThreatCrush's own rule below, carries one of these
+types, so a request that scores at all has one. They are `high` themselves:
+under `min_severity = "critical"` they alert without banning, and a single
+matching CRS rule is still not enough for a ban.
 
 What an access log cannot show, these rules cannot see: request bodies,
 cookies and other headers. The two libinjection rules (942100 SQLi, 941100
 XSS) are not ported, so a bare `1' OR 1=1` scores nothing; `UNION SELECT`,
 `SLEEP(`, script tags, traversal and the rest do.
+
+One rule of ThreatCrush's own is scored alongside CRS, the same way. It is not
+CRS and is not counted as CRS; its id is in the local range (1–99,999), clear of
+CRS's 900,000–999,999, and it carries the `threatcrush` tag.
+
+| Rule  | Severity | `attack_type`    | Matches |
+|-------|----------|------------------|---------|
+| 10001 | CRITICAL | `path_traversal` | A request path that names an operating-system file: `GET /etc/passwd`, `/etc/ssh/id_rsa`, `/var/log/…`, `/c:/windows/system32/…` |
+
+CRS checks its list of OS files (`lfi-os-files.data`, rule 930120) against query
+arguments only, and checks the path only against its narrower
+`restricted-files.data` (930130), which leaves the OS's own files out. So a bare
+`GET /etc/passwd` scored nothing. 10001 applies `lfi-os-files.data` to the path
+with 930120's decoding and normalisation (`%2f`, `..` and `\` are resolved
+first), but only where the path *starts* with the listed file and the name ends
+there: `/etc/passwd` and `/../../etc/passwd.bak` match; `/blog/etc/hosts`,
+`/etc/initial-thoughts` and `/myetc/passwd` do not. Files that 930130 already
+restricts in the path (`.env`, `.git/`, `/proc/…`) are left to 930130, so no
+file scores twice. A path under an OS directory that also names a restricted
+file, such as `/var/www/html/.env`, matches both rules and scores 10.
+
+Measured on two weeks of a production host's access logs: 269 requests newly
+reached the threshold (64 distinct paths, every one a probe for a config
+backup, key, log or OS file), from 34 addresses that other requests had
+already put over the threshold, so no address was newly banned. Switch it off
+with `exclude_rules = [10001]`.
 
 One ported rule is off by default, because with bans automatic it would ban
 ordinary visitors:
@@ -112,7 +138,7 @@ to re-enable a default-off rule. A rule in both lists stays off.
 ```toml
 [detection]
 anomaly_threshold = 5         # CRS inbound threshold
-exclude_rules = [942550]      # CRS rule ids to switch off, like SecRuleRemoveById
+exclude_rules = [942550]      # rule ids (CRS or ThreatCrush) to switch off, like SecRuleRemoveById
 include_rules = [941130]      # default-off rules to switch back on
 ```
 
