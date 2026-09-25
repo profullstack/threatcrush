@@ -30,8 +30,12 @@ vi.mock("next/server", () => {
       return response;
     }
 
-    static json(_body: unknown, init?: { status?: number }) {
-      return new MockResponse(init?.status);
+    body: unknown;
+
+    static json(body: unknown, init?: { status?: number }) {
+      const response = new MockResponse(init?.status);
+      response.body = body;
+      return response;
     }
   }
 
@@ -65,7 +69,25 @@ describe("GET /api/auth/github", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://project.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
     process.env.NEXT_PUBLIC_APP_URL = "https://threatcrush.com";
+    process.env.NEXT_PUBLIC_GITHUB_OAUTH_ENABLED = "true";
   });
+
+  it.each([undefined, "", "false", "1"])(
+    "answers 404 instead of redirecting when the flag is %j",
+    async (flag) => {
+      if (flag === undefined) delete process.env.NEXT_PUBLIC_GITHUB_OAUTH_ENABLED;
+      else process.env.NEXT_PUBLIC_GITHUB_OAUTH_ENABLED = flag;
+
+      const response = (await GET(
+        makeRequest("https://threatcrush.com/api/auth/github?next=%2Faccount")
+      )) as unknown as { status: number; body: { error: string }; headers: Headers };
+
+      expect(response.status).toBe(404);
+      expect(response.body.error).toMatch(/GitHub sign-in is not enabled/);
+      expect(response.headers.get("location")).toBeNull();
+      expect(mocks.signInWithOAuth).not.toHaveBeenCalled();
+    }
+  );
 
   it("starts a PKCE flow and stores the verifier in a secure cookie", async () => {
     mocks.signInWithOAuth.mockImplementation(async () => {

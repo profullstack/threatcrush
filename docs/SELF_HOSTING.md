@@ -50,6 +50,7 @@ curl http://localhost:3000/api/health
 | `COINPAY_*` | CoinPayPortal crypto payments |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Web Push VAPID public key |
 | `VAPID_PRIVATE_KEY` | Web Push VAPID private key |
+| `NEXT_PUBLIC_GITHUB_OAUTH_ENABLED` | `true` shows "Continue with GitHub" on login/signup. Enable the GitHub provider in Supabase Auth first; read at build time |
 
 Generate VAPID keys: `npx web-push generate-vapid-keys`
 
