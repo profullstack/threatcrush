@@ -108,7 +108,7 @@ describe('a rule bans only when it asks to', () => {
     const manager = make();
     await manager.handleDetection(event({
       message: '[DETECTION] SQL injection attempt',
-      details: { rule_id: 'web-sqli-attack', remediation: { action: 'block', ttl_seconds: 3600 } },
+      details: { rule_id: 'web-sqli-attack', remediation: { action: 'block' } },
     }));
     expect(manager.getBlocklist()).toHaveLength(1);
   });

@@ -21,6 +21,18 @@ export function loadAllRules(customDir?: string): DetectionRule[] {
             console.warn(`[rules] skipping invalid rule in ${file}: missing required fields`);
             continue;
           }
+          // Rules once carried their own ban length. Since the escalation
+          // ladder (PRD 0010) nothing reads it, so say so rather than let an
+          // operator believe their rule bans for as long as it claims.
+          if (rule.remediation && typeof rule.remediation === 'object' && 'ttl_seconds' in rule.remediation) {
+            console.warn(
+              `[rules] ${rule.id} (${file}): remediation.ttl_seconds is ignored; ` +
+              'ban length follows the escalation ladder, see auto-defence.md',
+            );
+            const { ttl_seconds: _ignored, ...remediation } =
+              rule.remediation as NonNullable<DetectionRule['remediation']> & { ttl_seconds?: unknown };
+            rule.remediation = remediation;
+          }
           const existingIdx = rules.findIndex(r => r.id === rule.id);
           if (existingIdx >= 0) {
             rules[existingIdx] = { ...rules[existingIdx], ...rule };

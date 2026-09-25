@@ -67,8 +67,8 @@ export async function rulesShowCommand(ruleId: string): Promise<void> {
   console.log(`  Enabled:      ${rule.enabled ? chalk.green('yes') : chalk.red('no')}`);
   if (rule.remediation) {
     console.log(`  Remediation:  ${chalk.gray(rule.remediation.description || rule.remediation.action || 'none')}`);
-    if (rule.remediation.ttl_seconds) {
-      console.log(`  Block TTL:    ${chalk.gray(String(rule.remediation.ttl_seconds))}s`);
+    if (rule.remediation.action === 'block') {
+      console.log(`  Ban length:   ${chalk.gray('escalation ladder, 1m → 2m → 3m → 5m → 8m … up to max_ban')}`);
     }
   }
   console.log();
