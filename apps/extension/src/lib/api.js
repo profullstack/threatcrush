@@ -99,6 +99,22 @@ export async function installModule(slug) {
   return request(`/api/modules/${slug}/install`, { method: 'POST' });
 }
 
+// ─── Organizations ───
+
+/** Organizations the signed-in user belongs to: `{ organizations: [{ id, name, slug, ... }] }`. */
+export async function listOrganizations() {
+  return request('/api/orgs');
+}
+
+/**
+ * One page of an org's detections, newest `detected_at` first:
+ * `{ detections, total }`, where `total` counts every match of the filters.
+ */
+export async function listDetections(orgId, params = {}) {
+  const query = new URLSearchParams(params).toString();
+  return request(`/api/orgs/${encodeURIComponent(orgId)}/detections${query ? `?${query}` : ''}`);
+}
+
 // ─── Scanning ───
 
 export async function scanUrl(url) {
