@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: abuse-reporter, abuseipdb, reputation, false-positives, modules
+tags: [abuse-reporter, abuseipdb, reputation, false-positives, modules]
 supersedes:
 superseded-by:
 ---
@@ -70,8 +70,8 @@ not throughput.
 
 - R1 [P0] **Only corroborated sources are reportable.** A source must be
   confirmed by a detector whose precision justifies a public accusation —
-  `honeypot` (PRD 0012) interaction, a successful-attack log entry (PRD 0009
-  R4), or repeated authentication failure over a sustained window. A single
+  `honeypot` (PRD 0012) interaction, a successful-attack log entry
+  (PRD 0009 R4), or repeated authentication failure over a sustained window. A single
   ambiguous signal is never enough.
 - R2 [P0] **Connection-verified only.** Reportable activity must have involved a
   completed TCP handshake, which makes trivially spoofed sources unreportable.

@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: deception, canary-tokens, breach-detection, dwell-time, modules
+tags: [deception, canary-tokens, breach-detection, dwell-time, modules]
 supersedes:
 superseded-by:
 ---

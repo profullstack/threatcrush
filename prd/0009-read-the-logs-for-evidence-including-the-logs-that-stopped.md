@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: log-watcher, logs, web-attacks, tampering, gaps, modules
+tags: [log-watcher, logs, web-attacks, tampering, gaps, modules]
 supersedes:
 superseded-by:
 ---

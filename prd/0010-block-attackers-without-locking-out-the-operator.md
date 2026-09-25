@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: firewall-rules, blocking, nftables, iptables, containment, modules
+tags: [firewall-rules, blocking, nftables, iptables, containment, modules]
 supersedes:
 superseded-by:
 ---

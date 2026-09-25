@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation: modules/code-scanner (deps subsystem)
-tags: code-scanner, deps, supply-chain, sbom, cve, osv, install-scripts, drift, supply-chain-scanning, modules
+tags: [code-scanner, deps, supply-chain, sbom, cve, osv, install-scripts, drift, supply-chain-scanning, modules]
 supersedes:
 superseded-by:
 ---

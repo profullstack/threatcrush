@@ -10,7 +10,7 @@ updated: 2026-07-28
 repo: profullstack/threatcrush
 discussion:
 implementation:
-tags: network-monitor, listeners, egress, port-scan, baseline, modules
+tags: [network-monitor, listeners, egress, port-scan, baseline, modules]
 supersedes:
 superseded-by:
 ---
