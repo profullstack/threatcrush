@@ -71,6 +71,12 @@ jobs:
       - name: Build browser extension
         run: pnpm --filter @profullstack/threatcrush-extension build
 
+      - name: Type check mobile app
+        run: pnpm --filter @profullstack/threatcrush-mobile typecheck
+
+      - name: Test mobile app
+        run: pnpm --filter @profullstack/threatcrush-mobile test
+
   libinjection-wasm:
     # The checked-in libinjection.wasm must be exactly what the vendored C
     # sources build (apps/cli/scripts/build-libinjection-wasm.mjs), so the

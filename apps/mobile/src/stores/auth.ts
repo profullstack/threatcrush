@@ -1,73 +1,117 @@
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
+import { api, ApiError, type Session } from '../lib/api';
+
+const SESSION_KEY = 'threatcrush_session';
+
+/** Refresh this long before the access token actually expires. */
+const REFRESH_MARGIN_MS = 60_000;
+
+type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 
 interface AuthState {
-  email: string | null;
-  licenseKey: string | null;
-  daemonUrl: string;
-  isAuthenticated: boolean;
-  e2eEnabled: boolean;
-  publicKey: string | null;
+  status: AuthStatus;
+  session: Session | null;
 
-  setEmail: (email: string | null) => void;
-  setLicenseKey: (key: string | null) => void;
-  setDaemonUrl: (url: string) => void;
-  setE2eEnabled: (enabled: boolean) => void;
-  setPublicKey: (key: string | null) => void;
-  login: (email: string, key: string) => Promise<void>;
-  logout: () => Promise<void>;
-  loadFromStorage: () => Promise<void>;
+  /** Load a saved session from the keychain (app start). */
+  restore: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  /**
+   * Run an authenticated API call with a fresh access token. Refreshes once on
+   * expiry or a 401; if the refresh token is rejected the user is signed out.
+   */
+  withSession: <T>(call: (accessToken: string) => Promise<T>) => Promise<T>;
 }
 
-const STORE_KEYS = {
-  email: 'threatcrush_email',
-  licenseKey: 'threatcrush_license_key',
-  daemonUrl: 'threatcrush_daemon_url',
-  publicKey: 'threatcrush_public_key',
-};
+function isSession(value: unknown): value is Session {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.accessToken === 'string' &&
+    typeof v.refreshToken === 'string' &&
+    typeof v.userId === 'string'
+  );
+}
 
-export const useAuthStore = create<AuthState>((set) => ({
-  email: null,
-  licenseKey: null,
-  daemonUrl: 'https://threatcrush.com',
-  isAuthenticated: false,
-  e2eEnabled: false,
-  publicKey: null,
+async function persist(session: Session | null) {
+  if (session) await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(session));
+  else await SecureStore.deleteItemAsync(SESSION_KEY);
+}
 
-  setEmail: (email) => set({ email }),
-  setLicenseKey: (licenseKey) => set({ licenseKey, isAuthenticated: !!licenseKey }),
-  setDaemonUrl: (daemonUrl) => set({ daemonUrl }),
-  setE2eEnabled: (e2eEnabled) => set({ e2eEnabled }),
-  setPublicKey: (publicKey) => set({ publicKey }),
+// Refresh tokens rotate on use, so two concurrent refreshes with the same
+// token would get the second one rejected and sign the user out. Every caller
+// shares the one in flight.
+let refreshing: Promise<Session> | null = null;
 
-  login: async (email, key) => {
-    await SecureStore.setItemAsync(STORE_KEYS.email, email);
-    await SecureStore.setItemAsync(STORE_KEYS.licenseKey, key);
-    set({ email, licenseKey: key, isAuthenticated: true });
-  },
+export const useAuthStore = create<AuthState>((set, get) => {
+  const refresh = (stale: Session): Promise<Session> => {
+    refreshing ??= (async () => {
+      try {
+        const next = await api.refresh(stale.refreshToken);
+        await persist(next);
+        set({ session: next, status: 'signedIn' });
+        return next;
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 400)) {
+          await get().signOut();
+          throw new ApiError(401, 'Your session expired. Sign in again.');
+        }
+        throw err;
+      } finally {
+        refreshing = null;
+      }
+    })();
+    return refreshing;
+  };
 
-  logout: async () => {
-    await SecureStore.deleteItemAsync(STORE_KEYS.email);
-    await SecureStore.deleteItemAsync(STORE_KEYS.licenseKey);
-    await SecureStore.deleteItemAsync(STORE_KEYS.publicKey);
-    set({ email: null, licenseKey: null, isAuthenticated: false, publicKey: null });
-  },
+  return {
+    status: 'loading',
+    session: null,
 
-  loadFromStorage: async () => {
-    try {
-      const email = await SecureStore.getItemAsync(STORE_KEYS.email);
-      const licenseKey = await SecureStore.getItemAsync(STORE_KEYS.licenseKey);
-      const daemonUrl = await SecureStore.getItemAsync(STORE_KEYS.daemonUrl);
-      const publicKey = await SecureStore.getItemAsync(STORE_KEYS.publicKey);
-      set({
-        email,
-        licenseKey,
-        daemonUrl: daemonUrl || 'https://threatcrush.com',
-        publicKey,
-        isAuthenticated: !!licenseKey,
-      });
-    } catch {
-      // SecureStore not available (web/tests)
-    }
-  },
-}));
+    restore: async () => {
+      let session: Session | null = null;
+      try {
+        const raw = await SecureStore.getItemAsync(SESSION_KEY);
+        const parsed: unknown = raw ? JSON.parse(raw) : null;
+        session = isSession(parsed) ? parsed : null;
+      } catch {
+        session = null;
+      }
+      set({ session, status: session ? 'signedIn' : 'signedOut' });
+    },
+
+    signIn: async (email, password) => {
+      const session = await api.login(email.trim(), password);
+      await persist(session);
+      set({ session, status: 'signedIn' });
+    },
+
+    signOut: async () => {
+      set({ session: null, status: 'signedOut' });
+      await persist(null);
+    },
+
+    withSession: async (call) => {
+      let session = get().session;
+      if (!session) throw new ApiError(401, 'Not signed in.');
+
+      if (session.expiresAt !== null && session.expiresAt * 1000 - Date.now() < REFRESH_MARGIN_MS) {
+        session = await refresh(session);
+      }
+
+      try {
+        return await call(session.accessToken);
+      } catch (err) {
+        if (!(err instanceof ApiError) || err.status !== 401) throw err;
+        // Another caller may already have rotated the token while this request
+        // was in flight; only refresh if we're still holding the rejected one.
+        const current = get().session;
+        if (!current) throw err;
+        const fresh =
+          current.accessToken === session.accessToken ? await refresh(current) : current;
+        return call(fresh.accessToken);
+      }
+    },
+  };
+});

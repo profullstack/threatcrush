@@ -36,8 +36,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: '#0a0a0a',
     },
     permissions: ['INTERNET'],
+    // Android push tokens need Firebase. EAS injects the path of the
+    // GOOGLE_SERVICES_JSON file variable at build time; without it the app
+    // builds fine, and turning on alerts shows the Firebase error in Settings.
+    ...(process.env.GOOGLE_SERVICES_JSON ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON } : {}),
   },
-  plugins: ['expo-router', 'expo-secure-store'],
+  plugins: ['expo-router', 'expo-secure-store', 'expo-notifications'],
   extra: {
     apiUrl: process.env.THREATCRUSH_API_URL || 'https://threatcrush.com',
     eas: {

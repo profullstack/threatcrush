@@ -33,6 +33,7 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/api/auth/resend", limit: 5, windowMs: 60_000 },
   { prefix: "/api/auth/signup", limit: 10, windowMs: 60_000 },
   { prefix: "/api/auth/login", limit: 20, windowMs: 60_000 },
+  { prefix: "/api/auth/refresh", limit: 30, windowMs: 60_000 },
   { prefix: "/api/hooks/", limit: 60, windowMs: 60_000 },
   { prefix: "/api/scan", limit: 20, windowMs: 60_000 },
   { prefix: "/api/modules/fetch-meta", limit: 20, windowMs: 60_000 },
