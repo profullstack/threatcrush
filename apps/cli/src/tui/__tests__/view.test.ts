@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToText } from '@profullstack/hqtui';
-import { renderDashboard } from '../view.js';
+import { renderDashboard, withHost } from '../view.js';
+import type { ThreatEvent } from '../../types/events.js';
 import { threatcrushTheme } from '../theme.js';
 import { initialState, reducer, type State } from '../state.js';
 import { demoEvent } from '../demo.js';
@@ -140,5 +141,34 @@ describe('dashboard view', () => {
     const lines = out.split('\n');
     expect(lines).toHaveLength(SIZE.height);
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(SIZE.width);
+  });
+});
+
+describe('vhost on feed rows', () => {
+  const hit = (details?: Record<string, unknown>): ThreatEvent => ({
+    timestamp: new Date('2026-09-25T14:50:05Z'),
+    module: 'log-watcher',
+    category: 'web',
+    severity: 'low',
+    message: 'Client error 402: GET /topics/now-episode-scott.rss',
+    source_ip: '188.113.234.118',
+    ...(details ? { details } : {}),
+  });
+
+  it('leads with the site so truncation cannot hide it', () => {
+    expect(withHost(hit({ host: 'rssamplifier.com' }))).toBe(
+      'rssamplifier.com · Client error 402: GET /topics/now-episode-scott.rss',
+    );
+  });
+
+  it('leaves the message alone when the log format has no $host', () => {
+    expect(withHost(hit())).toBe('Client error 402: GET /topics/now-episode-scott.rss');
+    expect(withHost(hit({ host: '-' }))).toBe('Client error 402: GET /topics/now-episode-scott.rss');
+  });
+
+  it('shows the site on the live feed', () => {
+    let state = reducer(initialState(), { type: 'connected', label: 'daemon pid 4242', status });
+    state = reducer(state, { type: 'event', event: hit({ host: 'rssamplifier.com' }) });
+    expect(screen(state)).toContain('rssamplifier.com · Client error 402');
   });
 });
