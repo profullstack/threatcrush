@@ -42,7 +42,8 @@ function sourceProbe(mod: ModuleSourceFields): SourceProbe | null {
 /** Registry document URL for `name`, `name@range`, `@scope/name` or `@scope/name@range`. */
 function npmRegistryUrl(spec: string): string {
   const name = spec.match(/^(@[^/@\s]+\/[^@\s]+|[^@\s]+)/)?.[1] ?? spec;
-  return `https://registry.npmjs.org/${name.replace("/", "%2f")}`;
+  // One path segment: encode every "/" (and anything else), keep a scope's "@".
+  return `https://registry.npmjs.org/${encodeURIComponent(name).replace(/^%40/, "@")}`;
 }
 
 /**

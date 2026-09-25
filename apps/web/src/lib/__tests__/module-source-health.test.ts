@@ -70,7 +70,7 @@ describe("checkModuleSource", () => {
     });
 
     expect(result.status).toBe("ok");
-    expect(mockSafeFetch.mock.calls[0][0]).toBe("https://registry.npmjs.org/@acme%2fthreat-module");
+    expect(mockSafeFetch.mock.calls[0][0]).toBe("https://registry.npmjs.org/@acme%2Fthreat-module");
   });
 
   it("marks a server error unreachable and a 404 not_found", async () => {
