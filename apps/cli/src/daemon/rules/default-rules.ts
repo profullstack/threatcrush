@@ -35,8 +35,7 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['ssh', 'brute-force', 'credential-stuffing'],
     remediation: {
       action: 'block',
-      ttl_seconds: 3600,
-      description: 'Block source IP for 1 hour',
+      description: 'Block source IP',
     },
     enabled: true,
   },
@@ -84,7 +83,6 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['ssh', 'root-access'],
     remediation: {
       action: 'block',
-      ttl_seconds: 7200,
       description: 'Block source IP attempting root login',
     },
     enabled: true,
@@ -108,7 +106,6 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['ssh', 'enumeration', 'reconnaissance'],
     remediation: {
       action: 'block',
-      ttl_seconds: 3600,
       description: 'Block source IP performing user enumeration',
     },
     enabled: true,
@@ -147,7 +144,6 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['web', 'sqli', 'injection'],
     remediation: {
       action: 'block',
-      ttl_seconds: 3600,
       description: 'Block source IP performing SQL injection',
     },
     enabled: true,
@@ -167,7 +163,6 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['web', 'path-traversal', 'lfi'],
     remediation: {
       action: 'block',
-      ttl_seconds: 3600,
       description: 'Block source IP performing path traversal',
     },
     enabled: true,
@@ -187,7 +182,6 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['web', 'xss', 'injection'],
     remediation: {
       action: 'block',
-      ttl_seconds: 3600,
       description: 'Block source IP performing XSS attack',
     },
     enabled: true,
@@ -211,7 +205,6 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['web', 'scanner', 'reconnaissance'],
     remediation: {
       action: 'block',
-      ttl_seconds: 1800,
       description: 'Block automated scanner',
     },
     enabled: true,
@@ -301,7 +294,6 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['network', 'port-scan', 'reconnaissance'],
     remediation: {
       action: 'block',
-      ttl_seconds: 3600,
       description: 'Block port scanner',
     },
     enabled: true,
@@ -347,7 +339,6 @@ export const DEFAULT_RULES: DetectionRule[] = [
     tags: ['web', 'exploit', 'probe'],
     remediation: {
       action: 'block',
-      ttl_seconds: 7200,
       description: 'Block source IP performing exploit probes',
     },
     enabled: true,

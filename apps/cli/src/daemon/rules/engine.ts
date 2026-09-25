@@ -22,9 +22,12 @@ export interface DetectionRule {
    */
   group_by?: 'source_ip' | 'endpoint' | 'global';
   tags: string[];
+  /**
+   * `action: 'block'` lets auto-defence ban the source. How long for is not
+   * the rule's call: every ban follows the escalation ladder (auto-defence.md).
+   */
   remediation?: {
     action?: string;
-    ttl_seconds?: number;
     description?: string;
   };
   enabled: boolean;

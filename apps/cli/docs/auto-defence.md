@@ -78,6 +78,16 @@ exclude_rules = [942550]      # CRS rule ids to switch off, like SecRuleRemoveBy
 include_rules = [941130]      # default-off rules to switch back on
 ```
 
+### Your own rules
+
+A rule in `/etc/threatcrush/rules.d/*.json` bans only if it sets
+`"remediation": { "action": "block" }`. It cannot choose how long for: every
+ban, whichever rule caused it, follows the ladder above. Rules used to carry
+`remediation.ttl_seconds`; it has done nothing since the ladder arrived, so a
+rule that still sets it loads as before, with one warning at load that the value
+is ignored. Delete the key to silence it. `threatcrush block <ip> --ttl` is the
+only way to pick a ban's length.
+
 ## What can never be banned
 
 Enforced when the rule is written, not when the decision is made, so no detector

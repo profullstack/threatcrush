@@ -292,9 +292,9 @@ export interface DetectionRule {
   window_seconds?: number;
   cooldown_seconds?: number;
   tags?: string[];
+  /** Ban length is not per rule: every ban follows the daemon's escalation ladder. */
   remediation?: {
     action?: RemediationActionType;
-    ttl_seconds?: number;
     description?: string;
   };
   compatibility?: {
