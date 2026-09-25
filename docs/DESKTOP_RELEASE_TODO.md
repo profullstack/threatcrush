@@ -23,7 +23,7 @@ Status: checked 2026-09-25 against GitHub Actions and the v0.13.7 release.
 - **Signing: none.** The repo has no Apple or Windows signing secrets, so the
   macOS and Windows builds are unsigned and macOS builds are not notarized. The
   workflow now turns signing on by itself once the secrets below exist.
-- The same workflow packages (without publishing) on pull requests that touch
+- The same workflow packages (unsigned, never published) on pull requests that touch
   `apps/desktop/**`, `scripts/desktop-signing-env.sh` or the workflow itself.
 - The v0.13.7 Linux artifacts were launched headless (Xvfb) in clean
   containers. As published, the `.deb` did **not** declare `libgbm1` or ALSA,

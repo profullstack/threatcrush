@@ -4,7 +4,7 @@ on:
   push:
     tags:
       - 'v*'
-  # Package (never publish) on PRs that touch desktop packaging, so a broken
+  # Package (never sign or publish) on PRs touching desktop packaging, so a broken
   # matrix leg shows up before a tag instead of silently skipping a release.
   pull_request:
     paths:

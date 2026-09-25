@@ -8,7 +8,7 @@
 # "variable absent", which leaves the build unsigned exactly as before.
 #
 # Inputs (environment): PLATFORM (mac|win|linux), the secrets, GITHUB_ENV,
-# RUNNER_TEMP, and optionally GITHUB_STEP_SUMMARY.
+# RUNNER_TEMP, and optionally GITHUB_EVENT_NAME and GITHUB_STEP_SUMMARY.
 set -euo pipefail
 
 : "${PLATFORM:?}" "${GITHUB_ENV:?}" "${RUNNER_TEMP:?}"
@@ -27,6 +27,14 @@ decode_to() {
   printf '%s' "$1" | base64 --decode >"$2"
   echo "$2"
 }
+
+# Pull-request packaging runs are never signed: electron-builder already
+# refuses to sign macOS PR builds unless CSC_FOR_PULL_REQUEST is set, and
+# Windows is treated the same so PR runs never decode the certificates.
+if [ "${GITHUB_EVENT_NAME:-}" = pull_request ]; then
+  summary "$PLATFORM: pull request build, left unsigned"
+  exit 0
+fi
 
 case "$PLATFORM" in
   mac)
