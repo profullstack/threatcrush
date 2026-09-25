@@ -1,5 +1,5 @@
 import { execSync, execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { isIP } from 'node:net';
 
@@ -23,6 +23,21 @@ function assertValidFirewallIp(ip: string): void {
 function assertBannableIp(ip: string): void {
   if (isIP(ip) === 0) {
     throw new Error(`Invalid IP address: ${ip}`);
+  }
+}
+
+/**
+ * Create a file only if it is not already there, without the check-then-write
+ * race: `wx` makes the test and the creation one syscall, so two daemons
+ * starting together cannot have one clobber the other's config half-written.
+ * An existing file is left exactly as the operator left it.
+ */
+function writeIfAbsent(path: string, contents: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    writeFileSync(path, contents, { flag: 'wx' });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
   }
 }
 
@@ -79,40 +94,34 @@ export class Fail2banAdapter implements FirewallAdapter {
       // Jail not configured yet — install it below.
     }
 
-    if (!existsSync(FAIL2BAN_FILTER_FILE)) {
-      mkdirSync(dirname(FAIL2BAN_FILTER_FILE), { recursive: true });
-      writeFileSync(
-        FAIL2BAN_FILTER_FILE,
-        [
-          '# Installed by ThreatCrush. Intentionally matches nothing:',
-          '# detection happens in threatcrushd, this jail only executes bans.',
-          '[Definition]',
-          'failregex = ^threatcrush-never-matches <HOST>$',
-          'ignoreregex =',
-          '',
-        ].join('\n'),
-      );
-    }
+    writeIfAbsent(
+      FAIL2BAN_FILTER_FILE,
+      [
+        '# Installed by ThreatCrush. Intentionally matches nothing:',
+        '# detection happens in threatcrushd, this jail only executes bans.',
+        '[Definition]',
+        'failregex = ^threatcrush-never-matches <HOST>$',
+        'ignoreregex =',
+        '',
+      ].join('\n'),
+    );
 
-    if (!existsSync(FAIL2BAN_JAIL_FILE)) {
-      mkdirSync(dirname(FAIL2BAN_JAIL_FILE), { recursive: true });
-      writeFileSync(
-        FAIL2BAN_JAIL_FILE,
-        [
-          '# Installed by ThreatCrush — bans arrive via `fail2ban-client set threatcrush banip`.',
-          '# bantime is only a backstop; threatcrushd unbans on its own schedule.',
-          `[${this.jail}]`,
-          'enabled = true',
-          'filter = threatcrush',
-          'backend = polling',
-          'logpath = /var/log/threatcrush/threatcrushd.log',
-          'maxretry = 1000000',
-          'findtime = 1',
-          `bantime = ${this.backstopSeconds}`,
-          '',
-        ].join('\n'),
-      );
-    }
+    writeIfAbsent(
+      FAIL2BAN_JAIL_FILE,
+      [
+        '# Installed by ThreatCrush — bans arrive via `fail2ban-client set threatcrush banip`.',
+        '# bantime is only a backstop; threatcrushd unbans on its own schedule.',
+        `[${this.jail}]`,
+        'enabled = true',
+        'filter = threatcrush',
+        'backend = polling',
+        'logpath = /var/log/threatcrush/threatcrushd.log',
+        'maxretry = 1000000',
+        'findtime = 1',
+        `bantime = ${this.backstopSeconds}`,
+        '',
+      ].join('\n'),
+    );
 
     this.client(['reload', this.jail]);
     this.jailReady = true;
