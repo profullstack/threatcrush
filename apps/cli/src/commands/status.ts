@@ -12,15 +12,22 @@ export async function statusCommand(): Promise<void> {
   const pid = findRunningDaemon();
   const client = new IpcClient();
   let live: Awaited<ReturnType<IpcClient['status']>> | null = null;
-  if (pid) {
-    try {
-      await client.connect();
-      live = await client.status();
-    } catch {
-      // daemon PID present but IPC unreachable
-    } finally {
-      client.close();
-    }
+
+  // Always ask over IPC, whatever the local pid file says.
+  //
+  // This used to be gated on `findRunningDaemon()`, which only reads *this
+  // mode's* pid file: /var/run/... as root, ~/.threatcrush/run/... otherwise.
+  // So a normal user looking at a root daemon got "NOT RUNNING / No modules
+  // discovered" while `blocklist` over the very same socket answered fine —
+  // and THREATCRUSH_SOCKET was ignored entirely, because nothing ever tried to
+  // connect. The socket is the authority on whether a daemon is there.
+  try {
+    await client.connect();
+    live = await client.status();
+  } catch {
+    // Nothing answering; the pid file below decides what to say about it.
+  } finally {
+    client.close();
   }
 
   console.log(chalk.green.bold('  Daemon Status'));
