@@ -7,6 +7,8 @@ import type {
   IpcResponse,
   IpcPush,
   DaemonStatusReply,
+  BlocklistReply,
+  BlockedEntryReply,
 } from '../daemon/ipc-protocol.js';
 import type { ThreatEvent } from '../types/events.js';
 
@@ -108,8 +110,29 @@ export class IpcClient {
     return this.request<{ total: number; threats: number; last24h: number; threats24h: number }>('counters');
   }
 
-  async subscribe(channels: Array<'event' | 'module'>): Promise<void> {
+  async subscribe(channels: Array<'event' | 'module' | 'firewall'>): Promise<void> {
     await this.request('subscribe', { channels });
+  }
+
+  async blocklist(): Promise<BlocklistReply> {
+    return this.request<BlocklistReply>('blocklist');
+  }
+
+  /**
+   * Ban an address. The control token is read from disk here rather than by
+   * the caller, so the dashboard and the CLI go through the same gate.
+   */
+  async block(ip: string, reason?: string, ttl?: string): Promise<BlockedEntryReply> {
+    return this.request<BlockedEntryReply>('block', {
+      ip,
+      reason,
+      ttl,
+      token: readControlToken(),
+    });
+  }
+
+  async unblock(ip: string, forget = true): Promise<{ ip: string }> {
+    return this.request<{ ip: string }>('unblock', { ip, forget, token: readControlToken() });
   }
 
   async shutdown(): Promise<void> {

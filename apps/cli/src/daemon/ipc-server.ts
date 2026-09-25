@@ -10,14 +10,17 @@ import type {
   IpcResponse,
   IpcPush,
   DaemonStatusReply,
+  BlocklistReply,
 } from './ipc-protocol.js';
 import type { ModuleHost } from './module-host.js';
+import type { RemediationManager } from './firewall/remediation.js';
+import { parseDuration } from './firewall/backoff.js';
 
 interface ClientState {
   id: number;
   socket: Socket;
   buffer: string;
-  subscriptions: Set<'event' | 'module'>;
+  subscriptions: Set<'event' | 'module' | 'firewall'>;
 }
 
 export class IpcServer {
@@ -31,6 +34,7 @@ export class IpcServer {
   constructor(
     private version: string,
     private moduleHost: ModuleHost,
+    private remediation?: RemediationManager,
   ) {
     bus.on('event', (event: ThreatEvent) => {
       this.counters.events++;
@@ -184,6 +188,72 @@ export class IpcServer {
       case 'subscribe':
         for (const ch of req.params.channels) client.subscriptions.add(ch);
         return this.send(client, { id: req.id, ok: true, result: { subscribed: [...client.subscriptions] } });
+
+      case 'blocklist': {
+        if (!this.remediation) {
+          return this.send(client, { id: req.id, ok: false, error: 'remediation is not running' });
+        }
+        const status = this.remediation.status();
+        const reply: BlocklistReply = {
+          entries: this.remediation.getBlocklist().map((entry) => ({
+            ip: entry.ip,
+            reason: entry.reason,
+            blocked_at: entry.blocked_at,
+            expires_at: entry.expires_at,
+            strikes: entry.strikes,
+            source: entry.source,
+            dry_run: entry.dry_run,
+          })),
+          protected: this.remediation.getProtected(),
+          enabled: status.enabled,
+          dry_run: status.dry_run,
+          backend: status.backend,
+          min_severity: status.min_severity,
+        };
+        return this.send(client, { id: req.id, ok: true, result: reply });
+      }
+
+      case 'block': {
+        // Writing a firewall rule is a control action, not a read. Same gate as
+        // `shutdown`: the adm group can watch, but only root can ban.
+        if (!tokensMatch(this.controlToken, req.params?.token)) {
+          return this.send(client, {
+            id: req.id,
+            ok: false,
+            error: 'banning requires the daemon control token (run as root, or as the user running threatcrushd)',
+          });
+        }
+        if (!this.remediation) {
+          return this.send(client, { id: req.id, ok: false, error: 'remediation is not running' });
+        }
+        const ttl = parseDuration(req.params?.ttl) ?? undefined;
+        const result = await this.remediation.ban(req.params.ip, req.params.reason || 'banned by operator', {
+          ttlSeconds: ttl,
+          source: 'manual',
+        });
+        if (!result.ok) {
+          return this.send(client, { id: req.id, ok: false, error: result.error || 'ban failed' });
+        }
+        return this.send(client, { id: req.id, ok: true, result: result.entry });
+      }
+
+      case 'unblock': {
+        if (!tokensMatch(this.controlToken, req.params?.token)) {
+          return this.send(client, {
+            id: req.id,
+            ok: false,
+            error: 'unbanning requires the daemon control token (run as root, or as the user running threatcrushd)',
+          });
+        }
+        if (!this.remediation) {
+          return this.send(client, { id: req.id, ok: false, error: 'remediation is not running' });
+        }
+        const result = await this.remediation.unban(req.params.ip, { forget: req.params.forget !== false });
+        if (!result.ok) {
+          return this.send(client, { id: req.id, ok: false, error: result.error || 'unban failed' });
+        }
+        return this.send(client, { id: req.id, ok: true, result: { ip: req.params.ip } });
+      }
 
       case 'shutdown':
         // TC-33: reads are open to the adm group by design; stopping the

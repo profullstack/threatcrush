@@ -1,5 +1,5 @@
 import type { EventSeverity, ThreatEvent } from '../types/events.js';
-import type { DaemonStatusReply } from '../daemon/ipc-protocol.js';
+import type { BlockedEntryReply, BlocklistReply, DaemonStatusReply } from '../daemon/ipc-protocol.js';
 
 export interface ModuleRow {
   name: string;
@@ -18,6 +18,32 @@ export interface SourceRow {
  * "daemon or demo" once at startup and then lie for the rest of the session.
  */
 export type Connection = 'searching' | 'live' | 'lost';
+
+/**
+ * Which panel the arrow keys drive. The feed used to own them unconditionally,
+ * which left no way to point at a source — and you cannot ban what you cannot
+ * point at. Tab cycles.
+ */
+export type Focus = 'feed' | 'threats' | 'bans';
+
+export const FOCUS_ORDER: Focus[] = ['feed', 'threats', 'bans'];
+
+/** A transient line in the status bar: the result of a ban or unban. */
+export interface Notice {
+  text: string;
+  tone: 'ok' | 'error';
+  /** Epoch ms after which it stops being shown. */
+  until: number;
+}
+
+export interface FirewallInfo {
+  enabled: boolean;
+  dry_run: boolean;
+  backend: string;
+  min_severity: string;
+}
+
+export const NOTICE_MS = 6000;
 
 export interface State {
   connection: Connection;
@@ -38,6 +64,18 @@ export interface State {
   /** Rows scrolled back from the newest event. 0 pins to the tail. */
   scrollBack: number;
   startedAt: number;
+  /** Active bans, newest first, as the daemon reports them. */
+  bans: BlockedEntryReply[];
+  /** Addresses the daemon will never ban, so the UI can explain a refusal. */
+  protectedList: string[];
+  firewall: FirewallInfo | null;
+  focus: Focus;
+  /** Selected row in TOP THREATS and in BANNED respectively. */
+  threatIndex: number;
+  banIndex: number;
+  notice: Notice | null;
+  /** Set while a ban/unban is in flight, so the key does not fire twice. */
+  busy: boolean;
 }
 
 export type Action =
@@ -52,6 +90,13 @@ export type Action =
   | { type: 'pause' }
   | { type: 'scroll'; delta: number }
   | { type: 'scroll_end' }
+  | { type: 'blocklist'; reply: BlocklistReply }
+  | { type: 'focus'; focus: Focus }
+  | { type: 'focus_next' }
+  | { type: 'select'; delta: number }
+  | { type: 'select_at'; index: number }
+  | { type: 'notice'; text: string; tone: 'ok' | 'error'; now?: number }
+  | { type: 'busy'; busy: boolean }
   | { type: 'reset' };
 
 export const TIMELINE_SLOTS = 60;
@@ -79,7 +124,31 @@ export function initialState(now: number = Date.now()): State {
     parked: [],
     scrollBack: 0,
     startedAt: now,
+    bans: [],
+    protectedList: [],
+    firewall: null,
+    focus: 'feed',
+    threatIndex: 0,
+    banIndex: 0,
+    notice: null,
+    busy: false,
   };
+}
+
+/** True when `ip` currently has a ban in force. */
+export function isBanned(state: State, ip: string): boolean {
+  return state.bans.some((b) => b.ip === ip);
+}
+
+/**
+ * The address the ban/unban keys act on: whichever row is selected in the
+ * focused panel. The feed has no selection, so it offers nothing to ban — the
+ * source list and the ban list do.
+ */
+export function selectedIp(state: State): string | null {
+  if (state.focus === 'threats') return state.topSources[state.threatIndex]?.ip ?? null;
+  if (state.focus === 'bans') return state.bans[state.banIndex]?.ip ?? null;
+  return null;
 }
 
 function accept(state: State, event: ThreatEvent): State {
@@ -135,7 +204,10 @@ export function reducer(state: State, action: Action): State {
       // locally by pushes *and* overwritten by the 2s poll, so the header
       // visibly jittered between two different numbers.
       const timeline = [...state.timeline.slice(1), state.pending];
-      return { ...state, timeline, pending: 0 };
+      // The tick is also what ages out a ban/unban notice, so the status bar
+      // does not keep claiming a result from five minutes ago.
+      const notice = state.notice && state.notice.until <= Date.now() ? null : state.notice;
+      return { ...state, timeline, pending: 0, notice };
     }
 
     case 'modules':
@@ -145,8 +217,81 @@ export function reducer(state: State, action: Action): State {
         counters: { ...state.counters, modules: action.modules.length },
       };
 
-    case 'top':
-      return { ...state, topSources: action.top };
+    case 'top': {
+      // Keep the selection on the row the operator was pointing at. Ranking is
+      // re-polled every two seconds and the list reorders under them; a fixed
+      // index would mean the ban key hits a different address than the one on
+      // screen when they pressed it.
+      const previous = state.topSources[state.threatIndex]?.ip;
+      const moved = previous ? action.top.findIndex((s) => s.ip === previous) : -1;
+      const threatIndex = moved >= 0
+        ? moved
+        : Math.min(state.threatIndex, Math.max(0, action.top.length - 1));
+      return { ...state, topSources: action.top, threatIndex };
+    }
+
+    case 'blocklist': {
+      const previous = state.bans[state.banIndex]?.ip;
+      const moved = previous ? action.reply.entries.findIndex((b) => b.ip === previous) : -1;
+      const banIndex = moved >= 0
+        ? moved
+        : Math.min(state.banIndex, Math.max(0, action.reply.entries.length - 1));
+      return {
+        ...state,
+        bans: action.reply.entries,
+        protectedList: action.reply.protected,
+        firewall: {
+          enabled: action.reply.enabled,
+          dry_run: action.reply.dry_run,
+          backend: action.reply.backend,
+          min_severity: action.reply.min_severity,
+        },
+        banIndex,
+      };
+    }
+
+    case 'focus':
+      return { ...state, focus: action.focus };
+
+    case 'focus_next': {
+      const next = FOCUS_ORDER[(FOCUS_ORDER.indexOf(state.focus) + 1) % FOCUS_ORDER.length];
+      return { ...state, focus: next };
+    }
+
+    case 'select': {
+      if (state.focus === 'threats') {
+        const max = Math.max(0, state.topSources.length - 1);
+        return { ...state, threatIndex: Math.min(max, Math.max(0, state.threatIndex + action.delta)) };
+      }
+      if (state.focus === 'bans') {
+        const max = Math.max(0, state.bans.length - 1);
+        return { ...state, banIndex: Math.min(max, Math.max(0, state.banIndex + action.delta)) };
+      }
+      return state;
+    }
+
+    case 'select_at': {
+      // A click lands on a row directly, and focuses the panel it landed in.
+      if (state.focus === 'bans') {
+        const max = Math.max(0, state.bans.length - 1);
+        return { ...state, banIndex: Math.min(max, Math.max(0, action.index)) };
+      }
+      const max = Math.max(0, state.topSources.length - 1);
+      return { ...state, threatIndex: Math.min(max, Math.max(0, action.index)) };
+    }
+
+    case 'notice':
+      return {
+        ...state,
+        notice: {
+          text: action.text,
+          tone: action.tone,
+          until: (action.now ?? Date.now()) + NOTICE_MS,
+        },
+      };
+
+    case 'busy':
+      return { ...state, busy: action.busy };
 
     case 'counters':
       return {
@@ -178,6 +323,13 @@ export function reducer(state: State, action: Action): State {
         daemon: state.daemon,
         modules: state.modules,
         counters: { ...state.counters, events: 0, threats: 0 },
+        // Reset clears the *view*, never the firewall. Bans are the daemon's
+        // state, and wiping them from the screen would make the dashboard
+        // disagree with the host it is describing.
+        bans: state.bans,
+        protectedList: state.protectedList,
+        firewall: state.firewall,
+        focus: state.focus,
       };
   }
 }

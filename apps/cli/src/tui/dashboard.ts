@@ -2,7 +2,8 @@ import { createApp } from '@profullstack/hqtui';
 import { IpcClient } from '../core/ipc-client.js';
 import { PATHS } from '../daemon/paths.js';
 import type { ThreatEvent } from '../types/events.js';
-import { reducer, initialState, type Action, type State } from './state.js';
+import { reducer, initialState, isBanned, selectedIp, type Action, type State } from './state.js';
+import { formatDuration } from '../daemon/firewall/backoff.js';
 import { threatcrushTheme } from './theme.js';
 import { renderDashboard } from './view.js';
 import { demoEvent } from './demo.js';
@@ -34,6 +35,8 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
   let client: IpcClient | null = null;
   let stopped = false;
   const timers: NodeJS.Timeout[] = [];
+  // Assigned when a live connection exists; a no-op in demo mode.
+  let refreshBans: () => Promise<void> = async () => {};
 
   const every = (ms: number, fn: () => void): void => {
     const t = setInterval(fn, ms);
@@ -64,6 +67,20 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
 
     const onEvent = (event: ThreatEvent): void => {
       if (!stopped) dispatch({ type: 'event', event });
+      // A ban the daemon decided on by itself shows up as an event; pull the
+      // list straight away so the row is marked before the next poll.
+      if (!stopped && event.module === 'firewall-rules') void refreshBans();
+    };
+
+    refreshBans = async (): Promise<void> => {
+      if (!client || stopped) return;
+      try {
+        const reply = await client.blocklist();
+        dispatch({ type: 'blocklist', reply });
+      } catch {
+        // An older daemon has no `blocklist` method. The rest of the screen
+        // keeps working; the BANNED panel just stays empty.
+      }
     };
 
     const poll = async (): Promise<void> => {
@@ -80,6 +97,10 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
         // fail on its own rather than taking the connection down with it.
         const top = await client.topSources(8).catch(() => []);
         dispatch({ type: 'top', top });
+
+        // The ban list comes from the daemon's own memory, not SQLite, so it
+        // survives a state DB that never opened.
+        await refreshBans();
       } catch {
         try { client?.close(); } catch { /* already gone */ }
         client = null;
@@ -136,6 +157,65 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
     app.stop();
   };
 
+  /**
+   * Ban or unban whatever is selected. Both go through the daemon rather than
+   * shelling out here: it owns the firewall backend, the protected set and the
+   * escalation ladder, and a dashboard writing its own rules would be a second
+   * source of truth for what is blocked.
+   */
+  const banSelected = async (): Promise<void> => {
+    const ip = selectedIp(state);
+    if (state.busy) return;
+    if (!ip) {
+      dispatch({ type: 'notice', text: 'select a source first (tab)', tone: 'error' });
+      return;
+    }
+    if (!client) {
+      dispatch({ type: 'notice', text: 'no daemon — cannot ban', tone: 'error' });
+      return;
+    }
+    if (isBanned(state, ip)) {
+      dispatch({ type: 'notice', text: `${ip} is already banned`, tone: 'error' });
+      return;
+    }
+
+    dispatch({ type: 'busy', busy: true });
+    try {
+      const entry = await client.block(ip, 'banned from dashboard');
+      const ttl = formatDuration(Math.round((entry.expires_at - Date.now()) / 1000));
+      dispatch({ type: 'notice', text: `banned ${ip} for ${ttl} (#${entry.strikes})`, tone: 'ok' });
+    } catch (err) {
+      dispatch({ type: 'notice', text: `ban failed: ${(err as Error).message}`, tone: 'error' });
+    } finally {
+      dispatch({ type: 'busy', busy: false });
+      await refreshBans();
+    }
+  };
+
+  const unbanSelected = async (): Promise<void> => {
+    const ip = selectedIp(state);
+    if (state.busy) return;
+    if (!ip) {
+      dispatch({ type: 'notice', text: 'select a source first (tab)', tone: 'error' });
+      return;
+    }
+    if (!client) {
+      dispatch({ type: 'notice', text: 'no daemon — cannot unban', tone: 'error' });
+      return;
+    }
+
+    dispatch({ type: 'busy', busy: true });
+    try {
+      await client.unblock(ip);
+      dispatch({ type: 'notice', text: `unbanned ${ip}`, tone: 'ok' });
+    } catch (err) {
+      dispatch({ type: 'notice', text: `unban failed: ${(err as Error).message}`, tone: 'error' });
+    } finally {
+      dispatch({ type: 'busy', busy: false });
+      await refreshBans();
+    }
+  };
+
   app.on('key', (event) => {
     switch (event.key) {
       case 'q':
@@ -150,13 +230,26 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
       case 'r':
         dispatch({ type: 'reset' });
         break;
+      case 'tab':
+        dispatch({ type: 'focus_next' });
+        break;
+      case 'b':
+        void banSelected();
+        break;
+      case 'u':
+        void unbanSelected();
+        break;
       case 'up':
       case 'k':
-        dispatch({ type: 'scroll', delta: 1 });
+        // The arrows drive whichever panel has focus: the feed scrolls, the
+        // two lists move their selection.
+        if (state.focus === 'feed') dispatch({ type: 'scroll', delta: 1 });
+        else dispatch({ type: 'select', delta: -1 });
         break;
       case 'down':
       case 'j':
-        dispatch({ type: 'scroll', delta: -1 });
+        if (state.focus === 'feed') dispatch({ type: 'scroll', delta: -1 });
+        else dispatch({ type: 'select', delta: 1 });
         break;
       case 'pageup':
         dispatch({ type: 'scroll', delta: 10 });
@@ -177,6 +270,16 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
     renderDashboard(ui, state, theme, {
       demo: options.demo,
       onFeedScroll: (delta) => dispatch({ type: 'scroll', delta: -delta }),
+      // One click both focuses the panel and picks the row — the operator
+      // should not have to click to focus and click again to select.
+      onThreatSelect: (row) => {
+        dispatch({ type: 'focus', focus: 'threats' });
+        dispatch({ type: 'select_at', index: row });
+      },
+      onBanSelect: (row) => {
+        dispatch({ type: 'focus', focus: 'bans' });
+        dispatch({ type: 'select_at', index: row });
+      },
     });
   });
 
