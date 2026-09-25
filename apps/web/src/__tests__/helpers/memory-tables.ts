@@ -41,7 +41,8 @@ export function createMemoryTables(seed: Record<string, Row[]> = {}) {
       }
       if (op === "update") {
         for (const row of matched) Object.assign(row, payload);
-        return { data: null, error: null };
+        const updated = matched.map((row) => ({ ...row }));
+        return { data: single ? (updated[0] ?? null) : updated, error: null };
       }
 
       if (orderBy) {

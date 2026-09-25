@@ -111,6 +111,26 @@ export async function resolveSafeAddress(url: URL): Promise<string> {
   return addresses[0];
 }
 
+/**
+ * For URLs that are stored now and requested later (alert webhooks): https
+ * only, and a host that resolves exclusively to public addresses. safeFetch
+ * repeats the address check and pins the connection at send time; this makes
+ * a bad URL fail when it is saved instead of when an alert fires.
+ */
+export async function validatePublicHttpsUrl(raw: string): Promise<URL> {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("URL is not valid");
+  }
+  if (url.protocol !== "https:") {
+    throw new Error("URL must use https");
+  }
+  await resolveSafeAddress(url);
+  return url;
+}
+
 export async function validateExternalHttpUrl(url: URL): Promise<void> {
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new Error("URL must be http or https");
