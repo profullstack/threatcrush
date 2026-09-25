@@ -168,14 +168,7 @@ Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/et
 
 ## Pricing
 
-| Tier | Price |
-|------|-------|
-| **Lifetime Access** | $499 one-time |
-| **With Referral** | Friend pays $399 · You earn $100 cash per referral |
-
-Pay once, access forever. All core modules, CLI, daemon, API, and lifetime updates included.
-
-👉 [Get lifetime access at threatcrush.com](https://threatcrush.com)
+The CLI is MIT-licensed (see [License](#license)). For pricing, [contact us for a quote](https://threatcrush.com/hire).
 
 ## Browser Extension
 

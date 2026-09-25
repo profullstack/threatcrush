@@ -77,13 +77,6 @@ export async function getUsageStats() {
   return request('/api/usage');
 }
 
-export async function topUpCredits(amountUsd) {
-  return request('/api/usage/topup', {
-    method: 'POST',
-    body: JSON.stringify({ amount_usd: amountUsd }),
-  });
-}
-
 // ─── Modules ───
 
 export async function getModules(params = {}) {
@@ -138,7 +131,6 @@ export default {
   updateProfile,
   checkVerification,
   getUsageStats,
-  topUpCredits,
   getModules,
   getModule,
   installModule,
