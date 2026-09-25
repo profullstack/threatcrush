@@ -3,7 +3,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import readline from "readline";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -189,10 +189,27 @@ async function refreshDaemonAfterUpgrade(): Promise<void> {
   if (plan.action === "none") return;
 
   if (plan.action === "manual") {
-    // Restarting this one ourselves would swap a supervised daemon for an
-    // unsupervised one, so hand the command over instead of running it.
-    console.log(chalk.yellow("  ! The daemon is managed by systemd and is still on the old build."));
-    console.log(chalk.dim(`    Restart it with:  ${plan.command}\n`));
+    // A systemd-managed daemon must be restarted *through* systemd, or we swap
+    // a supervised daemon for an unsupervised one. That is a reason to use
+    // systemctl — not a reason to print the command and leave the daemon
+    // running the old build until somebody gets around to it.
+    console.log(chalk.dim("  Restarting the systemd service onto the new build...\n"));
+    const restarted = restartSystemdDaemon();
+    if (!restarted) {
+      console.log(chalk.yellow("  ! Could not restart the service; it is still on the old build."));
+      console.log(chalk.dim(`    Restart it with:  ${plan.command}\n`));
+      return;
+    }
+
+    const after = await liveDaemon();
+    const stale = staleDaemonWarning(PKG_VERSION, after.version);
+    if (stale) {
+      console.log(chalk.yellow(`  ${stale[0]}`));
+      for (const line of stale.slice(1)) console.log(chalk.dim(`  ${line}`));
+      console.log();
+    } else {
+      console.log(chalk.green(`  ✓ threatcrushd restarted on ${after.version ?? PKG_VERSION}.\n`));
+    }
     return;
   }
 
@@ -208,6 +225,59 @@ async function refreshDaemonAfterUpgrade(): Promise<void> {
     }
     console.log();
   }
+}
+
+/**
+ * A daemon that means to ban and cannot is a broken install, not a preference.
+ *
+ * Auto-defence enforces by default, and an unprivileged daemon detects a
+ * firewall backend happily (`nft --version` succeeds for anybody) while being
+ * unable to write a single rule. Rather than reporting that and leaving the
+ * host undefended until somebody reads the line, repair it: installing the
+ * system service is exactly the fix, and it asks for root itself.
+ *
+ * Only runs when the daemon says it intends to enforce and cannot — never on a
+ * daemon that is disabled, in dry-run, or already privileged.
+ */
+async function promoteUnprivilegedDaemon(): Promise<void> {
+  const client = new IpcClient();
+  let warning: string | undefined;
+  try {
+    await client.connect();
+    warning = (await client.blocklist()).warning;
+  } catch {
+    // Older daemon, or none running. Nothing to repair from here.
+    return;
+  } finally {
+    client.close();
+  }
+
+  if (!warning) return;
+
+  console.log(chalk.yellow(`  ! ${warning}`));
+  console.log(chalk.dim("  Auto-defence is on, so installing the system service to give it that privilege.\n"));
+  await installServiceCommand();
+}
+
+/**
+ * Restart the systemd unit, elevating if we are not root.
+ *
+ * sudo's prompt goes straight to the operator's terminal, so this asks for the
+ * privilege at the moment it is needed instead of handing back a command.
+ */
+function restartSystemdDaemon(): boolean {
+  const asRoot = typeof process.getuid === "function" && process.getuid() === 0;
+  const argv = asRoot
+    ? ["systemctl", "restart", DAEMON_UNIT]
+    : ["sudo", "systemctl", "restart", DAEMON_UNIT];
+
+  if (!asRoot && spawnSync("sudo", ["--version"], { stdio: "pipe" }).status !== 0) return false;
+
+  const [cmd, ...args] = argv;
+  if (spawnSync(cmd, args, { stdio: "inherit" }).status !== 0) return false;
+
+  // `systemctl restart` returns before the unit is necessarily up.
+  return spawnSync("systemctl", ["is-active", "--quiet", DAEMON_UNIT], { stdio: "pipe" }).status === 0;
 }
 
 /** Runs a command for its stdout, swallowing failure and a missing binary. */
@@ -608,6 +678,9 @@ program
       }
       await reportIfStillStale();
       await refreshDaemonAfterUpgrade();
+      // An update is also the moment to notice the daemon cannot do the job it
+      // was configured for, and fix it rather than describe it.
+      await promoteUnprivilegedDaemon();
       // A running `monitor --tui` loaded its code at launch, so it keeps
       // rendering the old build however current everything on disk is.
       console.log(chalk.dim("  If a `threatcrush monitor --tui` is open, quit and relaunch it.\n"));
