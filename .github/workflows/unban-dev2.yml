@@ -1,0 +1,102 @@
+# Break-glass: lift a ban on dev2 from outside dev2.
+#
+# Auto-defence enforces on dev2, and a false positive can ban the operator's own
+# address — at which point ssh times out and there is no way in to undo it. A
+# GitHub runner connects from an address the box has never banned, which makes
+# this the one reliable door left.
+#
+# It needs no sudo: `threatcrush unblock` talks to the daemon over its IPC
+# socket (0660 root:adm) and carries no control token, exactly so that lifting a
+# ban is never harder than placing one.
+name: Unban on dev2
+
+on:
+  workflow_dispatch:
+    inputs:
+      ips:
+        description: Space-separated addresses to unban. Empty lists the blocklist only.
+        required: false
+        type: string
+      stop_enforcing:
+        description: Also switch auto-defence to dry-run and restart (use when bans keep landing)
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: unban-dev2
+  cancel-in-progress: false
+
+jobs:
+  unban:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Set up ssh
+        env:
+          SSH_KEY: ${{ secrets.DEV2_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV2_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Show what is banned
+        env:
+          DEV2_USER: ${{ secrets.DEV2_USER }}
+          DEV2_HOST: ${{ secrets.DEV2_HOST }}
+        run: |
+          ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" \
+            'export PATH="$HOME/.local/share/mise/installs/node/latest/bin:$PATH"; threatcrush blocklist 2>&1 | tail -40'
+
+      - name: Unban
+        if: inputs.ips != ''
+        env:
+          DEV2_USER: ${{ secrets.DEV2_USER }}
+          DEV2_HOST: ${{ secrets.DEV2_HOST }}
+          IPS: ${{ inputs.ips }}
+        run: |
+          # IPS goes through the environment on the remote side too, never
+          # interpolated into the command line.
+          ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" "IPS='$IPS' bash -s" <<'REMOTE'
+          export PATH="$HOME/.local/share/mise/installs/node/latest/bin:$PATH"
+          for ip in $IPS; do
+            echo "== unblocking $ip"
+            threatcrush unblock "$ip" 2>&1 | tail -3
+          done
+          REMOTE
+
+      - name: Drop to dry-run
+        if: inputs.stop_enforcing
+        env:
+          DEV2_USER: ${{ secrets.DEV2_USER }}
+          DEV2_HOST: ${{ secrets.DEV2_HOST }}
+        run: |
+          ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" 'bash -s' <<'REMOTE'
+          set -e
+          conf=/etc/threatcrush/threatcrushd.conf
+          # /etc/threatcrush is group-writable by adm, which is why this needs no sudo.
+          if ! grep -q '^\[remediation\]' "$conf" 2>/dev/null; then
+            printf '\n[remediation]\nmode = "dry_run"\n' >> "$conf"
+          else
+            grep -q '^mode' "$conf" && sed -i 's/^mode.*/mode = "dry_run"/' "$conf" \
+              || sed -i '/^\[remediation\]/a mode = "dry_run"' "$conf"
+          fi
+          echo "== remediation section now:"
+          sed -n '/^\[remediation\]/,/^\[/p' "$conf"
+          echo "== flushing current bans"
+          export PATH="$HOME/.local/share/mise/installs/node/latest/bin:$PATH"
+          threatcrush blocklist 2>&1 | grep -oE '^  [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | while read -r ip; do
+            threatcrush unblock "$ip" >/dev/null 2>&1 && echo "unbanned $ip"
+          done
+          REMOTE
+
+      - name: Confirm
+        env:
+          DEV2_USER: ${{ secrets.DEV2_USER }}
+          DEV2_HOST: ${{ secrets.DEV2_HOST }}
+        run: |
+          ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" \
+            'export PATH="$HOME/.local/share/mise/installs/node/latest/bin:$PATH"; threatcrush blocklist 2>&1 | tail -20'
