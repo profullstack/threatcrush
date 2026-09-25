@@ -86,6 +86,13 @@ export interface State {
    * `user-journal`, and there was no way to look past them.
    */
   moduleFilter: string | null;
+  /**
+   * Show low-severity 4xx lines in the feed. Off by default: on a box serving
+   * paywalled sites they are most of the traffic (a one-request-per-address
+   * proxy swarm against x402 routes put ~150k of them through dev2) and they
+   * buried every real detection. They still count in SEVERITY; `n` shows them.
+   */
+  showNoise: boolean;
 }
 
 export type Action =
@@ -109,6 +116,7 @@ export type Action =
   | { type: 'busy'; busy: boolean }
   | { type: 'toggle_module_filter' }
   | { type: 'clear_module_filter' }
+  | { type: 'toggle_noise' }
   | { type: 'reset' };
 
 export const TIMELINE_SLOTS = 60;
@@ -146,13 +154,26 @@ export function initialState(now: number = Date.now()): State {
     busy: false,
     moduleIndex: 0,
     moduleFilter: null,
+    showNoise: false,
   };
 }
 
-/** The events the feed should show, honouring the module filter. */
+/** A routine client error: a 4xx the web server answered, at low severity or below. */
+export function isNoise(event: ThreatEvent): boolean {
+  return (event.severity === 'low' || event.severity === 'info') && /^Client error 4\d\d:/.test(event.message);
+}
+
+/** The events the feed should show, honouring the module filter and the noise toggle. */
 export function visibleEvents(state: State): ThreatEvent[] {
-  if (!state.moduleFilter) return state.events;
-  return state.events.filter((e) => e.module === state.moduleFilter);
+  return state.events.filter(
+    (e) => (!state.moduleFilter || e.module === state.moduleFilter) && (state.showNoise || !isNoise(e)),
+  );
+}
+
+/** How many buffered events the noise toggle is hiding right now. */
+export function hiddenNoise(state: State): number {
+  if (state.showNoise) return 0;
+  return state.events.filter((e) => (!state.moduleFilter || e.module === state.moduleFilter) && isNoise(e)).length;
 }
 
 /** True when `ip` currently has a ban in force. */
@@ -335,6 +356,9 @@ export function reducer(state: State, action: Action): State {
     case 'clear_module_filter':
       return { ...state, moduleFilter: null, scrollBack: 0 };
 
+    case 'toggle_noise':
+      return { ...state, showNoise: !state.showNoise, scrollBack: 0 };
+
     case 'counters':
       return {
         ...state,
@@ -374,6 +398,7 @@ export function reducer(state: State, action: Action): State {
         focus: state.focus,
         moduleFilter: state.moduleFilter,
         moduleIndex: state.moduleIndex,
+        showNoise: state.showNoise,
       };
   }
 }

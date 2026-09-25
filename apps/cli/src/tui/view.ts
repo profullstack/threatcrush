@@ -6,6 +6,7 @@ import {
   eventsPerSecond,
   formatCount,
   formatUptime,
+  hiddenNoise,
   isBanned,
   severityTotal,
   visibleEvents,
@@ -198,6 +199,11 @@ function severityPanel(parent: Container, state: State, theme: Theme): void {
   );
 }
 
+function noiseNote(state: State): string | undefined {
+  const hidden = hiddenNoise(state);
+  return hidden > 0 ? `${hidden} routine 4xx hidden · n shows` : undefined;
+}
+
 function feedPanel(parent: Container, state: State, theme: Theme, options: ViewOptions): void {
   const following = state.scrollBack === 0;
   const shown = visibleEvents(state);
@@ -211,7 +217,7 @@ function feedPanel(parent: Container, state: State, theme: Theme, options: ViewO
       titleColor: theme.primary,
       subtitle: filtered
         ? `${shown.length}/${state.events.length} · esc clears filter`
-        : (following ? undefined : `↑ ${state.scrollBack} back · end to follow`),
+        : (following ? noiseNote(state) : `↑ ${state.scrollBack} back · end to follow`),
       subtitleColor: filtered ? theme.primary : severityColors.medium,
       padding: [0, 1],
     },
@@ -221,6 +227,14 @@ function feedPanel(parent: Container, state: State, theme: Theme, options: ViewO
         panel.text(`No events from ${state.moduleFilter} yet.`, { fg: theme.muted, align: 'center' });
         panel.spacer(1);
         panel.label('esc shows everything again', { fg: theme.muted, align: 'center' });
+        return;
+      }
+
+      if (!filtered && shown.length === 0 && state.events.length > 0) {
+        panel.spacer(1);
+        panel.text('Nothing but routine 4xx client errors so far.', { fg: theme.muted, align: 'center' });
+        panel.spacer(1);
+        panel.label('n shows them', { fg: theme.muted, align: 'center' });
         return;
       }
 
@@ -463,6 +477,7 @@ function footer(ui: Container, state: State, theme: Theme): void {
         : [{ key: 'b', label: 'ban' }, { key: 'u', label: 'unban' }]),
       { key: 'p', label: state.paused ? 'resume' : 'pause' },
       { key: 'r', label: 'reset' },
+      { key: 'n', label: state.showNoise ? 'hide 4xx' : 'show 4xx' },
     ],
     right: [
       // The notice is the answer to "did my keypress do anything", so it takes
