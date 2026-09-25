@@ -2,6 +2,8 @@
 // reconstructed from an access-log line, with CRS anomaly scoring: every rule
 // that matches adds its severity's points, and the request is an attack when
 // the total reaches the inbound threshold (CRS default 5, one CRITICAL rule).
+// ThreatCrush's own rules (THREATCRUSH_RULES, ids 10000-10999) are scored the
+// same way, alongside CRS but not counted as CRS.
 //
 // Semantics follow ModSecurity v2: ARGS are the query-string arguments split on
 // `&` and URL-decoded; REQUEST_FILENAME, QUERY_STRING and REQUEST_URI_RAW are
@@ -9,7 +11,7 @@
 // adds a rule's score once per matching variable, this adds it once per rule —
 // the score decides bans, so it errs low.
 
-import { CRS_RULES } from './rules.generated.js';
+import { CRS_RULES, THREATCRUSH_RULES } from './rules.generated.js';
 import { TRANSFORMS, lowercase } from './transforms.js';
 import type { CrsChainLink, CrsOperator, CrsRule, CrsSeverity, CrsTarget } from './types.js';
 
@@ -74,7 +76,7 @@ export interface CrsAssessment {
 export interface CrsEngineOptions {
   /** Inbound anomaly threshold. Defaults to CRS's 5. */
   threshold?: number;
-  /** Rule ids to leave out, as SecRuleRemoveById would. Defaults to DEFAULT_EXCLUDED_RULE_IDS. */
+  /** Rule ids (CRS or ThreatCrush) to leave out, as SecRuleRemoveById would. Defaults to DEFAULT_EXCLUDED_RULE_IDS. */
   excludeRuleIds?: Iterable<number>;
 }
 
@@ -323,6 +325,8 @@ const MEMO_MAX_VALUE = 512;
 
 export class CrsEngine {
   readonly threshold: number;
+  /** How many rules are loaded, by origin: ported OWASP CRS, and ThreatCrush's own. */
+  readonly ruleCounts: { crs: number; threatcrush: number };
   private readonly rules: CompiledRule[];
   /** Unchained rules by the targets they read. */
   private readonly byTarget = new Map<CrsTarget, CompiledRule[]>();
@@ -334,7 +338,10 @@ export class CrsEngine {
   constructor(options: CrsEngineOptions = {}) {
     this.threshold = options.threshold ?? DEFAULT_ANOMALY_THRESHOLD;
     const excluded = new Set(options.excludeRuleIds ?? DEFAULT_EXCLUDED_RULE_IDS);
-    this.rules = CRS_RULES.filter((r) => !excluded.has(r.id)).map((rule, index) => ({
+    const crs = CRS_RULES.filter((r) => !excluded.has(r.id));
+    const threatcrush = THREATCRUSH_RULES.filter((r) => !excluded.has(r.id));
+    this.ruleCounts = { crs: crs.length, threatcrush: threatcrush.length };
+    this.rules = [...crs, ...threatcrush].map((rule, index) => ({
       index,
       rule,
       test: compileOperator(rule.op),
@@ -353,10 +360,6 @@ export class CrsEngine {
         this.byTarget.set(target, list);
       }
     }
-  }
-
-  get ruleCount(): number {
-    return this.rules.length;
   }
 
   private slotMatches(target: CrsTarget, rules: CompiledRule[], slot: Slot): number[] {

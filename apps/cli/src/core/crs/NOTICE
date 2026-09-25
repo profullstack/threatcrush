@@ -19,3 +19,9 @@ were converted by apps/cli/scripts/build-crs-rules.mjs into a JSON rule table
 inlined, targets an access log cannot record removed). Rules that could not be
 translated faithfully were left out. The evaluation engine is ThreatCrush's
 own; it is not ModSecurity.
+
+Also derived from CRS: ThreatCrush's own rule 10001 (THREATCRUSH_RULES in
+rules.generated.ts), which is not part of CRS. It applies the phrases of CRS's
+lfi-os-files.data, less those restricted-files.data already covers, to the
+request path with the transformations of CRS rule 930120, as one anchored
+JavaScript regular expression.

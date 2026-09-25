@@ -173,6 +173,46 @@ describe('web attack detection (OWASP CRS, PL1)', () => {
     expect(attackSeverity(assessNginxRequest(page))).toBeNull();
   });
 
+  it('bans a request whose path names an OS file (ThreatCrush rule 10001)', () => {
+    // CRS checks lfi-os-files.data against arguments only, so these scored
+    // nothing once the hand-written `etc/passwd` regex was gone.
+    for (const path of ['/etc/passwd', '/../../etc/passwd', '/%2fetc%2fpasswd', '%2fetc%2fpasswd', '/ETC/shadow', '/c:/windows/system32/config/sam']) {
+      const assessment = assessNginxRequest(line(`GET ${path} HTTP/1.1`));
+      expect(assessment.matches.map((m) => m.id), path).toContain(10001);
+      expect(assessment.attackType, path).toBe('path_traversal');
+      expect(attackSeverity(assessment), path).not.toBeNull();
+    }
+  });
+
+  it('leaves pages alone that only mention an OS file inside their path', () => {
+    for (const path of [
+      '/blog/etc/hosts-file-explained',
+      '/docs/etc/passwd-format',
+      '/etc/initial-thoughts',
+      '/myetc/passwd',
+      '/etcetera/passwd',
+      '/apache/logo.png',
+      '/var/logo.png',
+      '/node_modules/jquery/dist/jquery.min.js',
+      '/perl/intro.html',
+    ]) {
+      expect(assessNginxRequest(line(`GET ${path} HTTP/1.1`)).score, path).toBe(0);
+    }
+  });
+
+  it('leaves a file CRS already restricts in the path to 930130, so it scores once', () => {
+    for (const path of ['/.git/config', '/proc/self/environ', '/.env']) {
+      expect(assessNginxRequest(line(`GET ${path} HTTP/1.1`)).matches.map((m) => m.id), path).toEqual([930130]);
+    }
+  });
+
+  it('switches rule 10001 off with exclude_rules', () => {
+    configureAttackDetection({ exclude_rules: [10001] });
+    const assessment = assessNginxRequest(line('GET /etc/passwd HTTP/1.1'));
+    expect(assessment.score).toBe(0);
+    expect(attackSeverity(assessment)).toBeNull();
+  });
+
   it('keeps detectAttackPattern answering with the attack type', () => {
     expect(detectAttackPattern('/../../etc/passwd')).toBe('path_traversal');
     expect(detectAttackPattern('/topics/rochester/podcasts.rss')).toBeNull();

