@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { openSync } from 'node:fs';
 import chalk from 'chalk';
 import { runDaemon } from '../daemon/index.js';
-import { PATHS, ensureRuntimeDirs } from '../daemon/paths.js';
+import { PATHS, ensureRuntimeDirs, systemDaemonPresent } from '../daemon/paths.js';
+
+const SYSTEM_SOCKET = '/var/run/threatcrush/threatcrushd.sock';
+
+function isRoot(): boolean {
+  return typeof process.getuid === 'function' && process.getuid() === 0;
+}
 import { findRunningDaemon, isProcessAlive, removePidFile } from '../daemon/pidfile.js';
 import { IpcClient } from '../core/ipc-client.js';
 
@@ -18,6 +24,24 @@ export async function daemonStart(): Promise<void> {
   const pid = findRunningDaemon();
   if (pid) {
     console.log(chalk.yellow(`  threatcrushd already running (pid ${pid}).`));
+    return;
+  }
+
+  // Refuse to stand a second daemon up beside the system one.
+  //
+  // `findRunningDaemon` only looks at this mode's pid file, so a non-root user
+  // saw "No running daemon found" while a root daemon was running perfectly
+  // well — and started a user-mode one. From then on every CLI call went to the
+  // new daemon, which answered with an empty blocklist while the root daemon's
+  // nftables table kept dropping hosts. Two daemons is never what was wanted.
+  if (!isRoot() && systemDaemonPresent()) {
+    console.log(chalk.yellow('  A system threatcrushd is already installed on this host.'));
+    console.log(chalk.dim('  Starting a second, user-mode daemon would shadow it: the CLI would'));
+    console.log(chalk.dim('  talk to yours while the root one keeps enforcing the firewall.'));
+    console.log();
+    console.log(chalk.dim('  Manage that one instead:  sudo systemctl restart threatcrushd'));
+    console.log(chalk.dim(`  Or address it directly:   THREATCRUSH_SOCKET=${SYSTEM_SOCKET} threatcrush status`));
+    console.log();
     return;
   }
 

@@ -390,11 +390,33 @@ export class RemediationManager {
     this.blocklist = live;
     this.saveState();
 
-    if (this.config.dry_run) return;
-    let applied: string[] = [];
+    let applied: string[] | null = null;
     try { applied = await this.adapter.listBlocked(); } catch { /* backend may not list */ }
+
+    // Drop anything the backend is enforcing that we have no record of.
+    //
+    // Reconcile used to only *add*, which meant a rule could outlive every
+    // trace of its reason: if the state DB failed to open, or was reset, or the
+    // daemon died between writing a rule and saving, the address stayed blocked
+    // with nothing left to explain or expire it. Observed on dev2 — the
+    // blocklist read "Nothing is banned" while three hosts were still being
+    // dropped. PRD 0010 R3 exists for exactly this: what we added, we can
+    // remove, and only what we can account for stays.
+    //
+    // This runs even in dry-run, because a dry-run daemon asserting it changes
+    // nothing must also not leave yesterday's enforcement standing.
+    if (applied) {
+      const known = new Set(live.filter((b) => !b.dry_run).map((b) => b.ip));
+      for (const ip of applied) {
+        if (known.has(ip)) continue;
+        this.logLine(`[firewall] reconcile: dropping stale rule for ${ip} (no record of why)`);
+        try { await this.adapter.unblock(ip); } catch { /* already gone */ }
+      }
+    }
+
+    if (this.config.dry_run) return;
     for (const entry of live) {
-      if (applied.includes(entry.ip)) continue;
+      if (applied?.includes(entry.ip)) continue;
       try { await this.adapter.block(entry.ip); } catch { /* reported on next ban */ }
     }
   }
