@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCoinpayPaymentStatus } from '@/lib/coinpay-client';
 import { getSupabaseAdmin } from '@/lib/supabase';
+import { isSettledStatus, SETTLED_STATUS_LIST } from '@/lib/payment-status';
 
 function isSchemaCacheError(err: unknown): boolean {
   if (err && typeof err === 'object' && 'code' in err) {
@@ -51,17 +52,20 @@ export async function GET(req: NextRequest) {
 
   if (supabase && live.status) {
     try {
-      await supabase
+      const settled = isSettledStatus(live.status);
+      let update = supabase
         .from('funding_payments')
         .update({
           status: live.status,
           tx_hash: live.tx_hash ?? null,
           updated_at: new Date().toISOString(),
-          ...(live.status === 'forwarded' || live.status === 'confirmed'
-            ? { paid_at: new Date().toISOString() }
-            : {}),
+          ...(settled ? { paid_at: new Date().toISOString() } : {}),
         })
         .eq('coinpay_payment_id', paymentId);
+      // TC-10: a lagging or defaulted ('pending') live status must not
+      // regress a payment the webhook has already settled.
+      if (!settled) update = update.not('status', 'in', SETTLED_STATUS_LIST);
+      await update;
     } catch (e) {
       if (!isSchemaCacheError(e)) {
         console.error('[funding/status] update error:', e);
