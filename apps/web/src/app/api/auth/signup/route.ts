@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import { createSupabaseAuthClient, getSupabaseAdmin } from "@/lib/supabase";
 import { randomInt } from "node:crypto";
 import { issuePhoneCode } from "@/lib/phone-verification";
 import { setSignupGrantCookie } from "@/lib/signup-grant";
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     // Use the anon client so Supabase actually sends the confirmation email.
     // admin.createUser silently creates users without sending any email.
-    const anon = getSupabaseClient();
+    const anon = createSupabaseAuthClient();
     const { data: authData, error: authError } = await anon.auth.signUp({
       email,
       password,

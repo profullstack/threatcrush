@@ -30,7 +30,7 @@ function resetMocks(overrides: {
 }
 
 vi.mock("@/lib/supabase", () => ({
-  getSupabaseClient: () => ({
+  createSupabaseAuthClient: () => ({
     auth: {
       signInWithPassword: mockSignIn,
     },
