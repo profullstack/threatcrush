@@ -160,6 +160,27 @@ describe('RemediationManager', () => {
     expect(manager.getBlocklist()).toHaveLength(0);
   });
 
+  it('does not climb the strike ladder for a ban the backend rejected', async () => {
+    // The bug: recordStrike ran before adapter.block, so a non-root daemon that
+    // could not write nftables still inflated the ladder while dropping no
+    // packets — the counter claimed a protection that never existed.
+    const manager = make();
+
+    adapter.failNext = true;
+    const failed = await manager.ban('45.33.22.11', 'operator');
+    expect(failed.ok).toBe(false);
+    // No strike recorded, because nothing was enforced.
+    expect(manager.getStrikes()['45.33.22.11']).toBeUndefined();
+    expect(adapter.blocked.has('45.33.22.11')).toBe(false);
+
+    // The next attempt, once the backend can enforce, starts the ladder at one.
+    const ok = await manager.ban('45.33.22.11', 'operator');
+    expect(ok.ok).toBe(true);
+    expect(ok.entry?.strikes).toBe(1);
+    expect(manager.getStrikes()['45.33.22.11'].count).toBe(1);
+    expect(adapter.blocked.has('45.33.22.11')).toBe(true);
+  });
+
   it('writes no rules in dry-run but still tracks what it would have done', async () => {
     const manager = make({ dry_run: true });
     await manager.handleDetection(detection('45.33.22.11'));

@@ -205,20 +205,12 @@ export class RemediationManager {
       return { ok: false, error: `${ip} is already banned` };
     }
 
-    const strike = recordStrike(this.strikes, ip, now, this.config.strike_memory_seconds);
-    const ttl = opts.ttlSeconds ?? banSeconds(strike, this.config.max_ban_seconds);
-
-    const entry: BlockEntry = {
-      ip,
-      reason,
-      rule_id: opts.ruleId,
-      blocked_at: now,
-      expires_at: now + ttl * 1000,
-      dry_run: this.config.dry_run,
-      strikes: strike,
-      source: opts.source ?? 'manual',
-    };
-
+    // Enforce first, then record. The strike ladder must climb only for bans
+    // we actually applied: recording the strike before the block let a failed
+    // enforcement — a non-root daemon that cannot write nftables, or any adapter
+    // error — inflate the ladder while dropping no packets, so the counter
+    // claimed a protection that did not exist. If the block fails we change
+    // nothing: no strike, no ledger entry, no kernel rule.
     if (!this.config.dry_run) {
       try {
         await this.adapter.block(ip);
@@ -236,6 +228,20 @@ export class RemediationManager {
         return { ok: false, error: message };
       }
     }
+
+    const strike = recordStrike(this.strikes, ip, now, this.config.strike_memory_seconds);
+    const ttl = opts.ttlSeconds ?? banSeconds(strike, this.config.max_ban_seconds);
+
+    const entry: BlockEntry = {
+      ip,
+      reason,
+      rule_id: opts.ruleId,
+      blocked_at: now,
+      expires_at: now + ttl * 1000,
+      dry_run: this.config.dry_run,
+      strikes: strike,
+      source: opts.source ?? 'manual',
+    };
 
     // Re-banning with an explicit TTL replaces the entry rather than stacking.
     this.blocklist = this.blocklist.filter((b) => b.ip !== ip);
