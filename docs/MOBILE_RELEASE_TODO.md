@@ -1,15 +1,18 @@
 # Mobile Release TODO
 
-Status: stubbed / documented on 2026-04-05
+Status: checked 2026-09-25 against GitHub Actions run history
 
 ## Goal
 Ship real native mobile builds for ThreatCrush using Expo / EAS under a separate Expo project.
 
 ## Current reality
-- `mobile/` is already an Expo app.
-- `mobile/eas.json` exists.
-- `.github/workflows/mobile-release.yml` now exists.
-- Local machine is **not logged into EAS**, so project linking/build submission was not completed yet.
+- `apps/mobile/` is an Expo app; the EAS project is `profullstack/threatcrush-mobile`
+  and `EXPO_TOKEN` is set in GitHub, so steps 1–3 below are done.
+- `.github/workflows/mobile-release.yml` succeeds on every `v*` tag: it runs an
+  EAS `production` build for **Android only** and stores the AAB on expo.dev.
+  Manual dispatches produced Android `preview` builds (2026-08-08).
+- iOS has never been built, and nothing has been submitted to Google Play or
+  the App Store.
 - Site/product copy should not imply public app-store availability until real artifacts are shipping.
 
 ## Desired project identity

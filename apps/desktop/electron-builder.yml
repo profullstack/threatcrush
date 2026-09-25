@@ -38,11 +38,39 @@ deb:
   # bumping electron-builder.
   afterInstall: resources/after-install.sh
   afterRemove: resources/after-remove.sh
+  # electron-builder's stock list plus libgbm1 and libasound2: the Electron
+  # binary links libgbm.so.1 and libasound.so.2, but the stock list omits both,
+  # so on a minimal Debian/Ubuntu install `apt install ./threatcrush-*.deb`
+  # succeeded and the app then died with "libgbm.so.1: cannot open shared
+  # object file". Setting `depends` replaces the stock list, hence the repeat.
+  # On Ubuntu 24.04+/Debian 13 `libasound2` is only a virtual package that
+  # liboss4-salsa-asound2 (an incomplete ALSA shim: "undefined symbol:
+  # snd_device_name_get_hint") also provides, and apt may pick it, so the real
+  # libasound2t64 is named first; older releases fall through to libasound2.
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libgbm1
+    - libasound2t64 | libasound2
+# Signing and notarization are driven by environment variables, not by this
+# file: CSC_LINK/CSC_KEY_PASSWORD (Developer ID .p12) sign the app, and once it
+# is signed electron-builder notarizes it if APPLE_API_KEY/APPLE_API_KEY_ID/
+# APPLE_API_ISSUER or APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID are
+# set. Leave `notarize` unset: `false` would veto notarization even with
+# credentials. Hardened runtime and the Electron entitlements (allow-jit,
+# allow-unsigned-executable-memory, disable-library-validation) are
+# electron-builder 25's defaults. CI wiring: scripts/desktop-signing-env.sh.
 mac:
   target:
     - dmg
     - zip
-  notarize: false
   artifactName: threatcrush-desktop-${version}-${arch}.${ext}
 win:
   target:

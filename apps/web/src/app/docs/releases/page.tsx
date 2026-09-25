@@ -10,41 +10,41 @@ const workflows = [
   {
     name: "Desktop Release",
     file: ".github/workflows/desktop-release.yml",
-    status: "Release workflow present",
-    description: "Builds desktop artifacts for macOS, Windows, and Linux on version tags or manual dispatch. Needs signing/release secrets to be truly production-ready.",
+    status: "Publishing (unsigned)",
+    description: "On every version tag, publishes a GitHub Release with macOS .dmg/.zip (Apple silicon and Intel), a Windows x64 NSIS installer, a Linux AppImage and .deb, and SHA256SUMS.txt. macOS/Windows signing and macOS notarization switch on automatically once their secrets are configured; until then those builds are unsigned.",
   },
   {
     name: "CLI npm Publish",
     file: ".github/workflows/npm-publish.yml",
-    status: "Release workflow present",
-    description: "Publishes the CLI package on version tags or manual dispatch, assuming the npm token is configured.",
+    status: "Publishing",
+    description: "Publishes @profullstack/threatcrush to npm on every version tag; manual dispatch supports a dry run.",
   },
   {
     name: "Docker Publish",
     file: ".github/workflows/docker-publish.yml",
-    status: "Release workflow present",
-    description: "Builds and pushes Docker images on version tags or manual dispatch, assuming registry credentials are configured.",
+    status: "Publishing to GHCR (private)",
+    description: "Builds and pushes ghcr.io/profullstack/threatcrush:{latest,version} on every version tag. The GHCR package is not public yet, so anonymous pulls are refused; Docker Hub is skipped until its credentials exist.",
   },
   {
     name: "Submit to Package Managers",
     file: ".github/workflows/submit-packages.yml",
-    status: "Release workflow present",
-    description: "Submits artifacts/manifests to package managers after release publication or manual dispatch. Requires multiple packaging secrets.",
+    status: "Not running",
+    description: "Submits artifacts/manifests to package managers when a GitHub Release is published or on manual dispatch. It has not run since August 2026: releases are published with the default GITHUB_TOKEN, which does not trigger other workflows, and the packaging secrets are not configured.",
   },
   {
     name: "Mobile Release",
     file: ".github/workflows/mobile-release.yml",
-    status: "New Expo/EAS workflow",
-    description: "Builds native mobile artifacts with Expo/EAS for preview or production and can optionally auto-submit production builds.",
+    status: "Android builds on tags",
+    description: "Builds the Android app with Expo/EAS on every version tag (production profile). iOS builds and store submission are manual-dispatch options that have not been run successfully yet.",
   },
 ];
 
 const requiredSecrets = [
-  "EXPO_TOKEN for Expo/EAS mobile builds",
-  "NPM_TOKEN for CLI publishing",
-  "DOCKER_USERNAME and DOCKER_TOKEN for Docker Hub publishing",
-  "Apple signing/notarization secrets for desktop macOS releases",
-  "Windows certificate secrets for signed Windows desktop releases",
+  "EXPO_TOKEN for Expo/EAS mobile builds (configured)",
+  "NPM_TOKEN for CLI publishing (configured)",
+  "DOCKER_USERNAME and DOCKER_TOKEN for Docker Hub publishing (not configured; images go to GHCR only)",
+  "APPLE_CERTIFICATE and APPLE_CERTIFICATE_PASSWORD to sign the macOS desktop app, plus APPLE_API_KEY, APPLE_API_KEY_ID and APPLE_API_ISSUER (or APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID) to notarize it",
+  "WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD to sign the Windows desktop installer",
   "Package-manager submission secrets (AUR/GPG/Chocolatey/etc.) when using submit-packages",
 ];
 
@@ -83,7 +83,7 @@ export default function ReleasesDocsPage() {
         </section>
 
         <section className="mb-12 rounded-2xl border border-tc-border bg-tc-card p-8">
-          <h2 className="text-2xl font-bold text-white">Secrets / infra still needed</h2>
+          <h2 className="text-2xl font-bold text-white">Release secrets</h2>
           <ul className="mt-5 list-disc space-y-3 pl-6 text-sm text-tc-text-dim">
             {requiredSecrets.map((item) => (
               <li key={item}>{item}</li>
