@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
   // Check funding payments first.
   const { data: fundingRow } = await supabase
     .from('funding_payments')
-    .select('id')
+    .select('id, status')
     .eq('coinpay_payment_id', paymentId)
     .maybeSingle();
 
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     if (!signatureValid) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
-    return handleFundingWebhook(supabase, data, eventType, paymentId);
+    return handleFundingWebhook(supabase, fundingRow, data, eventType, paymentId);
   }
 
   // Check credit deposits (usage top-ups).
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
   // Check license purchases.
   const { data: licenseRow } = await supabase
     .from('license_purchases')
-    .select('id, user_id, email')
+    .select('id, user_id, email, status')
     .eq('coinpay_payment_id', paymentId)
     .maybeSingle();
 
@@ -125,8 +125,23 @@ export async function POST(request: NextRequest) {
   return handleWaitlistWebhook(supabase, data, eventType, paymentId);
 }
 
+/**
+ * TC-10: nothing guarded against replayed or out-of-order webhook delivery. A
+ * late `payment.expired` arriving after `payment.forwarded` would flip a paid
+ * funding payment, credit deposit or license purchase back to expired. Once a
+ * payment has settled, only another settled state may overwrite it.
+ */
+const SETTLED_STATUSES = new Set(['confirmed', 'forwarded']);
+
+function isStatusRegression(current: unknown, next: string): boolean {
+  return typeof current === 'string'
+    && SETTLED_STATUSES.has(current)
+    && !SETTLED_STATUSES.has(next);
+}
+
 async function handleFundingWebhook(
   supabase: ReturnType<typeof getSupabase>,
+  fundingRow: { id: string; status?: unknown },
   data: CoinpayWebhookPayload['data'],
   eventType: string,
   paymentId: string,
@@ -155,6 +170,13 @@ async function handleFundingWebhook(
       return NextResponse.json({ received: true, ignored: eventType });
   }
 
+  if (isStatusRegression(fundingRow.status, nextStatus)) {
+    console.warn(
+      `[coinpay webhook] ignoring out-of-order ${logSafe(eventType)} for already-settled funding payment ${logSafe(paymentId)}`,
+    );
+    return NextResponse.json({ received: true, ignored: 'stale event' });
+  }
+
   const update: Record<string, unknown> = {
     status: nextStatus,
     updated_at: now,
@@ -173,20 +195,6 @@ async function handleFundingWebhook(
     return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
   }
   return NextResponse.json({ received: true });
-}
-
-/**
- * TC-10: nothing guarded against replayed or out-of-order webhook delivery. A
- * late `payment.expired` arriving after `payment.forwarded` would flip a paid
- * deposit back to expired. Once a payment has settled, only another settled
- * state may overwrite it.
- */
-const SETTLED_STATUSES = new Set(['confirmed', 'forwarded']);
-
-function isStatusRegression(current: unknown, next: string): boolean {
-  return typeof current === 'string'
-    && SETTLED_STATUSES.has(current)
-    && !SETTLED_STATUSES.has(next);
 }
 
 async function handleCreditDepositWebhook(
@@ -250,7 +258,7 @@ async function handleCreditDepositWebhook(
 
 async function handleLicenseWebhook(
   supabase: ReturnType<typeof getSupabase>,
-  licenseRow: { id: string; user_id: string; email: string },
+  licenseRow: { id: string; user_id: string; email: string; status?: unknown },
   data: CoinpayWebhookPayload['data'],
   eventType: string,
   paymentId: string,
@@ -271,6 +279,13 @@ async function handleLicenseWebhook(
       break;
     default:
       return NextResponse.json({ received: true, ignored: eventType });
+  }
+
+  if (isStatusRegression(licenseRow.status, status)) {
+    console.warn(
+      `[coinpay webhook] ignoring out-of-order ${logSafe(eventType)} for already-settled license purchase ${logSafe(paymentId)}`,
+    );
+    return NextResponse.json({ received: true, ignored: 'stale event' });
   }
 
   // Update license_purchases row
