@@ -36,6 +36,8 @@ export interface BlocklistReply {
   dry_run: boolean;
   backend: string;
   min_severity: string;
+  /** Set when the daemon means to enforce but cannot, e.g. it is not root. */
+  warning?: string;
 }
 
 export interface IpcResponse<T = unknown> {

@@ -209,20 +209,23 @@ export class IpcServer {
           dry_run: status.dry_run,
           backend: status.backend,
           min_severity: status.min_severity,
+          warning: status.warning,
         };
         return this.send(client, { id: req.id, ok: true, result: reply });
       }
 
       case 'block': {
-        // Writing a firewall rule is a control action, not a read. Same gate as
-        // `shutdown`: the adm group can watch, but only root can ban.
-        if (!tokensMatch(this.controlToken, req.params?.token)) {
-          return this.send(client, {
-            id: req.id,
-            ok: false,
-            error: 'banning requires the daemon control token (run as root, or as the user running threatcrushd)',
-          });
-        }
+        // No token here, deliberately. The privilege that matters belongs to
+        // the *daemon*, which is what writes the firewall rule; the client only
+        // asks. Requiring the root-only token meant an operator watching the
+        // dashboard as themselves could not ban anything a root daemon was
+        // perfectly able to block.
+        //
+        // The gate is the socket itself: 0660 root:adm, so the OS has already
+        // decided who may connect, and `adm` is the group that can read the
+        // logs these decisions are made from. `shutdown` keeps the token,
+        // because a ban is reversible and expires within a day while stopping
+        // the daemon disables protection entirely.
         if (!this.remediation) {
           return this.send(client, { id: req.id, ok: false, error: 'remediation is not running' });
         }
@@ -238,13 +241,9 @@ export class IpcServer {
       }
 
       case 'unblock': {
-        if (!tokensMatch(this.controlToken, req.params?.token)) {
-          return this.send(client, {
-            id: req.id,
-            ok: false,
-            error: 'unbanning requires the daemon control token (run as root, or as the user running threatcrushd)',
-          });
-        }
+        // Same reasoning as `block`. Lifting a ban must never be harder than
+        // placing one: an operator who can see a wrong ban has to be able to
+        // undo it immediately, which is the whole point of PRD 0010 R12.
         if (!this.remediation) {
           return this.send(client, { id: req.id, ok: false, error: 'remediation is not running' });
         }

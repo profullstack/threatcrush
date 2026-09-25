@@ -41,6 +41,8 @@ export interface FirewallInfo {
   dry_run: boolean;
   backend: string;
   min_severity: string;
+  /** Set when the daemon means to enforce but cannot, e.g. it is not root. */
+  warning?: string;
 }
 
 export const NOTICE_MS = 6000;
@@ -245,6 +247,7 @@ export function reducer(state: State, action: Action): State {
           dry_run: action.reply.dry_run,
           backend: action.reply.backend,
           min_severity: action.reply.min_severity,
+          warning: action.reply.warning,
         },
         banIndex,
       };
