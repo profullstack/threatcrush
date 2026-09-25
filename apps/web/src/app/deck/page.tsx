@@ -317,7 +317,7 @@ const slides: Slide[] = [
             <div className="verb-stack">
               <div className="verb-card">
                 <div className="verb-tag">01 — detect</div>
-                <div className="verb-label">Logs + inbound connections. 95 OWASP CRS rules, live.</div>
+                <div className="verb-label">Logs + inbound connections. 94 OWASP CRS rules, live.</div>
               </div>
               <div className="verb-card">
                 <div className="verb-tag">02 — reduce</div>

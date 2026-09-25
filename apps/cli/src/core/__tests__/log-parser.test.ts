@@ -145,6 +145,34 @@ describe('web attack detection (OWASP CRS, PL1)', () => {
     expect(assessNginxRequest(line('GET /?f=php://input HTTP/1.1')).score).toBe(0);
   });
 
+  it('leaves 941130 off unless include_rules re-enables it', () => {
+    // 941130 matches `xhtml` in the path, so with it on, every visitor to a
+    // JSF site would be banned for XSS.
+    const page = line('GET /app/page.xhtml HTTP/1.1');
+    expect(attackSeverity(assessNginxRequest(page))).toBeNull();
+
+    configureAttackDetection({ include_rules: [941130] });
+    const reEnabled = assessNginxRequest(page);
+    expect(reEnabled.matches.map((m) => m.id)).toContain(941130);
+    expect(attackSeverity(reEnabled)).toBe('high');
+  });
+
+  it('adds exclude_rules to the default exclusions and lets it win over include_rules', () => {
+    const page = line('GET /app/page.xhtml HTTP/1.1');
+    const phpInput = line('GET /?f=php://input HTTP/1.1');
+
+    configureAttackDetection({ exclude_rules: [933140] });
+    expect(assessNginxRequest(phpInput).score).toBe(0);
+    expect(attackSeverity(assessNginxRequest(page))).toBeNull();
+
+    configureAttackDetection({ exclude_rules: [933140], include_rules: [941130] });
+    expect(assessNginxRequest(phpInput).score).toBe(0);
+    expect(attackSeverity(assessNginxRequest(page))).toBe('high');
+
+    configureAttackDetection({ exclude_rules: [941130], include_rules: [941130] });
+    expect(attackSeverity(assessNginxRequest(page))).toBeNull();
+  });
+
   it('keeps detectAttackPattern answering with the attack type', () => {
     expect(detectAttackPattern('/../../etc/passwd')).toBe('path_traversal');
     expect(detectAttackPattern('/topics/rochester/podcasts.rss')).toBeNull();

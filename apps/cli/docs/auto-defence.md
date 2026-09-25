@@ -54,10 +54,22 @@ cookies and other headers. The two libinjection rules (942100 SQLi, 941100
 XSS) are not ported, so a bare `1' OR 1=1` scores nothing; `UNION SELECT`,
 `SLEEP(`, script tags, traversal and the rest do.
 
+One ported rule is off by default, because with bans automatic it would ban
+ordinary visitors:
+
+| Rule   | Why it is off                                                                                                  |
+|--------|----------------------------------------------------------------------------------------------------------------|
+| 941130 | Matches `xhtml` in the request path, so every request for a `*.xhtml` page — JSF and other Java sites — scores as XSS. |
+
+`exclude_rules` adds to that list; it does not replace it, so switching off a
+rule of your own never switches 941130 back on. `include_rules` is the only way
+to re-enable a default-off rule. A rule in both lists stays off.
+
 ```toml
 [detection]
 anomaly_threshold = 5         # CRS inbound threshold
-exclude_rules = [941130]      # CRS rule ids to switch off, like SecRuleRemoveById
+exclude_rules = [942550]      # CRS rule ids to switch off, like SecRuleRemoveById
+include_rules = [941130]      # default-off rules to switch back on
 ```
 
 ## What can never be banned

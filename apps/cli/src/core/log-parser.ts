@@ -1,6 +1,6 @@
 import type { ParsedLogLine, NginxLogEntry, AuthLogEntry, SyslogEntry, EventSeverity } from '../types/events.js';
 import type { DetectionSection } from '../types/config.js';
-import { CrsEngine, type CrsAssessment } from './crs/engine.js';
+import { CrsEngine, DEFAULT_EXCLUDED_RULE_IDS, type CrsAssessment } from './crs/engine.js';
 
 // Nginx combined log format:
 // 127.0.0.1 - - [04/Apr/2026:12:00:00 +0000] "GET /path HTTP/1.1" 200 1234 "-" "Mozilla/5.0"
@@ -97,12 +97,19 @@ export function parseSyslog(line: string): SyslogEntry | null {
 // anomaly score reaches the threshold — by default one CRITICAL rule.
 let crsEngine: CrsEngine | undefined;
 
-/** Applies `[detection]` (threshold, rule exclusions); call before the first line. */
+/**
+ * Applies `[detection]` (threshold, rule exclusions); call before the first line.
+ * Off: the default exclusions, minus `include_rules`, plus `exclude_rules`.
+ */
 export function configureAttackDetection(section: DetectionSection | undefined): void {
   const threshold = section?.anomaly_threshold;
+  const included = Array.isArray(section?.include_rules) ? section.include_rules.map(Number) : [];
   crsEngine = new CrsEngine({
     threshold: typeof threshold === 'number' && threshold > 0 ? threshold : undefined,
-    excludeRuleIds: Array.isArray(section?.exclude_rules) ? section.exclude_rules.map(Number) : undefined,
+    excludeRuleIds: [
+      ...DEFAULT_EXCLUDED_RULE_IDS.filter((id) => !included.includes(id)),
+      ...(Array.isArray(section?.exclude_rules) ? section.exclude_rules.map(Number) : []),
+    ],
   });
 }
 

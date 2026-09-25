@@ -18,6 +18,15 @@ export const SEVERITY_POINTS: Record<CrsSeverity, number> = { CRITICAL: 5, ERROR
 /** CRS's default inbound anomaly score threshold. */
 export const DEFAULT_ANOMALY_THRESHOLD = 5;
 
+/**
+ * Ported rules that are off unless re-enabled (`[detection] include_rules`):
+ * faithful CRS, but with bans automatic they would ban ordinary visitors.
+ *
+ * - 941130: matches `xhtml` in REQUEST_FILENAME, so every request for a
+ *   `*.xhtml` page (JSF and other Java sites) scores as XSS.
+ */
+export const DEFAULT_EXCLUDED_RULE_IDS: readonly number[] = [941130];
+
 /** What callers see as the attack type, from a rule's first recognised `attack-*` tag. */
 const ATTACK_TYPES: Record<string, string> = {
   'attack-sqli': 'sqli',
@@ -60,7 +69,7 @@ export interface CrsAssessment {
 export interface CrsEngineOptions {
   /** Inbound anomaly threshold. Defaults to CRS's 5. */
   threshold?: number;
-  /** Rule ids to leave out, as SecRuleRemoveById would. */
+  /** Rule ids to leave out, as SecRuleRemoveById would. Defaults to DEFAULT_EXCLUDED_RULE_IDS. */
   excludeRuleIds?: Iterable<number>;
 }
 
@@ -319,7 +328,7 @@ export class CrsEngine {
 
   constructor(options: CrsEngineOptions = {}) {
     this.threshold = options.threshold ?? DEFAULT_ANOMALY_THRESHOLD;
-    const excluded = new Set(options.excludeRuleIds ?? []);
+    const excluded = new Set(options.excludeRuleIds ?? DEFAULT_EXCLUDED_RULE_IDS);
     this.rules = CRS_RULES.filter((r) => !excluded.has(r.id)).map((rule, index) => ({
       index,
       rule,
