@@ -49,8 +49,14 @@ jobs:
           node-version: 22
           cache: 'pnpm'
 
+      # Only the desktop app and what it depends on. A whole-workspace install
+      # pulls in the CLI's better-sqlite3, which has no prebuild step and falls
+      # back to node-gyp; on windows-latest node-gyp cannot parse the runner's
+      # Visual Studio 18, so win-x64 failed, the release job was skipped, and
+      # no GitHub Release was cut from v0.11.11 through v0.13.1. The desktop
+      # app never used better-sqlite3.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter "@profullstack/threatcrush-desktop..."
 
       # macOS code signing
       - name: Import macOS certificates
