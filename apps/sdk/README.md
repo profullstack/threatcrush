@@ -2,7 +2,7 @@
 
 TypeScript types + helpers for building ThreatCrush modules.
 
-**Status:** alpha. Not yet published to npm — the marketplace install flow that would consume it is still v0.2 work.
+**Status:** alpha. Not on npm yet. `.github/workflows/npm-publish.yml` publishes it on release tags, alongside the CLI, once the `@threatcrush` npm scope is set up.
 
 ## Install (once published)
 

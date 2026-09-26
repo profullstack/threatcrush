@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { listOrganizations, listServers, type Server } from "@/lib/organizations";
 import { authHeaders } from "@/lib/auth-client";
+import { serverConnectionState } from "@/lib/server-status";
+import ConnectServerHint from "@/components/ConnectServerHint";
 import Link from "next/link";
 
 interface Finding {
@@ -122,8 +124,9 @@ export default function FindingsContent({ slug }: { slug: string }) {
 
         {serverFindings.length === 0 ? (
           <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-12 text-center">
-            <p className="text-zinc-400 text-lg mb-2">No hardening data yet</p>
-            <p className="text-zinc-600 text-sm">Run <code className="text-green-400">threatcrush harden</code> on enrolled servers to generate findings.</p>
+            <p className="text-zinc-400 text-lg mb-2">No servers connected</p>
+            <p className="text-zinc-600 text-sm mb-6">Hardening findings appear here once a server&apos;s daemon is linked to this organization.</p>
+            <ConnectServerHint />
           </div>
         ) : (
           <div className="space-y-6">
@@ -131,7 +134,8 @@ export default function FindingsContent({ slug }: { slug: string }) {
               <div key={server.id} className="rounded-lg bg-zinc-900 border border-zinc-800 overflow-hidden">
                 <div className="flex items-center justify-between p-4 border-b border-zinc-800">
                   <div className="flex items-center gap-3">
-                    <span className={`h-2 w-2 rounded-full ${server.status === "online" ? "bg-green-400" : "bg-zinc-600"}`} />
+                    <span className={`h-2 w-2 rounded-full ${serverConnectionState(server.last_seen) === "online" ? "bg-green-400" : "bg-zinc-600"}`}
+                      title={serverConnectionState(server.last_seen)} />
                     <h3 className="text-white font-medium">{server.name}</h3>
                     <span className="text-zinc-500 text-sm">{server.hostname || server.ip_address}</span>
                   </div>
@@ -140,6 +144,13 @@ export default function FindingsContent({ slug }: { slug: string }) {
                   </span>
                 </div>
                 <div className="divide-y divide-zinc-800">
+                  {findings.length === 0 && (
+                    <p className="p-4 text-sm text-zinc-500">
+                      {server.last_seen
+                        ? "No hardening findings reported by this server yet."
+                        : <>This server has never reported. Run <code className="text-zinc-300">threatcrush servers link</code> on it.</>}
+                    </p>
+                  )}
                   {findings.map(f => {
                     const si = STATUS_ICONS[f.status] || STATUS_ICONS.fail;
                     return (

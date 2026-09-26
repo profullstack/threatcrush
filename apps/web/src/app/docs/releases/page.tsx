@@ -14,10 +14,10 @@ const workflows = [
     description: "On every version tag, publishes a GitHub Release with macOS .dmg/.zip (Apple silicon and Intel), a Windows x64 NSIS installer, a Linux AppImage and .deb, and SHA256SUMS.txt. macOS/Windows signing and macOS notarization switch on automatically once their secrets are configured; until then those builds are unsigned.",
   },
   {
-    name: "CLI npm Publish",
+    name: "npm Publish",
     file: ".github/workflows/npm-publish.yml",
-    status: "Publishing",
-    description: "Publishes @profullstack/threatcrush to npm on every version tag; manual dispatch supports a dry run.",
+    status: "Publishing the CLI",
+    description: "Publishes @profullstack/threatcrush to npm on every version tag; manual dispatch supports a dry run. A second job publishes the module SDK, @threatcrush/sdk, from the same tags; it is not on npm yet.",
   },
   {
     name: "Docker Publish",

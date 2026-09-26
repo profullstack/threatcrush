@@ -1,4 +1,4 @@
-name: Publish CLI to npm
+name: Publish CLI and SDK to npm
 
 on:
   push:
@@ -15,7 +15,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    name: Publish to npm
+    name: Publish CLI to npm
 
     steps:
       - name: Checkout
@@ -75,6 +75,75 @@ jobs:
           echo "## npm Publish Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Package**: @profullstack/threatcrush" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Version**: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Already published**: $ALREADY_PUBLISHED" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Dry Run**: $DRY_RUN" >> "$GITHUB_STEP_SUMMARY"
+
+  # The module SDK ships from the same tags as the CLI. It is on its own
+  # version line (scripts/release.mjs bumps every manifest from its current
+  # version), so the skip check keys on the SDK's own version.
+  publish-sdk:
+    runs-on: ubuntu-latest
+    name: Publish SDK to npm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK
+        run: pnpm --filter @threatcrush/sdk build
+
+      - name: Check if version exists
+        id: check
+        working-directory: apps/sdk
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@threatcrush/sdk@$VERSION" version 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Version $VERSION already published, skipping."
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish SDK
+        if: ${{ !github.event.inputs.dry_run && steps.check.outputs.exists != 'true' }}
+        working-directory: apps/sdk
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Dry run
+        if: ${{ github.event.inputs.dry_run }}
+        working-directory: apps/sdk
+        run: npm publish --access public --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Summary
+        if: always()
+        env:
+          ALREADY_PUBLISHED: ${{ steps.check.outputs.exists }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: |
+          VERSION=$(node -p "require('./apps/sdk/package.json').version")
+          echo "## npm Publish Summary (SDK)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Package**: @threatcrush/sdk" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Version**: $VERSION" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Already published**: $ALREADY_PUBLISHED" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Dry Run**: $DRY_RUN" >> "$GITHUB_STEP_SUMMARY"

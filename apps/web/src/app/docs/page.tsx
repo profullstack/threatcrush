@@ -1,137 +1,120 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
-const supportedCommands = [
+export const metadata: Metadata = {
+  title: "Docs — ThreatCrush",
+  description:
+    "Install ThreatCrush, run the daemon, and use every CLI command: detection, IP bans, hardening checks, code scanning, pentest checks, organizations and the cloud dashboard.",
+  alternates: { canonical: "/docs" },
+};
+
+type Command = {
+  name: string;
+  description: string;
+  /** Set for commands that ship in the next CLI release rather than the one on npm today. */
+  isNew?: boolean;
+};
+
+const commandGroups: { title: string; commands: Command[] }[] = [
   {
-    name: "threatcrush update",
-    description: "Update the installed bundle based on recorded install mode.",
-    notes: "Real command. On Linux server installs this means CLI. On desktop-oriented installs it can include the desktop bundle too.",
+    title: "Set up",
+    commands: [
+      { name: "threatcrush init", description: "Offers to sign you in, detects SSH, nginx, Apache, PostgreSQL, MySQL, Redis and BIND on this host, and writes a config for them." },
+      { name: "threatcrush login [-e <email>]", description: "Sign in to your threatcrush.com account." },
+      { name: "threatcrush logout", description: "Clear the stored threatcrush.com credentials." },
+      { name: "threatcrush whoami", description: "Show the account you are signed in as." },
+    ],
   },
   {
-    name: "threatcrush remove",
-    description: "Remove the installed bundle.",
-    notes: "Real command. Alias: `threatcrush uninstall`.",
+    title: "Detect and run the daemon",
+    commands: [
+      { name: "threatcrush monitor [-m <modules>] [--tui]", description: "Watch nginx, auth, syslog and journald for attacks in the foreground. -m limits it to some modules (e.g. ssh-guard,log-watcher)." },
+      { name: "threatcrush tui [--demo]", description: "Interactive dashboard connected to the daemon (alias: dashboard). --demo runs on canned events." },
+      { name: "sudo threatcrush install-service", description: "Install the threatcrushd systemd unit so the daemon starts on boot. uninstall-service removes it." },
+      { name: "threatcrush start | stop | restart", description: "Start the daemon in the background, stop it, or restart it." },
+      { name: "threatcrush daemon", description: "Run threatcrushd in the foreground — the ExecStart for systemd or Docker." },
+      { name: "threatcrush status", description: "Show daemon status and loaded modules." },
+      { name: "threatcrush logs", description: "Tail the daemon logs." },
+      { name: "threatcrush rules [list | show <id>]", description: "List the detection rules, or show one. Add your own JSON rules in /etc/threatcrush/rules.d." },
+    ],
   },
   {
-    name: "threatcrush uninstall",
-    description: "Alias for `threatcrush remove`.",
-    notes: "Real alias.",
+    title: "Respond",
+    commands: [
+      { name: "threatcrush block <ip> [--ttl <duration>]", description: "Ban an IP at the firewall (nftables, iptables or fail2ban), optionally for a time such as 30m, 1h or 1d." },
+      { name: "threatcrush unblock <ip>", description: "Lift a ban." },
+      { name: "threatcrush blocklist", description: "Show active bans." },
+      { name: "threatcrush allowlist [list | add <ip/cidr> | remove <ip/cidr>]", description: "Manage the addresses the daemon will never ban." },
+      { name: "threatcrush harden [--json]", description: "Check SSH password and root login, sshd weaknesses, automatic security updates, an active firewall, risky exposed ports and fail2ban." },
+    ],
   },
   {
-    name: "threatcrush store",
-    description: "Browse the module marketplace.",
-    notes: "Real command, but currently gated behind the waitlist flow.",
+    title: "Scan",
+    commands: [
+      { name: "threatcrush scan [path]", description: "Scan a codebase for secrets and risky code patterns. Options: -f text|json|sarif, -o <file>, --fail-on <severities>, --deps (check lockfile versions against OSV.dev), --exclude <glob>, --missing-controls, --path-prefix <prefix>." },
+      { name: "threatcrush pentest <url>", description: "Check a URL's security headers, CSP, CORS, cookie flags, banners, directory listings and error leaks, then probe for SQL errors, path traversal and unsafe HTTP methods." },
+    ],
   },
   {
-    name: "threatcrush store search <query>",
-    description: "Search modules in the marketplace.",
-    notes: "Real command, currently gated.",
+    title: "Organizations and the cloud dashboard",
+    commands: [
+      { name: "threatcrush orgs [list | create <name> | use <slug>]", description: "List your organizations, create one, or switch the current one (alias: org)." },
+      { name: "threatcrush servers list", description: "List the servers in the current organization (alias: server)." },
+      { name: "threatcrush servers link [--org <id|slug>] [--name <name>]", description: "Link this machine to a server in your organization, reusing one with the same hostname or creating it. While signed in and linked, the daemon sends detections, hardening findings, bans and heartbeats to the dashboard, and carries out bans you queue there.", isNew: true },
+      { name: "threatcrush servers unlink", description: "Stop sending this machine's data to the dashboard. threatcrush status shows whether a machine is linked.", isNew: true },
+      { name: "threatcrush properties [list | add | remove | run | runs | import]", description: "Manage the targets (URLs, APIs, domains, IPs, repos) in the current organization, run scans and pentest checks against them, see run history, and bulk-import from .json, .csv or .tsv (alias: props)." },
+      { name: "threatcrush connect [target]", description: "Open an SSH session to a server in your organization (--org, -u, -p, -i)." },
+    ],
   },
   {
-    name: "threatcrush store publish <url>",
-    description: "Publish a module from a git URL or website URL.",
-    notes: "Real command. Fetches metadata, previews it, then publishes to the store.",
+    title: "Modules",
+    commands: [
+      { name: "threatcrush modules [list | install | remove | available] [name]", description: "Manage security modules." },
+      { name: "threatcrush store", description: "Browse the module marketplace." },
+      { name: "threatcrush store search <query>", description: "Search the marketplace." },
+      { name: "threatcrush store publish <url>", description: "Submit a module from a git or web URL. Publishing is free; listings go live after review." },
+    ],
   },
   {
-    name: "threatcrush modules [action] [name]",
-    description: "Entry point for module management.",
-    notes: "Real command entry exists, but module lifecycle behavior is still gated / early.",
-  },
-  {
-    name: "threatcrush monitor",
-    description: "Real-time monitoring command surface.",
-    notes: "Command exists today, but product behavior is still beta-gated while the daemon/runtime catches up.",
-  },
-  {
-    name: "threatcrush tui",
-    description: "Interactive dashboard command surface.",
-    notes: "Command exists today, but the real TUI is still planned.",
-  },
-  {
-    name: "threatcrush init",
-    description: "Bootstrap/configure ThreatCrush on a host.",
-    notes: "Command exists today, but full auto-detection is still planned.",
-  },
-  {
-    name: "threatcrush scan",
-    description: "Code and target scanning entry point.",
-    notes: "Command exists today, but fully realized scanning behavior is still planned.",
-  },
-  {
-    name: "threatcrush pentest",
-    description: "Penetration testing entry point.",
-    notes: "Command exists today, but production-grade engine behavior is still planned.",
-  },
-  {
-    name: "threatcrush status",
-    description: "Status entry point for daemon/modules.",
-    notes: "Command exists today, with fuller runtime status planned as the daemon solidifies.",
-  },
-  {
-    name: "threatcrush start",
-    description: "Start the daemon.",
-    notes: "Command surface exists, but the real daemon/service lifecycle is still being built.",
-  },
-  {
-    name: "threatcrush stop",
-    description: "Stop the daemon.",
-    notes: "Command surface exists, but the real daemon/service lifecycle is still being built.",
-  },
-  {
-    name: "threatcrush restart",
-    description: "Restart the daemon.",
-    notes: "Command surface exists, but the real daemon/service lifecycle is still being built.",
-  },
-  {
-    name: "threatcrush logs",
-    description: "Inspect runtime logs.",
-    notes: "Command surface exists, but final logging/runtime behavior is still planned.",
-  },
-  {
-    name: "threatcrush activate",
-    description: "Activate a license key.",
-    notes: "Real command surface, currently part of the beta-gated product flow.",
+    title: "Install lifecycle",
+    commands: [
+      { name: "threatcrush update [--cli | --modules | --desktop]", description: "Update the CLI and the installed bundle." },
+      { name: "threatcrush remove", description: "Uninstall ThreatCrush and the installed bundle (alias: uninstall)." },
+    ],
   },
 ];
 
-const plannedItems = [
-  "Fully functional `threatcrush tui` dashboard (htop-style security interface)",
-  "Real `threatcrush init` host auto-detection and config generation",
-  "Daemon/service lifecycle behind `start`, `stop`, `status`, and `logs`",
-  "Fully realized `scan` and `pentest` engines",
-  "Production-ready module install/remove/update lifecycle under `threatcrush modules`",
-  "Richer desktop client documentation and dedicated desktop install docs",
-  "Expanded operator docs for Linux server deployment and hardening",
+const notYet = [
+  "Code-signed macOS and Windows desktop builds — today they trigger Gatekeeper and SmartScreen warnings",
+  "The mobile app in the App Store and Google Play",
+  "The browser extension in the Chrome, Firefox and Edge stores — sideload it from source for now",
+  "The @threatcrush/sdk package on npm",
 ];
 
 export default function DocsPage() {
   return (
     <main className="min-h-screen bg-tc-darker text-tc-text">
-      <div className="mx-auto max-w-5xl px-6 py-16">
+      <div className="mx-auto max-w-5xl px-6 pt-28 pb-16">
         <div className="mb-12">
           <Link href="/" className="text-sm text-tc-green hover:underline">← Back to ThreatCrush</Link>
           <p className="mt-6 font-mono text-sm text-tc-green tracking-wider">// DOCS</p>
           <h1 className="mt-3 text-4xl font-black text-white">ThreatCrush Docs</h1>
           <p className="mt-4 max-w-3xl text-base text-tc-text-dim">
-            Start here for the current command surface, install model, and what is already real versus what is still planned.
-            This page is intentionally honest: supported behavior is listed separately from roadmap material.
-          </p>
-          <p className="mt-4 max-w-3xl text-base text-tc-text-dim">
-            Right now, the <span className="text-tc-green">Module Store</span> is the clearest first destination after the basic install/docs/housekeeping work.
+            How to install ThreatCrush, run the daemon, and use every CLI command.
+            Run <code className="rounded bg-black/40 px-2 py-1 font-mono text-tc-green">threatcrush help &lt;command&gt;</code> for the full options of any command.
           </p>
         </div>
 
         <section className="mb-12 rounded-2xl border border-tc-border bg-tc-card p-8">
-          <h2 className="text-2xl font-bold text-white">Install model</h2>
+          <h2 className="text-2xl font-bold text-white">Install</h2>
           <div className="mt-4 space-y-3 text-sm text-tc-text-dim">
             <p>
               <span className="text-tc-green font-semibold">Preferred install:</span>{" "}
               <code className="rounded bg-black/40 px-2 py-1 font-mono text-tc-green">curl -fsSL https://threatcrush.com/install.sh | sh</code>
             </p>
             <ul className="list-disc space-y-2 pl-6">
-              <li><span className="text-white">Linux server</span> → real host story, installs the CLI.</li>
-              <li><span className="text-white">Linux desktop</span> → installs the CLI + desktop app.</li>
-              <li><span className="text-white">Windows desktop</span> → desktop client only, connects to a ThreatCrush server elsewhere.</li>
-              <li><span className="text-white">macOS desktop</span> → desktop-oriented client story.</li>
+              <li><span className="text-white">Linux server</span> → installs the CLI, which includes the daemon.</li>
+              <li><span className="text-white">Desktop (Linux, macOS, Windows)</span> → installs the CLI and points you to the desktop app, a separate download from <a href="https://github.com/profullstack/threatcrush/releases/latest" className="text-tc-green hover:underline">GitHub Releases</a>. The desktop app talks to a ThreatCrush daemon on the same machine; log monitoring and firewall bans need Linux.</li>
             </ul>
             <p>
               After install, lifecycle commands are <code className="rounded bg-black/40 px-2 py-1 font-mono text-tc-green">threatcrush update</code> and{" "}
@@ -140,26 +123,49 @@ export default function DocsPage() {
           </div>
         </section>
 
+        <section className="mb-12 rounded-2xl border border-tc-border bg-tc-card p-8">
+          <p className="font-mono text-sm text-tc-green tracking-wider">// QUICK START</p>
+          <h2 className="mt-2 text-2xl font-bold text-white">Protect a Linux server</h2>
+          <ol className="mt-4 list-decimal space-y-2 pl-6 text-sm text-tc-text-dim">
+            <li><code className="font-mono text-tc-green">threatcrush init</code> — optionally sign in, and write a config for the services on this host.</li>
+            <li><code className="font-mono text-tc-green">sudo threatcrush install-service</code> — run the daemon under systemd. It detects attacks and bans their source IPs on its own; no account is needed for that.</li>
+            <li><code className="font-mono text-tc-green">threatcrush servers link</code> — optional: send this server&apos;s detections, findings and bans to your organization&apos;s dashboard.</li>
+          </ol>
+        </section>
+
         <section className="mb-12">
-          <div className="mb-6 flex items-end justify-between gap-4">
-            <div>
-              <p className="font-mono text-sm text-tc-green tracking-wider">// SUPPORTED</p>
-              <h2 className="mt-2 text-2xl font-bold text-white">Commands we support today</h2>
-            </div>
+          <div className="mb-6">
+            <p className="font-mono text-sm text-tc-green tracking-wider">// COMMANDS</p>
+            <h2 className="mt-2 text-2xl font-bold text-white">Command reference</h2>
+            <p className="mt-2 text-sm text-tc-text-dim">
+              Everything below ships in the CLI on npm, except commands marked <span className="text-yellow-400">New</span>, which arrive in the next release.
+            </p>
           </div>
 
-          <div className="space-y-4">
-            {supportedCommands.map((command) => (
-              <div key={command.name} className="rounded-xl border border-tc-border bg-tc-card p-5">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div className="flex-1">
-                    <code className="font-mono text-sm text-tc-green">{command.name}</code>
-                    <p className="mt-2 text-sm text-white">{command.description}</p>
-                    <p className="mt-2 text-sm text-tc-text-dim">{command.notes}</p>
-                  </div>
-                  <span className="rounded-full border border-tc-green/30 bg-tc-green/10 px-3 py-1 text-xs font-semibold text-tc-green">
-                    Supported surface
-                  </span>
+          <div className="space-y-10">
+            {commandGroups.map((group) => (
+              <div key={group.title}>
+                <h3 className="mb-4 text-lg font-semibold text-white">{group.title}</h3>
+                <div className="space-y-3">
+                  {group.commands.map((command) => (
+                    <div key={command.name} className="rounded-xl border border-tc-border bg-tc-card p-5">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="flex-1">
+                          <code className="font-mono text-sm text-tc-green">{command.name}</code>
+                          <p className="mt-2 text-sm text-tc-text-dim">{command.description}</p>
+                        </div>
+                        {command.isNew ? (
+                          <span className="self-start rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1 text-xs font-semibold text-yellow-400">
+                            New
+                          </span>
+                        ) : (
+                          <span className="self-start rounded-full border border-tc-green/30 bg-tc-green/10 px-3 py-1 text-xs font-semibold text-tc-green">
+                            Shipped
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -167,28 +173,13 @@ export default function DocsPage() {
         </section>
 
         <section className="mb-12 rounded-2xl border border-tc-border bg-tc-card p-8">
-          <p className="font-mono text-sm text-yellow-400 tracking-wider">// PLANNED</p>
-          <h2 className="mt-2 text-2xl font-bold text-white">Planned / not fully implemented yet</h2>
+          <p className="font-mono text-sm text-yellow-400 tracking-wider">// NOT YET</p>
+          <h2 className="mt-2 text-2xl font-bold text-white">Not available yet</h2>
           <ul className="mt-5 list-disc space-y-3 pl-6 text-sm text-tc-text-dim">
-            {plannedItems.map((item) => (
+            {notYet.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
-        </section>
-
-        <section className="mb-12 rounded-2xl border border-tc-border bg-tc-card p-8">
-          <p className="font-mono text-sm text-tc-green tracking-wider">// START WITH THE STORE</p>
-          <h2 className="mt-2 text-2xl font-bold text-white">Why the marketplace matters first</h2>
-          <div className="mt-4 space-y-3 text-sm text-tc-text-dim">
-            <p>
-              ThreatCrush is still building out the broader daemon/runtime/operator experience. The module marketplace is the first area where contributors and early users can do something concrete today.
-            </p>
-            <ul className="list-disc space-y-2 pl-6">
-              <li>Browse the ecosystem at <span className="text-tc-green">/store</span></li>
-              <li>Publish new listings at <span className="text-tc-green">/store/publish</span></li>
-              <li>Read contributor guidance at <span className="text-tc-green">/docs/modules</span></li>
-            </ul>
-          </div>
         </section>
 
         <section className="rounded-2xl border border-tc-border bg-tc-card p-8">

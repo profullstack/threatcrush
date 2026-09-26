@@ -161,20 +161,38 @@ export interface Detection {
   username?: string;
   raw_metadata?: Record<string, unknown>;
   detected_at: string;
+  /** How many times this (rule, source IP, minute) was reported. */
+  occurrences?: number;
+  /** When the most recent duplicate was reported. */
+  last_detected_at?: string | null;
   status: DetectionStatus;
   created_at?: string;
 }
 
+// ─── Cloud ingest contract (POST /api/ingest, v2) ───
+//
+// The daemon pushes batches of these to the cloud. Detections are deduplicated
+// server-side on (server_id, rule_id, source_ip, minute of detected_at), so a
+// batch can be resent safely.
+
+export const INGEST_MAX_EVENTS = 500;
+export const INGEST_MAX_BODY_BYTES = 1_000_000;
+export const INGEST_MAX_TITLE_LENGTH = 300;
+export const INGEST_MAX_RAW_METADATA_BYTES = 16 * 1024;
+
 export interface DetectionPayload {
   type: 'detection';
   server_id: string;
-  rule_id?: string;
   severity: EventSeverity;
+  /** ≤ 300 chars */
   title: string;
+  rule_id?: string;
   description?: string;
   source_ip?: string;
   username?: string;
+  /** ≤ 16 KB serialized */
   raw_metadata?: Record<string, unknown>;
+  /** ISO 8601 */
   detected_at?: string;
 }
 
@@ -182,16 +200,71 @@ export interface HeartbeatPayload {
   type: 'heartbeat';
   server_id: string;
   version?: string;
-  uptime_seconds?: number;
-  modules?: Array<{ name: string; status: string; events: number }>;
+  hostname?: string;
 }
 
-export type IngestPayload = DetectionPayload | HeartbeatPayload;
+export type HardeningReportStatus = 'pass' | 'warn' | 'fail';
+
+export interface HardeningFindingPayload {
+  type: 'hardening_finding';
+  server_id: string;
+  finding_key: string;
+  status: HardeningReportStatus;
+  severity: EventSeverity;
+  title: string;
+  recommendation?: string;
+  /** ISO 8601 */
+  observed_at?: string;
+}
+
+export interface RemediationPayload {
+  type: 'remediation';
+  server_id: string;
+  action_type: 'block' | 'unblock';
+  target_value: string;
+  status: 'executed' | 'failed';
+  /**
+   * UUID v4 generated when the event is created and kept in the spool, so a
+   * replay resends the same id and the cloud records the action once.
+   */
+  event_id?: string;
+  rule_id?: string;
+  reason?: string;
+  error?: string;
+  dry_run?: boolean;
+  /** ISO 8601 */
+  executed_at?: string;
+  /** ISO 8601, or null for a permanent action */
+  expires_at?: string | null;
+}
+
+export type IngestEvent =
+  | HeartbeatPayload
+  | DetectionPayload
+  | HardeningFindingPayload
+  | RemediationPayload;
+
+export interface IngestRequest {
+  events: IngestEvent[];
+}
+
+export interface IngestResponse {
+  success: true;
+  accepted: {
+    detections: number;
+    deduplicated: number;
+    heartbeats: number;
+    findings: number;
+    remediations: number;
+  };
+  /** Events that were dropped, by index into the request's `events`. */
+  rejected: Array<{ index: number; error: string }>;
+}
 
 // ─── Remediation Schemas (PRD 00/02) ───
 
 export type RemediationActionType = 'block' | 'unblock' | 'allowlist_add' | 'allowlist_remove';
-export type RemediationStatus = 'pending' | 'executed' | 'failed' | 'expired' | 'reversed';
+export type RemediationStatus = 'pending' | 'executing' | 'executed' | 'failed' | 'expired' | 'reversed';
 
 export interface RemediationAction {
   id?: string;
@@ -205,6 +278,29 @@ export interface RemediationAction {
   expires_at?: string;
   metadata?: Record<string, unknown>;
   created_at?: string;
+}
+
+/** An action handed to the daemon by POST /api/orgs/:id/servers/:server_id/remediations/claim. */
+export interface ClaimedRemediationAction {
+  id: string;
+  action_type: RemediationActionType;
+  target_value: string;
+  expires_at: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ClaimRemediationsResponse {
+  actions: ClaimedRemediationAction[];
+}
+
+/** Body of PATCH /api/orgs/:id/remediations/:action_id (allowed only while `executing`). */
+export interface RemediationResultPatch {
+  status: 'executed' | 'failed';
+  error?: string;
+  dry_run?: boolean;
+  /** ISO 8601 */
+  executed_at?: string;
 }
 
 // ─── Hardening Schemas (PRD 00/03) ───

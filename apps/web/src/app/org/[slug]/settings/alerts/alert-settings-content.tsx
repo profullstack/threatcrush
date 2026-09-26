@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { listOrganizations } from "@/lib/organizations";
 import { authHeaders } from "@/lib/auth-client";
 import Link from "next/link";
+import BrowserNotifications from "./browser-notifications";
 
 interface AlertDestination {
   id: string;
@@ -29,9 +30,10 @@ interface Organization { id: string; name: string; slug: string; }
 const DEST_TYPES = [
   { value: "slack", label: "Slack", fields: [{ key: "webhook_url", label: "Webhook URL", type: "url" }] },
   { value: "discord", label: "Discord", fields: [{ key: "webhook_url", label: "Webhook URL", type: "url" }] },
-  { value: "email", label: "Email", fields: [{ key: "to", label: "To Address", type: "email" }, { key: "host", label: "SMTP Host", type: "text" }, { key: "from", label: "From Address", type: "email" }] },
-  { value: "webhook", label: "Webhook", fields: [{ key: "url", label: "URL", type: "url" }, { key: "secret", label: "Secret (optional)", type: "text" }] },
+  { value: "email", label: "Email", fields: [{ key: "to", label: "To address(es), comma-separated", type: "text" }] },
+  { value: "webhook", label: "Webhook", fields: [{ key: "url", label: "URL", type: "url" }, { key: "secret", label: "Signing secret (optional, HMAC-SHA256 in X-ThreatCrush-Signature)", type: "text" }] },
   { value: "pagerduty", label: "PagerDuty", fields: [{ key: "routing_key", label: "Routing Key", type: "text" }] },
+  { value: "push", label: "Push (mobile app and browsers)", fields: [] },
 ];
 
 export default function AlertSettingsContent({ slug }: { slug: string }) {
@@ -156,6 +158,8 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
           </div>
         </div>
 
+        <BrowserNotifications orgId={org.id} />
+
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-zinc-900 rounded-lg p-1 w-fit border border-zinc-800">
           <button onClick={() => setTab("destinations")}
@@ -206,7 +210,7 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
               {destinations.length === 0 ? (
                 <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-8 text-center">
                   <p className="text-zinc-400">No alert destinations configured</p>
-                  <p className="text-zinc-600 text-sm mt-1">Add Slack, Discord, PagerDuty, or webhook destinations to receive alerts.</p>
+                  <p className="text-zinc-600 text-sm mt-1">Add Slack, Discord, email, PagerDuty, webhook, or push destinations to receive alerts.</p>
                 </div>
               ) : destinations.map(d => (
                 <div key={d.id} className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 flex items-center justify-between">

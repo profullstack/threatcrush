@@ -12,22 +12,27 @@ const SITE_URL =
   process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
   "https://threatcrush.com";
 
+const TITLE = "ThreatCrush — Security Agent for Linux Servers";
+const DESCRIPTION =
+  "Open-source agent that detects attacks in your server logs and inbound connections, bans attackers at the firewall, checks hardening, scans code and spot-checks your URLs — with alerts and a cloud dashboard.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "ThreatCrush — Real-Time Threat Intelligence Platform",
-  description:
-    "Crush every threat before it crushes you. Real-time threat feeds, vulnerability tracking, attack surface monitoring, and threat actor intelligence.",
+  title: TITLE,
+  description: DESCRIPTION,
   keywords: [
     "CTEM",
     "continuous threat exposure management",
     "exposure management",
     "vulnerability management",
-    "threat intelligence",
+    "intrusion detection",
     "cybersecurity",
-    "attack surface monitoring",
-    "threat feeds",
+    "server security",
+    "firewall auto-ban",
   ],
-  alternates: { canonical: "/" },
+  // "./" resolves against each route's own pathname, so every page is its own
+  // canonical unless it sets one; a fixed "/" would point every page at the homepage.
+  alternates: { canonical: "./" },
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -61,18 +66,16 @@ export const metadata: Metadata = {
   },
   openGraph: {
     siteName: "ThreatCrush",
-    title: "ThreatCrush — Real-Time Threat Intelligence Platform",
-    description:
-      "Crush every threat before it crushes you. Lifetime access to real-time threat intelligence.",
-    url: SITE_URL,
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "./",
     type: "website",
     images: ["/banner.png"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "ThreatCrush — Real-Time Threat Intelligence Platform",
-    description:
-      "Crush every threat before it crushes you. Lifetime access to real-time threat intelligence.",
+    title: TITLE,
+    description: DESCRIPTION,
     images: ["/banner.png"],
   },
 };
@@ -137,7 +140,7 @@ const websiteJsonLd = {
   name: "ThreatCrush",
   url: SITE_URL,
   description:
-    "Continuous Threat Exposure Management (CTEM) platform with SIEM/EDR/SOC capabilities.",
+    "Open-source security agent for Linux servers, with a cloud dashboard and a module store.",
   publisher: { "@type": "Organization", name: "ThreatCrush", url: SITE_URL },
   inLanguage: "en",
   potentialAction: {
@@ -161,9 +164,8 @@ const softwareApplicationJsonLd = {
   url: SITE_URL,
   downloadUrl: "https://www.npmjs.com/package/@profullstack/threatcrush",
   installUrl: `${SITE_URL}/install.sh`,
-  softwareVersion: "0.2.0",
   description:
-    "Open-source security agent: live attack detection, vulnerability scanner, pentest engine, network monitor, active defense, and a module marketplace. Ships CLI, systemd daemon, desktop app, mobile app, and browser extension.",
+    "Open-source security agent: live attack detection, automatic firewall bans, hardening checks, code scanner, pentest checks, network monitor, and a module marketplace. Ships a CLI, systemd daemon, TUI and desktop app, with a mobile app and browser extension in development.",
   publisher: { "@type": "Organization", name: "ThreatCrush", url: SITE_URL },
   license: "https://opensource.org/license/mit",
   image: `${SITE_URL}/banner.png`,
@@ -175,21 +177,21 @@ const softwareApplicationJsonLd = {
   ],
   featureList: [
     "Live attack detection (OWASP CRS rules for SQLi, XSS and more; brute force, port scans, DNS tunneling)",
-    "Code vulnerability scanner",
+    "Automatic IP bans via nftables, iptables or fail2ban, escalating for repeat offenders",
+    "Host hardening checks",
+    "Code vulnerability scanner (secrets, code patterns, OSV dependency advisories, SARIF output)",
     "Pentest checks for URLs and APIs",
     "Inbound-connection monitor — port scans & SYN floods",
-    "Real-time email, SMS, Slack, Discord, and webhook alerts",
-    "Active defense — tar pits, honeypots, deception",
+    "Email, Slack, Discord, PagerDuty and webhook alerts",
+    "Cloud dashboard for linked servers",
     "systemd daemon — runs 24/7",
-    "MITRE ATT&CK, D3FEND, Sigma, OCSF, NIST CSF tagging",
   ],
   offers: {
     "@type": "Offer",
     availability: "https://schema.org/PreOrder",
     priceCurrency: "USD",
     price: "0",
-    description:
-      "Private beta — contact sales for lifetime licensing. AI-enhanced modules billed by usage.",
+    description: "Private beta — contact sales for pricing.",
     url: `${SITE_URL}/hire`,
   },
 };

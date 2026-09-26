@@ -75,9 +75,7 @@ curl -fsSL https://threatcrush.com/install.sh | sh
 The CLI needs **Node.js 22.6 or newer**. The installer detects whether the machine is a server or desktop, uses your existing package manager when available, and on a machine with no Node.js sets up Node.js LTS with `mise`, adding mise's shims to `~/.profile` so new login shells find `threatcrush`. If it finds an older Node.js it stops without installing anything and tells you how to upgrade.
 
 - **Linux server** → installs the CLI
-- **Linux desktop** → installs the CLI + desktop app
-- **Windows desktop** → installs the desktop app to connect to a ThreatCrush server elsewhere
-- **macOS desktop** → desktop-oriented install for connecting to a ThreatCrush server
+- **Desktop (Linux, macOS, Windows)** → installs the CLI and points you to the desktop app, a separate download from [GitHub Releases](https://github.com/profullstack/threatcrush/releases/latest). The desktop app talks to a ThreatCrush daemon on the same machine; log monitoring and firewall bans need Linux.
 
 After install, the supported lifecycle commands are:
 

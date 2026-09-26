@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# ThreatCrush v0.1.0 smoke test.
+# ThreatCrush smoke test.
 #
 # Runs end-to-end against a fresh machine (or a VM) to confirm the install
-# path, daemon lifecycle, and property run flow all work.
+# path, daemon lifecycle, and property run flow all work. Run it as the user
+# who will run the CLI: as root the daemon uses the system paths
+# (/var/run/threatcrush, ...), otherwise ~/.threatcrush.
 #
 # Usage:
 #   ./scripts/smoke-test.sh              # uses https://threatcrush.com
@@ -13,6 +15,7 @@
 #   TC_EMAIL, TC_PASSWORD — login against threatcrush.com
 #
 # Set SKIP_INSTALL=1 to skip the curl|sh step if the CLI is already installed.
+# THREATCRUSH_SOCKET, if set, is honoured the same way the CLI honours it.
 
 set -euo pipefail
 
@@ -40,11 +43,33 @@ tc() {
   fi
 }
 
+# Run a CLI command quietly, but show its output if it fails.
+tc_quiet() {
+  local out
+  if ! out=$(tc "$@" 2>&1); then
+    printf "%s\n" "$out"
+    return 1
+  fi
+}
+
+strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
+
+# Same rule as the daemon (apps/cli/src/daemon/paths.ts): root on Linux runs in
+# system mode, everyone else under ~/.threatcrush.
+if [ "$(id -u)" = "0" ] && [ "$(uname -s)" = "Linux" ]; then
+  DAEMON_MODE=system
+  RUN_DIR=/var/run/threatcrush
+else
+  DAEMON_MODE=user
+  RUN_DIR="$HOME/.threatcrush/run"
+fi
+
 # ─── 1. Install path (optional) ───
 if [ "$SKIP_INSTALL" != "1" ] && [ -z "$TC_BIN" ]; then
   if ! command -v threatcrush >/dev/null 2>&1; then
     info "Installing via curl | sh ..."
-    curl -fsSL "${API_URL}/install.sh" | sh >/dev/null 2>&1 || fail "install.sh failed"
+    # The installer's own output stays visible: when it fails, it says why.
+    curl -fsSL "${API_URL}/install.sh" | sh || fail "install.sh failed"
   fi
   command -v threatcrush >/dev/null 2>&1 || fail "threatcrush not on PATH after install"
   pass "CLI installed: $(command -v threatcrush)"
@@ -62,30 +87,43 @@ HELP=$(tc --help 2>&1)
 for cmd in monitor tui scan pentest status start stop daemon properties login; do
   echo "$HELP" | grep -q "$cmd" || fail "'$cmd' missing from help output"
 done
-pass "Help lists all v0.1.0 commands"
+pass "Help lists the core commands"
 
 # ─── 4. Clean slate ───
-rm -rf "$HOME/.threatcrush/run" "$HOME/.threatcrush/state" "$HOME/.threatcrush/logs" || true
-pass "Reset local runtime dirs"
+# Only the user-mode dirs are wiped. In system mode they hold a real host's
+# state database and logs, which a smoke test has no business deleting.
+if [ "$DAEMON_MODE" = "user" ]; then
+  rm -rf "$HOME/.threatcrush/run" "$HOME/.threatcrush/state" "$HOME/.threatcrush/logs" || true
+  pass "Reset user-mode runtime dirs under ~/.threatcrush"
+else
+  pass "Running as root (system mode); leaving /var/lib and /var/log/threatcrush alone"
+fi
 
 # ─── 5. Status (not running) ───
-OUT=$(tc status 2>&1 || true)
-echo "$OUT" | grep -q "NOT RUNNING" || fail "status should say NOT RUNNING on clean host"
+OUT=$(tc status 2>&1 | strip_ansi || true)
+echo "$OUT" | grep -q "NOT RUNNING" \
+  || fail "status should say NOT RUNNING on a clean host (is a threatcrushd already running here?)"
 pass "status correctly reports NOT RUNNING"
 
 # ─── 6. Start daemon ───
-tc start >/dev/null 2>&1 || fail "threatcrush start failed"
+tc_quiet start || fail "threatcrush start failed"
 sleep 1
-OUT=$(tc status 2>&1 || true)
-echo "$OUT" | grep -qE "RUNNING" || fail "status does not show RUNNING after start"
-echo "$OUT" | grep -qE "log-watcher|ssh-guard" || fail "built-in modules not listed"
+OUT=$(tc status 2>&1 | strip_ansi || true)
+# "● RUNNING" alone, not "NOT RUNNING" or "RUNNING (IPC unreachable)".
+echo "$OUT" | grep -qE "Status: +● RUNNING *$" || { echo "$OUT"; fail "status does not show RUNNING after start"; }
+echo "$OUT" | grep -qE "log-watcher|ssh-guard" || { echo "$OUT"; fail "built-in modules not listed"; }
 pass "Daemon started, IPC reachable"
 
+# Ask the CLI which socket it reached rather than guessing: it may be a system
+# daemon's socket even for a non-root caller, or THREATCRUSH_SOCKET.
+SOCKET=$(echo "$OUT" | sed -n 's/^ *Socket: *//p' | head -1)
+SOCKET="${SOCKET:-${THREATCRUSH_SOCKET:-$RUN_DIR/threatcrushd.sock}}"
+info "Daemon socket: $SOCKET"
+
 # ─── 7. IPC handshake ───
-node -e "
+TC_SMOKE_SOCKET="$SOCKET" node -e "
 const { createConnection } = require('node:net');
-const { join } = require('node:path');
-const sock = createConnection(join(process.env.HOME, '.threatcrush/run/threatcrushd.sock'));
+const sock = createConnection(process.env.TC_SMOKE_SOCKET);
 sock.setEncoding('utf-8');
 let buf = '';
 const timer = setTimeout(() => { console.error('timeout'); process.exit(2); }, 3000);
@@ -118,9 +156,9 @@ rm -rf "$FIX"
 pass "scan flagged test secrets"
 
 # ─── 10. Stop daemon ───
-tc stop >/dev/null 2>&1 || fail "threatcrush stop failed"
+tc_quiet stop || fail "threatcrush stop failed"
 sleep 1
-OUT=$(tc status 2>&1 || true)
+OUT=$(tc status 2>&1 | strip_ansi || true)
 echo "$OUT" | grep -q "NOT RUNNING" || fail "daemon didn't shut down cleanly"
 pass "Daemon stopped cleanly"
 
@@ -154,4 +192,4 @@ else
   info "Skipping login + properties flow (set TC_EMAIL and TC_PASSWORD to enable)"
 fi
 
-printf "\n%b✅ smoke test passed — v0.1.0 launch path is green.%b\n\n" "$GREEN" "$RESET"
+printf "\n%b✅ smoke test passed — %s launch path is green.%b\n\n" "$GREEN" "$VERSION" "$RESET"

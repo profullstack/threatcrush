@@ -12,7 +12,7 @@ export default function TermsPage() {
           <h1 className="mt-3 text-4xl font-bold text-tc-text">
             Terms of <span className="text-tc-green glow-green">Service</span>
           </h1>
-          <p className="mt-2 text-sm text-tc-text-dim">Last updated: April 7, 2026</p>
+          <p className="mt-2 text-sm text-tc-text-dim">Last updated: September 25, 2026</p>
         </header>
 
         <div className="space-y-8 text-tc-text">
@@ -27,10 +27,10 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-tc-green">2. Use of the Service</h2>
             <p className="mt-2 text-tc-text-dim">
-              ThreatCrush provides threat intelligence, vulnerability scanning, and active defense
-              tooling. You agree to use the Service only against systems you own or have explicit
-              written authorization to test. Any unauthorized use against third-party
-              infrastructure is strictly prohibited.
+              ThreatCrush provides server attack detection and automatic IP banning, hardening
+              checks, code scanning and pentest tooling. You agree to use the Service only against
+              systems you own or have explicit written authorization to test. Any unauthorized use
+              against third-party infrastructure is strictly prohibited.
             </p>
           </section>
 
@@ -45,7 +45,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-tc-green">4. Payments and Refunds</h2>
             <p className="mt-2 text-tc-text-dim">
-              Lifetime licenses are payable via credit card or cryptocurrency through our payment
+              Purchases are payable via credit card or cryptocurrency through our payment
               processors. Refunds are available within 30 days of purchase if you are not
               satisfied. Investor contributions made via /investors are non-refundable except
               where required by law.
