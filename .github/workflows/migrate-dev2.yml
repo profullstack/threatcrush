@@ -3,27 +3,40 @@
 # the schema, so a PR that adds a migration needs this run before (or right
 # after) its merge.
 #
-#   inspect: read-only. Lists Postgres containers on dev2 and, for each, whether
-#            it holds the ThreatCrush schema and which migrations it recorded.
+#   inspect: read-only. Finds the Postgres container that holds the ThreatCrush
+#            schema and reports its migration state. This repo is public, so it
+#            never lists the other stacks on dev2.
 #   apply:   runs the named files, in the order given, with ON_ERROR_STOP, and
 #            records each in supabase_migrations.schema_migrations when that
 #            table exists. Stops at the first failure.
+#   query:   runs SQL in a read-only session. The result is never printed in
+#            plain text: it is AES-encrypted on the runner with a fresh key,
+#            and that key is sealed to the RSA public key passed as `pubkey`.
+#            Decrypt locally with the matching private key.
 name: Migrate dev2 database
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: inspect (read-only) or apply
+        description: inspect (read-only), apply, or query (read-only, encrypted output)
         type: choice
-        options: [inspect, apply]
+        options: [inspect, apply, query]
         default: inspect
       container:
-        description: Postgres container on dev2 (apply only; see an inspect run)
+        description: Postgres container on dev2 (apply/query; see an inspect run)
         required: false
         type: string
       migrations:
         description: Space-separated file names under supabase/migrations (apply only)
+        required: false
+        type: string
+      sql:
+        description: SQL to run read-only (query only)
+        required: false
+        type: string
+      pubkey:
+        description: Base64 of an RSA public key PEM to seal the result to (query only)
         required: false
         type: string
 
@@ -64,12 +77,13 @@ jobs:
           ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" 'sh -s' <<'REMOTE'
           echo "user: $(id -un)"
           if ! docker ps >/dev/null 2>&1; then echo "docker: not usable by this user"; exit 1; fi
-          docker ps --format '{{.Names}}\t{{.Image}}' | grep -iE 'postgres|supabase' || true
+          found=0
           for c in $(docker ps --format '{{.Names}} {{.Image}}' | awk 'tolower($2) ~ /postgres/ {print $1}'); do
-            echo "== $c"
-            docker exec -i "$c" psql -X -A -t -U postgres -d postgres -c "
-              select 'threatcrush schema: ' || (to_regclass('public.modules') is not null and to_regclass('public.detections') is not null);
-            " 2>&1 | sed 's/^/  /'
+            is_tc=$(docker exec -i "$c" psql -X -A -t -U postgres -d postgres -c \
+              "select to_regclass('public.modules') is not null and to_regclass('public.detections') is not null" 2>/dev/null || true)
+            [ "$is_tc" = "t" ] || continue
+            found=1
+            echo "== $c (ThreatCrush schema)"
             docker exec -i "$c" psql -X -A -t -U postgres -d postgres -c "
               select '  tracked migrations: ' || count(*) from supabase_migrations.schema_migrations;
               select '  last recorded: ' || version from supabase_migrations.schema_migrations order by version desc limit 5;
@@ -83,6 +97,7 @@ jobs:
                 where table_schema='public' and table_name='detections' and column_name='occurrences');
             " 2>/dev/null || true
           done
+          [ "$found" = 1 ] || echo "no container holds the ThreatCrush schema"
           REMOTE
 
       - name: Apply
@@ -118,3 +133,34 @@ jobs:
           ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" \
             "docker exec -i $CONTAINER psql -X -q -U postgres -d postgres -c \"NOTIFY pgrst, 'reload schema';\""
           echo "schema cache reload sent"
+
+      # The result goes to a file on the runner and only its ciphertext is
+      # printed: this repo's Actions logs are public.
+      - name: Query (read-only, encrypted output)
+        if: inputs.mode == 'query'
+        env:
+          DEV2_USER: ${{ secrets.DEV2_USER }}
+          DEV2_HOST: ${{ secrets.DEV2_HOST }}
+          CONTAINER: ${{ inputs.container }}
+          SQL: ${{ inputs.sql }}
+          PUBKEY_B64: ${{ inputs.pubkey }}
+        run: |
+          set -eu
+          case "$CONTAINER" in
+            ''|*[!A-Za-z0-9_.-]*) echo "container must match [A-Za-z0-9_.-]+"; exit 1;;
+          esac
+          [ -n "$SQL" ] || { echo "no sql given"; exit 1; }
+          work=$(mktemp -d)
+          printf '%s' "$PUBKEY_B64" | base64 -d > "$work/pub.pem"
+          openssl pkey -pubin -in "$work/pub.pem" -noout || { echo "pubkey is not a PEM public key"; exit 1; }
+          # Everything psql prints, errors included, stays in the file.
+          printf '%s\n' "$SQL" | ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" \
+            "docker exec -i -e PGOPTIONS='-c default_transaction_read_only=on' $CONTAINER psql -X -A -v ON_ERROR_STOP=1 -U postgres -d postgres -f -" \
+            > "$work/out.txt" 2>&1 && status=0 || status=$?
+          openssl rand -hex 32 > "$work/key"
+          echo "psql exit: $status"
+          echo "--- sealed key ---"
+          openssl pkeyutl -encrypt -pubin -inkey "$work/pub.pem" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -in "$work/key" | base64 -w0; echo
+          echo "--- ciphertext ---"
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass "file:$work/key" -in "$work/out.txt" | base64 -w0; echo
+          rm -rf "$work"
