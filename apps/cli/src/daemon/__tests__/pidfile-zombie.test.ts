@@ -32,15 +32,24 @@ describe.runIf(existsSync('/proc/self/stat'))('isProcessAlive on a zombie', () =
   });
 
   it('treats an exited but unreaped process as gone', async () => {
-    // The shell backgrounds `true` and `exec`s into a process that never
-    // waits, so once `true` exits it stays a zombie for the life of the test.
-    parent = spawn('sh', ['-c', 'true & echo $!; exec sleep 30'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    // The shell backgrounds a short sleep and `exec`s into a process that never
+    // waits, so once the child exits it stays a zombie for the life of the test.
+    // The child must outlive the exec: a `true` that exits first is reaped by sh.
+    parent = spawn('sh', ['-c', 'sleep 0.5 & echo $!; exec sleep 30'], { stdio: ['ignore', 'pipe', 'ignore'] });
     const [chunk] = (await once(parent.stdout!, 'data')) as [Buffer];
     const pid = Number.parseInt(chunk.toString(), 10);
 
-    // `true` exits on its own schedule; the zombie state is the signal to wait on.
+    // The child exits on its own schedule; the zombie state is the signal to wait on.
     const deadline = Date.now() + 5000;
-    while (procStatState(readFileSync(`/proc/${pid}/stat`, 'utf-8')) !== 'Z' && Date.now() < deadline);
+    const state = () => {
+      try {
+        return procStatState(readFileSync(`/proc/${pid}/stat`, 'utf-8'));
+      } catch {
+        return null;
+      }
+    };
+    while (state() !== 'Z' && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+    expect(state()).toBe('Z');
 
     expect(() => process.kill(pid, 0)).not.toThrow();
     expect(isProcessAlive(pid)).toBe(false);
