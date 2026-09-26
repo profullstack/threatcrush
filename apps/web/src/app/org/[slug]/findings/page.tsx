@@ -1,10 +1,11 @@
 import { AuthProvider } from "@/lib/auth-context";
 import FindingsContent from "./findings-content";
 
-export default function FindingsPage({ params }: { params: { slug: string } }) {
+export default async function FindingsPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
   return (
     <AuthProvider>
-      <FindingsContent slug={params.slug} />
+      <FindingsContent slug={slug} />
     </AuthProvider>
   );
 }
