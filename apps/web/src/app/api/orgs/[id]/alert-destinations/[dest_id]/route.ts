@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { safeFetch } from "@/lib/ssrf-guard";
+import { DESTINATION_URL_FIELDS, destinationConfigError } from "@/lib/alert-destinations";
 
 // PATCH /api/orgs/[id]/alert-destinations/[dest_id]
 export async function PATCH(
@@ -31,6 +33,14 @@ export async function PATCH(
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    }
+
+    if (updates.config !== undefined) {
+      const { data: existing } = await admin.from("alert_destinations")
+        .select("type").eq("id", dest_id).eq("organization_id", orgId).single();
+      if (!existing) return NextResponse.json({ error: "Destination not found" }, { status: 404 });
+      const configError = await destinationConfigError(existing.type, updates.config);
+      if (configError) return NextResponse.json({ error: configError }, { status: 400 });
     }
 
     const { data: dest, error } = await admin.from("alert_destinations")
@@ -118,43 +128,45 @@ export async function POST(
       timestamp: new Date().toISOString(),
     };
 
+    const payloads: Record<string, unknown> = {
+      webhook: testMessage,
+      slack: { text: `:white_check_mark: ${testMessage.title}\n${testMessage.message}` },
+      discord: { content: `**${testMessage.title}**\n${testMessage.message}` },
+    };
+    const field = DESTINATION_URL_FIELDS[dest.type];
+    if (!field) {
+      return NextResponse.json({ message: `Test for ${dest.type} acknowledged (delivery not yet implemented server-side)` });
+    }
+
+    // Rows saved before create-time validation existed may hold anything, so
+    // check again rather than trust the stored value.
+    const configError = await destinationConfigError(dest.type, dest.config);
+    if (configError) return NextResponse.json({ error: configError }, { status: 400 });
+
+    let res: Response;
     try {
-      switch (dest.type) {
-        case "webhook": {
-          const url = dest.config.url as string;
-          if (!url) return NextResponse.json({ error: "Webhook URL not configured" }, { status: 400 });
-          await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(testMessage),
-          });
-          break;
-        }
-        case "slack": {
-          const url = dest.config.webhook_url as string;
-          if (!url) return NextResponse.json({ error: "Slack webhook not configured" }, { status: 400 });
-          await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: `:white_check_mark: ${testMessage.title}\n${testMessage.message}` }),
-          });
-          break;
-        }
-        case "discord": {
-          const url = dest.config.webhook_url as string;
-          if (!url) return NextResponse.json({ error: "Discord webhook not configured" }, { status: 400 });
-          await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content: `**${testMessage.title}**\n${testMessage.message}` }),
-          });
-          break;
-        }
-        default:
-          return NextResponse.json({ message: `Test for ${dest.type} acknowledged (delivery not yet implemented server-side)` });
-      }
+      // safeFetch pins the socket to the address it validated. Redirects are
+      // not followed: a webhook that answers 3xx is misconfigured, and a hop
+      // is one more way to be pointed somewhere else.
+      res = await safeFetch(dest.config[field] as string, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payloads[dest.type]),
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
     } catch (sendErr) {
-      return NextResponse.json({ error: `Test failed: ${(sendErr as Error).message}` }, { status: 502 });
+      // Connection errors (refused, reset, timeout) are logged, not echoed:
+      // telling them apart is how a caller would map hosts and ports.
+      console.error("Test alert delivery failed:", sendErr);
+      return NextResponse.json({ error: "Could not reach the destination URL" }, { status: 502 });
+    }
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: `Destination responded with HTTP ${res.status}` },
+        { status: 502 },
+      );
     }
 
     return NextResponse.json({ success: true, message: "Test alert sent" });

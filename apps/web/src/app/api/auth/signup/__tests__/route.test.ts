@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createMemoryTables } from "@/__tests__/helpers/memory-tables";
 
 // ─── Mock chain for supabase ───
 
@@ -29,6 +30,12 @@ function resetMocks(overrides: {
   mockFromInsert.mockResolvedValue(profileInsertResult);
 }
 
+let phoneTables = createMemoryTables();
+
+vi.mock("@/lib/telnyx", () => ({
+  sendTelnyxSms: vi.fn(),
+}));
+
 vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
     auth: {
@@ -44,11 +51,8 @@ vi.mock("@/lib/supabase", () => ({
           insert: mockFromInsert,
         };
       }
-      if (table === "phone_verification_codes") {
-        return {
-          delete: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({}) }),
-          insert: vi.fn().mockReturnValue({ insert: vi.fn().mockResolvedValue({ error: null }) }),
-        };
+      if (table === "phone_verification_codes" || table === "phone_sms_sends") {
+        return phoneTables.from(table);
       }
       return { select: vi.fn(), insert: vi.fn(), delete: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({}) }) };
     },
@@ -65,6 +69,8 @@ vi.mock("@/lib/supabase", () => ({
 }));
 
 import { POST } from "@/app/api/auth/signup/route";
+import { sendTelnyxSms } from "@/lib/telnyx";
+import { SMS_SENDS_PER_HOUR } from "@/lib/phone-verification";
 
 function makeRequest(body: unknown) {
   return new Request("http://localhost/api/auth/signup", {
@@ -78,6 +84,8 @@ describe("POST /api/auth/signup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetMocks();
+    phoneTables = createMemoryTables();
+    vi.mocked(sendTelnyxSms).mockResolvedValue(undefined);
   });
 
   it("creates user with valid email + phone + password", async () => {
@@ -203,5 +211,22 @@ describe("POST /api/auth/signup", () => {
         needs_phone_verification: expect.any(Boolean),
       })
     );
+  });
+
+  it("stops sending SMS to a number once repeated signups reach its hourly ceiling", async () => {
+    const results = [];
+    for (let i = 0; i <= SMS_SENDS_PER_HOUR; i++) {
+      resetMocks({ createUserResult: { data: { user: { id: `user-${i}` } }, error: null } });
+      const res = await POST(
+        makeRequest({ email: `victim${i}@example.com`, phone: "+15551234567", password: "securePass1!" }),
+      );
+      results.push({ status: res.status, ...(await res.json()) });
+    }
+
+    // The account is still created; only the SMS is withheld.
+    expect(results.map((r) => r.status)).toEqual(Array(SMS_SENDS_PER_HOUR + 1).fill(200));
+    expect(results.map((r) => r.sms_sent)).toEqual([...Array(SMS_SENDS_PER_HOUR).fill(true), false]);
+    expect(results.at(-1)?.sms_error).toMatch(/Too many verification codes/);
+    expect(sendTelnyxSms).toHaveBeenCalledTimes(SMS_SENDS_PER_HOUR);
   });
 });

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { githubOAuthEnabled } from "@/lib/github-oauth";
+import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
@@ -129,8 +130,8 @@ export default function SignupPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={8}
-              placeholder="Min 8 characters"
+              minLength={MIN_PASSWORD_LENGTH}
+              placeholder={`Min ${MIN_PASSWORD_LENGTH} characters`}
               className="w-full bg-tc-darker border border-tc-border rounded-lg px-4 py-2.5 text-white placeholder:text-tc-text-dim focus:outline-none focus:border-tc-green/50 transition-colors"
             />
           </div>

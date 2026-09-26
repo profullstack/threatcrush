@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
+import type * as CoinpayClient from "@/lib/coinpay-client";
 
 // vi.mock factories are hoisted above the imports, so anything they close over
 // must be hoisted with them.
@@ -42,11 +43,13 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }));
 
-vi.mock("@/lib/coinpay-client", () => ({
+vi.mock("@/lib/coinpay-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof CoinpayClient>()),
   getCoinpayPaymentStatus: mockLiveStatus,
 }));
 
 import { GET } from "@/app/api/funding/status/route";
+import { CoinpayError, CoinpayNotConfiguredError } from "@/lib/coinpay-client";
 
 function makeRequest() {
   return new NextRequest("http://localhost/api/funding/status?payment_id=pay-001");
@@ -86,5 +89,42 @@ describe("GET /api/funding/status", () => {
     await GET(makeRequest());
 
     expect(db.status).toBe("expired");
+  });
+
+  describe("when the live CoinPay lookup fails", () => {
+    beforeEach(() => {
+      db.status = "pending";
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+
+    it("answers 404 JSON for a payment id CoinPay does not know", async () => {
+      mockLiveStatus.mockRejectedValue(new CoinpayError("CoinPay status failed: 404", 404));
+
+      const res = await GET(makeRequest());
+
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: expect.any(String) });
+      expect(db.status).toBe("pending");
+    });
+
+    it("answers 502 JSON when CoinPay errors or is unreachable", async () => {
+      for (const err of [new CoinpayError("CoinPay status failed: 500", 500), new TypeError("fetch failed")]) {
+        mockLiveStatus.mockRejectedValueOnce(err);
+
+        const res = await GET(makeRequest());
+
+        expect(res.status).toBe(502);
+        expect(await res.json()).toEqual({ error: expect.any(String) });
+      }
+    });
+
+    it("answers 503 JSON when CoinPay credentials are not configured", async () => {
+      mockLiveStatus.mockRejectedValue(new CoinpayNotConfiguredError());
+
+      const res = await GET(makeRequest());
+
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: expect.any(String) });
+    });
   });
 });

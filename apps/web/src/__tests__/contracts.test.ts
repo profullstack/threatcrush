@@ -316,41 +316,6 @@ describe("API Response Contracts", () => {
         })
       );
     });
-
-    it("usage topup response shape (demo)", () => {
-      const response = {
-        success: true,
-        demo: true,
-        message: "Demo mode — CoinPayPortal not configured. Top-up simulated.",
-        payment_url: null,
-        amount_usd: 25,
-      };
-
-      expect(response).toEqual(
-        expect.objectContaining({
-          success: true,
-          amount_usd: expect.any(Number),
-        })
-      );
-    });
-
-    it("usage topup response shape (live)", () => {
-      const response = {
-        success: true,
-        payment_url: "https://pay.example.com/session-123",
-        payment_id: "pay-123",
-        amount_usd: 25,
-      };
-
-      expect(response).toEqual(
-        expect.objectContaining({
-          success: true,
-          payment_url: expect.any(String),
-          payment_id: expect.any(String),
-          amount_usd: expect.any(Number),
-        })
-      );
-    });
   });
 
   // ─── Waitlist Contracts ───

@@ -148,7 +148,7 @@ export async function checkTab(tabId) {
 
 async function onTabUpdated(tabId, changeInfo, tab) {
   if (changeInfo.status === 'loading') {
-    // null falls back to the global (account) badge until the new page is checked.
+    // null clears the tab's badge (back to the empty default) until the new page is checked.
     await chrome.action.setBadgeText({ tabId, text: null }).catch(() => {});
     return;
   }

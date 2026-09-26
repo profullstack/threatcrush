@@ -8,7 +8,12 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: vi.fn().mockReturnValue({ from: vi.fn() }),
 }));
 
-import { slugify, getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import {
+  slugify,
+  getSupabaseClient,
+  getSupabaseAdmin,
+  updatePasswordWithAccessToken,
+} from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 
 describe("slugify", () => {
@@ -76,5 +81,42 @@ describe("getSupabaseAdmin", () => {
     const client = getSupabaseAdmin();
     expect(client).toBeDefined();
     expect(createClient).toHaveBeenCalled();
+  });
+});
+
+describe("updatePasswordWithAccessToken", () => {
+  beforeEach(() => {
+    vi.mocked(fetch).mockReset();
+  });
+
+  it("reports success when GoTrue accepts the new password", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ id: "user-1" }), { status: 200 }));
+
+    expect(await updatePasswordWithAccessToken("user-jwt", "N3w-passw0rd")).toEqual({ error: null });
+  });
+
+  it("reads GoTrue's error body into status, code and message", async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: 422,
+          error_code: "weak_password",
+          msg: "Password should be at least 6 characters.",
+        }),
+        { status: 422 },
+      ),
+    );
+
+    expect(await updatePasswordWithAccessToken("user-jwt", "abc")).toEqual({
+      error: { status: 422, code: "weak_password", message: "Password should be at least 6 characters." },
+    });
+  });
+
+  it("still reports the status when GoTrue's error body is not JSON", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response("<html>Bad Gateway</html>", { status: 502 }));
+
+    expect(await updatePasswordWithAccessToken("user-jwt", "N3w-passw0rd")).toEqual({
+      error: { status: 502, code: null, message: "GoTrue answered 502" },
+    });
   });
 });

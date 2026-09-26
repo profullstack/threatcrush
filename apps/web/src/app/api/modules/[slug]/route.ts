@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getAuthenticatedRequestUser } from "@/lib/api-auth";
+import { isPubliclyListed, paidModuleError, toPublicModule } from "@/lib/module-marketplace";
 
 type RouteContext = { params: Promise<{ slug: string }> };
 
 /**
  * GET /api/modules/[slug]
  * Module details with versions and reviews.
+ *
+ * Only approved + published modules are public. The author (signed in) can
+ * also load their own pending, rejected or unpublished module, including the
+ * reviewer's note.
  */
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: RouteContext
 ) {
   const { slug } = await context.params;
@@ -19,10 +24,18 @@ export async function GET(
     .from("modules")
     .select("*")
     .eq("slug", slug)
-    .eq("published", true)
     .single();
 
   if (error || !mod) {
+    return NextResponse.json({ error: "Module not found" }, { status: 404 });
+  }
+
+  let isAuthor = false;
+  if (request.headers.get("authorization")) {
+    const user = await getAuthenticatedRequestUser(request);
+    isAuthor = !!user?.email && user.email === mod.author_email;
+  }
+  if (!isAuthor && !isPubliclyListed(mod)) {
     return NextResponse.json({ error: "Module not found" }, { status: 404 });
   }
 
@@ -42,7 +55,7 @@ export async function GET(
     .limit(20);
 
   return NextResponse.json({
-    module: mod,
+    module: isAuthor ? mod : toPublicModule(mod),
     versions: versions || [],
     reviews: reviews || [],
   });
@@ -77,7 +90,7 @@ export async function PATCH(
   // Verify ownership
   const { data: existing } = await sb
     .from("modules")
-    .select("id, author_email")
+    .select("id, author_email, review_status, git_url")
     .eq("slug", slug)
     .single();
 
@@ -86,6 +99,11 @@ export async function PATCH(
   }
   if (!user.email || existing.author_email !== user.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+  }
+
+  const pricingError = paidModuleError(body);
+  if (pricingError) {
+    return NextResponse.json({ error: pricingError }, { status: 400 });
   }
 
   // Only allow updating certain fields
@@ -101,6 +119,22 @@ export async function PATCH(
     if (field in body) {
       updates[field] = body[field];
     }
+  }
+
+  // The reviewer approved a specific source. Pointing the listing somewhere
+  // else sends it back through review; editing a rejected module resubmits it.
+  const sourceChanged = "git_url" in body && (body.git_url || null) !== (existing.git_url || null);
+  if (existing.review_status === "rejected" || (existing.review_status === "approved" && sourceChanged)) {
+    Object.assign(updates, {
+      review_status: "pending",
+      published: false,
+      reviewed_by: null,
+      reviewed_at: null,
+      review_note: null,
+    });
+  }
+  if (sourceChanged) {
+    Object.assign(updates, { source_status: null, source_checked_at: null, source_check_detail: null });
   }
 
   const { data, error } = await sb

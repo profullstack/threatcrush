@@ -63,7 +63,7 @@ function formatTime(iso: string): string {
   });
 }
 
-export default function UsageContent() {
+export default function UsageContent({ topupsEnabled }: { topupsEnabled: boolean }) {
   const { signedIn, loading: authLoading, profile } = useAuth();
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -193,14 +193,16 @@ export default function UsageContent() {
   return (
     <>
       {/* ─── Top Bar ─── */}
-      <div className="fixed top-16 right-4 z-40">
-        <button
-          onClick={() => setShowTopup(true)}
-          className="rounded-lg bg-tc-green px-4 py-2 text-sm font-bold text-black transition-all hover:bg-tc-green-dim shadow-lg"
-        >
-          Top Up
-        </button>
-      </div>
+      {topupsEnabled && (
+        <div className="fixed top-16 right-4 z-40">
+          <button
+            onClick={() => setShowTopup(true)}
+            className="rounded-lg bg-tc-green px-4 py-2 text-sm font-bold text-black transition-all hover:bg-tc-green-dim shadow-lg"
+          >
+            Top Up
+          </button>
+        </div>
+      )}
 
       <main className="pt-24 pb-16 min-h-screen">
       <div className="mx-auto max-w-6xl px-6">
@@ -216,6 +218,21 @@ export default function UsageContent() {
             </p>
           </div>
         </ScrollReveal>
+
+        {!topupsEnabled && (
+          <div className="rounded-xl border border-yellow-400/30 bg-yellow-400/5 p-5 mb-8">
+            <p className="text-sm font-bold text-yellow-400 mb-1">Credit top-ups are paused</p>
+            <p className="text-sm text-tc-text-dim">
+              AI usage isn&apos;t charged against credits yet, so new credits couldn&apos;t be spent.
+              Your balance and payment history below are unchanged. Questions about a past payment?
+              Email{" "}
+              <a href="mailto:hello@threatcrush.com" className="text-tc-green hover:underline">
+                hello@threatcrush.com
+              </a>
+              .
+            </p>
+          </div>
+        )}
 
           {loading ? (
             <div className="flex items-center justify-center py-32">
@@ -241,12 +258,14 @@ export default function UsageContent() {
                       <p className="text-sm text-tc-text-dim">
                         <span className="text-tc-green font-mono">~{data.estimated_days_remaining}</span> days remaining
                       </p>
-                      <button
-                        onClick={() => setShowTopup(true)}
-                        className="mt-2 rounded-lg bg-tc-green px-6 py-2.5 text-sm font-bold text-black transition-all hover:bg-tc-green-dim"
-                      >
-                        + Top Up Credits
-                      </button>
+                      {topupsEnabled && (
+                        <button
+                          onClick={() => setShowTopup(true)}
+                          className="mt-2 rounded-lg bg-tc-green px-6 py-2.5 text-sm font-bold text-black transition-all hover:bg-tc-green-dim"
+                        >
+                          + Top Up Credits
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -470,7 +489,7 @@ export default function UsageContent() {
       </main>
 
       {/* ─── Top Up Modal ─── */}
-      {showTopup && (
+      {topupsEnabled && showTopup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowTopup(false)}>
           <div className="relative rounded-2xl border border-tc-green/30 bg-tc-darker p-8 max-w-md w-full mx-4 glow-box" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setShowTopup(false)} className="absolute top-4 right-4 text-tc-text-dim hover:text-tc-text">✕</button>

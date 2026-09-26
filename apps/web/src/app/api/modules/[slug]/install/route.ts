@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getAuthenticatedRequestUser } from "@/lib/api-auth";
 import { createPluginInstallPayload } from "@profullstack/pluginstore";
+import { brokenSourceMessage, isSourceBroken } from "@/lib/module-marketplace";
 
 type RouteContext = { params: Promise<{ slug: string }> };
 
 const MODULE_INSTALL_COLUMNS =
-  "id, name, slug, version, downloads, git_url, npm_package, tarball_url, min_threatcrush_version, os_support, license, config_schema, config_notes";
+  "id, name, slug, version, downloads, git_url, npm_package, tarball_url, min_threatcrush_version, os_support, license, config_schema, config_notes, source_status, source_checked_at, source_check_detail";
 
 /**
  * GET /api/modules/[slug]/install
@@ -24,10 +25,19 @@ export async function GET(
     .select(MODULE_INSTALL_COLUMNS)
     .eq("slug", slug)
     .eq("published", true)
+    .eq("review_status", "approved")
     .single();
 
   if (modError || !mod) {
     return NextResponse.json({ error: "Module not found" }, { status: 404 });
+  }
+  // Refused while the last source health check found the source gone: the
+  // client would otherwise fail later with a bare clone/HTTP error.
+  if (isSourceBroken(mod.source_status)) {
+    return NextResponse.json(
+      { error: brokenSourceMessage(mod), source_status: mod.source_status },
+      { status: 409 },
+    );
   }
 
   return NextResponse.json({
@@ -58,10 +68,17 @@ export async function POST(
     .select(MODULE_INSTALL_COLUMNS)
     .eq("slug", slug)
     .eq("published", true)
+    .eq("review_status", "approved")
     .single();
 
   if (modError || !mod) {
     return NextResponse.json({ error: "Module not found" }, { status: 404 });
+  }
+  if (isSourceBroken(mod.source_status)) {
+    return NextResponse.json(
+      { error: brokenSourceMessage(mod), source_status: mod.source_status },
+      { status: 409 },
+    );
   }
 
   const user = await getAuthenticatedRequestUser(request);
