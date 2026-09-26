@@ -1,5 +1,5 @@
 import { execSync, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
@@ -78,6 +78,37 @@ export function looksLikeNodeScript(path: string): boolean {
  */
 export function execStartCommand(binPath: string, nodePath: string, isNodeScript: boolean): string {
   return isNodeScript ? `${nodePath} ${binPath} daemon` : `${binPath} daemon`;
+}
+
+/**
+ * The install tree of one particular Node version that `path` lives in, if any:
+ * mise (`installs/node/<v>`, including its moving `latest`), asdf
+ * (`installs/nodejs/<v>`), nvm
+ * (`.nvm/versions/node/<v>`), fnm (`node-versions/<v>`), volta
+ * (`tools/image/node/<v>`), n (`n/versions/node/<v>`).
+ *
+ * A CLI installed with that node's npm lives in that tree too, so a node
+ * upgrade (or pruning the old version) removes it — and a unit whose ExecStart
+ * points there fails on every start. There is no stable path to switch to in
+ * that case, only the honest warning.
+ */
+export function nodeVersionDir(path: string): string | null {
+  const m = path.match(
+    /^(.*?\/(?:installs\/node(?:js)?|\.nvm\/versions\/node|node-versions|tools\/image\/node|n\/versions\/node)\/[^/]+)\//,
+  );
+  return m ? m[1] : null;
+}
+
+/**
+ * Why the unit cannot be installed on this host, or null when systemd is there
+ * to run it. `/run/systemd/system` exists only when systemd is PID 1 — the
+ * check `sd_booted()` makes — so a container that merely has the `systemctl`
+ * binary installed still counts as no systemd.
+ */
+export function systemdUnavailableReason(o: { hasSystemctl: boolean; booted: boolean }): string | null {
+  if (!o.hasSystemctl) return 'systemctl is not installed';
+  if (!o.booted) return 'systemd is not running as the init system (common in containers and WSL)';
+  return null;
 }
 
 function isRoot(): boolean {
@@ -180,6 +211,23 @@ export async function installServiceCommand(): Promise<void> {
 
   if (process.platform !== 'linux') {
     console.log(chalk.yellow('  systemd install is only supported on Linux.'));
+    process.exitCode = 1;
+    return;
+  }
+
+  // Before sudo and before writing anything: without systemd the unit is a file
+  // nobody will ever read, and `systemctl` fails only after it is written.
+  const noSystemd = systemdUnavailableReason({
+    hasSystemctl: spawnSync('sh', ['-c', 'command -v systemctl'], { stdio: 'ignore' }).status === 0,
+    booted: existsSync('/run/systemd/system'),
+  });
+  if (noSystemd) {
+    console.log(chalk.red(`  ✗ systemd isn't available here: ${noSystemd}.`));
+    console.log(chalk.dim('  Nothing was installed. Run the daemon without a service manager instead:'));
+    console.log(chalk.dim(`    ${chalk.white('threatcrush start')}      # background daemon`));
+    console.log(chalk.dim(`    ${chalk.white('threatcrush daemon')}     # foreground, e.g. as a container's command`));
+    console.log();
+    process.exitCode = 1;
     return;
   }
 
@@ -188,22 +236,40 @@ export async function installServiceCommand(): Promise<void> {
     if (reexecWithSudo(['install-service'])) return;
     console.log(chalk.red('  Needs root and sudo is unavailable or was declined.'));
     console.log(chalk.dim('  Run this as root:  threatcrush install-service'));
+    process.exitCode = 1;
     return;
   }
 
   // The template's `{{BIN_PATH}} daemon` becomes `<node> <script> daemon` for a
   // shebang script: systemd has no more chance of finding a version-managed
   // node on its PATH than sudo did.
-  const binPath = resolveBinPath();
-  const exec = execStartCommand(
-    binPath,
-    stableNodePath(process.execPath),
-    looksLikeNodeScript(binPath),
-  );
+  let binPath = resolveBinPath();
+  const isNodeScript = looksLikeNodeScript(binPath);
+  let nodePath = stableNodePath(process.execPath);
+  if (isNodeScript && nodeVersionDir(binPath)) {
+    // Installed by one Node version's npm, so it exists only as long as that
+    // version does. Name that version outright — mise's `latest` would move to a
+    // new Node that does not have threatcrush installed — and run it with the
+    // node it was installed for.
+    binPath = realpathSync(binPath);
+    nodePath = process.execPath;
+  }
+  const exec = execStartCommand(binPath, nodePath, isNodeScript);
   const unit = resolveTemplate().replace('{{BIN_PATH}} daemon', exec).replace('{{BIN_PATH}}', binPath);
   writeFileSync(UNIT_PATH, unit, { mode: 0o644 });
   console.log(chalk.green(`  ✓ Installed unit file: ${UNIT_PATH}`));
   console.log(chalk.dim(`    ExecStart=${exec}`));
+
+  // A `latest` node is fine on its own: any node runs a CLI living outside it.
+  const nodeDir = nodeVersionDir(nodePath);
+  const pinnedTo =
+    nodeVersionDir(binPath) ?? (isNodeScript && nodeDir && !nodeDir.endsWith('/latest') ? nodeDir : null);
+  if (pinnedTo) {
+    console.log(chalk.yellow(`  ! ExecStart depends on the Node install in ${pinnedTo}.`));
+    console.log(chalk.dim('    Upgrading or removing that Node version breaks the service. Afterwards, reinstall'));
+    console.log(chalk.dim(`    threatcrush for the new Node and re-run ${chalk.white('threatcrush install-service')}.`));
+    console.log(chalk.dim('    Installing with a system Node (/usr/bin/node or /usr/local/bin/node) avoids this.'));
+  }
 
   ensureSystemDirs();
 
@@ -220,6 +286,7 @@ export async function installServiceCommand(): Promise<void> {
   } catch (err) {
     console.log(chalk.yellow(`  ! systemctl error: ${(err as Error).message}`));
     console.log(chalk.dim(`  Logs:  journalctl -u ${DAEMON_UNIT_NAME} -n 50`));
+    process.exitCode = 1;
     return;
   }
 
@@ -231,6 +298,7 @@ export async function installServiceCommand(): Promise<void> {
     // Say so rather than letting a green tick imply a daemon that is not there.
     console.log(chalk.yellow('  ! The unit is installed but did not come up.'));
     console.log(chalk.dim(`  Logs:  journalctl -u ${DAEMON_UNIT_NAME} -n 50`));
+    process.exitCode = 1;
   }
   console.log();
 }

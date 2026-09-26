@@ -92,7 +92,17 @@ Safari's `webRequest` support is limited, so header checks may show Unknown ther
 
 ## Account features
 
-The **Account** tab signs in with Supabase and shows usage and alerts. The build reads `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (and `NEXT_PUBLIC_APP_URL`, default `https://threatcrush.com`) from the environment or `apps/.env*`. Without the Supabase values, sign-in reports that it isn't configured; page checks still work.
+The **Account** tab signs in with Supabase and shows your organization's detections. The build reads `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (and `NEXT_PUBLIC_APP_URL`, default `https://threatcrush.com`) from the environment or `apps/.env*`. Without the Supabase values, sign-in reports that it isn't configured; page checks still work.
+
+### Detection alerts
+
+While you are signed in, the background worker polls `GET /api/orgs/:id/detections?status=new` for your current organization (the one selected on the website, else your only or most recently joined one) every *Event check interval* minutes (Options, default 5) and whenever the popup's Account tab opens.
+
+- **Popup:** the number of detections still marked *new*, how many of them are high or critical, and the five newest. *View all* and *Alerts* open `/org/<slug>/detections`.
+- **Notifications:** one browser notification per poll for high and critical detections that weren't in the previous poll (at most one notification per organization on screen; the next alert replaces it). Clicking it opens the detections page. Turn it off with Options → Account alerts. The first poll after signing in, or after switching organization, only records what already exists, so installing the extension doesn't replay old alerts.
+- **Toolbar:** the tooltip reads "ThreatCrush: N new detections in <org>". The badge is not used for this: it belongs to page checks, set per tab for the page on screen, and one badge meaning two things would be ambiguous.
+
+New detections are found by comparing detection ids with the previous poll, not by time: `detected_at` comes from the daemon and can be older than the upload (a spooled event replayed after an outage). Signed out, it makes no requests; with no organization, it only lists your organizations. If the API can't be reached, the popup keeps the last known numbers and nothing is notified.
 
 ## Structure
 

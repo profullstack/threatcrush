@@ -43,6 +43,7 @@ export function loadConfig(configPath?: string): ThreatCrushConfig {
       modules: { ...DEFAULT_CONFIG.modules, ...parsed.modules },
       remediation: parsed.remediation,
       detection: parsed.detection,
+      cloud: parsed.cloud,
       license: parsed.license,
     };
   } catch {
@@ -79,6 +80,9 @@ export function generateDefaultConfig(detectedServices: string[]): string {
     daemon: DEFAULT_CONFIG.daemon,
     api: DEFAULT_CONFIG.api,
     modules: DEFAULT_CONFIG.modules,
+    // Written out so the opt-out is discoverable; these are also the defaults
+    // when the section is absent.
+    cloud: { enabled: true, min_severity: 'medium' },
   };
 
   return TOML.stringify(config as any);

@@ -43,4 +43,10 @@ USER node
 
 EXPOSE 3000
 
+# The slim image has neither curl nor wget, so the probe uses Node's fetch.
+# /api/health answers 503 when the database is unreachable, which marks the
+# container unhealthy instead of reporting a web process that cannot serve.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+
 CMD ["node", "apps/web/server.js"]

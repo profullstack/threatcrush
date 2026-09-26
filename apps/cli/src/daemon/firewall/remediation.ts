@@ -117,7 +117,10 @@ export class RemediationManager {
     config?: Partial<RemediationConfig>,
     private verifyCrawler: (ip: string) => Promise<string | null> = crawlerVerifier(),
   ) {
+    // A copy: addToAllowlist pushes into this array, and sharing it with
+    // DEFAULT_CONFIG leaked one manager's runtime additions into the next.
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.config.allowlist = [...this.config.allowlist];
 
     // Built-ins first, then the operator's, then the two we discover at boot.
     // Assembled once, here, because R1 is only true if every write path shares
@@ -209,7 +212,13 @@ export class RemediationManager {
   async ban(
     ip: string,
     reason: string,
-    opts: { ruleId?: string; ttlSeconds?: number; source?: 'auto' | 'manual' } = {},
+    opts: {
+      ruleId?: string;
+      ttlSeconds?: number;
+      source?: 'auto' | 'manual';
+      /** `cloud` when the dashboard asked for it; the cloud already has that row. */
+      origin?: 'cloud';
+    } = {},
   ): Promise<{ ok: boolean; entry?: BlockEntry; error?: string }> {
     if (isIP(ip) === 0) return { ok: false, error: `not an IP address: ${ip}` };
     if (this.isAllowlisted(ip)) {
@@ -241,6 +250,14 @@ export class RemediationManager {
           severity: 'medium',
           message: `Failed to block ${ip}: ${message}`,
           source_ip: ip,
+          details: {
+            action: 'block',
+            failed: true,
+            error: message,
+            reason,
+            rule_id: opts.ruleId,
+            origin: opts.origin,
+          },
         });
         return { ok: false, error: message };
       }
@@ -278,6 +295,8 @@ export class RemediationManager {
       details: {
         action: 'block',
         rule_id: opts.ruleId,
+        reason,
+        origin: opts.origin,
         dry_run: this.config.dry_run,
         ttl_seconds: ttl,
         strikes: strike,
@@ -294,7 +313,10 @@ export class RemediationManager {
    * unbanning by hand is overruling the detection, so the next offence should
    * start at one minute again rather than resuming the ladder.
    */
-  async unban(ip: string, opts: { forget?: boolean } = {}): Promise<{ ok: boolean; error?: string }> {
+  async unban(
+    ip: string,
+    opts: { forget?: boolean; reason?: string; origin?: 'cloud' } = {},
+  ): Promise<{ ok: boolean; error?: string }> {
     const idx = this.blocklist.findIndex((b) => b.ip === ip);
     const entry = idx >= 0 ? this.blocklist[idx] : null;
 
@@ -322,7 +344,13 @@ export class RemediationManager {
       severity: 'info',
       message: `Unbanned ${ip}`,
       source_ip: ip,
-      details: { action: 'unblock', forget: opts.forget === true },
+      details: {
+        action: 'unblock',
+        forget: opts.forget === true,
+        reason: opts.reason,
+        origin: opts.origin,
+        dry_run: entry?.dry_run === true,
+      },
     });
     return { ok: true };
   }
@@ -455,7 +483,7 @@ export class RemediationManager {
     const now = Date.now();
     this.refreshSshProtection();
     for (const entry of this.blocklist.filter((b) => b.expires_at <= now)) {
-      await this.unban(entry.ip);
+      await this.unban(entry.ip, { reason: 'ban expired' });
     }
     const pruned = pruneStrikes(this.strikes, now, this.config.strike_memory_seconds);
     if (Object.keys(pruned).length !== Object.keys(this.strikes).length) {

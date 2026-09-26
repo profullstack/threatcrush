@@ -1,7 +1,6 @@
-import readline from 'node:readline';
-import { Writable } from 'node:stream';
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
+import { ask } from '../core/prompt.js';
 import {
   authHeaders,
   clearCliConfig,
@@ -12,29 +11,6 @@ import {
 } from '../core/cli-config.js';
 
 const API_URL = process.env.THREATCRUSH_API_URL || 'https://threatcrush.com';
-
-function prompt(question: string): Promise<string> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => rl.question(question, (answer) => {
-    rl.close();
-    resolve(answer.trim());
-  }));
-}
-
-function promptPassword(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    const muted = new Writable({
-      write(_chunk, _enc, cb) { cb(); },
-    });
-    const rl = readline.createInterface({ input: process.stdin, output: muted, terminal: true });
-    process.stdout.write(question);
-    rl.question('', (answer) => {
-      rl.close();
-      process.stdout.write('\n');
-      resolve(answer);
-    });
-  });
-}
 
 export interface LoginOptions {
   email?: string;
@@ -51,15 +27,25 @@ interface LoginSuccess {
 interface LoginFailure {
   ok: false;
   error: string;
+  /** stdin ended before the credentials were entered; asking again is pointless. */
+  inputClosed?: boolean;
 }
 
+const INPUT_CLOSED: LoginFailure = {
+  ok: false,
+  error: 'No credentials entered (stdin closed).',
+  inputClosed: true,
+};
+
 export async function login(options: LoginOptions = {}): Promise<LoginSuccess | LoginFailure> {
-  const email = options.email || (await prompt(chalk.green('  Email: ')));
+  const email = options.email || (await ask(chalk.green('  Email: ')))?.trim();
+  if (email === undefined) return INPUT_CLOSED;
   if (!email || !email.includes('@')) {
     return { ok: false, error: 'A valid email is required.' };
   }
 
-  const password = options.password || (await promptPassword(chalk.green('  Password: ')));
+  const password = options.password || (await ask(chalk.green('  Password: '), { mask: true }));
+  if (password === null) return INPUT_CLOSED;
   if (!password) {
     return { ok: false, error: 'Password is required.' };
   }
@@ -116,8 +102,10 @@ export async function loginCommand(opts: { email?: string } = {}): Promise<void>
   const result = await login({ email: opts.email });
   if (!result.ok) {
     console.log(chalk.red(`\n  ✗ ${result.error}\n`));
-    console.log(chalk.dim(`  Forgot password? ${API_URL}/auth/forgot-password`));
+    // Password reset lives behind "Forgot password?" on the sign-in page.
+    console.log(chalk.dim(`  Forgot password? ${API_URL}/auth/login`));
     console.log(chalk.dim(`  No account yet?  ${API_URL}/auth/signup\n`));
+    process.exitCode = 1;
     return;
   }
 

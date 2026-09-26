@@ -10,6 +10,7 @@ import { JournalWatcher } from './watchers/journal-watcher.js';
 import { NetworkMonitor } from '../modules/network-monitor/index.js';
 import { DnsMonitor } from '../modules/dns-monitor/index.js';
 import { loadModuleConfigs } from '../core/config.js';
+import { BUILTIN_MODULES } from '../core/builtin-modules.js';
 import { getModuleState, setModuleState } from '../core/state.js';
 import type { ModuleConfig, ModuleManifest } from '../types/config.js';
 import type { ThreatEvent } from '../types/events.js';
@@ -161,14 +162,9 @@ export class ModuleHost {
   }
 
   private registerBuiltins(): void {
-    const builtins: HostedModule[] = [
-      { name: 'log-watcher', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
-      { name: 'ssh-guard', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
-      { name: 'user-journal', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
-      { name: 'network-monitor', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
-      { name: 'dns-monitor', version: '0.1.0', source: 'builtin', status: 'loaded', events: 0 },
-    ];
-    for (const m of builtins) this.modules.set(m.name, m);
+    for (const { name, version } of BUILTIN_MODULES) {
+      this.modules.set(name, { name, version, source: 'builtin', status: 'loaded', events: 0 });
+    }
   }
 
   private async discoverAndStartInstalled(): Promise<void> {

@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { authHeaders, setAccessToken } from "@/lib/auth-client";
+import { authHeaders, clearUrlHash, parseAuthRedirectHash, setAccessToken } from "@/lib/auth-client";
 
 function VerifyContent() {
   const searchParams = useSearchParams();
@@ -30,12 +30,12 @@ function VerifyContent() {
   // back into user_profiles (Supabase only flips auth.users on its end).
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!window.location.hash) return;
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const accessToken = hash.get("access_token");
-    if (accessToken) {
+    // A recovery link is not a sign-in; AuthProvider forwards it to the reset page.
+    const redirect = parseAuthRedirectHash(window.location.hash);
+    if (redirect?.kind === "session") {
+      const accessToken = redirect.accessToken;
       setAccessToken(accessToken);
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      clearUrlHash();
       fetch("/api/auth/sync-verified", {
         method: "POST",
         headers: { Authorization: `Bearer ${accessToken}` },

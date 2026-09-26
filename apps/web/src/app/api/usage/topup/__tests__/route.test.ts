@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { NextRequest } from "next/server";
 
 // ─── Mocks ───
@@ -46,6 +46,36 @@ describe("POST /api/usage/topup", () => {
       checkout_url: "https://pay/cp-1",
     });
     mockInsert.mockResolvedValue({ error: null });
+    // Top-ups are paused unless the owner turns them on; the validation tests
+    // below describe the enabled route.
+    vi.stubEnv("USAGE_TOPUPS_ENABLED", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  describe("while top-ups are paused", () => {
+    it("refuses with 403 JSON by default, before auth, CoinPay or the deposit row", async () => {
+      vi.stubEnv("USAGE_TOPUPS_ENABLED", undefined);
+
+      const res = await POST(makeRequest({ amount_usd: 10, currency: "usdc_sol" }));
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({ error: expect.any(String) });
+      expect(mockGetUser).not.toHaveBeenCalled();
+      expect(mockCreatePayment).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    it("only the exact value \"true\" re-enables them", async () => {
+      for (const value of ["", "false", "1", "TRUE", "yes"]) {
+        vi.stubEnv("USAGE_TOPUPS_ENABLED", value);
+        expect((await POST(makeRequest({ amount_usd: 10, currency: "usdc_sol" }))).status).toBe(403);
+      }
+      expect(mockCreatePayment).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
   });
 
   it("returns 401 without an auth token and never creates a payment", async () => {

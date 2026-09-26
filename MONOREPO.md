@@ -16,8 +16,7 @@ Node ≥ 22.
 ├── scripts/          release, version-bump, submit-packages, smoke-test
 ├── docs/             SURFACES.md, PRE_LAUNCH.md, FUTURE_PLANS.md, etc.
 ├── boilerplates/     Starter module template
-├── Dockerfile        Builds apps/web as standalone for Railway
-└── railway.json      Deploy config
+└── Dockerfile        Builds apps/web as standalone (docker compose, GHCR image)
 ```
 
 ## Common commands
@@ -52,17 +51,17 @@ Per-app dev loops live in each `apps/<name>/README.md`.
 
 - `.env` at the repo root is symlinked into `apps/web/.env` so Next.js picks it up during `pnpm dev`.
 - The daemon reads `/etc/threatcrush/threatcrushd.conf` (or `~/.threatcrush/threatcrushd.conf`) for alert channels + modules.
-- `SENTRY_DSN` and `NEXT_PUBLIC_SENTRY_DSN` are optional. Unset → no-op.
+- `SENTRY_DSN` is optional for both the daemon and the web server (route handler errors). Unset → no-op. `.env.example` lists every variable the web app reads.
 
 ## Release flow
 
 1. `pnpm version:minor` — bumps every `package.json` and tags `v<version>`
 2. `git push --follow-tags`
 3. GitHub workflows kick in:
-   - `npm-publish.yml` publishes `apps/cli` to npm
+   - `npm-publish.yml` publishes `apps/cli` and `apps/sdk` to npm (each skipped if that version is already published)
    - `desktop-release.yml` builds + uploads Electron artifacts
    - `docker-publish.yml` pushes the web image to GHCR + Docker Hub
-4. `railway up` (or push to the tracked branch) deploys `apps/web`
+4. Independently of tags, every merge to `master` deploys `apps/web` to threatcrush.com (`deploy-dev2.yml`)
 
 See `docs/SURFACES.md` for the status of every interface + distribution channel.
 

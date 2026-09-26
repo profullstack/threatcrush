@@ -1,7 +1,14 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
-import { getAccessToken, setAccessToken, authHeaders } from "./auth-client";
+import {
+  getAccessToken,
+  setAccessToken,
+  authHeaders,
+  clearUrlHash,
+  parseAuthRedirectHash,
+  RESET_PASSWORD_PATH,
+} from "./auth-client";
 
 interface UserProfile {
   id: string;
@@ -61,15 +68,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Extract OAuth tokens from URL hash (GitHub/email confirmation redirects)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!window.location.hash) {
-      setHashTokenExtracted(true);
+    const redirect = parseAuthRedirectHash(window.location.hash);
+    if (redirect?.kind === "recovery") {
+      // A password-recovery link used to be stored here like any login, which
+      // signed the user in silently and never let them set a new password.
+      // GoTrue lands wherever its redirect allow-list permits (/auth/login, or
+      // the site root as a fallback), so forward the link to the reset page.
+      if (window.location.pathname !== RESET_PASSWORD_PATH) {
+        window.location.replace(RESET_PASSWORD_PATH + window.location.hash);
+        return;
+      }
+    } else if (redirect?.kind === "session") {
+      setAccessToken(redirect.accessToken);
+      clearUrlHash();
+    } else if (redirect?.kind === "error" && window.location.pathname === "/") {
+      // Same site-root fallback for a rejected link (expired, already used):
+      // the log in page is where its reason is shown.
+      window.location.replace("/auth/login" + window.location.hash);
       return;
-    }
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const accessToken = hash.get("access_token");
-    if (accessToken) {
-      setAccessToken(accessToken);
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
     }
     setHashTokenExtracted(true);
   }, []);

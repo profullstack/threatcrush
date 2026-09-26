@@ -11,7 +11,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@threatcrush/sdk": "^0.1.0"
+    "@threatcrush/sdk": "^0.7.9"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

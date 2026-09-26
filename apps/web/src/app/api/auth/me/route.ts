@@ -6,17 +6,14 @@ export async function GET(req: NextRequest) {
     const authHeader = req.headers.get("authorization");
     const supabase = getSupabaseClient();
 
-    // Get session from cookie or header
     const token = authHeader?.replace("Bearer ", "");
     let userId: string | null = null;
 
+    // Bearer token only. No getSession() fallback: the anon client is a
+    // process-wide singleton, so "its" session is never the caller's.
     if (token) {
       const { data: { user } } = await supabase.auth.getUser(token);
       userId = user?.id ?? null;
-    } else {
-      // Try to get from session
-      const { data: { session } } = await supabase.auth.getSession();
-      userId = session?.user?.id ?? null;
     }
 
     if (!userId) {
@@ -49,12 +46,11 @@ export async function PATCH(req: NextRequest) {
     const token = authHeader?.replace("Bearer ", "");
     let userId: string | null = null;
 
+    // Bearer token only. No getSession() fallback: the anon client is a
+    // process-wide singleton, so "its" session is never the caller's.
     if (token) {
       const { data: { user } } = await supabase.auth.getUser(token);
       userId = user?.id ?? null;
-    } else {
-      const { data: { session } } = await supabase.auth.getSession();
-      userId = session?.user?.id ?? null;
     }
 
     if (!userId) {

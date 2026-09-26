@@ -10,12 +10,12 @@ const features = [
   {
     icon: "🔍",
     title: "Live Attack Detection",
-    desc: "Reads your nginx, auth, syslog and journald logs and watches inbound connections to the ports you serve. Every nginx request is scored against 96 OWASP CRS rules (paranoia level 1) + 1 ThreatCrush rule — SQLi, XSS, path traversal, RFI, RCE, SSRF — alongside SSH brute force, port scan, SYN flood and DNS tunneling detection, in real-time.",
+    desc: "Reads your nginx, auth, syslog and journald logs and watches inbound connections to the ports you serve. Every nginx request is scored against 96 OWASP CRS rules (paranoia level 1, with libinjection for SQLi and XSS) plus 1 ThreatCrush rule — SQLi, XSS, path traversal, RFI, RCE — alongside SSH brute force, sudo abuse, port scan, SYN flood and DNS tunneling detection. Add your own JSON rules in /etc/threatcrush/rules.d.",
   },
   {
     icon: "🛡️",
     title: "Code Security Scanner",
-    desc: "Scan your codebase for vulnerabilities, hardcoded secrets, and misconfigurations. Find problems before attackers do.",
+    desc: "Scan a codebase for hardcoded secrets and risky code patterns, and with --deps check lockfile versions against OSV.dev advisories. Text, JSON or SARIF output, with --fail-on for CI.",
   },
   {
     icon: "💥",
@@ -28,19 +28,29 @@ const features = [
     desc: "Polls the kernel's connection table (conntrack / ss) every 5 seconds for inbound TCP connections to the ports you actually serve. Flags port scans and SYN floods — and ignores your own outbound traffic, so your upstreams never get banned.",
   },
   {
-    icon: "🔔",
-    title: "Real-time Alerts",
-    desc: "Email, SMS, Slack, Discord, and webhook notifications the instant a threat is detected. Push alerts to your phone. Never miss an attack.",
+    icon: "🚫",
+    title: "Automatic IP Bans",
+    desc: "When a rule fires, the daemon bans the source IP through nftables, iptables or fail2ban. Repeat offenders get longer bans each time. Allowlisted ranges and verified Google and Bing crawlers are never auto-banned; block and unblock by hand with the CLI or the dashboard.",
   },
   {
-    icon: "💢",
-    title: "Active Defense — Strike Back",
-    desc: "Don't just detect — retaliate. Tar pits waste attacker resources, honeypots trap and fingerprint them, deception feeds them fake credentials, and auto-reports get their servers shut down. They attack you, you make them regret it.",
+    icon: "🧱",
+    title: "Hardening Checks",
+    desc: "threatcrush harden checks SSH password and root login, sshd weaknesses, automatic security updates, an active firewall, risky exposed ports and fail2ban, and tells you what to fix.",
+  },
+  {
+    icon: "🔔",
+    title: "Alerts",
+    desc: "Email, Slack, Discord, PagerDuty and webhook notifications when a threat is detected. Web and mobile push for servers linked to the dashboard, where enabled.",
+  },
+  {
+    icon: "📊",
+    title: "Cloud Dashboard",
+    desc: "Run threatcrush servers link and the daemon sends detections, hardening findings, bans and heartbeats to your organization's dashboard, where you can review them and ban or unban IPs.",
   },
   {
     icon: "⚙️",
     title: "systemd Daemon",
-    desc: "Runs as a background service on your server. Auto-starts on boot, monitors 24/7, zero maintenance.",
+    desc: "Runs as a background service on your server. Starts on boot and monitors 24/7. Detection and banning run on the host and work without the cloud.",
   },
 ];
 
@@ -50,47 +60,38 @@ const faqs = [
     a: "Pay once, access forever. No subscriptions, no renewals. You get the full ThreatCrush platform — CLI, daemon, scanner, pentest engine, API — and all future updates for life.",
   },
   {
-    q: "When will ThreatCrush launch?",
-    a: "We're in private beta. Waitlist members get early access before public launch. Expected Q3 2026.",
+    q: "Can I use it today?",
+    a: "Yes. The CLI and daemon are open source (MIT) and install with one command. The cloud dashboard and desktop app are in beta, the browser extension is a dev preview, and the mobile app is in development. Join the waitlist to hear about each release.",
   },
   {
     q: "What servers does it support?",
-    a: "Any Linux server. ThreatCrush reads your nginx, SSH (auth.log), syslog and journald logs, and watches inbound connections to the ports you serve — not just web traffic. Auto-detects your setup during `threatcrush init`.",
+    a: "Any Linux server. ThreatCrush reads your nginx, SSH (auth.log), syslog and journald logs, and watches inbound connections to the ports you serve — not just web traffic. `threatcrush init` detects SSH, nginx, Apache, PostgreSQL, MySQL, Redis and BIND and writes a config for them.",
   },
   {
     q: "What payment methods do you accept?",
-    a: "Credit/debit cards via Stripe, and cryptocurrency (BTC, ETH, USDT, SOL, and more) via <a href='https://coinpayportal.com' target='_blank' rel='noopener noreferrer' class='text-tc-green hover:underline'>CoinPayPortal</a>.",
+    a: "Credit/debit cards (processed by Stripe through CoinPayPortal), and cryptocurrency (BTC, ETH, USDT, SOL, and more) via CoinPayPortal.",
   },
   {
     q: "Can I get a refund?",
     a: "Yes. If you're not satisfied within 30 days of getting access, we'll refund your payment in full. No questions asked.",
   },
   {
-    q: "Is the API included in Lifetime Access?",
-    a: "Yes. Full API access with generous rate limits is included. Enterprise rate limits available on request.",
-  },
-  {
-    q: "What about AI-enhanced modules?",
-    a: "Some modules use AI for advanced threat classification, anomaly detection, and smart alerting. These are usage-based — you only pay for what you use. Your lifetime license covers the core platform; AI usage is metered separately so you're never overpaying.",
-  },
-  {
     q: "Do you work with government agencies?",
-    a: "Yes. ThreatCrush supports air-gapped deployment, on-prem hardware appliances, and is designed for FedRAMP, FIPS 140-2, and ITAR compliance. Contact gov@threatcrush.com for GSA Schedule pricing and custom deployment.",
+    a: "Talk to us at gov@threatcrush.com about your requirements. The agent runs entirely on your own servers, and detection and banning work without the cloud dashboard.",
   },
 ];
 
 const included = [
-  "Live attack detection & blocking",
+  "Live attack detection & automatic IP bans",
   "Code vulnerability scanner",
   "Pentest checks for your URLs",
   "Network monitor — port scans & SYN floods",
-  "Real-time email + SMS alerts",
-  "Webhook support for custom integrations",
-  "Active defense — tar pits, honeypots, deception",
+  "Host hardening checks",
+  "Email, Slack, Discord, PagerDuty + webhook alerts",
+  "Cloud dashboard for linked servers",
   "systemd daemon — runs 24/7",
-  "Full CLI, desktop & mobile apps",
+  "CLI, TUI & desktop app (mobile in development)",
   "All core modules + future updates",
-  "Priority support",
 ];
 
 const stripHtml = (s: string) => s.replace(/<[^>]*>/g, "");
@@ -129,7 +130,7 @@ export default function Home() {
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-tc-green/5 rounded-full blur-3xl" />
           <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-tc-green/3 rounded-full blur-3xl" />
 
-          <div className="relative z-10 mx-auto max-w-4xl px-6 text-center pt-28 sm:pt-24">
+          <div className="relative z-10 mx-auto w-full min-w-0 max-w-4xl px-6 text-center pt-28 sm:pt-24">
             <ScrollReveal>
               <div className="inline-block rounded-full border border-tc-green/20 bg-tc-green/5 px-4 py-1.5 text-sm font-mono text-tc-green mb-8">
                 <span className="mr-2">●</span> PRIVATE BETA — LIMITED SPOTS
@@ -146,10 +147,10 @@ export default function Home() {
 
             <ScrollReveal delay={200}>
               <p className="mx-auto max-w-3xl text-lg sm:text-xl text-tc-text-dim mb-6 leading-relaxed">
-                One agent, one marketplace, two layers — <span className="text-tc-green">CTEM</span> to find and reduce exposures <em>before</em> incidents, and <span className="text-tc-green">SIEM / EDR / SOC</span> capabilities to detect and respond <em>during</em> them.
+                One open-source agent for your Linux servers. It watches your logs and inbound connections for attacks, <span className="text-tc-green">bans attackers at the firewall</span>, checks host hardening, scans your code and spot-checks your URLs.
               </p>
               <p className="mx-auto max-w-2xl text-base sm:text-lg text-tc-text-dim mb-6 leading-relaxed">
-                Built on the open standards your SOC already speaks: MITRE ATT&amp;CK, D3FEND, Sigma, OCSF, NIST CSF. Today the module store is the clearest place to start — the rest of the loop fills in module by module.
+                Link a server to the <span className="text-tc-green">cloud dashboard</span> to see its detections, findings and bans next to the rest of your organization, and get alerts where your team already is.
               </p>
               <a
                 href="/read/ctem-guide"
@@ -171,7 +172,7 @@ export default function Home() {
                     onClick={() => { navigator.clipboard?.writeText('curl -fsSL https://threatcrush.com/install.sh | sh'); }}
                   >
                     <span className="text-tc-text-dim">$ </span>
-                    <span className="text-tc-green">curl -fsSL https://threatcrush.com/install.sh | sh</span>
+                    <span className="text-tc-green break-all">curl -fsSL https://threatcrush.com/install.sh | sh</span>
                     <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-tc-text-dim text-xs opacity-0 group-hover:opacity-100 transition-opacity bg-black/90 border border-tc-border/60 rounded px-2 py-0.5 shadow">📋 click to copy</span>
                   </div>
                   <div className="mt-3 text-left">
@@ -189,7 +190,7 @@ export default function Home() {
                         and can bootstrap Node.js with <span className="text-tc-green">mise</span> on bare machines.
                       </p>
                       <p className="text-xs text-tc-text-dim mt-2">
-                        Linux servers get the CLI. Linux desktops get CLI + desktop app. Windows is desktop-client only and connects to a ThreatCrush server elsewhere.
+                        Linux servers get the CLI. On desktops (Linux, macOS, Windows) it installs the CLI and points you to the desktop app, a separate download that talks to a ThreatCrush daemon on the same machine; log monitoring and firewall bans need Linux.
                       </p>
                     </div>
                     <div>
@@ -244,7 +245,7 @@ export default function Home() {
 
             <ScrollReveal delay={500}>
               <p className="mt-6 text-sm text-tc-text-dim">
-                Start with the marketplace now. Broader platform rollout continues after the basic install/docs/housekeeping work.
+                The CLI and daemon are open source (MIT). The cloud dashboard and desktop app are in beta; the browser extension is a dev preview.
               </p>
             </ScrollReveal>
 
@@ -326,18 +327,18 @@ export default function Home() {
                   Built for <span className="text-tc-green glow-green">Continuous Threat Exposure Management</span>
                 </h2>
                 <p className="mt-4 max-w-3xl mx-auto text-tc-text-dim leading-relaxed">
-                  CTEM is a five-stage loop — scope, discover, prioritize, validate, mobilize — that replaces the periodic-scan-and-ticket cycle. Most teams need nine tools to run it. ThreatCrush gives you one agent and a marketplace of modules instead.
+                  CTEM is a five-stage loop — scope, discover, prioritize, validate, mobilize — that replaces the periodic-scan-and-ticket cycle. Here is what ThreatCrush does at each stage today.
                 </p>
               </div>
             </ScrollReveal>
 
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-12">
               {[
-                { n: "01", t: "Scope", d: "Protect business outcomes — not tool inventories." },
-                { n: "02", t: "Discover", d: "Inbound-connection monitor, code scanner, pentest checks, plus marketplace ASM." },
-                { n: "03", t: "Prioritize", d: "Exploitability × reachability × blast radius — beyond raw CVSS." },
-                { n: "04", t: "Validate", d: "Re-run the exploit. Re-test the control. Don’t trust dashboards." },
-                { n: "05", t: "Mobilize", d: "Real-time alerts, automated active defense, API for SOAR/ticketing." },
+                { n: "01", t: "Scope", d: "Add the servers, URLs, APIs, domains and repos you care about to an organization." },
+                { n: "02", t: "Discover", d: "Log and inbound-connection monitoring, hardening checks, code scanning and pentest checks." },
+                { n: "03", t: "Prioritize", d: "Every detection and finding carries a severity, from critical to info." },
+                { n: "04", t: "Validate", d: "Re-run scans and pentest checks against a target after you fix it." },
+                { n: "05", t: "Mobilize", d: "Alerts to email, Slack, Discord, PagerDuty and webhooks, automatic IP bans, and bans from the dashboard." },
               ].map((s, i) => (
                 <ScrollReveal key={s.n} delay={i * 80}>
                   <div className="rounded-xl border border-tc-border bg-tc-card p-5 h-full">
@@ -357,12 +358,12 @@ export default function Home() {
           <div className="mx-auto max-w-6xl px-6">
             <ScrollReveal>
               <div className="text-center mb-16">
-                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// THE DETECT-AND-RESPOND LAYER</p>
+                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// DETECT AND RESPOND</p>
                 <h2 className="text-3xl sm:text-4xl font-bold text-white">
-                  CTEM finds the gaps. <span className="text-tc-green glow-green">SIEM, EDR, and SOC</span> catch what slips through.
+                  CTEM finds the gaps. <span className="text-tc-green glow-green">The daemon</span> catches what slips through.
                 </h2>
                 <p className="mt-4 max-w-3xl mx-auto text-tc-text-dim leading-relaxed">
-                  CTEM is preventive — it reduces exposures before incidents. SIEM, EDR, and SOC are reactive — they detect and respond when attackers act. ThreatCrush ships capabilities for both layers from the same agent.
+                  CTEM is preventive — it reduces exposures before incidents. Detection and response is reactive — it acts when attackers do. ThreatCrush does both from the same agent.
                 </p>
               </div>
             </ScrollReveal>
@@ -370,33 +371,33 @@ export default function Home() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
               {[
                 {
-                  tag: "SIEM",
-                  title: "Central log brain",
-                  desc: "Tails nginx, auth, syslog and journald and watches inbound connections. Correlates suspicious patterns — failed logins, traffic to known-bad domains, lateral movement signatures.",
+                  tag: "DETECT",
+                  title: "Watches logs and connections",
+                  desc: "Tails nginx, auth, syslog and journald and watches inbound connections and DNS traffic. Built-in rules catch web attacks, SSH brute force and user enumeration, sudo abuse, port scans and SYN floods.",
                   capabilities: [
                     "Log + inbound-connection monitor",
-                    "Event correlation modules",
-                    "OCSF / ECS-shaped events",
+                    "OWASP CRS web rules + libinjection",
+                    "Custom JSON rules",
                   ],
                 },
                 {
-                  tag: "EDR",
-                  title: "Per-host security camera + kill switch",
-                  desc: "The systemd daemon watches processes, files, and network connections on each server. Active-defense modules can kill, isolate, tar-pit, or rotate credentials in real time.",
+                  tag: "RESPOND",
+                  title: "Bans at the firewall",
+                  desc: "The systemd daemon runs on each server. When a rule fires it bans the source IP with nftables, iptables or fail2ban, and bans repeat offenders for longer each time.",
                   capabilities: [
                     "On-host daemon agent",
-                    "Active defense (tar pits, deception, kill)",
-                    "ATT&CK-tagged detections",
+                    "Automatic, escalating IP bans",
+                    "Allowlist + crawler protection",
                   ],
                 },
                 {
-                  tag: "SOC",
-                  title: "Alerts and playbooks operators read",
-                  desc: "Real-time alerts to email, SMS, Slack, Discord, and webhooks. Playbooks reference D3FEND defensive techniques. API surface for SOAR / ticketing integrations.",
+                  tag: "ALERT",
+                  title: "Alerts operators read",
+                  desc: "Alerts to email, Slack, Discord, PagerDuty and webhooks from the daemon. Linked servers also show up in the cloud dashboard, with org-wide alert destinations.",
                   capabilities: [
                     "Multi-channel alerting",
-                    "D3FEND-mapped runbooks",
-                    "SOAR / ticketing webhooks",
+                    "Cloud dashboard for linked servers",
+                    "Generic webhooks for your own tooling",
                   ],
                 },
               ].map((c, i) => (
@@ -423,104 +424,17 @@ export default function Home() {
             <ScrollReveal delay={400}>
               <div className="rounded-xl border border-tc-border bg-tc-card/40 p-5 text-center">
                 <p className="text-sm text-tc-text-dim">
-                  <span className="text-tc-green font-semibold">Plays nicely with what you already have.</span>{" "}
-                  ThreatCrush coexists with enterprise SIEM (Splunk, Sentinel, Elastic), EDR (CrowdStrike, SentinelOne, Defender), and SOAR — feeding telemetry up and pulling exposure context down.
+                  <span className="text-tc-green font-semibold">Works alongside what you already have.</span>{" "}
+                  Integration points today are webhooks for alerts, SARIF from <code className="rounded bg-tc-darker px-1.5 py-0.5 text-tc-green">threatcrush scan</code> for code-scanning tools, and JSON output from the CLI.
                 </p>
               </div>
             </ScrollReveal>
           </div>
         </section>
 
-        {/* ─── OPEN STANDARDS ─── */}
-        <section id="standards" className="py-24 sm:py-32 border-t border-tc-border">
+        {/* ─── FREE GUIDE ─── */}
+        <section id="guide" className="py-16 sm:py-20 border-t border-tc-border">
           <div className="mx-auto max-w-6xl px-6">
-            <ScrollReveal>
-              <div className="text-center mb-12">
-                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// BUILT ON OPEN STANDARDS</p>
-                <h2 className="text-3xl sm:text-4xl font-bold text-white">
-                  Speaks the language your <span className="text-tc-green glow-green">SOC already uses</span>
-                </h2>
-                <p className="mt-4 max-w-3xl mx-auto text-tc-text-dim leading-relaxed">
-                  Every detection, every action, every event carries a stable identifier from a public taxonomy. Your team reads <code className="rounded bg-tc-darker px-1.5 py-0.5 text-tc-green text-sm">T1003.001 — LSASS Memory</code>, not <code className="rounded bg-tc-darker px-1.5 py-0.5 text-tc-green text-sm">Module 47 alert</code>.
-                </p>
-              </div>
-            </ScrollReveal>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-10">
-              {[
-                {
-                  name: "MITRE ATT&CK",
-                  role: "Adversary tactics + techniques",
-                  what: "Universal language for SIEM/EDR/SOC alerts. Every detection carries a technique ID.",
-                  href: "https://attack.mitre.org",
-                },
-                {
-                  name: "MITRE D3FEND",
-                  role: "Defensive countermeasures",
-                  what: "The other half of ATT&CK — what defenders do. Response modules map here.",
-                  href: "https://d3fend.mitre.org",
-                },
-                {
-                  name: "Sigma",
-                  role: "Portable SIEM detection rules",
-                  what: "Detection logic that travels between SIEMs. Modules ship Sigma rules where applicable.",
-                  href: "https://sigmahq.io",
-                },
-                {
-                  name: "YARA",
-                  role: "Malware + payload patterns",
-                  what: "File and binary signatures for content detection across scanners and EDRs.",
-                  href: "https://virustotal.github.io/yara/",
-                },
-                {
-                  name: "osquery",
-                  role: "Open endpoint telemetry",
-                  what: "SQL-style queries against host state — processes, sockets, packages, users.",
-                  href: "https://osquery.io",
-                },
-                {
-                  name: "OCSF / ECS",
-                  role: "Event schema normalization",
-                  what: "Events emit in OCSF-compatible shape with ECS aliases. No bespoke parsers downstream.",
-                  href: "https://schema.ocsf.io",
-                },
-                {
-                  name: "CTEM (ctem.org)",
-                  role: "Exposure taxonomy",
-                  what: "Vendor-neutral identifiers for exposures (CTEM-EXP-* series), tagged on findings.",
-                  href: "https://ctem.org",
-                },
-                {
-                  name: "NIST CSF",
-                  role: "Governance framework",
-                  what: "Identify · Protect · Detect · Respond · Recover. Maps to executive + audit reporting.",
-                  href: "https://www.nist.gov/cyberframework",
-                },
-                {
-                  name: "CIS Controls",
-                  role: "Practical control checklist",
-                  what: "Concrete prioritized controls. Pairs with CTEM — exposures plus what to actually do.",
-                  href: "https://www.cisecurity.org/controls",
-                },
-              ].map((s, i) => (
-                <ScrollReveal key={s.name} delay={i * 60}>
-                  <a
-                    href={s.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block rounded-xl border border-tc-border bg-tc-card p-5 h-full transition-all hover:border-tc-green/30 glow-box-hover"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-base font-bold text-white">{s.name}</h3>
-                      <span className="text-tc-text-dim text-xs">↗</span>
-                    </div>
-                    <p className="font-mono text-[10px] text-tc-green tracking-wider mb-2 uppercase">{s.role}</p>
-                    <p className="text-sm text-tc-text-dim leading-relaxed">{s.what}</p>
-                  </a>
-                </ScrollReveal>
-              ))}
-            </div>
-
             <ScrollReveal delay={500}>
               <div className="rounded-2xl border border-tc-green/30 bg-tc-card/60 backdrop-blur-md px-6 py-6 sm:px-8 sm:py-8">
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -550,13 +464,12 @@ export default function Home() {
           <div className="mx-auto max-w-6xl px-6">
             <ScrollReveal>
               <div className="text-center mb-16">
-                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// START HERE</p>
+                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// MODULES</p>
                 <h2 className="text-3xl sm:text-4xl font-bold text-white">
-                  The <span className="text-tc-green glow-green">Module Store</span> Comes First
+                  The <span className="text-tc-green glow-green">Module Store</span>
                 </h2>
                 <p className="mt-4 max-w-3xl mx-auto text-tc-text-dim">
-                  After the basic housekeeping work, the first real wedge for ThreatCrush is the marketplace.
-                  Discover modules, publish your own, and shape the ecosystem before the rest of the platform fills in.
+                  Discover community modules and publish your own. Publishing a module is free; new listings go live after review.
                 </p>
               </div>
             </ScrollReveal>
@@ -571,7 +484,7 @@ export default function Home() {
                 },
                 {
                   title: "Publish your module",
-                  desc: "Submit a repo or website URL, fetch metadata automatically, review it, then list it.",
+                  desc: "Submit a repo or website URL and we fetch its metadata. Listings go live after review.",
                   cta: "Publish Module →",
                   href: "/store/publish",
                 },
@@ -601,7 +514,7 @@ export default function Home() {
               <div className="text-center mb-16">
                 <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// SETUP</p>
                 <h2 className="text-3xl sm:text-4xl font-bold text-white">
-                  Three Commands to <span className="text-tc-green glow-green">Full Protection</span>
+                  Three Commands to <span className="text-tc-green glow-green">Get Running</span>
                 </h2>
               </div>
             </ScrollReveal>
@@ -619,14 +532,14 @@ export default function Home() {
                   step: "02",
                   title: "Configure",
                   desc: "threatcrush init",
-                  subdesc: "Auto-detects all services — web, SSH, DNS, databases",
+                  subdesc: "Offers to sign you in, detects SSH, nginx, Apache, databases and BIND, and writes a config",
                   icon: "⚙️",
                 },
                 {
                   step: "03",
-                  title: "Monitor",
-                  desc: "threatcrush monitor",
-                  subdesc: "Real-time protection, runs as a daemon",
+                  title: "Run",
+                  desc: "sudo threatcrush install-service",
+                  subdesc: "Installs the daemon as a systemd service that starts on boot. `threatcrush monitor` runs it in the foreground instead",
                   icon: "🚀",
                 },
               ].map((s, i) => (
@@ -736,10 +649,10 @@ export default function Home() {
                       <p className="text-xs text-tc-text-dim">Linux servers · desktop clients</p>
                     </div>
                   </div>
-                  <p className="text-sm text-tc-text-dim mb-4">The core agent. Linux servers run the real monitoring/daemon stack. Desktop installs are for operating and interfacing with a ThreatCrush server.</p>
+                  <p className="text-sm text-tc-text-dim mb-4">The core agent. On Linux servers it runs the monitoring daemon; on any machine it runs code scans and pentest checks and manages your organization.</p>
                   <div className="rounded-lg bg-black/60 border border-tc-border px-3 py-2 font-mono text-xs">
                     <span className="text-tc-text-dim">$ </span>
-                    <span className="text-tc-green">curl -fsSL https://threatcrush.com/install.sh | sh</span>
+                    <span className="text-tc-green break-all">curl -fsSL https://threatcrush.com/install.sh | sh</span>
                   </div>
                   <div className="mt-3 flex gap-2">
                     <a href="https://www.npmjs.com/package/@profullstack/threatcrush" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-tc-green/30 bg-tc-green/5 px-3 py-1.5 text-xs font-medium text-tc-green hover:bg-tc-green/10 transition-all">
@@ -763,7 +676,7 @@ export default function Home() {
                       <p className="text-xs text-tc-text-dim">macOS · Windows · Linux</p>
                     </div>
                   </div>
-                  <p className="text-sm text-tc-text-dim mb-4">Full dashboard with real-time event stream, module management, and threat analytics. E2E encrypted connection to your daemon.</p>
+                  <p className="text-sm text-tc-text-dim mb-4">A window onto the daemon running on the same machine: live event stream, loaded security modules and daemon settings, over a local socket.</p>
                   <div className="flex gap-2 flex-wrap">
                     <span className="inline-flex items-center gap-1.5 rounded-lg border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim">
                       🍎 macOS
@@ -804,7 +717,7 @@ export default function Home() {
                       <p className="text-xs text-tc-text-dim">iOS · Android</p>
                     </div>
                   </div>
-                  <p className="text-sm text-tc-text-dim mb-4">Get instant push alerts when threats are detected. Monitor dashboards, manage modules, and check server status from anywhere.</p>
+                  <p className="text-sm text-tc-text-dim mb-4">Your organizations, servers, detections and scan results on your phone, with push alerts where enabled.</p>
                   <div className="flex gap-2 flex-wrap">
                     <span className="inline-flex items-center gap-1.5 rounded-lg border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim">
                       🍎 App Store
@@ -837,7 +750,7 @@ export default function Home() {
                       <p className="text-xs text-tc-text-dim">Chrome · Firefox · Edge</p>
                     </div>
                   </div>
-                  <p className="text-sm text-tc-text-dim mb-4">Scan any website from your browser. Get real-time alerts, check security headers, and monitor your servers without leaving the tab.</p>
+                  <p className="text-sm text-tc-text-dim mb-4">Checks the page in the current tab — HTTPS, security headers, CSP, clickjacking, mixed content, forms and cookie flags — entirely in your browser. Signed in, the toolbar badge counts new detections for your organization.</p>
                   <div className="flex gap-2 flex-wrap">
                     <span className="inline-flex items-center gap-1.5 rounded-lg border border-tc-border px-3 py-1.5 text-xs text-tc-text-dim">
                       🔵 Chrome
@@ -854,7 +767,7 @@ export default function Home() {
                       Dev preview
                     </span>
                     <a
-                      href="https://github.com/profullstack/threatcrush/tree/master/extension"
+                      href="https://github.com/profullstack/threatcrush/tree/master/apps/extension"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-xs text-tc-text-dim hover:text-tc-green font-mono"
@@ -866,12 +779,12 @@ export default function Home() {
               </ScrollReveal>
             </div>
 
-            {/* E2E notice */}
+            {/* Transport notice */}
             <ScrollReveal delay={300}>
               <div className="mt-10 text-center">
                 <p className="inline-flex items-center gap-2 rounded-full border border-tc-green/20 bg-tc-green/5 px-4 py-2 text-sm text-tc-text-dim">
                   <span className="text-tc-green">🔒</span>
-                  All apps connect via <span className="text-tc-green font-medium">end-to-end encryption</span> — your vulnerability data never touches our servers unencrypted.
+                  The desktop app talks to the daemon on the same machine over a local socket. Anything sent to threatcrush.com — such as detections from a linked server — goes over HTTPS.
                 </p>
               </div>
             </ScrollReveal>
@@ -898,7 +811,6 @@ export default function Home() {
                   </div>
                   <h3 className="text-3xl sm:text-4xl font-black text-white">Talk to Sales</h3>
                   <p className="text-tc-text-dim mt-3">Full platform: CLI, daemon, scanner, pentest engine, API. Tell us about your environment and we&apos;ll send you a quote.</p>
-                  <p className="text-tc-text-dim text-xs mt-1">AI-enhanced modules billed on usage — <span className="text-tc-green">pay only for what you use</span></p>
                 </div>
 
                 <ul className="space-y-3 mb-8">
@@ -929,7 +841,7 @@ export default function Home() {
                 <div className="rounded-xl border border-tc-border bg-tc-card/40 p-6 text-center">
                   <div className="text-2xl mb-2">🏢</div>
                   <h3 className="text-lg font-bold text-white mb-1">Enterprise</h3>
-                  <p className="text-sm text-tc-text-dim mb-3">Custom modules, SLA, dedicated support, on-prem hardware appliances, volume licensing.</p>
+                  <p className="text-sm text-tc-text-dim mb-3">Custom modules, SLA, dedicated support, volume licensing.</p>
                   <a href="https://calendly.com/chovy" target="_blank" rel="noopener noreferrer" className="inline-block rounded-lg border border-tc-green/30 bg-tc-green/5 px-5 py-2 text-sm font-medium text-tc-green hover:bg-tc-green/10 transition-all">
                     📅 Schedule a Call
                   </a>
@@ -937,7 +849,7 @@ export default function Home() {
                 <div className="rounded-xl border border-tc-border bg-tc-card/40 p-6 text-center">
                   <div className="text-2xl mb-2">🏳️</div>
                   <h3 className="text-lg font-bold text-white mb-1">Government &amp; Defense</h3>
-                  <p className="text-sm text-tc-text-dim mb-3">FedRAMP-ready, air-gapped deployment, FIPS 140-2, ITAR compliant, GSA Schedule compatible.</p>
+                  <p className="text-sm text-tc-text-dim mb-3">The agent runs on your own servers, and detection and banning work without the cloud dashboard. Tell us your requirements.</p>
                   <a href="https://calendly.com/chovy" target="_blank" rel="noopener noreferrer" className="inline-block rounded-lg border border-tc-green/30 bg-tc-green/5 px-5 py-2 text-sm font-medium text-tc-green hover:bg-tc-green/10 transition-all">
                     📅 Schedule a Call
                   </a>

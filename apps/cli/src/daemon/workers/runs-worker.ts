@@ -1,10 +1,9 @@
 import type { EventBus } from '../event-bus.js';
-import { readCliConfig, authHeaders, isLoggedIn } from '../../core/cli-config.js';
+import { cloudFetch, hasSession } from '../../core/cli-config.js';
 import { runScan } from '../../commands/scan.js';
 import { runPentest } from '../../commands/pentest.js';
 import { workerId, type RunResult } from '../../core/run-result.js';
 
-const API_URL = process.env.THREATCRUSH_API_URL || 'https://threatcrush.com';
 const POLL_INTERVAL_MS = 30_000;
 const SCHEDULE_INTERVAL_MS = 120_000;
 
@@ -21,7 +20,8 @@ interface ClaimedRun {
  * user is a member of, claims them atomically, executes them locally, and
  * posts the result back.
  *
- * No-op unless `~/.threatcrush/config.json` contains a valid bearer token.
+ * No-op unless `~/.threatcrush/config.json` holds a session. An expired access
+ * token is refreshed through the stored refresh token (`cloudFetch`).
  */
 export class RunsWorker {
   private pollTimer: NodeJS.Timeout | null = null;
@@ -32,7 +32,7 @@ export class RunsWorker {
   constructor(private bus: EventBus) {}
 
   async start(): Promise<void> {
-    if (!isLoggedIn()) return;
+    if (!hasSession()) return;
 
     try {
       await this.refreshOrgs();
@@ -56,15 +56,12 @@ export class RunsWorker {
   }
 
   private async scheduleTick(): Promise<void> {
-    if (!isLoggedIn()) return;
+    if (!hasSession()) return;
     try {
       if (this.orgIds.length === 0) await this.refreshOrgs();
       for (const orgId of this.orgIds) {
         try {
-          await fetch(`${API_URL}/api/orgs/${orgId}/schedules/tick`, {
-            method: 'POST',
-            headers: authHeaders(),
-          });
+          await cloudFetch(`/api/orgs/${orgId}/schedules/tick`, { method: 'POST' });
         } catch {
           // ignore transient network errors
         }
@@ -76,7 +73,7 @@ export class RunsWorker {
 
   private async tick(): Promise<void> {
     if (this.running) return;
-    if (!isLoggedIn()) return;
+    if (!hasSession()) return;
 
     this.running = true;
     try {
@@ -96,7 +93,7 @@ export class RunsWorker {
   }
 
   private async refreshOrgs(): Promise<void> {
-    const res = await fetch(`${API_URL}/api/orgs`, { headers: authHeaders() });
+    const res = await cloudFetch('/api/orgs');
     if (!res.ok) return;
     const data = await res.json() as { organizations?: Array<{ id: string }> };
     this.orgIds = (data.organizations || []).map((o) => o.id);
@@ -104,9 +101,8 @@ export class RunsWorker {
 
   private async claimOne(orgId: string): Promise<ClaimedRun | null> {
     try {
-      const res = await fetch(`${API_URL}/api/orgs/${orgId}/runs/pending`, {
+      const res = await cloudFetch(`/api/orgs/${orgId}/runs/pending`, {
         method: 'POST',
-        headers: authHeaders(),
         body: JSON.stringify({ worker_id: workerId() }),
       });
       if (!res.ok) return null;
@@ -149,11 +145,10 @@ export class RunsWorker {
 
   private async finalize(orgId: string, claimed: ClaimedRun, result: RunResult): Promise<void> {
     try {
-      await fetch(
-        `${API_URL}/api/orgs/${orgId}/properties/${claimed.property_id}/runs/${claimed.id}`,
+      await cloudFetch(
+        `/api/orgs/${orgId}/properties/${claimed.property_id}/runs/${claimed.id}`,
         {
           method: 'PATCH',
-          headers: authHeaders(),
           body: JSON.stringify({
             status: result.error ? 'failed' : 'succeeded',
             findings_count: result.findings.length,
