@@ -1,20 +1,25 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { listOrganizations, getServer, deleteServer, type Server } from "@/lib/organizations";
 import { authHeaders } from "@/lib/auth-client";
+import { serverConnectionState } from "@/lib/server-status";
+import { useVisiblePolling } from "@/lib/use-visible-polling";
+import ConnectServerHint from "@/components/ConnectServerHint";
 import Link from "next/link";
 
-interface ThreatEvent {
+interface Detection {
   id: string;
-  timestamp: string;
-  module: string;
-  category: string;
-  severity: "info" | "low" | "medium" | "high" | "critical";
-  message: string;
-  source_ip?: string;
+  rule_id: string | null;
+  severity: string;
+  title: string;
+  source_ip: string | null;
+  detected_at: string;
+  last_detected_at: string | null;
+  occurrences: number | null;
+  status: string;
 }
 
 export default function ServerDetailContent({ orgSlug, serverId }: { orgSlug: string; serverId: string }) {
@@ -25,32 +30,28 @@ export default function ServerDetailContent({ orgSlug, serverId }: { orgSlug: st
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Live events feed
-  const [events, setEvents] = useState<ThreatEvent[]>([]);
-  const [eventsLoading, setEventsLoading] = useState(true);
-  const [eventsError, setEventsError] = useState("");
-  const [liveMode, setLiveMode] = useState(true);
-  const eventsEndRef = useRef<HTMLDivElement>(null);
+  const [detections, setDetections] = useState<Detection[]>([]);
+  const [detectionsLoading, setDetectionsLoading] = useState(true);
 
-  // Fetch events with polling
-  const fetchEvents = useCallback(async () => {
-    if (!signedIn) return;
+  const orgId = org?.id;
+  const refresh = useCallback(async () => {
+    if (!orgId) return;
     try {
-      const res = await fetch(`/api/servers/${serverId}/events`, { headers: authHeaders() });
-      if (res.ok) {
-        const data = await res.json() as { events: ThreatEvent[] };
-        setEvents(data.events || []);
-        setEventsError("");
-      } else {
-        // API returns empty for now since no events table exists yet
-        setEvents([]);
+      const [detRes, { server: srv }] = await Promise.all([
+        fetch(`/api/orgs/${orgId}/servers/${serverId}/detections?limit=20`, { headers: authHeaders() }),
+        getServer(orgId, serverId),
+      ]);
+      if (detRes.ok) {
+        const data = await detRes.json() as { detections: Detection[] };
+        setDetections(data.detections || []);
       }
+      setServer(srv as unknown as Server);
     } catch {
-      // Don't show error for polling — just stop loading
+      // Polling failures are transient; keep the last good data.
     } finally {
-      setEventsLoading(false);
+      setDetectionsLoading(false);
     }
-  }, [signedIn, serverId]);
+  }, [orgId, serverId]);
 
   // Initial server + org fetch
   useEffect(() => {
@@ -80,21 +81,12 @@ export default function ServerDetailContent({ orgSlug, serverId }: { orgSlug: st
     fetchData();
   }, [signedIn, authLoading, orgSlug, serverId]);
 
-  // Poll events every 5s when live mode is on
   useEffect(() => {
-    if (!signedIn) return;
-    fetchEvents();
-    if (!liveMode) return;
-    const interval = setInterval(fetchEvents, 5000);
-    return () => clearInterval(interval);
-  }, [signedIn, liveMode, fetchEvents]);
+    refresh();
+  }, [refresh]);
 
-  // Auto-scroll to bottom on new events
-  useEffect(() => {
-    if (liveMode && eventsEndRef.current) {
-      eventsEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [events, liveMode]);
+  // Detections and last_seen (online/offline) refresh while the tab is visible.
+  useVisiblePolling(refresh, 30_000, !!orgId);
 
   const handleDelete = async () => {
     if (!org || !server) return;
@@ -172,7 +164,7 @@ export default function ServerDetailContent({ orgSlug, serverId }: { orgSlug: st
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <dt className="text-sm text-zinc-500">Status</dt>
-              <dd className="mt-1"><StatusBadge status={server.status} /></dd>
+              <dd className="mt-1"><StatusBadge status={serverConnectionState(server.last_seen)} /></dd>
             </div>
             <div>
               <dt className="text-sm text-zinc-500">Last Seen</dt>
@@ -255,57 +247,53 @@ export default function ServerDetailContent({ orgSlug, serverId }: { orgSlug: st
           </div>
         </div>
 
-        {/* ─── Live Events Feed ─── */}
+        {/* ─── Recent Detections ─── */}
         <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">Threat Events</h2>
-            <button
-              onClick={() => setLiveMode(!liveMode)}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                liveMode
-                  ? "bg-green-500/10 text-green-400 hover:bg-green-500/20"
-                  : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600"
-              }`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${liveMode ? "bg-green-400 animate-pulse" : "bg-zinc-500"}`} />
-              {liveMode ? "Live" : "Paused"}
-            </button>
+            <h2 className="text-lg font-semibold text-white">Recent Detections</h2>
+            <Link href={`/org/${org.slug}/detections`} className="text-xs text-zinc-400 hover:text-zinc-200">
+              All detections →
+            </Link>
           </div>
 
-          {eventsLoading ? (
+          {detectionsLoading ? (
             <div className="text-center py-8">
-              <p className="text-sm text-zinc-500">Loading events...</p>
+              <p className="text-sm text-zinc-500">Loading detections...</p>
             </div>
-          ) : events.length === 0 ? (
+          ) : detections.length === 0 ? (
             <div className="text-center py-8">
-              <svg className="mx-auto h-10 w-10 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <p className="mt-3 text-sm text-zinc-500">
-                No events yet. Events will appear here when threatcrushd pushes telemetry to the API.
-              </p>
-              <p className="mt-1 text-xs text-zinc-600">
-                The web app tails the event log from Supabase — no SSH needed.
-              </p>
+              {server.last_seen ? (
+                <p className="text-sm text-zinc-500">
+                  No detections from this server yet. It last reported {timeAgo(server.last_seen)}.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm text-zinc-500 mb-6">
+                    This server has never reported. Link its daemon to this organization:
+                  </p>
+                  <ConnectServerHint />
+                </>
+              )}
             </div>
           ) : (
-            <div className="rounded-md bg-black/40 p-4 font-mono text-sm max-h-96 overflow-y-auto space-y-2">
-              {events.map((event, i) => (
-                <div key={event.id || i} className="flex items-start gap-3">
-                  <span className="text-zinc-600 flex-shrink-0">
-                    {new Date(event.timestamp).toLocaleTimeString()}
-                  </span>
-                  <SeverityBadge severity={event.severity} />
-                  {event.module && (
-                    <span className="text-zinc-500 flex-shrink-0">[{event.module}]</span>
-                  )}
-                  <span className="text-zinc-200 break-all">{event.message}</span>
-                  {event.source_ip && (
-                    <span className="text-zinc-500 flex-shrink-0 text-xs">{event.source_ip}</span>
-                  )}
-                </div>
-              ))}
-              <div ref={eventsEndRef} />
+            <div className="divide-y divide-zinc-800">
+              {detections.map((d) => {
+                const count = d.occurrences ?? 1;
+                return (
+                  <Link key={d.id} href={`/org/${org.slug}/detections?detection=${d.id}`}
+                    className="flex items-start gap-3 py-2 hover:bg-zinc-800/40 transition-colors">
+                    <span className="text-zinc-600 flex-shrink-0 text-xs font-mono mt-0.5">
+                      {new Date(d.last_detected_at ?? d.detected_at).toLocaleString()}
+                    </span>
+                    <SeverityBadge severity={d.severity} />
+                    <span className="text-zinc-200 text-sm break-all flex-1">{d.title}</span>
+                    {count > 1 && <span className="text-xs text-zinc-300 flex-shrink-0">&times;{count}</span>}
+                    {d.source_ip && (
+                      <span className="text-zinc-500 flex-shrink-0 text-xs font-mono">{d.source_ip}</span>
+                    )}
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>

@@ -23,6 +23,10 @@ export async function GET(
     if (!membership) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
 
     const url = new URL(req.url);
+    const detectionId = url.searchParams.get("id");
+    if (detectionId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(detectionId)) {
+      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    }
     const severity = url.searchParams.get("severity");
     const serverId = url.searchParams.get("server_id");
     const status = url.searchParams.get("status");
@@ -37,6 +41,7 @@ export async function GET(
       .order("detected_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
+    if (detectionId) query = query.eq("id", detectionId);
     if (severity) query = query.eq("severity", severity);
     if (serverId) query = query.eq("server_id", serverId);
     if (status) query = query.eq("status", status);
