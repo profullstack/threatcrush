@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createCoinpayPayment, type CoinpayCurrency } from "@/lib/coinpay-client";
 import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import { usageTopupsEnabled, USAGE_TOPUPS_PAUSED_MESSAGE } from "@/lib/usage-topups";
 
 export async function POST(request: NextRequest) {
+  // Refuse before anything else so a paused top-up never reaches CoinPay or
+  // writes a credit_deposits row.
+  if (!usageTopupsEnabled()) {
+    return NextResponse.json({ error: USAGE_TOPUPS_PAUSED_MESSAGE }, { status: 403 });
+  }
+
   try {
     // Authenticate user
     const authHeader = request.headers.get("authorization");

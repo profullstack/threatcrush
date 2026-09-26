@@ -304,7 +304,7 @@ program
   ${chalk.dim("Website:")}  ${chalk.green("https://threatcrush.com")}
   ${chalk.dim("GitHub:")}   ${chalk.green("https://github.com/profullstack/threatcrush")}
   ${chalk.dim("npm:")}      ${chalk.green("https://www.npmjs.com/package/@profullstack/threatcrush")}
-  ${chalk.dim("License:")}  ${chalk.green("$499 lifetime")} (or $399 with referral)
+  ${chalk.dim("Pricing:")}  Contact us for a quote: ${chalk.green("https://threatcrush.com/hire")}
 
 ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush monitor          ${chalk.dim("# Real-time monitoring")}
@@ -577,46 +577,6 @@ program
     console.log(chalk.green(`  Tailing ${logPath}...\n`));
     console.log(chalk.gray("  Press Ctrl+C to stop\n"));
     execSync(`tail -f ${logPath}`, { stdio: "inherit" });
-  });
-
-program
-  .command("activate")
-  .description("Activate your license key")
-  .action(async () => {
-    console.log(LOGO);
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const key = await new Promise<string>((resolve) => {
-      rl.question(chalk.green("  Enter your ThreatCrush license key: "), (answer) => {
-        rl.close();
-        resolve(answer.trim());
-      });
-    });
-
-    if (!key) {
-      console.log(chalk.red("\n  No key provided.\n"));
-      return;
-    }
-
-    console.log(chalk.dim("\n  Activating license..."));
-    try {
-      const res = await fetch(`${API_URL}/api/auth/activate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ license_key: key }),
-      });
-      const result = await res.json() as Record<string, unknown>;
-
-      if (!res.ok) {
-        console.log(chalk.red(`\n  ✗ Activation failed: ${(result as Record<string, string>).error || "Unknown error"}\n`));
-        return;
-      }
-
-      console.log(chalk.green("\n  ✓ License activated successfully!\n"));
-      console.log(chalk.dim(`  Status: ${String(result.status ?? "active")}`));
-      console.log(chalk.dim(`  Expires: ${String(result.expires ?? "never")}\n`));
-    } catch {
-      console.log(chalk.red("\n  ✗ Activation failed. Check your connection and try again.\n"));
-    }
   });
 
 // ─── Real commands ───
