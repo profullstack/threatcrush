@@ -13,6 +13,7 @@ import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { modulesCommand } from "./commands/modules.js";
 import { pentestCommand } from "./commands/pentest.js";
+import { aiScanCommand, aiScanMoshCommand } from "./commands/ai-scan.js";
 import { orgsCommand } from "./commands/orgs.js";
 import { serversCommand } from "./commands/servers.js";
 import { connectCommand } from "./commands/connect.js";
@@ -311,6 +312,7 @@ ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush tui              ${chalk.dim("# Interactive dashboard")}
   ${chalk.green("$")} threatcrush scan ./src       ${chalk.dim("# Scan code for vulns")}
   ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
+  ${chalk.green("$")} threatcrush ai-scan URL      ${chalk.dim("# Red-team your AI/LLM endpoint (OWASP LLM Top 10)")}
   ${chalk.green("$")} threatcrush modules install  ${chalk.dim("# Install a module")}
   ${chalk.green("$")} threatcrush update           ${chalk.dim("# Update to latest")}
   ${chalk.green("$")} threatcrush remove           ${chalk.dim("# Uninstall completely")}`)
@@ -455,6 +457,31 @@ program
   .argument("<url>", "Target URL to pentest")
   .action(async (url: string) => {
     await pentestCommand(url);
+  });
+
+// ─── AI Red-Team Scan (LLM/agent endpoints you own) ───
+
+program
+  .command("ai-scan")
+  .description("Red-team an AI/LLM endpoint you own for OWASP LLM Top 10 guardrail gaps")
+  .argument("<url>", "Target AI endpoint URL")
+  .option("--categories <list>", "comma list: prompt-injection,system-prompt-leak,sensitive-disclosure,excessive-agency,output-handling")
+  .option("--template <json>", 'request body with {{PROMPT}} marker (default {"input":"{{PROMPT}}"})')
+  .option("--header <k:v...>", "extra request header (repeatable)")
+  .option("--response-path <path>", 'dotted JSON path to the reply text, or "text"')
+  .option("--delay <ms>", "delay between probes")
+  .option("--json", "emit JSON")
+  .action(async (url: string, opts) => {
+    await aiScanCommand(url, opts);
+  });
+
+program
+  .command("ai-scan-run")
+  .description("Drive the AI red-team scanner from a .mosh script")
+  .argument("<file>", "Path to a .mosh script")
+  .argument("[args...]", "Arguments passed to the script as argv")
+  .action(async (file: string, args: string[]) => {
+    await aiScanMoshCommand(file, args ?? []);
   });
 
 program
