@@ -2,12 +2,20 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { createOAuthCookieStorage } from "@/lib/oauth-cookie-storage";
 import { safeRedirectPath } from "@/lib/safe-redirect";
+import { githubOAuthEnabled } from "@/lib/github-oauth";
 
 /**
  * GET /api/auth/github
  * Initiates GitHub OAuth flow via Supabase Auth.
  */
 export async function GET(request: NextRequest) {
+  if (!githubOAuthEnabled()) {
+    return NextResponse.json(
+      { error: "GitHub sign-in is not enabled. Log in with your email and password instead." },
+      { status: 404 },
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const ref = searchParams.get("ref") || "";
   const nextPath = safeRedirectPath(searchParams.get("next"));

@@ -56,6 +56,7 @@ each. The ones a self-hoster most often sets:
 | `COINPAYPORTAL_*`, `COINPAY_WEBHOOK_SECRET` | CoinPayPortal crypto payments |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Web Push VAPID public key |
 | `VAPID_PRIVATE_KEY` | Web Push VAPID private key |
+| `NEXT_PUBLIC_GITHUB_OAUTH_ENABLED` | `true` shows "Continue with GitHub" on login/signup. Enable the GitHub provider in Supabase Auth first; read at build time |
 | `SENTRY_DSN` | Report server-side route errors to Sentry. Unset = off, no network |
 | `TRUSTED_PROXY_HOPS` | Reverse proxies in front of the app (default 1), for rate limiting by client IP |
 
