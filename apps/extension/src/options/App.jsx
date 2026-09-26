@@ -178,7 +178,7 @@ export default function App() {
                 className="w-4 h-4 accent-[#00ff41]"
               />
               <span className="text-sm text-gray-300">
-                Browser notifications for new threats
+                Browser notifications for new high/critical detections
               </span>
             </label>
 

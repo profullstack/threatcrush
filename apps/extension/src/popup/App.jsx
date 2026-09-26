@@ -9,13 +9,13 @@ import PageChecks from './components/PageChecks';
 
 function Account() {
   const { user, loading: authLoading } = useAuthStore();
-  const { stats, fetchStats } = useEventsStore();
+  const { alerts, fetchAlerts } = useEventsStore();
 
   useEffect(() => {
     if (user) {
-      fetchStats();
+      fetchAlerts();
     }
-  }, [user, fetchStats]);
+  }, [user, fetchAlerts]);
 
   if (authLoading) {
     return (
@@ -42,29 +42,29 @@ function Account() {
       </div>
 
       {/* Status Badge */}
-      <StatusBadge stats={stats} />
+      <StatusBadge alerts={alerts} />
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-3 gap-2 px-4 py-2">
-        <div className="bg-[#111] rounded-lg p-2 text-center border border-[#222]">
-          <div className="text-lg font-bold text-[#00ff41]">{stats.eventsToday}</div>
-          <div className="text-[10px] text-gray-500">Events Today</div>
+      {alerts.org && (
+        <div className="grid grid-cols-2 gap-2 px-4 py-2">
+          <div className="bg-[#111] rounded-lg p-2 text-center border border-[#222]">
+            <div className="text-lg font-bold text-yellow-500">{alerts.newCount}</div>
+            <div className="text-[10px] text-gray-500">New detections</div>
+          </div>
+          <div className="bg-[#111] rounded-lg p-2 text-center border border-[#222]">
+            <div className="text-lg font-bold text-red-500">
+              {alerts.urgentCount}
+              {alerts.urgentPartial ? '+' : ''}
+            </div>
+            <div className="text-[10px] text-gray-500">High / critical</div>
+          </div>
         </div>
-        <div className="bg-[#111] rounded-lg p-2 text-center border border-[#222]">
-          <div className="text-lg font-bold text-yellow-500">{stats.threats}</div>
-          <div className="text-[10px] text-gray-500">Active Threats</div>
-        </div>
-        <div className="bg-[#111] rounded-lg p-2 text-center border border-[#222]">
-          <div className="text-lg font-bold text-blue-400">{stats.modulesRunning}</div>
-          <div className="text-[10px] text-gray-500">Modules</div>
-        </div>
-      </div>
+      )}
 
       {/* Recent Events */}
       <EventFeed />
 
       {/* Quick Actions */}
-      <QuickActions />
+      <QuickActions orgSlug={alerts.org?.slug} />
     </div>
   );
 }

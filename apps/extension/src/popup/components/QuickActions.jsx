@@ -2,7 +2,8 @@ import React from 'react';
 
 const APP_URL = import.meta.env.VITE_APP_URL || 'https://threatcrush.com';
 
-export default function QuickActions() {
+/** `orgSlug`: the org whose alerts the popup shows; Alerts opens its detections. */
+export default function QuickActions({ orgSlug }) {
   function openUrl(path) {
     chrome.tabs.create({ url: `${APP_URL}${path}` });
   }
@@ -17,7 +18,7 @@ export default function QuickActions() {
           Dashboard
         </button>
         <button
-          onClick={() => openUrl('/usage')}
+          onClick={() => openUrl(orgSlug ? `/org/${encodeURIComponent(orgSlug)}/detections` : '/usage')}
           className="py-1.5 px-2 bg-[#111] border border-[#222] text-xs text-gray-400 rounded-lg hover:border-[#00ff41] hover:text-[#00ff41] transition-colors"
         >
           Alerts
