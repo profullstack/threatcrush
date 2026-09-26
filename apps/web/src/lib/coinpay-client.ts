@@ -71,11 +71,44 @@ export interface CoinpayWebhookPayload {
   business_id?: string;
 }
 
+/** A CoinPay call that failed. `status` is CoinPay's HTTP status when it answered. */
+export class CoinpayError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+    this.name = 'CoinpayError';
+  }
+}
+
+/** COINPAYPORTAL_API_KEY / COINPAYPORTAL_BUSINESS_ID are not set. */
+export class CoinpayNotConfiguredError extends CoinpayError {
+  constructor() {
+    super('CoinPay credentials not configured');
+    this.name = 'CoinpayNotConfiguredError';
+  }
+}
+
+/**
+ * HTTP status + message a payment-status route answers with when the live
+ * CoinPay lookup throws (anything else, including a network failure, is 502).
+ */
+export function paymentStatusFailure(err: unknown): { status: number; error: string } {
+  if (err instanceof CoinpayNotConfiguredError) {
+    return { status: 503, error: 'Payment status is unavailable: payment provider not configured' };
+  }
+  if (err instanceof CoinpayError && err.status === 404) {
+    return { status: 404, error: 'Payment not found' };
+  }
+  return { status: 502, error: 'Could not fetch payment status from the payment provider' };
+}
+
 function getCreds(): { apiKey: string; merchantId: string } {
   const apiKey = process.env.COINPAYPORTAL_API_KEY;
   const merchantId = process.env.COINPAYPORTAL_BUSINESS_ID;
   if (!apiKey || !merchantId) {
-    throw new Error('CoinPay credentials not configured');
+    throw new CoinpayNotConfiguredError();
   }
   return { apiKey, merchantId };
 }
@@ -123,17 +156,21 @@ export async function createCoinpayPayment(opts: {
   return json;
 }
 
-export async function getCoinpayPaymentStatus(paymentId: string): Promise<{
+export interface CoinpayPaymentStatus {
   status: string;
   tx_hash?: string | null;
-}> {
+}
+
+export async function getCoinpayPaymentStatus(paymentId: string): Promise<CoinpayPaymentStatus> {
   const { apiKey } = getCreds();
-  const res = await fetch(`${COINPAY_API_URL}/payments/${paymentId}`, {
+  // Encoded: the id comes from the query string, and a raw `../` would walk
+  // the authenticated request to another CoinPay endpoint.
+  const res = await fetch(`${COINPAY_API_URL}/payments/${encodeURIComponent(paymentId)}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
     cache: 'no-store',
   });
   if (!res.ok) {
-    throw new Error(`CoinPay status failed: ${res.status}`);
+    throw new CoinpayError(`CoinPay status failed: ${res.status}`, res.status);
   }
   const json = (await res.json()) as {
     payment?: { status?: string; tx_hash?: string | null };

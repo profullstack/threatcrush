@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseClient } from "@/lib/supabase";
+import { createSupabaseAuthClient } from "@/lib/supabase";
 
 // POST /api/auth/refresh — trade a refresh token for a new session.
 //
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "refresh_token is required" }, { status: 400 });
     }
 
-    const { data, error } = await getSupabaseClient().auth.refreshSession({
+    const { data, error } = await createSupabaseAuthClient().auth.refreshSession({
       refresh_token: refreshToken,
     });
     if (error || !data.session) {

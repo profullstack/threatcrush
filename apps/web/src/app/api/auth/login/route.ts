@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
+import { createSupabaseAuthClient, getSupabaseAdmin } from "@/lib/supabase";
 import { setSignupGrantCookie } from "@/lib/signup-grant";
 
 export async function POST(req: NextRequest) {
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
 
-    const supabase = getSupabaseClient();
+    const supabase = createSupabaseAuthClient();
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {

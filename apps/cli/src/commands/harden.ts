@@ -3,6 +3,8 @@ import { execSync } from 'node:child_process';
 import chalk from 'chalk';
 import ora from 'ora';
 import { banner, logger } from '../core/logger.js';
+import { cloudFetch } from '../core/cli-config.js';
+import { currentLink, findingEvents, type IngestResponse } from '../core/cloud-events.js';
 
 interface HardeningResult {
   key: string;
@@ -322,7 +324,45 @@ function computeScore(results: HardeningResult[]): number {
   return Math.max(0, Math.round(((maxScore - deductions) / maxScore) * 100));
 }
 
-export async function hardenCommand(opts: { json?: boolean }): Promise<void> {
+/**
+ * Send the findings to the dashboard as `hardening_finding` events. Output goes
+ * to stderr in JSON mode so `--json` stays machine-readable.
+ */
+async function uploadFindings(results: HardeningResult[], json: boolean): Promise<void> {
+  const say = (line: string) => (json ? console.error(line) : console.log(line));
+  const link = currentLink();
+  if (!link) {
+    if (!json) say(chalk.gray('  Not linked to the dashboard; run `threatcrush servers link` to upload findings.\n'));
+    return;
+  }
+
+  let res: Response;
+  try {
+    res = await cloudFetch('/api/ingest', {
+      method: 'POST',
+      body: JSON.stringify({ events: findingEvents(link.serverId, results) }),
+    });
+  } catch (err) {
+    say(chalk.yellow(`  ! Could not upload findings: ${(err as Error).message}\n`));
+    return;
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    say(chalk.yellow(`  ! Upload refused (${res.status}) ${detail.slice(0, 200)}\n`));
+    return;
+  }
+
+  const body = await res.json().catch(() => ({})) as IngestResponse;
+  const accepted = body.accepted?.findings ?? results.length;
+  say(chalk.green(`  ✓ Uploaded ${accepted} of ${results.length} findings to server ${link.serverId}`));
+  for (const r of results) say(chalk.gray(`    ${r.status.padEnd(4)} ${r.key}`));
+  for (const rejected of body.rejected ?? []) {
+    say(chalk.yellow(`    rejected ${results[rejected.index]?.key ?? `#${rejected.index}`}: ${rejected.error}`));
+  }
+  say('');
+}
+
+export async function hardenCommand(opts: { json?: boolean; upload?: boolean }): Promise<void> {
   if (!opts.json) {
     banner();
     logger.info('Running hardening scan...\n');
@@ -337,6 +377,7 @@ export async function hardenCommand(opts: { json?: boolean }): Promise<void> {
 
   if (opts.json) {
     console.log(JSON.stringify({ score, findings: results }, null, 2));
+    if (opts.upload !== false) await uploadFindings(results, true);
     return;
   }
 
@@ -382,6 +423,8 @@ export async function hardenCommand(opts: { json?: boolean }): Promise<void> {
   console.log(chalk.gray('  ' + '─'.repeat(60)));
   console.log(`  ${chalk.white.bold(`${results.length} checks:`)} ${chalk.green(`${passes.length} pass`)} ${chalk.yellow(`${warns.length} warn`)} ${chalk.red(`${fails.length} fail`)}`);
   console.log();
+
+  if (opts.upload !== false) await uploadFindings(results, false);
 }
 
 // Export for daemon use

@@ -72,7 +72,7 @@ $ threatcrush monitor
 curl -fsSL https://threatcrush.com/install.sh | sh
 ```
 
-The installer detects whether the machine is a server or desktop, uses your existing package manager when available, and can bootstrap Node.js with `mise` on bare machines.
+The CLI needs **Node.js 22.6 or newer**. The installer detects whether the machine is a server or desktop, uses your existing package manager when available, and on a machine with no Node.js sets up Node.js LTS with `mise`, adding mise's shims to `~/.profile` so new login shells find `threatcrush`. If it finds an older Node.js it stops without installing anything and tells you how to upgrade.
 
 - **Linux server** → installs the CLI
 - **Desktop (Linux, macOS, Windows)** → installs the CLI and points you to the desktop app, a separate download from [GitHub Releases](https://github.com/profullstack/threatcrush/releases/latest). The desktop app talks to a ThreatCrush daemon on the same machine; log monitoring and firewall bans need Linux.
@@ -84,7 +84,7 @@ threatcrush update   # upgrades the installed bundle
 threatcrush remove   # removes the installed bundle
 ```
 
-Manual package-manager installs still work if you want them:
+Manual package-manager installs still work if you want them (Node.js 22.6+):
 
 ```bash
 npm i -g @profullstack/threatcrush
@@ -133,8 +133,9 @@ Full command reference: [threatcrush.com/docs](https://threatcrush.com/docs).
 ThreatCrush uses a pluggable module system. Install from the marketplace or build your own:
 
 ```bash
-threatcrush modules list                # List installed
+threatcrush modules list                # List built-in and installed modules
 threatcrush modules available           # List modules you can install
+threatcrush modules install ssh-guard   # Install a module
 threatcrush store search "firewall"     # Search marketplace
 threatcrush store publish https://github.com/you/my-module  # Publish your own
 ```
@@ -167,7 +168,8 @@ Module ideas we would like to see (none of these exist yet):
 ## Configuration
 
 ```bash
-threatcrush init    # Auto-detect & generate config
+threatcrush init                    # Auto-detect & generate config
+threatcrush init --offline          # Same, without signing in (scripts, CI, containers)
 ```
 
 Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/etc/threatcrush/threatcrushd.conf.d/`.

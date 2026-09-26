@@ -37,6 +37,7 @@ export async function GET(
     .select("id")
     .eq("slug", slug)
     .eq("published", true)
+    .eq("review_status", "approved")
     .single();
 
   if (!mod) {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { destinationConfigError } from "@/lib/alert-destinations";
 
 // GET /api/orgs/[id]/alert-destinations
 export async function GET(
@@ -69,6 +70,9 @@ export async function POST(
     if (!validTypes.includes(type)) {
       return NextResponse.json({ error: `Invalid type. Must be one of: ${validTypes.join(", ")}` }, { status: 400 });
     }
+
+    const configError = await destinationConfigError(type, config);
+    if (configError) return NextResponse.json({ error: configError }, { status: 400 });
 
     const { data: dest, error } = await admin.from("alert_destinations").insert({
       organization_id: orgId,

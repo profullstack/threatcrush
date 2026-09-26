@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { setAccessToken } from "@/lib/auth-client";
+import { clearUrlHash, parseAuthRedirectHash, setAccessToken } from "@/lib/auth-client";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 
 export default function LoginPage() {
@@ -10,9 +10,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const nextPath = useMemo(() => {
     if (typeof window === "undefined") return "/account";
     return safeRedirectPath(new URLSearchParams(window.location.search).get("next"));
+  }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("reset") === "success") {
+      setNotice("Your password has been updated. Log in with your new password.");
+    }
+    // GoTrue sends a rejected email link (expired, already used) back here
+    // with the reason in the hash; without this the page just looked normal.
+    const redirect = parseAuthRedirectHash(window.location.hash);
+    if (redirect?.kind === "error") {
+      setError(
+        `${redirect.message.replace(/\.$/, "")}. Enter your email and choose "Forgot password?" to get a new link.`,
+      );
+      clearUrlHash();
+    }
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,7 +92,7 @@ export default function LoginPage() {
         return;
       }
       setError("");
-      alert("Password reset email sent! Check your inbox.");
+      setNotice("Password reset email sent! Check your inbox for a link to set a new password.");
     } catch {
       setError("Network error. Please try again.");
     }
@@ -95,8 +111,13 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="bg-tc-card border border-tc-border rounded-xl p-6 space-y-4">
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-3 text-sm">
+            <div role="alert" className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-3 text-sm">
               {error}
+            </div>
+          )}
+          {notice && !error && (
+            <div role="status" className="bg-tc-green/10 border border-tc-green/30 text-tc-green rounded-lg px-4 py-3 text-sm">
+              {notice}
             </div>
           )}
 

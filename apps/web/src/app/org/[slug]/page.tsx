@@ -1,10 +1,11 @@
 import { AuthProvider } from "@/lib/auth-context";
 import OrgDetailContent from "./org-detail-content";
 
-export default function OrgDetailPage({ params }: { params: { slug: string } }) {
+export default async function OrgDetailPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
   return (
     <AuthProvider>
-      <OrgDetailContent slug={params.slug} />
+      <OrgDetailContent slug={slug} />
     </AuthProvider>
   );
 }

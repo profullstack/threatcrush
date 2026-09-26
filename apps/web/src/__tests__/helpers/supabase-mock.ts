@@ -90,6 +90,7 @@ export const TEST_MODULE = {
   rating_avg: 4.5,
   rating_count: 10,
   published: true,
+  review_status: "approved",
   created_at: "2025-01-01T00:00:00Z",
   updated_at: "2025-06-01T00:00:00Z",
 };
