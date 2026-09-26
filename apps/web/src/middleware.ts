@@ -30,6 +30,7 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/api/auth/send-phone-code", limit: 5, windowMs: 60_000 },
   { prefix: "/api/auth/verify-phone", limit: 10, windowMs: 60_000 },
   { prefix: "/api/auth/forgot-password", limit: 5, windowMs: 60_000 },
+  { prefix: "/api/auth/reset-password", limit: 10, windowMs: 60_000 },
   { prefix: "/api/auth/resend", limit: 5, windowMs: 60_000 },
   { prefix: "/api/auth/signup", limit: 10, windowMs: 60_000 },
   { prefix: "/api/auth/login", limit: 20, windowMs: 60_000 },

@@ -61,6 +61,53 @@ export function getSupabaseAdmin(): SupabaseClient {
   return adminClient;
 }
 
+export interface GoTrueError {
+  /** HTTP status GoTrue answered with. */
+  status: number;
+  /** GoTrue's machine-readable code, e.g. "weak_password" or "bad_jwt". */
+  code: string | null;
+  message: string;
+}
+
+/**
+ * Sets a new password as the user who owns `accessToken`.
+ *
+ * This calls GoTrue's own update-user endpoint with the user's token rather
+ * than the admin API, so GoTrue checks the token and that its session still
+ * exists, and applies its password policy. supabase-js cannot do this
+ * statelessly: its updateUser() needs a stored session, and the clients here
+ * deliberately keep none.
+ */
+export async function updatePasswordWithAccessToken(
+  accessToken: string,
+  password: string,
+): Promise<{ error: GoTrueError | null }> {
+  const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const anonKey = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  const res = await fetch(`${url}/auth/v1/user`, {
+    method: "PUT",
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ password }),
+    cache: "no-store",
+  });
+  if (res.ok) return { error: null };
+
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const code = body.error_code ?? body.code;
+  const message = body.msg ?? body.message ?? body.error_description;
+  return {
+    error: {
+      status: res.status,
+      code: typeof code === "string" ? code : null,
+      message: typeof message === "string" ? message : `GoTrue answered ${res.status}`,
+    },
+  };
+}
+
 /** Helper to slugify a module name */
 export function slugify(name: string): string {
   return name
