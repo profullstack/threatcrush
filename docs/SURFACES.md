@@ -1,6 +1,6 @@
 # ThreatCrush Surfaces
 
-Last updated: 2026-09-25 (release rows checked against `gh run list`, `gh release view v0.13.7`, npm and GHCR)
+Last updated: 2026-09-25 (release rows checked against `gh run list`, `gh release view v0.13.7`, npm and GHCR; npm and the v0.13.9 release re-checked the same day)
 
 Two axes, tracked separately on purpose. **Interfaces** are what users touch.
 **Distribution channels** are how they get them.
@@ -21,18 +21,18 @@ Status values:
 
 | Interface | Status | Repo path | Primary channels | Notes |
 |---|---|---|---|---|
-| **PWA / Web** | `shipping` | `apps/web/` | Railway → [threatcrush.com](https://threatcrush.com), Docker image | Next.js 16, Supabase, Tailwind 4. `output: standalone`. |
-| **CLI** | `shipping` | `apps/cli/` | npm (`@profullstack/threatcrush`), `curl \| sh` | v0.13.7 on npm. `threatcrushd` daemon, IPC socket, systemd unit. Pending [#239](https://github.com/profullstack/threatcrush/pull/239) (open): CRS 942100 (`@detectSQLi`) and 941100 (`@detectXSS`) on libinjection v4.0.0 compiled to WebAssembly, for 96 OWASP CRS rules + 1 ThreatCrush rule loaded by default. |
+| **PWA / Web** | `shipping` | `apps/web/` | Self-hosted box (`deploy-dev2.yml`) → [threatcrush.com](https://threatcrush.com), Docker image | Next.js 16, Supabase, Tailwind 4. `output: standalone`. |
+| **CLI** | `shipping` | `apps/cli/` | npm (`@profullstack/threatcrush`), `curl \| sh` | v0.13.9 on npm. `threatcrushd` daemon, IPC socket, systemd unit. Since [#239](https://github.com/profullstack/threatcrush/pull/239): CRS 942100 (`@detectSQLi`) and 941100 (`@detectXSS`) on libinjection v4.0.0 compiled to WebAssembly, for 96 OWASP CRS rules + 1 ThreatCrush rule loaded by default. `threatcrush servers link` (cloud sync of detections, findings, bans and heartbeats) is in flight. |
 | **TUI** | `shipping` | `apps/cli/src/tui/` | Bundled with CLI | `@profullstack/hqtui` dashboard, live over daemon IPC. `threatcrush tui` (add `--demo` for canned events). |
 | **API** | `shipping` | `apps/web/src/app/api/` | Same origin as web | REST, bearer-token auth. Used by CLI, desktop, extension. |
-| **Webhooks (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/` | Slack, generic webhook | Threat alerts emit when severity ≥ high. |
+| **Webhooks (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/` | Slack, Discord, PagerDuty, generic webhook | Threat alerts emit when severity ≥ high. |
 | **Email (outbound)** | `shipping` | `apps/cli/src/daemon/alerts/smtp.ts` | SMTP via `nodemailer` | Configure `[alerts.email]` in `threatcrushd.conf`. |
 | **Desktop** | `preview` | `apps/desktop/` | GitHub Releases (macOS/Windows unsigned) | Electron. IPC bridge to local `threatcrushd` via Unix socket. Every tag since v0.13.2 publishes macOS arm64/x64, Windows x64, AppImage and .deb; the Linux builds start and render under Xvfb. The dashboard still streams generated demo events (`generateFakeEvent` in `StatsBar.tsx`) whether or not a daemon is connected, and the sidebar shows a hard-coded `v0.1.3`. |
 | **Browser extension** | `preview` | `apps/extension/` | Sideload from source | Vite + React 19 + MV3 (Chrome/Firefox/Safari builds). Since [#240](https://github.com/profullstack/threatcrush/pull/240): local checks of the active page (HSTS, CSP weaknesses, framing, nosniff, Referrer-Policy, Permissions-Policy, mixed content, insecure forms, session-cookie flags) with a per-tab badge; site access is an optional host permission requested at first use; nothing leaves the browser unless you click "Scan with ThreatCrush" (origin + path only). Smoke-tested in Chromium. |
-| **SDK** | `alpha` | `apps/sdk/` | npm (`@threatcrush/sdk`), not published (npm 404) | Types for module authors. `npm-publish.yml` publishes only the CLI. |
+| **SDK** | `alpha` | `apps/sdk/` | npm (`@threatcrush/sdk`), not published (npm 404) | Types for module authors. `npm-publish.yml` publishes it on tags once the `@threatcrush` npm scope exists. |
 | **Plugin / integration** | `preview` | `apps/cli/src/daemon/module-host.ts`, `apps/web/src/app/store/` | Module marketplace ([threatcrush.com/store](https://threatcrush.com/store), `/api/modules`) | 10 listed modules, all free. `threatcrush modules install <name>` installs from the marketplace, a local path or git. |
 | **Chat / bot** | `not-started` | — | Slack, Discord, Matrix | Inbound (query state from chat) not built. Outbound alerts work today. |
-| **Mobile** | `alpha` | `apps/mobile/` | App Store, Google Play (neither live) | Expo. `mobile-release.yml` builds a production Android AAB on EAS for every tag (`EXPO_TOKEN` is configured). iOS has never been built; nothing is submitted to a store. The app signs in with a threatcrush.com account and shows the org's real servers, remediations, scan runs and detections (no demo data). Detections stay empty because `threatcrushd` doesn't upload them (`/api/ingest` has no producer). Devices register Expo push tokens, but nothing sends pushes yet. |
+| **Mobile** | `alpha` | `apps/mobile/` | App Store, Google Play (neither live) | Expo. `mobile-release.yml` builds a production Android AAB on EAS for every tag (`EXPO_TOKEN` is configured). iOS has never been built; nothing is submitted to a store. The app signs in with a threatcrush.com account and shows the org's real servers, remediations, scan runs and detections (no demo data). Detections stay empty until the daemon↔cloud pipeline (`threatcrush servers link`, in flight) lands. Devices register Expo push tokens; server-side push delivery is in flight with the alert dispatcher. |
 | **Wearable** | `not-started` | — | watchOS, Wear OS | Push-alert target only — owner + scope tbd. |
 | **TV / console** | `not-started` | — | tvOS, Android TV | Unlikely fit; revisit if SOC dashboards become a customer ask. |
 | **Voice** | `not-started` | — | Alexa Skills, Google Actions | "Hey Alexa, ask ThreatCrush for today's threat count" — post-API-stabilization. |
@@ -46,10 +46,10 @@ Columns read: **which interfaces ship through this channel**.
 
 | Channel | Status | Interfaces | Owner / path | Next action |
 |---|---|---|---|---|
-| **npm** | `shipping` | CLI (`@profullstack/threatcrush`) | `apps/cli/package.json`, `.github/workflows/npm-publish.yml` | Bump CLI to 0.1.0, publish. SDK: publish when marketplace ready. |
+| **npm** | `shipping` | CLI (`@profullstack/threatcrush`) | `apps/cli/package.json`, `.github/workflows/npm-publish.yml` | CLI publishes on every `v*` tag (0.13.9 is live). SDK: needs the `@threatcrush` scope. |
 | **`curl \| sh`** | `shipping` | CLI | `apps/web/public/install.sh` | Smoke-test on fresh Ubuntu/macOS. |
 | **Docker (GHCR)** | `preview` | Web | `Dockerfile`, `.github/workflows/docker-publish.yml` | Every tag pushes `ghcr.io/profullstack/threatcrush:{latest,<version>}`, but the package is private (anonymous pull: 401). Owner: make the package public. Docker Hub is skipped (no `DOCKER_USERNAME`). |
-| **Railway** | `shipping` | Web | `railway.json` | Path was updated for monorepo; deploy once. |
+| **Self-hosted (dev2)** | `shipping` | Web | `.github/workflows/deploy-dev2.yml` | Deploys threatcrush.com to the single self-hosted box behind nginx. |
 | **GitHub Releases** | `preview` | Desktop | `.github/workflows/desktop-release.yml`, `apps/desktop/electron-builder.yml` | Green for v0.13.2–v0.13.7 on all four legs. Signing and notarization turn on once the `APPLE_*` / `WINDOWS_*` secrets exist (`docs/DESKTOP_RELEASE_TODO.md`); then this can be `shipping`. |
 | **Homebrew** | `not-started` | CLI (tap), Desktop (cask) | `scripts/lib/package-managers/homebrew.ts` | First release: create `homebrew-threatcrush` tap repo. |
 | **apt / deb** | `preview` | Desktop (via electron-builder) | `apps/desktop/electron-builder.yml` | `.deb` attached to each GitHub Release; no apt repository. For CLI: build a deb via `fpm` and host it; ppa later. |
