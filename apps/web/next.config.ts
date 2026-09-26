@@ -19,14 +19,21 @@ const securityHeaders = [
     // injects styles, so 'unsafe-inline' stays until this app moves to
     // nonce-based CSP — but object-src, base-uri, form-action and
     // frame-ancestors still close off real injection routes.
+    //
+    // The third-party hosts are exactly what app/layout.tsx loads on every
+    // page: the robauto, datafa.st and crawlproof analytics scripts (crawlproof
+    // may add its own careers.js), the profullstack feedback widget (script +
+    // its panel iframe), and Google Fonts (stylesheet + font files). Their
+    // beacons and XHRs already fall under connect-src https:.
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "style-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://robauto.ai https://datafa.st https://crawlproof.com https://feedback.profullstack.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: blob: https:",
-      "font-src 'self' data:",
+      "font-src 'self' data: https://fonts.gstatic.com",
       "connect-src 'self' https:",
+      "frame-src 'self' https://feedback.profullstack.com",
       "frame-ancestors 'self'",
       "base-uri 'self'",
       "form-action 'self'",
