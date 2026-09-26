@@ -1,0 +1,120 @@
+# Run supabase/migrations files against the Postgres behind threatcrush.com
+# (self-hosted Supabase on dev2). deploy-dev2.yml ships code but never touches
+# the schema, so a PR that adds a migration needs this run before (or right
+# after) its merge.
+#
+#   inspect: read-only. Lists Postgres containers on dev2 and, for each, whether
+#            it holds the ThreatCrush schema and which migrations it recorded.
+#   apply:   runs the named files, in the order given, with ON_ERROR_STOP, and
+#            records each in supabase_migrations.schema_migrations when that
+#            table exists. Stops at the first failure.
+name: Migrate dev2 database
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: inspect (read-only) or apply
+        type: choice
+        options: [inspect, apply]
+        default: inspect
+      container:
+        description: Postgres container on dev2 (apply only; see an inspect run)
+        required: false
+        type: string
+      migrations:
+        description: Space-separated file names under supabase/migrations (apply only)
+        required: false
+        type: string
+
+concurrency:
+  group: migrate-dev2
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up ssh
+        env:
+          SSH_KEY: ${{ secrets.DEV2_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEV2_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # ${{ }} values go through env, never straight into a run: body. Every
+      # value that reaches the remote shell is validated against a strict
+      # pattern first.
+      - name: Inspect
+        if: inputs.mode == 'inspect'
+        env:
+          DEV2_USER: ${{ secrets.DEV2_USER }}
+          DEV2_HOST: ${{ secrets.DEV2_HOST }}
+        run: |
+          ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" 'sh -s' <<'REMOTE'
+          echo "user: $(id -un)"
+          if ! docker ps >/dev/null 2>&1; then echo "docker: not usable by this user"; exit 1; fi
+          docker ps --format '{{.Names}}\t{{.Image}}' | grep -iE 'postgres|supabase' || true
+          for c in $(docker ps --format '{{.Names}} {{.Image}}' | awk 'tolower($2) ~ /postgres/ {print $1}'); do
+            echo "== $c"
+            docker exec -i "$c" psql -X -A -t -U postgres -d postgres -c "
+              select 'threatcrush schema: ' || (to_regclass('public.modules') is not null and to_regclass('public.detections') is not null);
+            " 2>&1 | sed 's/^/  /'
+            docker exec -i "$c" psql -X -A -t -U postgres -d postgres -c "
+              select '  tracked migrations: ' || count(*) from supabase_migrations.schema_migrations;
+              select '  last recorded: ' || version from supabase_migrations.schema_migrations order by version desc limit 5;
+            " 2>/dev/null || echo "  tracked migrations: n/a (no supabase_migrations.schema_migrations)"
+            docker exec -i "$c" psql -X -A -t -U postgres -d postgres -c "
+              select '  present: ' || string_agg(t, ' ') from unnest(array[
+                'public.phone_sms_sends','public.alert_deliveries']) t where to_regclass(t) is not null;
+              select '  modules.review_status: ' || exists(select 1 from information_schema.columns
+                where table_schema='public' and table_name='modules' and column_name='review_status');
+              select '  detections.occurrences: ' || exists(select 1 from information_schema.columns
+                where table_schema='public' and table_name='detections' and column_name='occurrences');
+            " 2>/dev/null || true
+          done
+          REMOTE
+
+      - name: Apply
+        if: inputs.mode == 'apply'
+        env:
+          DEV2_USER: ${{ secrets.DEV2_USER }}
+          DEV2_HOST: ${{ secrets.DEV2_HOST }}
+          CONTAINER: ${{ inputs.container }}
+          MIGRATIONS: ${{ inputs.migrations }}
+        run: |
+          set -eu
+          case "$CONTAINER" in
+            ''|*[!A-Za-z0-9_.-]*) echo "container must match [A-Za-z0-9_.-]+"; exit 1;;
+          esac
+          [ -n "$MIGRATIONS" ] || { echo "no migrations given"; exit 1; }
+          for m in $MIGRATIONS; do
+            echo "$m" | grep -Eq '^[0-9]{14}_[a-z0-9_]+\.sql$' || { echo "bad migration name: $m"; exit 1; }
+            [ -f "supabase/migrations/$m" ] || { echo "not in this commit: supabase/migrations/$m"; exit 1; }
+          done
+          for m in $MIGRATIONS; do
+            version=${m%%_*}; name=${m#*_}; name=${name%.sql}
+            echo "== applying $m"
+            {
+              cat "supabase/migrations/$m"
+              printf '\n'
+              # Record it the way `supabase db push` would. Older CLI versions
+              # created the table without a name column; handle both.
+              printf "DO \$\$ BEGIN IF to_regclass('supabase_migrations.schema_migrations') IS NOT NULL THEN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'supabase_migrations' AND table_name = 'schema_migrations' AND column_name = 'name') THEN INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('%s', '%s') ON CONFLICT (version) DO NOTHING; ELSE INSERT INTO supabase_migrations.schema_migrations (version) VALUES ('%s') ON CONFLICT (version) DO NOTHING; END IF; END IF; END \$\$;\n" "$version" "$name" "$version"
+            } | ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" \
+                  "docker exec -i $CONTAINER psql -X -v ON_ERROR_STOP=1 -1 -q -U postgres -d postgres -f -"
+            echo "   ok"
+          done
+          ssh -o BatchMode=yes "$DEV2_USER@$DEV2_HOST" \
+            "docker exec -i $CONTAINER psql -X -q -U postgres -d postgres -c \"NOTIFY pgrst, 'reload schema';\""
+          echo "schema cache reload sent"
