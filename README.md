@@ -72,7 +72,7 @@ $ threatcrush monitor
 curl -fsSL https://threatcrush.com/install.sh | sh
 ```
 
-The installer detects whether the machine is a server or desktop, uses your existing package manager when available, and can bootstrap Node.js with `mise` on bare machines.
+The CLI needs **Node.js 22.6 or newer**. The installer detects whether the machine is a server or desktop, uses your existing package manager when available, and on a machine with no Node.js sets up Node.js LTS with `mise`, adding mise's shims to `~/.profile` so new login shells find `threatcrush`. If it finds an older Node.js it stops without installing anything and tells you how to upgrade.
 
 - **Linux server** → installs the CLI
 - **Linux desktop** → installs the CLI + desktop app
@@ -86,7 +86,7 @@ threatcrush update   # upgrades the installed bundle
 threatcrush remove   # removes the installed bundle
 ```
 
-Manual package-manager installs still work if you want them:
+Manual package-manager installs still work if you want them (Node.js 22.6+):
 
 ```bash
 npm i -g @profullstack/threatcrush
@@ -127,7 +127,7 @@ threatcrush update       # Upgrade the CLI using the supported path
 ThreatCrush uses a pluggable module system. Install from the marketplace or build your own:
 
 ```bash
-threatcrush modules list                # List installed
+threatcrush modules list                # List built-in and installed modules
 threatcrush modules install ssh-guard   # Install a module
 threatcrush modules install docker-monitor
 threatcrush store search "firewall"     # Search marketplace
@@ -160,7 +160,8 @@ Build and sell your own modules on the ThreatCrush marketplace:
 ## Configuration
 
 ```bash
-threatcrush init    # Auto-detect & generate config
+threatcrush init                    # Auto-detect & generate config
+threatcrush init --offline          # Same, without signing in (scripts, CI, containers)
 ```
 
 Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/etc/threatcrush/threatcrushd.conf.d/`.

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCoinpayPaymentStatus } from "@/lib/coinpay-client";
+import { getCoinpayPaymentStatus, paymentStatusFailure, type CoinpayPaymentStatus } from "@/lib/coinpay-client";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export async function GET(
@@ -36,7 +36,14 @@ export async function GET(
     return NextResponse.json({ error: "Payment not found" }, { status: 404 });
   }
 
-  const cpStatus = await getCoinpayPaymentStatus(paymentId);
+  let cpStatus: CoinpayPaymentStatus;
+  try {
+    cpStatus = await getCoinpayPaymentStatus(paymentId);
+  } catch (e) {
+    const failure = paymentStatusFailure(e);
+    if (failure.status !== 404) console.error("[usage/payment-status] live status error:", e);
+    return NextResponse.json({ error: failure.error }, { status: failure.status });
+  }
 
   return NextResponse.json({
     status: cpStatus.status,

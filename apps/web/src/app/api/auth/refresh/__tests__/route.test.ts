@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockRefresh = vi.fn();
 
 vi.mock("@/lib/supabase", () => ({
-  getSupabaseClient: () => ({ auth: { refreshSession: mockRefresh } }),
+  createSupabaseAuthClient: () => ({ auth: { refreshSession: mockRefresh } }),
 }));
 
 import { POST } from "@/app/api/auth/refresh/route";

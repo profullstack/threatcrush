@@ -17,7 +17,6 @@ describe("install/update docs messaging", () => {
     expect(readme).toContain("curl -fsSL https://threatcrush.com/install.sh | sh");
     expect(readme).toContain("threatcrush update");
     expect(readme).toContain("threatcrush remove");
-    expect(readme).toContain("bootstrap Node.js with `mise`");
     expect(readme).toContain("**Linux server** → installs the CLI");
     expect(readme).toContain("**Linux desktop** → installs the CLI + desktop app");
     expect(readme).toContain("**Windows desktop** → installs the desktop app to connect to a ThreatCrush server elsewhere");
@@ -30,7 +29,6 @@ describe("install/update docs messaging", () => {
     expect(readme).toContain("curl -fsSL https://threatcrush.com/install.sh | sh");
     expect(readme).toContain("threatcrush update");
     expect(readme).toContain("threatcrush remove");
-    expect(readme).toContain("bootstrap Node.js with `mise`");
     expect(readme).toContain("**Linux server** → installs the CLI");
     expect(readme).toContain("**Linux desktop** → installs the CLI + desktop app");
     expect(readme).toContain("**Windows desktop** → installs the desktop app to connect to a ThreatCrush server elsewhere");

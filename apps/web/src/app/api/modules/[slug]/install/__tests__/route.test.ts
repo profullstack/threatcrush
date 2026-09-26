@@ -32,7 +32,9 @@ vi.mock("@/lib/supabase", () => ({
           select: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
-                single: vi.fn().mockResolvedValue(moduleLookupResult),
+                eq: vi.fn().mockReturnValue({
+                  single: vi.fn().mockResolvedValue(moduleLookupResult),
+                }),
               }),
             }),
           }),

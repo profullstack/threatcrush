@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { stableBinPath } from "../service.js";
+import { nodeVersionDir, stableBinPath, systemdUnavailableReason } from "../service.js";
 
 const UNIT = readFileSync(
   join(__dirname, "..", "..", "systemd", "threatcrushd.service"),
@@ -50,5 +50,42 @@ describe("systemd unit template", () => {
 
   it("lets systemd create the runtime directory on each start", () => {
     expect(UNIT).toMatch(/^RuntimeDirectory=threatcrush$/m);
+  });
+});
+
+describe("systemdUnavailableReason", () => {
+  // Without systemd, install-service wrote the unit, printed
+  // `/bin/sh: 1: systemctl: not found`, pointed at journalctl, and exited 0.
+  it("refuses when systemctl is missing", () => {
+    expect(systemdUnavailableReason({ hasSystemctl: false, booted: false })).toMatch(/systemctl/);
+  });
+
+  it("refuses when systemctl is installed but systemd is not PID 1 (containers, WSL)", () => {
+    expect(systemdUnavailableReason({ hasSystemctl: true, booted: false })).not.toBeNull();
+  });
+
+  it("allows a host booted with systemd", () => {
+    expect(systemdUnavailableReason({ hasSystemctl: true, booted: true })).toBeNull();
+  });
+});
+
+describe("nodeVersionDir", () => {
+  // A CLI installed by a version manager's npm disappears with that Node
+  // version, taking the unit's ExecStart with it.
+  it.each([
+    ["/root/.local/share/mise/installs/node/22.12.0/bin/threatcrush", "/root/.local/share/mise/installs/node/22.12.0"],
+    ["/home/u/.local/share/mise/installs/node/latest/bin/threatcrush", "/home/u/.local/share/mise/installs/node/latest"],
+    ["/home/u/.asdf/installs/nodejs/22.1.0/bin/node", "/home/u/.asdf/installs/nodejs/22.1.0"],
+    ["/home/u/.nvm/versions/node/v22.12.0/bin/threatcrush", "/home/u/.nvm/versions/node/v22.12.0"],
+    ["/home/u/.local/share/fnm/node-versions/v22.12.0/installation/bin/node", "/home/u/.local/share/fnm/node-versions/v22.12.0"],
+    ["/home/u/.volta/tools/image/node/22.12.0/bin/node", "/home/u/.volta/tools/image/node/22.12.0"],
+  ])("%s -> %s", (path, dir) => {
+    expect(nodeVersionDir(path)).toBe(dir);
+  });
+
+  it("finds nothing version-bound in a system or npm-global install", () => {
+    expect(nodeVersionDir("/usr/local/bin/threatcrush")).toBeNull();
+    expect(nodeVersionDir("/usr/lib/node_modules/@profullstack/threatcrush/dist/index.js")).toBeNull();
+    expect(nodeVersionDir("/usr/bin/node")).toBeNull();
   });
 });

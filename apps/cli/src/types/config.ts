@@ -69,6 +69,18 @@ export interface DetectionSection {
   include_rules?: number[];
 }
 
+/**
+ * `[cloud]` — reporting to the ThreatCrush dashboard. Only does anything once
+ * the machine is logged in (`threatcrush login`) and linked
+ * (`threatcrush servers link`).
+ */
+export interface CloudSection {
+  /** Default true. `false` keeps detections, findings and bans on this machine. */
+  enabled?: boolean;
+  /** Lowest detection severity uploaded. Default `medium`. */
+  min_severity?: 'info' | 'low' | 'medium' | 'high' | 'critical';
+}
+
 export interface ThreatCrushConfig {
   daemon: DaemonConfig;
   api: ApiConfig;
@@ -76,6 +88,7 @@ export interface ThreatCrushConfig {
   modules: ModulesConfig;
   remediation?: RemediationSection;
   detection?: DetectionSection;
+  cloud?: CloudSection;
   license?: {
     key_file?: string;
     key?: string;

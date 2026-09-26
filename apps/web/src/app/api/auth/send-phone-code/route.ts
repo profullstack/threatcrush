@@ -22,10 +22,16 @@ export async function POST(req: NextRequest) {
     try {
       await issuePhoneCode({ userId, phone: rawPhone });
     } catch (err) {
-      const status = (err as Error & { status?: number }).status ?? 502;
+      const { status = 502, retryAfterSeconds } = err as Error & {
+        status?: number;
+        retryAfterSeconds?: number;
+      };
       return NextResponse.json(
         { error: (err as Error).message || "Could not send SMS" },
-        { status },
+        {
+          status,
+          headers: retryAfterSeconds ? { "Retry-After": String(retryAfterSeconds) } : undefined,
+        },
       );
     }
 
