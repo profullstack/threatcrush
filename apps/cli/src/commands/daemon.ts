@@ -130,7 +130,11 @@ export async function daemonStop(): Promise<boolean> {
 
   if (!(await waitForExit(pid, 1000))) {
     console.log(chalk.red(`  ✗ threatcrushd (pid ${pid}) is still running and could not be stopped.`));
-    console.log(chalk.dim('    It may be owned by another user — try `sudo threatcrush stop`.\n'));
+    // As root there is nobody more privileged to ask; sudo would not help.
+    console.log(chalk.dim(isRoot()
+      ? `    Inspect it with \`ps -o pid,stat,user,cmd -p ${pid}\`.\n`
+      : '    It may be owned by another user — try `sudo threatcrush stop`.\n'));
+    process.exitCode = 1;
     // Leave the pidfile: it still points at a live process.
     return false;
   }

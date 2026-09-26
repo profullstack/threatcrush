@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import TOML from '@iarna/toml';
 import { banner, logger } from '../core/logger.js';
+import { BUILTIN_MODULES } from '../core/builtin-modules.js';
 import { discoverModules } from '../core/module-loader.js';
 import { PATHS, ensureRuntimeDirs } from '../daemon/paths.js';
 import { findRunningDaemon } from '../daemon/pidfile.js';
@@ -78,23 +79,12 @@ function notifyDaemonIfRunning(): void {
 export async function modulesListCommand(): Promise<void> {
   banner();
 
-  const modules = discoverModules();
+  // Built-ins ship inside threatcrushd; a name clash means the built-in wins.
+  const installed = discoverModules().filter((m) => !BUILTIN_MODULES.some((b) => b.name === m.manifest.name));
 
-  console.log(chalk.green.bold('  Installed Modules'));
+  console.log(chalk.green.bold('  Modules'));
   console.log(chalk.gray('  ' + '─'.repeat(60)));
   console.log(chalk.dim(`  module dir: ${PATHS.moduleDir}\n`));
-
-  if (modules.length === 0) {
-    console.log(chalk.gray('  No modules installed.'));
-    console.log();
-    console.log(chalk.gray('  Browse available modules:'));
-    console.log(chalk.white('    threatcrush store'));
-    console.log();
-    console.log(chalk.gray('  Or install from the marketplace:'));
-    console.log(chalk.white('    threatcrush modules install <name>'));
-    console.log();
-    return;
-  }
 
   console.log(
     chalk.gray('  ') +
@@ -105,18 +95,37 @@ export async function modulesListCommand(): Promise<void> {
   );
   console.log(chalk.gray('  ' + '─'.repeat(60)));
 
-  for (const mod of modules) {
+  for (const mod of BUILTIN_MODULES) {
+    console.log(
+      chalk.gray('  ') +
+        chalk.white(mod.name.padEnd(22)) +
+        chalk.gray(mod.version.padEnd(12)) +
+        chalk.cyan('built-in'.padEnd(12)) +
+        chalk.gray(mod.description),
+    );
+  }
+
+  for (const mod of installed) {
     const enabled = mod.config.enabled !== false;
-    const status = enabled ? chalk.green('enabled') : chalk.gray('disabled');
+    const status = enabled ? chalk.green('enabled'.padEnd(12)) : chalk.gray('disabled'.padEnd(12));
     console.log(
       chalk.gray('  ') +
         chalk.white(mod.manifest.name.padEnd(22)) +
         chalk.gray(mod.manifest.version.padEnd(12)) +
-        status.padEnd(21) +
+        status +
         chalk.gray(mod.manifest.description || '—'),
     );
   }
   console.log();
+
+  if (installed.length === 0) {
+    console.log(chalk.gray('  No store modules installed. Browse available modules:'));
+    console.log(chalk.white('    threatcrush store'));
+    console.log();
+    console.log(chalk.gray('  Or install from the marketplace:'));
+    console.log(chalk.white('    threatcrush modules install <name>'));
+    console.log();
+  }
 }
 
 export async function modulesInstallCommand(source: string): Promise<void> {

@@ -128,7 +128,7 @@ threatcrush update       # Upgrade the CLI using the supported path
 ThreatCrush uses a pluggable module system. Install from the marketplace or build your own:
 
 ```bash
-threatcrush modules list                # List installed
+threatcrush modules list                # List built-in and installed modules
 threatcrush modules install ssh-guard   # Install a module
 threatcrush modules install docker-monitor
 threatcrush store search "firewall"     # Search marketplace
@@ -161,7 +161,8 @@ Build and sell your own modules on the ThreatCrush marketplace:
 ## Configuration
 
 ```bash
-threatcrush init    # Auto-detect & generate config
+threatcrush init                    # Auto-detect & generate config
+threatcrush init --offline          # Same, without signing in (scripts, CI, containers)
 ```
 
 Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/etc/threatcrush/threatcrushd.conf.d/`.
