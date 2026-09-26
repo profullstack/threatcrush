@@ -19,7 +19,10 @@ function requireEnv(name: string): string {
 let adminClient: SupabaseClient | undefined;
 let anonClient: SupabaseClient | undefined;
 
-/** Browser/client-side Supabase client (anon key) */
+/**
+ * Shared anon client for stateless calls only (getUser(token), resend, ...).
+ * Anything that creates a session uses createSupabaseAuthClient() instead.
+ */
 export function getSupabaseClient(): SupabaseClient {
   if (!anonClient) {
     const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
@@ -29,6 +32,21 @@ export function getSupabaseClient(): SupabaseClient {
     });
   }
   return anonClient;
+}
+
+/**
+ * A fresh anon client for a single request that signs in, signs up or
+ * refreshes a session. NEVER do those on getSupabaseClient(): the singleton
+ * keeps the resulting session in memory, and every later request in the
+ * process that falls back to "the current session" would act as that user.
+ * Discard it when the request ends.
+ */
+export function createSupabaseAuthClient(): SupabaseClient {
+  const url = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
+  const anonKey = requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  return createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
 }
 
 /** Server-side Supabase client (service role key — full access) */

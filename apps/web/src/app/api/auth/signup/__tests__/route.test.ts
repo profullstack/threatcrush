@@ -53,7 +53,7 @@ vi.mock("@/lib/supabase", () => ({
       return { select: vi.fn(), insert: vi.fn(), delete: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({}) }) };
     },
   }),
-  getSupabaseClient: () => ({
+  createSupabaseAuthClient: () => ({
     auth: {
       signUp: mockCreateUser,
       admin: {
