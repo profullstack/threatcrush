@@ -18,6 +18,13 @@ DESKTOP_RELEASES_URL="https://github.com/profullstack/threatcrush/releases/lates
 MISE_INSTALL_URL="https://mise.run"
 CONFIG_DIR="$HOME/.threatcrush"
 CONFIG_PATH="$CONFIG_DIR/install.json"
+# Oldest Node.js the CLI runs on; keep in step with `engines.node` in
+# apps/cli/package.json. Below it the install itself "succeeds" (npm only warns
+# EBADENGINE) and the daemon then crashes loading better-sqlite3, whose native
+# build needs 22+, while the TUI dependency needs 22.6+.
+MIN_NODE_MAJOR=22
+MIN_NODE_MINOR=6
+MIN_NODE_VERSION="${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}"
 
 say() {
   printf "%b\n" "$1"
@@ -65,7 +72,43 @@ detect_pm() {
 }
 
 detect_node() {
-  if command_exists node; then node --version; else echo ""; fi
+  if command_exists node; then node --version 2>/dev/null || echo ""; else echo ""; fi
+}
+
+# Does a `node --version` string (v22.6.0) meet MIN_NODE_VERSION?
+node_version_supported() {
+  VER=${1#v}
+  MAJOR=${VER%%.*}
+  MINOR=${VER#*.}
+  MINOR=${MINOR%%.*}
+  case "$MAJOR" in ''|*[!0-9]*) return 1 ;; esac
+  case "$MINOR" in ''|*[!0-9]*) return 1 ;; esac
+
+  [ "$MAJOR" -gt "$MIN_NODE_MAJOR" ] ||
+    { [ "$MAJOR" -eq "$MIN_NODE_MAJOR" ] && [ "$MINOR" -ge "$MIN_NODE_MINOR" ]; }
+}
+
+# Stop before installing anything onto a Node.js the CLI cannot run on.
+#
+# Bootstrapping a second Node.js with mise here instead would put mise's node
+# ahead of the one the user chose for every login shell, which is not the
+# installer's call to make. Upgrading, or uninstalling so the installer can
+# bootstrap, is.
+require_supported_node() {
+  FOUND_NODE="$1"
+  if node_version_supported "$FOUND_NODE"; then
+    return 0
+  fi
+
+  say "${RED}✗ ThreatCrush needs Node.js ${MIN_NODE_VERSION} or newer; found ${FOUND_NODE:-an unknown version} at $(command -v node 2>/dev/null || echo 'an unknown path').${RESET}"
+  say "  Nothing was installed: on this Node.js the daemon cannot load its database."
+  say "  Upgrade Node.js with whatever installed it, then re-run this installer:"
+  say "    ${GREEN}nvm install --lts${RESET}          ${DIM}# nvm${RESET}"
+  say "    ${GREEN}mise use -g node@lts${RESET}       ${DIM}# mise${RESET}"
+  say "    ${GREEN}https://nodejs.org/en/download${RESET}  ${DIM}# system packages${RESET}"
+  say "  Or uninstall it (e.g. ${GREEN}sudo apt remove nodejs npm${RESET}) and re-run: with no Node.js"
+  say "  present, the installer sets up Node.js LTS for this user with mise."
+  exit 1
 }
 
 detect_os() {
@@ -165,21 +208,91 @@ install_mise() {
   fi
 }
 
+# Where mise keeps a shim for every executable of every tool it manages. It is
+# the one stable directory to put on PATH: node, npm and, once `mise reshim` has
+# run, globally installed npm bins such as threatcrush, across node upgrades.
+mise_shims_dir() {
+  echo "${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims"
+}
+
 ensure_node_with_mise() {
-  if command_exists node && command_exists npm; then
+  if [ -n "$(detect_node)" ] && command_exists npm; then
     return 0
   fi
 
   install_mise
 
   say "${GREEN}→ Installing Node.js LTS with mise...${RESET}"
-  mise use -g node@lts >/dev/null 2>&1 || mise install node@lts >/dev/null 2>&1
-  ensure_mise_path
-
-  if ! command_exists node || ! command_exists npm; then
-    say "${RED}Failed to install Node.js via mise.${RESET}"
+  MISE_LOG=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/threatcrush-mise-$$.log")
+  if ! mise use -g node@lts >"$MISE_LOG" 2>&1; then
+    say "${RED}Failed to install Node.js via mise. mise said:${RESET}"
+    tail -n 40 "$MISE_LOG" >&2
+    rm -f "$MISE_LOG"
     exit 1
   fi
+  rm -f "$MISE_LOG"
+
+  # mise installs node under its own data dir and puts nothing on PATH; without
+  # this every check below still saw "no node" and the bootstrap failed even
+  # though node had installed fine.
+  PATH="$(mise_shims_dir):$PATH"
+  export PATH
+  NODE_FROM_MISE=1
+
+  if [ -z "$(detect_node)" ] || ! command_exists npm; then
+    say "${RED}Failed to install Node.js via mise: node is not runnable from $(mise_shims_dir).${RESET}"
+    exit 1
+  fi
+}
+
+# The startup file this user's next login shell reads first. bash skips
+# ~/.profile when ~/.bash_profile or ~/.bash_login exists; zsh never reads it.
+login_profile() {
+  case "${SHELL##*/}" in
+    zsh)
+      echo "${ZDOTDIR:-$HOME}/.zprofile"
+      return 0
+      ;;
+    bash|"")
+      for STARTUP_FILE in "$HOME/.bash_profile" "$HOME/.bash_login"; do
+        if [ -f "$STARTUP_FILE" ]; then
+          echo "$STARTUP_FILE"
+          return 0
+        fi
+      done
+      ;;
+  esac
+  echo "$HOME/.profile"
+}
+
+# Make the Node.js this installer bootstrapped reachable from new login shells.
+#
+# Only called when the installer itself set up mise in this run: the user had
+# no Node.js, so without this `threatcrush` exists nowhere on their PATH once
+# the installer exits. The one file ever written is ~/.profile, rustup-style:
+# one marked line, appended once. A login shell that reads something else
+# (~/.bash_profile, ~/.bash_login, ~/.zprofile) holds the user's own setup, so
+# that gets the exact line to add instead of an edit.
+persist_mise_shims_path() {
+  SHIMS_PATH_LINE="export PATH=\"$(mise_shims_dir):\$PATH\""
+  PROFILE_FILE=$(login_profile)
+  PROFILE_MARKER="# Added by the ThreatCrush installer: Node.js and threatcrush, installed with mise"
+
+  say ""
+  if [ -f "$PROFILE_FILE" ] && grep -qxF "$SHIMS_PATH_LINE" "$PROFILE_FILE"; then
+    say "  ${BOLD}Node.js ${NODE_VERSION}${RESET} was set up with mise; ${PROFILE_FILE} already puts it on PATH."
+  elif [ "$PROFILE_FILE" = "$HOME/.profile" ]; then
+    printf '\n%s\n%s\n' "$PROFILE_MARKER" "$SHIMS_PATH_LINE" >>"$PROFILE_FILE"
+    say "  ${BOLD}Node.js ${NODE_VERSION}${RESET} was set up with mise. Added to ${PROFILE_FILE} for new login shells:"
+    say "    ${DIM}${PROFILE_MARKER}${RESET}"
+    say "    ${GREEN}${SHIMS_PATH_LINE}${RESET}"
+  else
+    say "  ${BOLD}Node.js ${NODE_VERSION}${RESET} was set up with mise. Your login shell reads ${PROFILE_FILE},"
+    say "  which this installer does not edit. Add this line to it:"
+    say "    ${GREEN}${SHIMS_PATH_LINE}${RESET}"
+  fi
+  say "  ${DIM}To use threatcrush in this shell right now, run the same line:${RESET}"
+  say "    ${GREEN}${SHIMS_PATH_LINE}${RESET}"
 }
 
 ensure_global_prefix() {
@@ -278,7 +391,7 @@ npm_global_install() {
 # native-build failure surfaced as "sudo: npm: command not found" -- an error
 # about the wrong thing entirely, with the real cause nowhere on screen.
 npm_try_install() {
-  # shellcheck disable=SC2086 -- $1 may carry flags and must word-split.
+  # shellcheck disable=SC2086 # $1 may carry flags and must word-split.
   SPEC_AND_FLAGS="$1"
   LOG="$2"
 
@@ -531,6 +644,12 @@ say "  ${DIM}Platform kind:${RESET} ${PLATFORM_KIND}"
 say "  ${DIM}Installer strategy:${RESET} curl | sh → detect server/desktop → bootstrap if needed"
 say ""
 
+# An old Node.js is refused up front, before mise is bootstrapped next to it.
+if [ -n "$NODE_VERSION" ]; then
+  require_supported_node "$NODE_VERSION"
+fi
+
+NODE_FROM_MISE=0
 if [ -z "$NODE_VERSION" ] || [ -z "$PM" ]; then
   ensure_node_with_mise
   NODE_VERSION=$(detect_node)
@@ -538,9 +657,16 @@ if [ -z "$NODE_VERSION" ] || [ -z "$PM" ]; then
   say "  ${DIM}Bootstrapped Node.js:${RESET} ${NODE_VERSION:-unknown}"
   say "  ${DIM}Active package manager:${RESET} ${PM:-unknown}"
   say ""
+  require_supported_node "$NODE_VERSION"
 fi
 
 install_global_package "$PKG_NAME"
+
+if [ "$NODE_FROM_MISE" = 1 ]; then
+  # npm linked threatcrush into mise's node install dir, which is not on PATH.
+  # A reshim gives it a shim beside node's, so it resolves wherever they do.
+  mise reshim
+fi
 
 if [ "$INSTALL_MODE" = "desktop" ]; then
   say ""
@@ -552,10 +678,17 @@ write_install_config "$INSTALL_MODE" "$(detect_pm)" "$PLATFORM_KIND"
 
 say ""
 if command_exists threatcrush; then
-  VERSION=$(threatcrush --version 2>/dev/null || echo "unknown")
+  if ! VERSION=$(threatcrush --version 2>/dev/null); then
+    say "${RED}✗ ThreatCrush was installed but does not run. 'threatcrush --version' says:${RESET}"
+    threatcrush --version 2>&1 | tail -n 20 >&2
+    exit 1
+  fi
   EXPECTED_VERSION=$(installed_version "$PKG_NAME" 2>/dev/null || echo "")
   say "${GREEN}✓ ThreatCrush ${VERSION} installed successfully!${RESET}"
   warn_if_shadowed "$EXPECTED_VERSION" "$VERSION"
+  if [ "$NODE_FROM_MISE" = 1 ]; then
+    persist_mise_shims_path
+  fi
   refresh_daemon
   say ""
   say "  ${BOLD}Detected install mode:${RESET} ${INSTALL_MODE}"

@@ -8,6 +8,13 @@ import { useAuth } from "@/lib/auth-context";
 import { decryptClientSecret, encryptClientSecret, isE2ESecret } from "@/lib/client-secret-crypto";
 import { renderSanitizedMarkdown } from "@/lib/simple-markdown";
 import type { PluginConfigField } from "@profullstack/pluginstore";
+import {
+  brokenSourceMessage,
+  isPubliclyListed,
+  isSourceBroken,
+  type ReviewStatus,
+  type SourceStatus,
+} from "@/lib/module-marketplace";
 
 interface Module {
   id: string;
@@ -40,6 +47,13 @@ interface Module {
   config_notes: string | null;
   created_at: string;
   updated_at: string;
+  published?: boolean;
+  review_status?: ReviewStatus;
+  /** Only returned to the module's author. */
+  review_note?: string | null;
+  source_status?: SourceStatus | null;
+  source_checked_at?: string | null;
+  source_check_detail?: string | null;
 }
 
 interface Version {
@@ -98,6 +112,7 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
   const [installing, setInstalling] = useState(false);
   const [copied, setCopied] = useState(false);
   const [installed, setInstalled] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [settings, setSettings] = useState<{
     plain: Record<string, string | number | boolean | null>;
     secrets: Record<string, { isSet: boolean; length?: number; e2eEncrypted?: boolean }>;
@@ -120,7 +135,8 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`/api/modules/${slug}`);
+        // Signed-in authors can load their own module while it's in review.
+        const res = await fetch(`/api/modules/${slug}`, { headers: authHeaders(), cache: "no-store" });
         if (!res.ok) throw new Error("Not found");
         const data = await res.json();
         setMod(data.module);
@@ -133,7 +149,7 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
       }
     }
     load();
-  }, [slug]);
+  }, [slug, signedIn]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -164,14 +180,22 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
   const handleInstall = async () => {
     if (!mod) return;
     setInstalling(true);
+    setInstallError(null);
     try {
-      await fetch(`/api/modules/${mod.slug}/install`, {
+      const res = await fetch(`/api/modules/${mod.slug}/install`, {
         method: "POST",
         headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ platform: "web" }),
       });
-      setInstalled(signedIn);
-    } catch { /* ignore */ }
+      if (res.ok) {
+        setInstalled(signedIn);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setInstallError(data.error || "Install failed");
+      }
+    } catch {
+      setInstallError("Network error");
+    }
     setInstalling(false);
   };
 
@@ -362,6 +386,34 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
             </div>
           </ScrollReveal>
 
+          {!isPubliclyListed(mod) && (
+            <div
+              className={`rounded-xl border px-5 py-4 mb-6 text-sm ${
+                mod.review_status === "rejected"
+                  ? "border-red-500/40 bg-red-500/10 text-red-300"
+                  : "border-yellow-500/40 bg-yellow-500/10 text-yellow-200"
+              }`}
+            >
+              <p className="font-bold mb-1">
+                {mod.review_status === "rejected"
+                  ? "Rejected — not listed in the store"
+                  : mod.review_status === "pending"
+                    ? "Pending review — not listed in the store yet"
+                    : "Unpublished — not listed in the store"}
+              </p>
+              <p className="text-xs opacity-90">
+                Only you can see this page.
+                {mod.review_status === "rejected" && (
+                  <>
+                    {" "}Fix what the note describes, then update the listing with{" "}
+                    <code>PATCH /api/modules/{mod.slug}</code> to resubmit it for review.
+                  </>
+                )}
+              </p>
+              {mod.review_note && <p className="text-xs mt-2">Reviewer note: {mod.review_note}</p>}
+            </div>
+          )}
+
           {/* Module Header */}
           <ScrollReveal delay={50}>
             <div className="rounded-xl border border-tc-border bg-tc-card p-6 sm:p-8 mb-8">
@@ -416,12 +468,16 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
 
                   <button
                     onClick={handleInstall}
-                    disabled={installing}
+                    disabled={installing || !isPubliclyListed(mod) || isSourceBroken(mod.source_status)}
                     className="rounded-lg bg-tc-green px-6 py-3 text-sm font-bold text-black transition-all hover:bg-tc-green-dim disabled:opacity-50"
                   >
                     {installing ? "Installing..." : installed ? "Installed" : "Install"}
                   </button>
                 </div>
+
+                {(installError || isSourceBroken(mod.source_status)) && (
+                  <p className="mt-3 text-xs text-red-400">{installError ?? brokenSourceMessage(mod)}</p>
+                )}
 
                 {/* Links */}
                 <div className="flex gap-3 mt-4">
@@ -650,47 +706,49 @@ export default function ModuleDetailPage({ params }: { params: Promise<{ slug: s
                     </div>
                   )}
 
-                  {/* Review Form */}
-                  <form onSubmit={handleReviewSubmit} className="border-t border-tc-border pt-4 space-y-3">
-                    <h3 className="text-sm font-bold text-white">Leave a Review</h3>
-                    <input
-                      type="email"
-                      placeholder="Log in to leave a review"
-                      value={profile?.email ?? ""}
-                      readOnly
-                      disabled={!signedIn}
-                      className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text placeholder-tc-text-dim focus:border-tc-green/50 focus:outline-none"
-                    />
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-tc-text-dim">Rating:</span>
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <button
-                          key={star}
-                          type="button"
-                          onClick={() => setReviewRating(star)}
-                          className={`text-lg ${
-                            star <= reviewRating ? "text-yellow-400" : "text-tc-border"
-                          }`}
-                        >
-                          ★
-                        </button>
-                      ))}
-                    </div>
-                    <textarea
-                      placeholder="Your review (optional)"
-                      value={reviewBody}
-                      onChange={(e) => setReviewBody(e.target.value)}
-                      rows={3}
-                      className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text placeholder-tc-text-dim focus:border-tc-green/50 focus:outline-none resize-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={submittingReview || !profile?.email}
-                      className="rounded-lg bg-tc-green px-4 py-2 text-xs font-bold text-black hover:bg-tc-green-dim disabled:opacity-50 transition-all"
-                    >
-                      {submittingReview ? "Submitting..." : "Submit Review"}
-                    </button>
-                  </form>
+                  {/* Review Form: reviews can only be left on listed modules */}
+                  {isPubliclyListed(mod) && (
+                    <form onSubmit={handleReviewSubmit} className="border-t border-tc-border pt-4 space-y-3">
+                      <h3 className="text-sm font-bold text-white">Leave a Review</h3>
+                      <input
+                        type="email"
+                        placeholder="Log in to leave a review"
+                        value={profile?.email ?? ""}
+                        readOnly
+                        disabled={!signedIn}
+                        className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text placeholder-tc-text-dim focus:border-tc-green/50 focus:outline-none"
+                      />
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-tc-text-dim">Rating:</span>
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => setReviewRating(star)}
+                            className={`text-lg ${
+                              star <= reviewRating ? "text-yellow-400" : "text-tc-border"
+                            }`}
+                          >
+                            ★
+                          </button>
+                        ))}
+                      </div>
+                      <textarea
+                        placeholder="Your review (optional)"
+                        value={reviewBody}
+                        onChange={(e) => setReviewBody(e.target.value)}
+                        rows={3}
+                        className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text placeholder-tc-text-dim focus:border-tc-green/50 focus:outline-none resize-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={submittingReview || !profile?.email}
+                        className="rounded-lg bg-tc-green px-4 py-2 text-xs font-bold text-black hover:bg-tc-green-dim disabled:opacity-50 transition-all"
+                      >
+                        {submittingReview ? "Submitting..." : "Submit Review"}
+                      </button>
+                    </form>
+                  )}
                 </div>
               </ScrollReveal>
             </div>

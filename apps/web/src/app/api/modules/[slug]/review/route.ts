@@ -114,6 +114,7 @@ export async function POST(
     .select("id, rating_avg, rating_count")
     .eq("slug", slug)
     .eq("published", true)
+    .eq("review_status", "approved")
     .single();
 
   if (!mod) {

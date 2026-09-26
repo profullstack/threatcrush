@@ -79,11 +79,16 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
 
   const addDestination = async () => {
     if (!org || !newDestName || !newDestType) return;
-    await fetch(`/api/orgs/${org.id}/alert-destinations`, {
+    const res = await fetch(`/api/orgs/${org.id}/alert-destinations`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({ name: newDestName, type: newDestType, config: newDestConfig }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(`Could not add destination: ${data.error || "Unknown error"}`);
+      return;
+    }
     setShowAddDest(false);
     setNewDestName("");
     setNewDestConfig({});

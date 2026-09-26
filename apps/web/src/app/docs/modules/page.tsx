@@ -16,8 +16,7 @@ const recommendedMetadata = [
   "screenshot_url",
   "tags",
   "homepage_url",
-  "pricing_type",
-  "price_usd (if paid)",
+  "pricing_type (only \"free\" is accepted; paid modules aren't supported yet)",
 ];
 
 const supportedContributorPaths = [
@@ -29,7 +28,7 @@ const supportedContributorPaths = [
   },
   {
     title: "CLI publish flow",
-    description: "Run `threatcrush store publish <url>` to fetch metadata, preview it in the terminal, and publish the module.",
+    description: "Run `threatcrush store publish <url>` to fetch metadata, preview it in the terminal, and submit the module for review.",
     href: "/docs",
     cta: "Back to CLI docs",
   },
@@ -48,7 +47,7 @@ const apiEndpoints: Array<{
   purpose: string;
 }> = [
   { method: "GET",    path: "/api/modules",                       auth: "none",   purpose: "List / search / paginate published modules" },
-  { method: "POST",   path: "/api/modules",                       auth: "bearer", purpose: "Publish a new module" },
+  { method: "POST",   path: "/api/modules",                       auth: "bearer", purpose: "Submit a new module for review" },
   { method: "GET",    path: "/api/modules/{slug}",                auth: "none",   purpose: "Module detail + versions + recent reviews" },
   { method: "PATCH",  path: "/api/modules/{slug}",                auth: "email",  purpose: "Edit your module" },
   { method: "DELETE", path: "/api/modules/{slug}",                auth: "email",  purpose: "Remove your module" },
@@ -111,7 +110,7 @@ export default function DocsModulesPage() {
           <div className="mt-4 space-y-4 text-sm text-tc-text-dim">
             <p>
               Today, the module contribution flow is primarily a <span className="text-white">marketplace publishing flow</span>.
-              You provide a Git URL or website URL, ThreatCrush fetches metadata, you review it, and then publish the listing.
+              You provide a Git URL or website URL, ThreatCrush fetches metadata, you review it, and submit the listing. An admin reviews every submission before it appears in the store.
             </p>
             <p>
               The listing/store side is real now. The deeper runtime/module execution contract is still evolving, so this page separates <span className="text-tc-green">supported marketplace behavior</span> from <span className="text-yellow-400">planned runtime behavior</span>.
@@ -231,7 +230,7 @@ export default function DocsModulesPage() {
             <li>Write a concrete description: what it detects, scans, automates, or integrates with.</li>
             <li>Include real screenshots or branding assets when possible.</li>
             <li>Link to a real repo or homepage that explains the module and shows signs of maintenance.</li>
-            <li>Use accurate pricing metadata. If it is paid, be explicit about what the buyer gets.</li>
+            <li>List the module as free. Paid modules aren&apos;t supported yet, so paid and freemium submissions are rejected.</li>
             <li>Do not market vaporware as a finished installable runtime module if it is still just a concept.</li>
           </ul>
         </section>
