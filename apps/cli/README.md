@@ -166,6 +166,34 @@ threatcrush init    # Auto-detect & generate config
 
 Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/etc/threatcrush/threatcrushd.conf.d/`.
 
+## Cloud dashboard
+
+The daemon reports to your ThreatCrush dashboard once the machine is logged in and linked to a server there:
+
+```bash
+threatcrush login
+threatcrush servers link               # reuses the dashboard server with this hostname, or registers one
+threatcrush servers link --org acme --name web-1
+threatcrush status                     # shows the link
+threatcrush servers unlink             # stop reporting
+```
+
+A running daemon picks up `link` and `unlink` within a minute; no restart. It then:
+
+- uploads detections at or above `[cloud] min_severity` (rule detections, plus events from modules no rule reads, such as dns-monitor), batched (100 events or every 10 s), and every ban and unban the daemon makes;
+- sends a heartbeat every 60 s with its version and hostname;
+- runs the `threatcrush harden` checks a minute after it starts and every 24 h, and uploads the findings (`threatcrush harden` uploads too; `--no-upload` skips it);
+- every 15 s, picks up blocks and unblocks queued on the dashboard and applies them through auto-defence, so protected and allowlisted addresses and dry-run apply as they do locally;
+- every 5 min, adds the organization's IP/CIDR allowlist to the never-block set.
+
+Uploads never hold up detection or a ban. While the dashboard is unreachable, events wait in a spool (`/var/lib/threatcrush/cloud-spool.jsonl`, or `~/.threatcrush/state/` for a user daemon) of at most 10,000 events / 20 MB, oldest dropped first, which survives a restart and is sent when the dashboard answers again. The daemon uses the login of the user it runs as (`/root/.threatcrush/config.json` for the system service) and refreshes the session itself; if the refresh token is refused, it logs that `threatcrush login` is needed and keeps spooling.
+
+```toml
+[cloud]
+enabled = true            # false: the daemon neither reports to nor takes actions from the dashboard
+min_severity = "medium"   # info | low | medium | high | critical
+```
+
 ## Pricing
 
 The CLI is MIT-licensed (see [License](#license)). For pricing, [contact us for a quote](https://threatcrush.com/hire).

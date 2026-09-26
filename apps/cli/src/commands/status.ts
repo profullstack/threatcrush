@@ -5,6 +5,7 @@ import { initStateDB, getEventCount, getThreatCount, getRecentEvents } from '../
 import { IpcClient } from '../core/ipc-client.js';
 import { findRunningDaemon } from '../daemon/pidfile.js';
 import { PATHS } from '../daemon/paths.js';
+import { hasSession, readCliConfig } from '../core/cli-config.js';
 
 export async function statusCommand(): Promise<void> {
   banner();
@@ -73,6 +74,20 @@ export async function statusCommand(): Promise<void> {
         console.log(`  ${status}  ${chalk.white.bold(mod.manifest.name.padEnd(18))} ${chalk.gray('v' + mod.manifest.version)}`);
       }
     }
+  }
+  console.log();
+
+  // Dashboard link (the daemon reads the same config file).
+  const cli = readCliConfig();
+  console.log(chalk.green.bold('  Dashboard'));
+  console.log(chalk.gray('  ' + '─'.repeat(60)));
+  if (!hasSession()) {
+    console.log(`  Link:       ${chalk.gray('○ not logged in')}  ${chalk.dim('threatcrush login')}`);
+  } else if (cli.server_id) {
+    console.log(`  Link:       ${chalk.green('● linked')} ${chalk.white(cli.server_id)}`);
+    console.log(`  Org:        ${chalk.white(cli.server_org_id ?? '-')}`);
+  } else {
+    console.log(`  Link:       ${chalk.gray('○ not linked')}  ${chalk.dim('threatcrush servers link')}`);
   }
   console.log();
 
