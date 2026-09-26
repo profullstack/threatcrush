@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sendTestAlert } from "@/lib/alerts/senders";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { safeFetch } from "@/lib/ssrf-guard";
 import { DESTINATION_URL_FIELDS, destinationConfigError } from "@/lib/alert-destinations";
@@ -135,7 +136,10 @@ export async function POST(
     };
     const field = DESTINATION_URL_FIELDS[dest.type];
     if (!field) {
-      return NextResponse.json({ message: `Test for ${dest.type} acknowledged (delivery not yet implemented server-side)` });
+      // Email, push and PagerDuty go through the same senders as real alerts.
+      const outcome = await sendTestAlert(dest);
+      if (!outcome.ok) return NextResponse.json({ error: `Test failed: ${outcome.error}` }, { status: 502 });
+      return NextResponse.json({ success: true, message: "Test alert sent" });
     }
 
     // Rows saved before create-time validation existed may hold anything, so

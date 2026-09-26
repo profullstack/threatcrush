@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import type * as NextServer from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordQuery, type QueryCall } from "@/__tests__/helpers/query-recorder";
 
@@ -45,6 +46,19 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }));
 
+// after() needs a live request scope; run the callback inline so the test can
+// see what the route hands to alert delivery.
+const { dispatchDetectionAlerts } = vi.hoisted(() => ({
+  dispatchDetectionAlerts: vi.fn(async (_detections: unknown[]) => {}),
+}));
+vi.mock("@/lib/alerts/dispatch", () => ({ dispatchDetectionAlerts }));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof NextServer>()),
+  after: (task: () => unknown) => {
+    void task();
+  },
+}));
+
 import { POST } from "@/app/api/ingest/route";
 
 function post(body: unknown, { token = "good-token" as string | null, raw = false } = {}) {
@@ -89,6 +103,7 @@ describe("POST /api/ingest", () => {
     state.serverCalls = [];
     state.rpc = vi.fn();
     state.rpcResult = {};
+    dispatchDetectionAlerts.mockClear();
   });
 
   it("rejects a missing or invalid bearer token", async () => {
@@ -186,6 +201,19 @@ describe("POST /api/ingest", () => {
       accepted: { detections: 1, deduplicated: 2, heartbeats: 0, findings: 0, remediations: 0 },
       rejected: [],
     });
+    // Only the newly inserted row alerts; merged repeats must not page anyone again.
+    expect(dispatchDetectionAlerts).toHaveBeenCalledTimes(1);
+    expect(dispatchDetectionAlerts).toHaveBeenCalledWith([expect.objectContaining({ id: "d-1" })]);
+  });
+
+  it("does not alert when every detection in the batch was a repeat", async () => {
+    state.rpcResult.ingest_detections = {
+      data: [{ id: "d-2", inserted: false, occurrences: 8 }],
+      error: null,
+    };
+    const res = await post({ events: [detection()] });
+    expect(res.status).toBe(200);
+    expect(dispatchDetectionAlerts).not.toHaveBeenCalled();
   });
 
   it("still accepts v1 heartbeat and detection bodies", async () => {

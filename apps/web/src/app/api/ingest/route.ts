@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
+import { dispatchDetectionAlerts } from "@/lib/alerts/dispatch";
 import { getAuthenticatedRequestUser, unauthorized } from "@/lib/api-auth";
 import {
   INGEST_MAX_BODY_BYTES,
@@ -10,6 +11,7 @@ import {
   type HeartbeatEvent,
   type IngestEvent,
   type RemediationEvent,
+  type Severity,
 } from "@/lib/ingest-events";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -20,7 +22,7 @@ type IngestedDetection = {
   id: string;
   organization_id: string;
   server_id: string;
-  severity: string;
+  severity: Severity;
   title: string;
   description: string | null;
   source_ip: string | null;
@@ -154,6 +156,12 @@ export async function POST(req: NextRequest) {
       const { data, error } = await admin.rpc("ingest_detections", { p_rows: rows });
       if (error) throw new Error(`detections: ${error.message}`);
       newDetections = ((data ?? []) as IngestedDetection[]).filter((d) => d.inserted);
+    }
+    // Alert on rows the RPC inserted, never on deduplicated repeats. after()
+    // runs once the response is sent, so delivery never slows the daemon down.
+    if (newDetections.length > 0) {
+      const alertable = newDetections;
+      after(() => dispatchDetectionAlerts(alertable));
     }
 
     let findingCount = 0;

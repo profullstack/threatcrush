@@ -93,3 +93,58 @@ export async function clearThreatCrushServiceWorkerCaches(
       .map((key) => cacheStorage.delete(key)),
   );
 }
+
+/** Browser Web Push needs a secure context, a service worker, PushManager and Notification. */
+export function isBrowserPushSupported() {
+  return (
+    getServiceWorkerBridge() !== null && "PushManager" in window && "Notification" in window
+  );
+}
+
+/** VAPID public keys are distributed as unpadded base64url; PushManager wants the raw bytes. */
+export function vapidKeyToBytes(base64Url: string): Uint8Array<ArrayBuffer> {
+  const base64 = (base64Url + "=".repeat((4 - (base64Url.length % 4)) % 4))
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function pushRegistration(): Promise<ServiceWorkerRegistration | null> {
+  if (!isBrowserPushSupported()) return null;
+  await registerThreatCrushServiceWorker();
+  return navigator.serviceWorker.ready;
+}
+
+export async function getBrowserPushSubscription(): Promise<PushSubscription | null> {
+  const registration = await pushRegistration();
+  return registration ? registration.pushManager.getSubscription() : null;
+}
+
+/**
+ * Subscribe this browser (prompting for notification permission if needed).
+ * Reuses an existing subscription made with the same key.
+ */
+export async function subscribeBrowserPush(applicationServerKey: string): Promise<PushSubscription> {
+  const registration = await pushRegistration();
+  if (!registration) throw new Error("This browser does not support push notifications");
+  return registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: vapidKeyToBytes(applicationServerKey),
+  });
+}
+
+/**
+ * Drop this browser's push subscription. Returns the endpoint that was removed
+ * so the caller can tell the server, or null if there was none. Works without
+ * a session: the push service then answers 410 and the server deletes its row
+ * on the next alert.
+ */
+export async function unsubscribeBrowserPush(): Promise<string | null> {
+  const subscription = await getBrowserPushSubscription();
+  if (!subscription) return null;
+  await subscription.unsubscribe();
+  return subscription.endpoint;
+}
