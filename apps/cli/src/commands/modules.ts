@@ -233,7 +233,10 @@ export async function modulesInstallCommand(source: string): Promise<void> {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
-      spinner.fail(`Module not found: ${(err as Record<string, string>).error || source}`);
+      const message = (err as Record<string, string>).error || source;
+      // 404: no such (approved) listing. Anything else, e.g. 409 when the
+      // listing's source failed its last health check, is a refusal with a reason.
+      spinner.fail(res.status === 404 ? `Module not found: ${message}` : `Cannot install ${source}: ${message}`);
       console.log(chalk.gray(`  Browse: ${API_URL}/store\n`));
       return;
     }

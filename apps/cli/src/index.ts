@@ -890,7 +890,7 @@ storeCmd
 
       const mod = result.module as Record<string, string>;
       const slug = mod?.slug || meta.name;
-      console.log(chalk.green(`\n  ✓ Module published!`));
+      console.log(chalk.green(`\n  ✓ Module submitted for review. It appears in the store once approved.`));
       console.log(chalk.dim(`  ${API_URL}/store/${slug}\n`));
     } catch (err) {
       console.log(chalk.red(`\n  ✗ Publish failed: ${err instanceof Error ? err.message : err}\n`));

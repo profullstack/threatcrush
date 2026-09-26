@@ -5,6 +5,7 @@ import Link from "next/link";
 import ScrollReveal from "@/components/ScrollReveal";
 import { authHeaders } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
+import { isPubliclyListed, type ReviewStatus } from "@/lib/module-marketplace";
 
 interface ModuleMeta {
   name: string;
@@ -20,6 +21,14 @@ interface ModuleMeta {
   homepage_url: string;
   git_url: string;
   author_name: string;
+}
+
+interface Submission {
+  slug: string;
+  display_name: string;
+  published: boolean;
+  review_status: ReviewStatus;
+  review_note: string | null;
 }
 
 const CATEGORIES = ["security", "monitoring", "scanning", "network", "compliance", "other"];
@@ -54,6 +63,15 @@ export default function PublishClient() {
   const [pricingType, setPricingType] = useState("free");
   const [priceUsd, setPriceUsd] = useState("");
   const [metaFetched, setMetaFetched] = useState(false);
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+
+  useEffect(() => {
+    if (!signedIn) return;
+    fetch("/api/modules?mine=1&limit=50", { headers: authHeaders(), cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : { modules: [] }))
+      .then((data: { modules?: Submission[] }) => setSubmissions(data.modules ?? []))
+      .catch(() => { /* the form still works without the list */ });
+  }, [signedIn]);
 
   const handleFetchMeta = async () => {
     if (!gitUrl && !webUrl) {
@@ -161,13 +179,15 @@ export default function PublishClient() {
         <main className="pt-24 pb-16 min-h-screen flex items-center justify-center">
           <div className="text-center">
             <p className="text-5xl mb-4">🎉</p>
-            <h1 className="text-2xl font-bold text-white mb-2">Module Published!</h1>
-            <p className="text-tc-text-dim mb-6">Your module is now live in the store.</p>
+            <h1 className="text-2xl font-bold text-white mb-2">Submitted for review</h1>
+            <p className="text-tc-text-dim mb-6">
+              Your module will appear in the store once an admin approves it. Its page shows the review status.
+            </p>
             <Link
               href={`/store/${slug}`}
               className="rounded-lg bg-tc-green px-6 py-3 font-bold text-black hover:bg-tc-green-dim transition-all"
             >
-              View Module →
+              View submission →
             </Link>
           </div>
         </main>
@@ -195,7 +215,8 @@ export default function PublishClient() {
                 Publish a <span className="text-tc-green glow-green">Module</span>
               </h1>
               <p className="text-tc-text-dim text-sm">
-                Paste a GitHub repo URL or website URL to auto-fetch metadata, then review and publish.
+                Paste a GitHub repo URL or website URL to auto-fetch metadata, then submit. New modules are
+                reviewed before they appear in the store.
               </p>
               <p className="text-xs text-tc-text-dim mt-3">
                 Need a starter? Clone the boilerplate from{" "}
@@ -211,6 +232,41 @@ export default function PublishClient() {
               </p>
             </div>
           </ScrollReveal>
+
+          {submissions.length > 0 && (
+            <div className="rounded-xl border border-tc-border bg-tc-card p-6 mb-6">
+              <h2 className="text-sm font-bold text-white mb-3">Your submissions</h2>
+              <ul className="space-y-2 text-sm">
+                {submissions.map((sub) => (
+                  <li key={sub.slug} className="flex flex-wrap items-baseline gap-2">
+                    <Link href={`/store/${sub.slug}`} className="text-tc-text hover:text-tc-green">
+                      {sub.display_name}
+                    </Link>
+                    <span
+                      className={`text-xs ${
+                        isPubliclyListed(sub)
+                          ? "text-tc-green"
+                          : sub.review_status === "rejected"
+                            ? "text-red-400"
+                            : "text-yellow-300"
+                      }`}
+                    >
+                      {isPubliclyListed(sub)
+                        ? "live"
+                        : sub.review_status === "approved"
+                          ? "unpublished"
+                          : sub.review_status === "pending"
+                            ? "pending review"
+                            : "rejected"}
+                    </span>
+                    {sub.review_status === "rejected" && sub.review_note && (
+                      <span className="text-xs text-tc-text-dim">— {sub.review_note}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <ScrollReveal delay={50}>
             <div className="rounded-xl border border-tc-border bg-tc-card p-6 mb-6">
@@ -348,8 +404,9 @@ export default function PublishClient() {
                       className="w-full rounded-lg border border-tc-border bg-tc-darker px-3 py-2 text-sm text-tc-text focus:border-tc-green/50 focus:outline-none"
                     >
                       <option value="free">Free</option>
-                      <option value="freemium">Freemium</option>
-                      <option value="paid">Paid</option>
+                      {/* No purchase/payout flow exists yet; the API rejects these. */}
+                      <option value="freemium" disabled>Freemium (not supported yet)</option>
+                      <option value="paid" disabled>Paid (not supported yet)</option>
                     </select>
                   </div>
                 </div>
@@ -458,7 +515,7 @@ export default function PublishClient() {
               disabled={publishing || !name || !authorEmail}
               className="w-full rounded-xl bg-tc-green py-4 text-lg font-bold text-black transition-all hover:bg-tc-green-dim disabled:opacity-50 pulse-glow"
             >
-              {publishing ? "Publishing..." : "🚀 Publish Module"}
+              {publishing ? "Submitting..." : "🚀 Submit for Review"}
             </button>
           </ScrollReveal>
         </div>

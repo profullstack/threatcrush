@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin, slugify } from "@/lib/supabase";
+import { paidModuleError, toPublicModule } from "@/lib/module-marketplace";
 
 function parsePositiveInteger(value: string | null, fallback: number, max?: number) {
   if (value === null) return fallback;
@@ -29,9 +30,14 @@ async function getAuthenticatedUser(request: NextRequest) {
 /**
  * GET /api/modules
  * List modules with search, category filter, sorting, and pagination.
+ *
+ * Public callers only see approved + published listings. `?mine=1` (signed in)
+ * lists the caller's own submissions in every review state instead, so authors
+ * can follow a pending or rejected module.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
+  const mine = searchParams.get("mine") === "1";
   const search = searchParams.get("search") || "";
   const category = searchParams.get("category") || "";
   const sort = searchParams.get("sort") || "newest"; // newest | popular | top-rated
@@ -39,12 +45,21 @@ export async function GET(request: NextRequest) {
   const limit = parsePositiveInteger(searchParams.get("limit"), 20, 50);
   const offset = (page - 1) * limit;
 
+  let authorEmail: string | null = null;
+  if (mine) {
+    const user = await getAuthenticatedUser(request);
+    if (!user?.email) {
+      return NextResponse.json({ error: "You must be logged in to list your modules." }, { status: 401 });
+    }
+    authorEmail = user.email;
+  }
+
   const sb = getSupabaseAdmin();
 
-  let query = sb
-    .from("modules")
-    .select("*", { count: "exact" })
-    .eq("published", true);
+  let query = sb.from("modules").select("*", { count: "exact" });
+  query = authorEmail
+    ? query.eq("author_email", authorEmail)
+    : query.eq("published", true).eq("review_status", "approved");
 
   if (search) {
     query = query.or(
@@ -78,7 +93,7 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    modules: data || [],
+    modules: authorEmail ? data || [] : (data || []).map(toPublicModule),
     total: count || 0,
     page,
     limit,
@@ -88,8 +103,9 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/modules
- * Publish a new module. Requires a registered account.
- * Accepts name + git_url/homepage_url + optional overrides.
+ * Submit a new module for review. Requires a registered, email-verified account.
+ * Accepts name + git_url/homepage_url + optional overrides. The listing stays
+ * private (pending) until an admin approves it.
  */
 export async function POST(request: NextRequest) {
   const user = await getAuthenticatedUser(request);
@@ -112,6 +128,10 @@ export async function POST(request: NextRequest) {
   }
   if (!author_email) {
     return NextResponse.json({ error: "author_email is required" }, { status: 400 });
+  }
+  const pricingError = paidModuleError(body);
+  if (pricingError) {
+    return NextResponse.json({ error: pricingError }, { status: 400 });
   }
 
   const sb = getSupabaseAdmin();
@@ -173,8 +193,8 @@ export async function POST(request: NextRequest) {
     banner_url: (body.banner_url as string) || null,
     screenshot_url: (body.screenshot_url as string) || null,
     license: (body.license as string) || "MIT",
-    pricing_type: (body.pricing_type as string) || "free",
-    price_usd: body.price_usd ? Number(body.price_usd) : null,
+    pricing_type: "free",
+    price_usd: null,
     category: (body.category as string) || "security",
     tags: (body.tags as string[]) || [],
     keywords: (body.keywords as string) || null,
@@ -182,6 +202,8 @@ export async function POST(request: NextRequest) {
     min_threatcrush_version: (body.min_threatcrush_version as string) || ">=0.1.0",
     os_support: (body.os_support as string[]) || ["linux"],
     capabilities: (body.capabilities as string[]) || [],
+    published: false,
+    review_status: "pending",
   };
 
   const { data, error } = await sb
@@ -204,5 +226,11 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json({ module: data }, { status: 201 });
+  return NextResponse.json(
+    {
+      module: data,
+      message: "Submitted for review. The module will appear in the store once an admin approves it.",
+    },
+    { status: 201 },
+  );
 }
