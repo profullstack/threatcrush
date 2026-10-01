@@ -24,7 +24,9 @@ function builder(table: string) {
     const matched = rows().filter((r) => filters.every((f) => f(r)));
     if (op === "update") for (const r of matched) Object.assign(r, payload);
     return matched.map((r) =>
-      table === "team_invites" ? { ...r, organizations: { name: "Profullstack" }, teams: { name: "Ops" } } : r);
+      table === "team_invites"
+        ? { ...r, organizations: { name: "Profullstack" }, teams: r.team_id ? { name: "Ops" } : null }
+        : r);
   };
   const b = {
     select() { return b; },
@@ -71,6 +73,31 @@ describe("invites", () => {
     expect(await res.json()).toEqual({
       invite: expect.objectContaining({ org_name: "Profullstack", team_name: "Ops", role: "write", status: "pending" }),
     });
+  });
+
+  it("shows an org invite's real role (org_role), not the table's default 'read'", async () => {
+    // Org invite: team_id null, org_role set, role left at its 'read' default.
+    db.team_invites = [{
+      id: "inv-org", org_id: "o1", team_id: null, org_role: "admin", role: "read",
+      email: "exec@example.com", token_hash: sha(TOKEN),
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(), accepted_at: null, revoked_at: null,
+    }];
+    const res = await GET(req(), ctx);
+    const { invite } = await res.json();
+    expect(invite).toMatchObject({ team_name: null, role: "admin", status: "pending" });
+  });
+
+  it("accepting an org invite joins the org at that role, no team", async () => {
+    signedInAs = "u-exec";
+    db.team_invites = [{
+      id: "inv-org", org_id: "o1", team_id: null, org_role: "admin", role: "read",
+      email: "exec@example.com", token_hash: sha(TOKEN),
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(), accepted_at: null, revoked_at: null,
+    }];
+    const res = await POST(req("POST"), ctx);
+    expect(await res.json()).toMatchObject({ accepted: true, org_slug: "profullstack", role: "admin" });
+    expect(db.organization_members).toEqual([{ org_id: "o1", user_id: "u-exec", role: "admin" }]);
+    expect(db.team_members ?? []).toEqual([]);
   });
 
   it("requires sign-in to accept", async () => {

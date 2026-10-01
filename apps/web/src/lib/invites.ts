@@ -67,7 +67,8 @@ async function create(
     invite: {
       id: invite.id,
       email: invite.email,
-      role: (invite.role ?? invite.org_role) as string,
+      // role defaults to 'read' in the table; an org invite's real role is org_role.
+      role: (row.team_id ? invite.role : invite.org_role) as string,
       created_at: invite.created_at,
       expires_at: invite.expires_at,
     },

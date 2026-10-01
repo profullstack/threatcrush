@@ -36,7 +36,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
         org_name: one(invite.organizations as { name: string } | { name: string }[] | null)?.name ?? null,
         team_name: one(invite.teams as { name: string } | { name: string }[] | null)?.name ?? null,
         email: invite.email,
-        role: invite.role ?? invite.org_role,
+        // role defaults to 'read' in the table, so for an org invite (team_id
+        // null) the real role is org_role, not the unused role column.
+        role: invite.team_id ? invite.role : invite.org_role,
         expires_at: invite.expires_at,
         status,
       },
