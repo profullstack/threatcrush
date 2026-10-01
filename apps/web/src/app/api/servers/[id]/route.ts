@@ -1,25 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { atLeast, serverRoleOf, type TeamRole } from "@/lib/access";
 
-// Helper: verify user is a member of the org that owns this server
-async function verifyServerAccess(serverId: string, userId: string) {
-  const { data: server } = await getSupabaseAdmin()
+// Helper: the caller's role on this server (lib/access), at least `min`.
+async function verifyServerAccess(serverId: string, userId: string, min: TeamRole) {
+  const admin = getSupabaseAdmin();
+  const { data: server } = await admin
     .from("servers")
-    .select("org_id")
+    .select("org_id, fleet_id")
     .eq("id", serverId)
     .single();
 
   if (!server) return { ok: false as const, error: "Server not found", status: 404 as const };
 
-  const { data: membership } = await getSupabaseAdmin()
-    .from("organization_members")
-    .select("role")
-    .eq("org_id", server.org_id)
-    .eq("user_id", userId)
-    .single();
-
-  if (!membership) return { ok: false as const, error: "Not authorized", status: 403 as const };
-  return { ok: true as const, server, role: membership.role };
+  const role = await serverRoleOf(admin, { kind: "user", userId, email: null }, server);
+  if (!atLeast(role, min)) return { ok: false as const, error: "Not authorized", status: 403 as const };
+  return { ok: true as const, server, role };
 }
 
 // POST /api/servers/[id]/heartbeat — Server checks in to report status
@@ -43,7 +39,7 @@ export async function POST(
     const { id } = await params;
 
     // Verify user has access to this server
-    const access = await verifyServerAccess(id, user.id);
+    const access = await verifyServerAccess(id, user.id, "write");
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }
@@ -100,7 +96,7 @@ export async function GET(
     const { id } = await params;
 
     // Verify user has access to this server
-    const access = await verifyServerAccess(id, user.id);
+    const access = await verifyServerAccess(id, user.id, "read");
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }

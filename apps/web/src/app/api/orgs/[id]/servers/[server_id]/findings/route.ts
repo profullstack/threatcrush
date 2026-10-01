@@ -1,27 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { requireServer } from "@/lib/route-access";
 
-// GET /api/orgs/[id]/servers/[server_id]/findings
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string; server_id: string }> }
-) {
+type Params = { params: Promise<{ id: string; server_id: string }> };
+
+// GET /api/orgs/[id]/servers/[server_id]/findings (read access)
+export async function GET(req: NextRequest, { params }: Params) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const admin = getSupabaseAdmin();
-    const { data: { user } } = await admin.auth.getUser(token);
-    if (!user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-
     const { id: orgId, server_id } = await params;
+    const access = await requireServer(req, orgId, server_id, "read", "id, org_id, fleet_id");
+    if ("error" in access) return access.error;
 
-    const { data: membership } = await admin.from("organization_members")
-      .select("role").eq("org_id", orgId).eq("user_id", user.id).single();
-    if (!membership) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
-
-    const { data: findings, error } = await admin.from("hardening_findings")
+    const { data: findings, error } = await access.admin.from("hardening_findings")
       .select("*")
       .eq("organization_id", orgId)
       .eq("server_id", server_id)
@@ -41,27 +30,12 @@ export async function GET(
   }
 }
 
-// PATCH /api/orgs/[id]/servers/[server_id]/findings — Update finding status
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string; server_id: string }> }
-) {
+// PATCH /api/orgs/[id]/servers/[server_id]/findings — Update finding status (write access)
+export async function PATCH(req: NextRequest, { params }: Params) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const admin = getSupabaseAdmin();
-    const { data: { user } } = await admin.auth.getUser(token);
-    if (!user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-
     const { id: orgId, server_id } = await params;
-
-    const { data: membership } = await admin.from("organization_members")
-      .select("role").eq("org_id", orgId).eq("user_id", user.id).single();
-    if (!membership || !["owner", "admin"].includes(membership.role)) {
-      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
-    }
+    const access = await requireServer(req, orgId, server_id, "write", "id, org_id, fleet_id");
+    if ("error" in access) return access.error;
 
     const body = await req.json();
     const { finding_id, status: newStatus } = body as { finding_id: string; status: string };
@@ -77,7 +51,7 @@ export async function PATCH(
     const updates: Record<string, unknown> = { status: newStatus };
     if (newStatus === "resolved") updates.resolved_at = new Date().toISOString();
 
-    const { error } = await admin.from("hardening_findings")
+    const { error } = await access.admin.from("hardening_findings")
       .update(updates)
       .eq("id", finding_id)
       .eq("organization_id", orgId)

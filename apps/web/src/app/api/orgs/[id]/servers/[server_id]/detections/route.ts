@@ -1,26 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parsePaginationParam } from "@/lib/pagination";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { requireServer } from "@/lib/route-access";
 
-// GET /api/orgs/[id]/servers/[server_id]/detections — Server-scoped detections
+// GET /api/orgs/[id]/servers/[server_id]/detections — Server-scoped detections (read access)
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; server_id: string }> }
 ) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const admin = getSupabaseAdmin();
-    const { data: { user } } = await admin.auth.getUser(token);
-    if (!user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-
     const { id: orgId, server_id } = await params;
-
-    const { data: membership } = await admin.from("organization_members")
-      .select("role").eq("org_id", orgId).eq("user_id", user.id).single();
-    if (!membership) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    const access = await requireServer(req, orgId, server_id, "read", "id, org_id, fleet_id");
+    if ("error" in access) return access.error;
+    const admin = access.admin;
 
     const url = new URL(req.url);
     const severity = url.searchParams.get("severity");

@@ -46,6 +46,14 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }));
 
+// Access rules have their own tests (lib/__tests__/access.test.ts); here a
+// membership in the server's org means write on its (fleet-less) servers.
+vi.mock("@/lib/access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/access")>()),
+  serverScopeIn: async (_admin: unknown, _p: unknown, orgId: string) =>
+    state.memberOrgs.includes(orgId) ? { all: false, fleetRoles: new Map(), unfleeted: "write" } : null,
+}));
+
 // after() needs a live request scope; run the callback inline so the test can
 // see what the route hands to alert delivery.
 const { dispatchDetectionAlerts } = vi.hoisted(() => ({

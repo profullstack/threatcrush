@@ -50,25 +50,42 @@ export interface FixReport {
 const bySeverity = (a: { severity: string }, b: { severity: string }) =>
   (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0);
 
-export async function loadFixReport(admin: SupabaseClient, orgId: string, now = new Date()): Promise<FixReport | null> {
+/**
+ * `allowServer` narrows the report to the servers a caller can see (team
+ * fleets, agent keys); the public /r/ link, made by an org admin, passes none.
+ */
+export async function loadFixReport(
+  admin: SupabaseClient,
+  orgId: string,
+  now = new Date(),
+  allowServer?: (server: { id: string; fleet_id: string | null }) => boolean,
+): Promise<FixReport | null> {
   const { data: org } = await admin.from("organizations").select("name, slug").eq("id", orgId).maybeSingle();
   if (!org) return null;
 
   const since = new Date(now.getTime() - DETECTION_WINDOW_HOURS * 3600_000).toISOString();
   const [{ data: servers }, { data: findings }, { data: detections }] = await Promise.all([
-    admin.from("servers").select("id, name, hostname, threatcrushd_version, last_seen").eq("org_id", orgId),
+    admin.from("servers").select("id, name, hostname, fleet_id, threatcrushd_version, last_seen").eq("org_id", orgId),
     admin.from("hardening_findings")
       .select("server_id, finding_key, severity, status, title, recommendation, observed_at")
       .eq("organization_id", orgId)
       .in("status", OPEN_STATUSES),
     admin.from("detections")
-      .select("title, severity, source_ip, occurrences")
+      .select("server_id, title, severity, source_ip, occurrences")
       .eq("organization_id", orgId)
       .gte("detected_at", since)
       .limit(5000),
   ]);
 
-  return buildFixReport(org, servers ?? [], findings ?? [], detections ?? [], now);
+  const allowed = (servers ?? []).filter((s) => !allowServer || allowServer(s));
+  const ids = new Set(allowed.map((s) => s.id as string));
+  return buildFixReport(
+    org,
+    allowed,
+    (findings ?? []).filter((f) => ids.has(f.server_id)),
+    allowServer ? (detections ?? []).filter((d) => d.server_id && ids.has(d.server_id)) : detections ?? [],
+    now,
+  );
 }
 
 export function buildFixReport(

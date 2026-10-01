@@ -1,26 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parsePaginationParam } from "@/lib/pagination";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { atLeast } from "@/lib/access";
+import { requireOrgScope, serverRolesIn, visibleServerIds } from "@/lib/route-access";
 
-// GET /api/orgs/[id]/detections — List detections for org
+// GET /api/orgs/[id]/detections — detections on the servers the caller can see
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const admin = getSupabaseAdmin();
-    const { data: { user } } = await admin.auth.getUser(token);
-    if (!user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-
     const { id: orgId } = await params;
-
-    const { data: membership } = await admin.from("organization_members")
-      .select("role").eq("org_id", orgId).eq("user_id", user.id).single();
-    if (!membership) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    const access = await requireOrgScope(req, orgId);
+    if ("error" in access) return access.error;
+    const admin = access.admin;
 
     const url = new URL(req.url);
     const detectionId = url.searchParams.get("id");
@@ -36,11 +28,15 @@ export async function GET(
     const limit = parsePaginationParam(url.searchParams.get("limit"), 50, { min: 1, max: 200 });
     const offset = parsePaginationParam(url.searchParams.get("offset"), 0);
 
+    const visible = await visibleServerIds(admin, orgId, access.scope);
+    if (visible && visible.length === 0) return NextResponse.json({ detections: [], total: 0 });
+
     let query = admin.from("detections").select("*", { count: "exact" })
       .eq("organization_id", orgId)
       .order("detected_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
+    if (visible) query = query.in("server_id", visible);
     if (detectionId) query = query.eq("id", detectionId);
     if (severity) query = query.eq("severity", severity);
     if (serverId) query = query.eq("server_id", serverId);
@@ -62,37 +58,36 @@ export async function GET(
   }
 }
 
-// PATCH /api/orgs/[id]/detections — Bulk update detection status
+// PATCH /api/orgs/[id]/detections — Bulk update detection status. Needs write
+// on the server behind every detection named.
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const admin = getSupabaseAdmin();
-    const { data: { user } } = await admin.auth.getUser(token);
-    if (!user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-
     const { id: orgId } = await params;
-
-    const { data: membership } = await admin.from("organization_members")
-      .select("role").eq("org_id", orgId).eq("user_id", user.id).single();
-    if (!membership || !["owner", "admin"].includes(membership.role)) {
-      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
-    }
+    const access = await requireOrgScope(req, orgId);
+    if ("error" in access) return access.error;
+    const admin = access.admin;
 
     const body = await req.json();
     const { ids, status: newStatus } = body as { ids: string[]; status: string };
 
-    if (!ids?.length || !newStatus) {
+    if (!Array.isArray(ids) || !ids.length || !newStatus) {
       return NextResponse.json({ error: "ids and status required" }, { status: 400 });
     }
 
     if (!["new", "acknowledged", "resolved"].includes(newStatus)) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
+    }
+
+    if (!access.scope.all) {
+      const roles = await serverRolesIn(admin, orgId, access.scope);
+      const { data: rows } = await admin.from("detections").select("id, server_id").eq("organization_id", orgId).in("id", ids);
+      const denied = (rows ?? []).some((r) => !r.server_id || !atLeast(roles.get(r.server_id) ?? null, "write"));
+      if (denied || (rows ?? []).length !== ids.length) {
+        return NextResponse.json({ error: "Not authorized for every detection named" }, { status: 403 });
+      }
     }
 
     const { error } = await admin.from("detections")
