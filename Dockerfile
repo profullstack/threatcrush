@@ -2,14 +2,12 @@
 #
 # Only the web container's runtime is Bun. pnpm stays the repo's package manager
 # because the same workspace builds and publishes the threatcrush CLI and the
-# desktop app; the install below is unchanged. Next is then built with
-# `bun --bun next build` and the standalone server runs under Bun.
+# desktop app; the install and the Next build below are unchanged (Node).
+# Only the standalone server runs under Bun.
 # dev2 builds this file (/home/anthony/www/threatcrush.com) and passes three
 # NEXT_PUBLIC_* build args. The Node image never declared them, so its build
 # never saw them; they stay undeclared so this build is identical. Port 3000,
 # env and the health path are unchanged.
-FROM oven/bun:1.4.0-slim AS bun
-
 FROM node:22-slim AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
@@ -34,9 +32,11 @@ RUN pnpm install --frozen-lockfile
 # Now bring in the rest of the source.
 COPY . .
 
-# Build the web app only for the container image, with Next running on Bun.
-COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
-RUN cd apps/web && bun --bun node_modules/next/dist/bin/next build
+# Build the web app only for the container image. The build stays on Node:
+# under `bun --bun next build`, collecting /blog/[slug] fails because Bun cannot
+# resolve jsdom's `require('../data/patch.json')` (isomorphic-dompurify) from
+# Turbopack's hashed external. The standalone output then runs on Bun.
+RUN pnpm --filter @profullstack/threatcrush-web build
 
 FROM oven/bun:1.4.0-slim AS runner
 
