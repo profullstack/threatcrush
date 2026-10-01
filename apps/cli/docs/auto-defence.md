@@ -5,21 +5,26 @@ and remove bans by hand. This is on by default.
 
 ## The ladder
 
-A ban's length comes from where the address sits on the Fibonacci ladder, in
-minutes:
+ThreatCrush bans on the first detection, and every repeat offence doubles the
+ban:
 
-| Offence | 1  | 2  | 3  | 4  | 5  | 6   | 7   | 8   |
-|---------|----|----|----|----|----|-----|-----|-----|
-| Ban     | 1m | 2m | 3m | 5m | 8m | 13m | 21m | 34m |
+| Offence | 1   | 2   | 3  | 4  | 5  | 6  | 7   | 8   | 9      | 10    | 11+ |
+|---------|-----|-----|----|----|----|----|-----|-----|--------|-------|-----|
+| Ban     | 15m | 30m | 1h | 2h | 4h | 8h | 16h | 32h | 2d 16h | 5d 8h | 7d  |
 
-It keeps climbing, clamped at `max_ban` (24h by default). A first offence costs
-an address a minute — cheap enough that a false positive is barely an incident —
-while a host that keeps coming back is at hours by its tenth visit without
-anyone writing a permanent rule.
+The first rung is `first_ban` (15m by default) and the ladder stops at
+`max_ban` (7d by default). Fifteen minutes is long enough that a scanner sweeping
+the internet moves on, and short enough that a false positive is not an
+incident.
 
-An offence counts towards the next ban for `strike_memory` (24h by default).
-After that the address is forgiven and starts again at one minute, so a recycled
-address is not punished for its predecessor's behaviour.
+This replaced a Fibonacci ladder in minutes (1m, 2m, 3m, 5m …) that scanners
+simply waited out: on dev1, 175 addresses were banned 1,430 times between them.
+
+An offence counts towards the next ban for `strike_memory` (30d by default),
+which is longer than `max_ban` on purpose: an address forgotten while it is
+still banned would come back at the first rung. After that the address is
+forgiven, so a recycled address is not punished for its predecessor's
+behaviour.
 
 Nothing is ever permanent. Every ban expires, which is what keeps a blocklist
 from turning into an unreviewable accretion that eventually blocks something
@@ -30,6 +35,11 @@ important for a reason nobody remembers.
 Detections of severity `high` and above — SSH brute force, invalid users, and
 web attacks from the access log. Routine 4xx noise is `low` and never triggers a
 ban; a paywall returning 402 to thousands of crawlers is traffic, not an attack.
+
+Every shipped rule that declares `remediation.action = "block"` is `high`, so
+it bans at the default floor on its first firing. A test enforces this: the
+scanner-volume and port-scan rules used to be `medium` and fired dozens of times
+without banning anyone.
 
 ### SSH
 
@@ -212,8 +222,9 @@ enabled = true
 mode = "enforce"              # or "dry_run" to log without blocking
 backend = "auto"              # auto | fail2ban | nftables | iptables
 min_severity = "high"
-max_ban = "24h"
-strike_memory = "24h"
+first_ban = "15m"             # each repeat offence doubles it
+max_ban = "7d"
+strike_memory = "30d"
 protected = ["203.0.113.7/32"]
 protect_current_ssh_client = true
 ```

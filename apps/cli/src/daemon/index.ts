@@ -17,6 +17,7 @@ import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
 import { RemediationManager } from './firewall/remediation.js';
 import { remediationSettings } from './firewall/settings.js';
+import { formatDuration } from './firewall/backoff.js';
 import { bus } from './event-bus.js';
 import { initStateDB, closeDB } from '../core/state.js';
 import { loadConfig } from '../core/config.js';
@@ -24,6 +25,7 @@ import { configureAttackDetection } from '../core/log-parser.js';
 import { captureException, flushTelemetry, initTelemetry } from '../core/telemetry.js';
 import { currentLink } from '../core/cloud-events.js';
 import type { ThreatEvent } from '../types/events.js';
+import { daemonNodeProblem } from '../core/node-runtime.js';
 import type { HardeningResult } from '../commands/harden.js';
 
 function readVersion(): string {
@@ -80,6 +82,15 @@ export async function runDaemon(): Promise<void> {
   const version = readVersion();
   logLine(`[daemon] starting threatcrushd v${version} mode=${PATHS.mode}`);
 
+  // Checked before the state DB opens: on too old a Node the SQLite driver
+  // segfaults, which kills the process before any catch can log why.
+  const nodeProblem = daemonNodeProblem(process.versions.node);
+  if (nodeProblem) {
+    logLine(`[daemon] ${nodeProblem}`);
+    console.error(nodeProblem);
+    process.exit(1);
+  }
+
   try {
     initStateDB(PATHS.stateDb);
   } catch (err) {
@@ -134,7 +145,8 @@ export async function runDaemon(): Promise<void> {
   logLine(
     `[daemon] auto-defence ${remediationStatus.enabled ? 'ON' : 'OFF'} ` +
     `(backend=${remediationStatus.backend}, mode=${remediationStatus.dry_run ? 'dry_run' : 'enforce'}, ` +
-    `min_severity=${remediationStatus.min_severity}, bans escalate 1m→2m→3m→5m→8m…)`,
+    `min_severity=${remediationStatus.min_severity}, bans double from ${formatDuration(remediationStatus.first_ban_seconds)} ` +
+    `up to ${formatDuration(remediationStatus.max_ban_seconds)})`,
   );
   if (remediationStatus.dry_run && firewallAdapter.enforces !== false) {
     logLine('[daemon] dry_run is set in [remediation] — detections will be logged, not blocked');

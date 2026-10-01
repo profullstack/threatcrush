@@ -22,7 +22,7 @@ export interface BlockedEntryReply {
   reason: string;
   blocked_at: number;
   expires_at: number;
-  /** Which rung of the Fibonacci ladder this ban came from. */
+  /** Which rung of the doubling ladder this ban came from. */
   strikes: number;
   source: 'auto' | 'manual';
   dry_run: boolean;

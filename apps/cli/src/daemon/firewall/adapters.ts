@@ -54,7 +54,7 @@ const FAIL2BAN_JAIL_FILE = '/etc/fail2ban/jail.d/threatcrush.conf';
  * ThreatCrush decision and keeps the operator's own jails untouched.
  *
  * Expiry is ours, not fail2ban's: the jail's bantime is a long backstop and
- * `RemediationManager` unbans on the Fibonacci schedule. Owning the clock is
+ * `RemediationManager` unbans on the doubling schedule. Owning the clock is
  * what makes escalating durations possible at all, since a jail has exactly one
  * bantime and we need a different one per offender.
  */

@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, s
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
+import { daemonNodeProblem, versionOfNode } from '../core/node-runtime.js';
 
 const UNIT_PATH = '/etc/systemd/system/threatcrushd.service';
 export const DAEMON_UNIT_NAME = 'threatcrushd.service';
@@ -253,6 +254,16 @@ export async function installServiceCommand(): Promise<void> {
     // node it was installed for.
     binPath = realpathSync(binPath);
     nodePath = process.execPath;
+  }
+  if (isNodeScript) {
+    const problem = daemonNodeProblem(versionOfNode(nodePath));
+    if (problem) {
+      // Refuse rather than install a unit that segfaults every three seconds.
+      console.log(chalk.red(`  ✗ ${problem}`));
+      console.log(chalk.dim('  Nothing was installed.'));
+      process.exitCode = 1;
+      return;
+    }
   }
   const exec = execStartCommand(binPath, nodePath, isNodeScript);
   const unit = resolveTemplate().replace('{{BIN_PATH}} daemon', exec).replace('{{BIN_PATH}}', binPath);

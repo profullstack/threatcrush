@@ -20,7 +20,8 @@ describe('remediationSettings', () => {
   });
 
   it('parses the duration spellings', () => {
-    const settings = remediationSettings({ max_ban: '6h', strike_memory: '2d' });
+    const settings = remediationSettings({ first_ban: '1h', max_ban: '6h', strike_memory: '2d' });
+    expect(settings.first_ban_seconds).toBe(3600);
     expect(settings.max_ban_seconds).toBe(21600);
     expect(settings.strike_memory_seconds).toBe(172800);
   });

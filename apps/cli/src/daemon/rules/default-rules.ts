@@ -215,12 +215,15 @@ export const DEFAULT_RULES: DetectionRule[] = [
     enabled: true,
   },
   {
+    // A rule that declares `block` must be at the severity auto-defence bans
+    // at, or it fires and is ignored: this one was `medium`, and on dev1 it
+    // detected scanners 25 times and banned none of them.
     id: 'web-scanner-detection',
     title: 'Web Vulnerability Scanner Detected',
     description: 'High volume of 4xx errors suggesting automated scanning',
     version: '1.0.0',
     category: 'web',
-    severity: 'medium',
+    severity: 'high',
     source_types: ['log-watcher', 'web'],
     match: {
       field: 'message',
@@ -244,7 +247,7 @@ export const DEFAULT_RULES: DetectionRule[] = [
     // and keeps walking URLs: GoogleOther did ~40/min per IP against r4ck's
     // /api/v1/search on dev2, 2026-09-25. `web-scanner-detection` saw it too,
     // but it is `medium`, and auto-defence bans at `high` and above, so it fired
-    // every minute and never banned. This one is `high` on purpose.
+    // every minute and never banned (it is `high` now too). This one is `high` on purpose.
     //
     // It cannot see a proxy swarm that asks once per address; nothing per-IP can.
     id: 'paywall-hammering',
@@ -304,12 +307,16 @@ export const DEFAULT_RULES: DetectionRule[] = [
     enabled: true,
   },
   {
+    // `high` for the same reason as web-scanner-detection: as `medium` it fired
+    // 21 times on dev1 without a single ban. It also matches network-monitor's
+    // "Possible port scan" notice (5+ of our LISTENING ports from one address),
+    // so that is now banned on first sight as well.
     id: 'port-scan-indicator',
     title: 'Port Scan Indicators',
     description: 'Connection attempts to many ports from a single source',
     version: '1.0.0',
     category: 'network',
-    severity: 'medium',
+    severity: 'high',
     source_types: ['network-monitor', 'network'],
     match: {
       field: 'message',

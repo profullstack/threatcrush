@@ -24,6 +24,9 @@ export function remediationSettings(section?: RemediationSection): Partial<Remed
 
   if (section.min_severity) settings.min_severity = section.min_severity;
 
+  const firstBan = parseDuration(section.first_ban);
+  if (firstBan) settings.first_ban_seconds = firstBan;
+
   const maxBan = parseDuration(section.max_ban);
   if (maxBan) settings.max_ban_seconds = maxBan;
 

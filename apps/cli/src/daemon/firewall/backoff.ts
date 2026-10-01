@@ -1,35 +1,35 @@
 /**
  * Escalating ban durations for repeat offenders (PRD 0010 R8).
  *
- * The ladder is the Fibonacci sequence in minutes — 1, 2, 3, 5, 8, 13, … — so
- * a host that trips a rule once and goes away costs it a minute, while one that
- * keeps coming back climbs to hours without anyone writing a permanent rule.
- * Growth is gentler than doubling at the bottom (where false positives live)
- * and still steep at the top (where the real brute-forcers live).
+ * Every offence doubles the ban: 15m, 30m, 1h, 2h, 4h, 8h, 16h, … from the
+ * first detection, clamped to `max_ban`. This replaced a Fibonacci ladder in
+ * minutes (1m, 2m, 3m, 5m …) that a scanner simply waited out: on dev1, 175
+ * addresses were banned 1,430 times between them, most of them eight or more
+ * times, because each ban was over before the next sweep of the internet.
  */
 
-/** Minutes for the nth offence, 1-indexed. Grows Fibonacci-wise, forever. */
-export function fibonacciMinutes(strike: number): number {
+/** The default first ban. Long enough that a scanner moves on, short enough to survive a false positive. */
+export const DEFAULT_FIRST_BAN_SECONDS = 15 * 60;
+
+/** Multiplier on the first ban for the nth offence, 1-indexed: 1, 2, 4, 8, … */
+export function backoffFactor(strike: number): number {
   const n = Math.max(1, Math.floor(strike));
-  let prev = 1;
-  let curr = 1;
-  // strike 1 → 1, strike 2 → 2, strike 3 → 3, strike 4 → 5, strike 5 → 8 …
-  for (let i = 1; i < n; i++) {
-    const next = prev + curr;
-    prev = curr;
-    curr = next;
-  }
-  return curr;
+  // 2^52 is past any ceiling anyone will configure; stop before Infinity.
+  return 2 ** Math.min(n - 1, 52);
 }
 
 /**
  * Ban length in seconds for the nth offence, clamped to `maxSeconds`.
- * The clamp is what keeps R2 true — everything expires — once the ladder runs
- * past a day.
+ * The clamp is what keeps R2 true — everything expires — however far an
+ * address climbs.
  */
-export function banSeconds(strike: number, maxSeconds: number): number {
-  const seconds = fibonacciMinutes(strike) * 60;
-  return Math.min(seconds, Math.max(60, maxSeconds));
+export function banSeconds(
+  strike: number,
+  maxSeconds: number,
+  firstSeconds: number = DEFAULT_FIRST_BAN_SECONDS,
+): number {
+  const first = Math.max(60, firstSeconds);
+  return Math.min(first * backoffFactor(strike), Math.max(first, maxSeconds));
 }
 
 export interface Strike {

@@ -228,9 +228,9 @@ export class NetworkMonitor {
         // Reset tracker after alert
         this.scanTrackers.delete(key);
       } else if (
-        // A smaller spread across our listening ports is worth surfacing, but
-        // at `medium` so it is logged and never banned (auto-defence bans at
-        // `high`). These are inbound-to-listening only, so the ephemeral
+        // A smaller spread across our listening ports. The event itself is
+        // `medium`, but the `port-scan-indicator` rule matches it and bans on
+        // first sight. These are inbound-to-listening only, so the ephemeral
         // outbound-port bug that once banned our upstreams cannot recur here.
         tracker.ports.size >= this.portScanNoticeThreshold &&
         withinWindow &&
