@@ -66,7 +66,7 @@ function nextSteps(): Step[] {
 
   steps.push({
     heading: 'Open the live dashboard',
-    hint: 'react-blessed TUI — subscribes to events from the daemon.',
+    hint: 'hqtui dashboard — subscribes to events from the daemon.',
     cmd: 'threatcrush tui',
   });
 

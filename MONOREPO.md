@@ -8,7 +8,7 @@ Node ≥ 22.
 ├── apps/
 │   ├── web/          Next.js 16 — threatcrush.com (PWA, API, org pages)
 │   ├── cli/          @profullstack/threatcrush — CLI + threatcrushd daemon + TUI
-│   ├── desktop/      @profullstack/threatcrush-desktop — Electron + react-blessed
+│   ├── desktop/      @profullstack/threatcrush-desktop — Electron + React (Vite)
 │   ├── mobile/       Expo (deferred for v0.1.0)
 │   ├── extension/    Vite + React MV3 extension (dev preview)
 │   └── sdk/          @threatcrush/sdk — types for module authors
@@ -42,7 +42,7 @@ Per-app dev loops live in each `apps/<name>/README.md`.
 - **Web API** — `apps/web/src/app/api/**`
 - **Daemon** — `apps/cli/src/daemon/` (boot, IPC, alerts, module host, runs worker)
 - **CLI commands** — `apps/cli/src/commands/*.ts`
-- **TUI** — `apps/cli/src/tui/app.tsx` (react-blessed)
+- **TUI** — `apps/cli/src/tui/dashboard.ts` (`@profullstack/hqtui`)
 - **Desktop ↔ daemon IPC** — `apps/desktop/src/main/daemon-client.ts`
 - **Shared CLI config** — `apps/cli/src/core/cli-config.ts` (bearer token lives at `~/.threatcrush/config.json`)
 - **Runtime paths** — `apps/cli/src/daemon/paths.ts` picks `/etc/threatcrush` when root, `~/.threatcrush` otherwise

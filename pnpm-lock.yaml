@@ -25,8 +25,8 @@ importers:
         specifier: ^2.2.5
         version: 2.2.5
       '@profullstack/hqtui':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.7.0
+        version: 0.7.0
       '@sentry/node':
         specifier: ^8.45.0
         version: 8.55.1
@@ -2855,8 +2855,8 @@ packages:
     resolution: {integrity: sha512-RGLGfQhjq40f+JqEhSmsJnS0I5sFWjYdrYx4VYtkUqz8xvioN2yyR+6uFK0mnDAStKrYytlngg3meUsrChm/OQ==}
     engines: {node: '>=20'}
 
-  '@profullstack/hqtui@0.5.0':
-    resolution: {integrity: sha512-jDwILBmdQx8pQA0ao/tzzty8u5nFNS4XhvU9xXhZvdIaMeiF3HBJIVtP6cS6kigS4lXmHR7sztbb9QJpaWwhig==}
+  '@profullstack/hqtui@0.7.0':
+    resolution: {integrity: sha512-2sE5RK+7jhIEAVOH8KdasUs8NOK8HkDen0vmijvFlEzZLwSl3Z6sQUihUmuqUUEKcu+qVi7eo4950chosbtgcA==}
     engines: {bun: '>=1.1', node: '>=22.6'}
     hasBin: true
 
@@ -11363,7 +11363,7 @@ snapshots:
 
   '@profullstack/form-guard@0.1.1': {}
 
-  '@profullstack/hqtui@0.5.0': {}
+  '@profullstack/hqtui@0.7.0': {}
 
   '@profullstack/keys@0.1.0': {}
 
