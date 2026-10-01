@@ -20,6 +20,7 @@ import { connectCommand } from "./commands/connect.js";
 import { daemonForeground, daemonRestart, daemonStart, daemonStop } from "./commands/daemon.js";
 import { installServiceCommand, uninstallServiceCommand } from "./commands/service.js";
 import { loginCommand, logoutCommand, whoamiCommand } from "./commands/login.js";
+import { saveCommand } from "./commands/save.js";
 import { welcomeCommand } from "./commands/welcome.js";
 import {
   propertiesAddCommand,
@@ -369,10 +370,19 @@ program
 
 program
   .command("login")
-  .description("Log in to your threatcrush.com account")
-  .option("-e, --email <email>", "Email to log in with")
+  .description("Log in to your threatcrush.com account (prints a link to approve in your browser)")
+  .option("-p, --password", "Log in with email and password instead of a link")
+  .option("-e, --email <email>", "Email to log in with (implies --password)")
   .action(async (opts) => {
-    await loginCommand({ email: opts.email });
+    await loginCommand({ email: opts.email, password: opts.password });
+  });
+
+program
+  .command("save")
+  .description("Save this machine's daemon config to its threatcrush.com server (secrets redacted)")
+  .option("-c, --config <path>", "Config file to save (default: the one the daemon reads)")
+  .action(async (opts: { config?: string }) => {
+    await saveCommand({ config: opts.config });
   });
 
 program

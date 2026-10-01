@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../core/cli-config.js', () => ({
   CLI_CONFIG_PATH: '/nonexistent/config.json',
+  apiUrl: () => 'https://threatcrush.com',
   authHeaders: () => ({}),
   clearCliConfig: vi.fn(),
   isLoggedIn: () => false,
@@ -43,6 +44,28 @@ afterEach(() => {
 });
 
 describe('threatcrush login', () => {
+  it('prints a link to approve by default and never asks for a password', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).endsWith('/api/auth/cli/start')) {
+        return new Response(JSON.stringify({
+          request_id: '00000000-0000-4000-8000-000000000000',
+          user_code: 'ABCD-EFGH',
+          verification_url: 'https://threatcrush.com/cli/login?request=00000000-0000-4000-8000-000000000000',
+          expires_at: new Date(Date.now() + 600_000).toISOString(),
+          interval: 0,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ error: 'access_denied' }), { status: 400 });
+    }));
+
+    await (await loadLoginCommand())();
+
+    expect(output).toContain('https://threatcrush.com/cli/login?request=00000000-0000-4000-8000-000000000000');
+    expect(output).toContain('ABCD-EFGH');
+    expect(output).not.toMatch(/Password:/);
+    expect(process.exitCode).toBe(1);
+  });
+
   it('exits non-zero when the credentials are rejected', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(
       JSON.stringify({ error: 'Invalid login credentials' }),
@@ -50,7 +73,7 @@ describe('threatcrush login', () => {
     )));
     pipeStdin('nobody@example.invalid\nwrong\n');
 
-    await (await loadLoginCommand())();
+    await (await loadLoginCommand())({ password: true });
 
     expect(output).toContain('Invalid login credentials');
     expect(process.exitCode).toBe(1);
@@ -61,7 +84,7 @@ describe('threatcrush login', () => {
     vi.stubGlobal('fetch', fetch);
     pipeStdin('nobody@example.invalid\n');
 
-    await (await loadLoginCommand())();
+    await (await loadLoginCommand())({ password: true });
 
     expect(fetch).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
@@ -72,7 +95,7 @@ describe('threatcrush login', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 400 })));
     pipeStdin('nobody@example.invalid\nwrong\n');
 
-    await (await loadLoginCommand())();
+    await (await loadLoginCommand())({ password: true });
 
     expect(output).toMatch(/Forgot password\? \S+\/auth\/login\b/);
     expect(output).not.toContain('/auth/forgot-password');

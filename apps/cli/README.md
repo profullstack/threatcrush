@@ -170,12 +170,17 @@ Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/et
 The daemon reports to your ThreatCrush dashboard once the machine is logged in and linked to a server there:
 
 ```bash
-threatcrush login
+threatcrush login                      # prints a link: approve it in a browser where you are signed in
 threatcrush servers link               # reuses the dashboard server with this hostname, or registers one
 threatcrush servers link --org acme --name web-1
+threatcrush save                       # store this machine's daemon config on its server (secrets redacted)
 threatcrush status                     # shows the link
 threatcrush servers unlink             # stop reporting
 ```
+
+`threatcrush login` needs no browser on the machine and never asks for a password: it prints a `threatcrush.com/cli/login` link and a short code, you approve it from any signed-in browser after checking the code matches, and the terminal finishes signing in on its own (PKCE-bound, so only the terminal that started it can redeem it; the link expires after 10 minutes). Each machine gets its own session. `threatcrush login --password` keeps the email-and-password prompt.
+
+`threatcrush save` uploads the config the daemon reads (`/etc/threatcrush/threatcrushd.conf` as root). Values under keys that look like secrets (passwords, tokens, webhook URLs, API keys) are replaced with `[redacted]` before upload, and again by the server.
 
 A running daemon picks up `link` and `unlink` within a minute; no restart. It then:
 

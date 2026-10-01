@@ -9,6 +9,7 @@ import {
   updateCliConfig,
   CLI_CONFIG_PATH,
 } from '../core/cli-config.js';
+import { createPkce, startLinkLogin, waitForApproval } from '../core/link-login.js';
 
 const API_URL = process.env.THREATCRUSH_API_URL || 'https://threatcrush.com';
 
@@ -86,13 +87,20 @@ export async function login(options: LoginOptions = {}): Promise<LoginSuccess | 
   };
 }
 
-export async function loginCommand(opts: { email?: string } = {}): Promise<void> {
+export async function loginCommand(opts: { email?: string; password?: boolean } = {}): Promise<void> {
   banner();
 
   if (isLoggedIn()) {
     const cfg = readCliConfig();
     console.log(chalk.green(`  ✓ Already logged in as ${chalk.white(cfg.email || cfg.user_id || 'unknown')}`));
     console.log(chalk.dim(`    Run ${chalk.white('threatcrush logout')} to sign out.\n`));
+    return;
+  }
+
+  // A link is the default: it works on a server with no browser and never
+  // puts a password in a terminal. --password (or --email) keeps the prompt.
+  if (!opts.password && !opts.email) {
+    await linkLoginCommand();
     return;
   }
 
@@ -111,7 +119,40 @@ export async function loginCommand(opts: { email?: string } = {}): Promise<void>
 
   console.log(chalk.green(`\n  ✓ Logged in as ${chalk.white(result.email)}`));
   console.log(chalk.dim(`    Credentials saved to ${CLI_CONFIG_PATH}\n`));
+  await rememberFirstOrg();
+}
 
+async function linkLoginCommand(): Promise<void> {
+  const pkce = createPkce();
+  let request;
+  try {
+    request = await startLinkLogin(pkce);
+  } catch (err) {
+    console.log(chalk.red(`  ✗ ${(err as Error).message}\n`));
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(chalk.green('  Log in to threatcrush.com'));
+  console.log(chalk.gray('  ' + '─'.repeat(40)));
+  console.log(`  Open this link in a browser where you are signed in:\n`);
+  console.log(`    ${chalk.white.underline(request.verification_url)}\n`);
+  console.log(`  Check it shows this code:  ${chalk.green.bold(request.user_code)}\n`);
+  console.log(chalk.dim('  Waiting for approval… (Ctrl-C to cancel)'));
+
+  const result = await waitForApproval(request, pkce);
+  if (!result.ok) {
+    console.log(chalk.red(`\n  ✗ ${result.error}\n`));
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(chalk.green(`\n  ✓ Logged in as ${chalk.white(result.email)}`));
+  console.log(chalk.dim(`    Credentials saved to ${CLI_CONFIG_PATH}\n`));
+  await rememberFirstOrg();
+}
+
+async function rememberFirstOrg(): Promise<void> {
   // Pre-fetch current org for convenience.
   try {
     const res = await fetch(`${API_URL}/api/orgs`, { headers: authHeaders() });
