@@ -18,16 +18,18 @@ export function redactConfig(value: unknown, depth = 0): unknown {
   if (depth > 10) return REDACTED;
   if (Array.isArray(value)) return value.map((v) => redactConfig(v, depth + 1));
   if (value && typeof value === 'object') {
-    // Null prototype, and keys that could reach a prototype are dropped: the
-    // keys come from the uploaded config.
-    const out: Record<string, unknown> = Object.create(null);
-    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-      if (UNSAFE_KEYS.has(key)) continue;
-      out[key] = SECRET_KEY.test(key) && v !== null && typeof v !== 'object' && typeof v !== 'boolean'
-        ? REDACTED
-        : redactConfig(v, depth + 1);
-    }
-    return out;
+    // Built from pairs rather than by assigning computed keys, and keys that
+    // could reach a prototype are dropped: the keys come from the uploaded config.
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !UNSAFE_KEYS.has(key))
+        .map(([key, v]) => [
+          key,
+          SECRET_KEY.test(key) && v !== null && typeof v !== 'object' && typeof v !== 'boolean'
+            ? REDACTED
+            : redactConfig(v, depth + 1),
+        ]),
+    );
   }
   return value;
 }
