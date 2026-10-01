@@ -378,4 +378,37 @@ export const DEFAULT_RULES: DetectionRule[] = [
     },
     enabled: true,
   },
+  {
+    // A real network card entering promiscuous mode can mean someone is
+    // sniffing traffic on the host. The kernel also logs this constantly for
+    // container veth/bridge interfaces, which is normal (a bridge port must be
+    // promiscuous to forward frames), so the negative lookahead excludes every
+    // virtual interface kind and only a physical/primary NIC trips this.
+    id: 'nic-promiscuous-mode',
+    title: 'Network Interface Entered Promiscuous Mode',
+    description: 'A non-virtual network interface entered promiscuous mode, which can indicate packet sniffing',
+    version: '1.0.0',
+    category: 'system',
+    severity: 'medium',
+    source_types: ['user-journal', 'system'],
+    match: {
+      field: 'message',
+      operator: 'regex',
+      // "[kernel] enp11s0: entered promiscuous mode" trips; veth*, docker*,
+      // br-*, bridge, lo, tap*, vxlan*, cni*, cali*, flannel*, virbr*, kube*
+      // and tailscale* do not.
+      value: '\\b(?!veth|docker|br-|bridge|lo:|lo\\b|tap|vxlan|cni|cali|flannel|virbr|kube|tailscale)[A-Za-z][\\w.-]*: entered promiscuous mode',
+    },
+    threshold: 1,
+    window_seconds: 60,
+    // A legitimate tcpdump flaps it; do not re-alert for an hour.
+    cooldown_seconds: 3600,
+    tags: ['system', 'network', 'sniffing', 'host-integrity'],
+    remediation: {
+      // Host integrity, no attacker address to ban — surface it, do not block.
+      action: 'alert',
+      description: 'Confirm whether a capture tool or new bridge is expected on this host',
+    },
+    enabled: true,
+  },
 ];

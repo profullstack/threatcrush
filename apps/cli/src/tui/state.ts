@@ -167,9 +167,18 @@ export function initialState(now: number = Date.now()): State {
   };
 }
 
-/** A routine client error: a 4xx the web server answered, at low severity or below. */
+/**
+ * Low-value lines hidden from the feed by default (toggled back with `n`):
+ *   - routine 4xx a web server answered;
+ *   - container veth/bridge churn ("veth…: entered promiscuous/allmulticast
+ *     mode"), which the kernel logs on every container start. A promiscuous
+ *     NIC that actually matters trips the `nic-promiscuous-mode` rule at
+ *     `medium`, which this never hides.
+ */
 export function isNoise(event: ThreatEvent): boolean {
-  return (event.severity === 'low' || event.severity === 'info') && /^Client error 4\d\d:/.test(event.message);
+  if (event.severity !== 'low' && event.severity !== 'info') return false;
+  if (/^Client error 4\d\d:/.test(event.message)) return true;
+  return /\b(veth|docker|br-|cni|cali|flannel|vxlan)[\w.-]*: entered (promiscuous|allmulticast) mode|\(unregistering\): left (promiscuous|allmulticast) mode/.test(event.message);
 }
 
 /** Does this event pass the active module and source filters? */
