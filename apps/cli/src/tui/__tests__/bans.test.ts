@@ -164,7 +164,8 @@ describe('ban rendering', () => {
     });
     const out = screen(state);
     expect(out).toContain('nothing banned');
-    expect(out).toMatch(/1m/);
+    // The doubling ladder, not the old Fibonacci one.
+    expect(out).toMatch(/5m → 10m/);
   });
 
   it('calls out dry-run rather than implying the host is defended', () => {

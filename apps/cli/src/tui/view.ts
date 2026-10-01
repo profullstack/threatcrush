@@ -6,6 +6,7 @@ import {
   eventsPerSecond,
   formatCount,
   formatUptime,
+  hasFilter,
   hiddenNoise,
   isBanned,
   severityTotal,
@@ -204,13 +205,19 @@ function noiseNote(state: State): string | undefined {
   return hidden > 0 ? `${hidden} routine 4xx hidden · n shows` : undefined;
 }
 
+/** A short description of the active feed filters, e.g. "src 1.2.3.4" or "ssh-guard · src 1.2.3.4". */
+function filterLabel(state: State): string {
+  return [state.moduleFilter, state.sourceFilter ? `src ${state.sourceFilter}` : null].filter(Boolean).join(' · ');
+}
+
 function feedPanel(parent: Container, state: State, theme: Theme, options: ViewOptions): void {
   const following = state.scrollBack === 0;
   const shown = visibleEvents(state);
-  const filtered = state.moduleFilter !== null;
+  const filtered = hasFilter(state);
+  const label = filterLabel(state);
   parent.panel(
     {
-      title: filtered ? ` LIVE EVENTS · ${state.moduleFilter} ` : ' LIVE EVENTS ',
+      title: filtered ? ` LIVE EVENTS · ${label} ` : ' LIVE EVENTS ',
       size: '2.4fr',
       border: 'rounded',
       borderColor: state.connection === 'live' ? theme.borderFocused : theme.border,
@@ -224,7 +231,7 @@ function feedPanel(parent: Container, state: State, theme: Theme, options: ViewO
     (panel) => {
       if (filtered && shown.length === 0 && state.events.length > 0) {
         panel.spacer(1);
-        panel.text(`No events from ${state.moduleFilter} yet.`, { fg: theme.muted, align: 'center' });
+        panel.text(`No events from ${label} yet.`, { fg: theme.muted, align: 'center' });
         panel.spacer(1);
         panel.label('esc shows everything again', { fg: theme.muted, align: 'center' });
         return;
@@ -285,7 +292,7 @@ function threatsPanel(parent: Container, state: State, theme: Theme, options: Vi
       border: 'rounded',
       borderColor: focused ? theme.borderFocused : theme.border,
       titleColor: theme.primary,
-      subtitle: focused ? 'b ban · u unban' : undefined,
+      subtitle: focused ? 'click filters feed · b ban · u unban' : undefined,
       subtitleColor: theme.muted,
       padding: [0, 1],
     },
@@ -312,15 +319,21 @@ function threatsPanel(parent: Container, state: State, theme: Theme, options: Vi
         onSelectRow: options.onThreatSelect,
         columns: [
           {
-            // A source is either banned, protected, or neither — and which one
-            // it is decides what the b key will do to it.
+            // ▶ marks the source the feed is filtered to; otherwise the glyph
+            // says whether this source is banned, protected, or neither — which
+            // decides what the b key will do to it.
             key: 'ip',
             width: 2,
-            render: (s) => (isBanned(state, s.ip) ? '✖' : isProtectedRow(state, s.ip) ? '⛊' : ' '),
+            render: (s) =>
+              state.sourceFilter === s.ip ? '▶'
+                : isBanned(state, s.ip) ? '✖'
+                  : isProtectedRow(state, s.ip) ? '⛊'
+                    : ' ',
             color: (s) =>
-              isBanned(state, s.ip) ? severityColors.critical
-                : isProtectedRow(state, s.ip) ? theme.success
-                  : theme.muted,
+              state.sourceFilter === s.ip ? theme.primary
+                : isBanned(state, s.ip) ? severityColors.critical
+                  : isProtectedRow(state, s.ip) ? theme.success
+                    : theme.muted,
           },
           { key: 'ip', width: 'fill', color: () => theme.foreground },
           {
@@ -404,7 +417,7 @@ function bansPanel(parent: Container, state: State, theme: Theme, options: ViewO
       }
       if (state.bans.length === 0) {
         panel.label('nothing banned', { fg: theme.muted });
-        panel.label(fw.dry_run ? 'dry-run: bans are simulated' : 'bans: 1m → 2m → 3m → 5m → 8m', {
+        panel.label(fw.dry_run ? 'dry-run: bans are simulated' : 'bans: 5m → 10m → 20m → 40m', {
           fg: fw.dry_run ? severityColors.medium : theme.muted,
         });
         return;
@@ -474,7 +487,9 @@ function footer(ui: Container, state: State, theme: Theme): void {
       { key: '↑↓', label: onFeed ? 'scroll' : 'select' },
       ...(state.focus === 'modules'
         ? [{ key: '⏎', label: state.moduleFilter ? 'unfilter' : 'filter' }]
-        : [{ key: 'b', label: 'ban' }, { key: 'u', label: 'unban' }]),
+        : state.focus === 'threats' || state.focus === 'bans'
+          ? [{ key: '⏎', label: state.sourceFilter ? 'unfilter' : 'filter' }, { key: 'b', label: 'ban' }, { key: 'u', label: 'unban' }]
+          : [{ key: 'b', label: 'ban' }, { key: 'u', label: 'unban' }]),
       { key: 'p', label: state.paused ? 'resume' : 'pause' },
       { key: 'r', label: 'reset' },
       { key: 'n', label: state.showNoise ? 'hide 4xx' : 'show 4xx' },
@@ -488,6 +503,7 @@ function footer(ui: Container, state: State, theme: Theme): void {
         color: severityColors.medium,
       },
       { label: state.moduleFilter ? `filter: ${state.moduleFilter}` : '', color: theme.primary },
+      { label: state.sourceFilter ? `src: ${state.sourceFilter}` : '', color: theme.primary },
       {
         label: state.firewall
           ? `${state.bans.length} banned${state.firewall.dry_run ? ' (dry-run)' : ''}`
