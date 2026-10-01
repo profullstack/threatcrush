@@ -20,6 +20,8 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
   const [fleet, setFleet] = useState<FleetResponse | null>(null);
   const [error, setError] = useState("");
   const [orgFilter, setOrgFilter] = useState("all");
+  const [restarting, setRestarting] = useState(false);
+  const [restartNote, setRestartNote] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -47,6 +49,30 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
   const servers = (fleet?.servers ?? []).filter((s) => orgFilter === "all" || s.org_id === orgFilter);
   const summary = fleet?.summary;
 
+  const restartAll = async () => {
+    const scope = orgFilter === "all" ? "every organization" : "this organization";
+    if (!window.confirm(`Restart the ThreatCrush daemon on every server you administer in ${scope}? Each daemon drops for a few seconds while it restarts.`)) return;
+    setRestarting(true);
+    setRestartNote("");
+    setError("");
+    try {
+      const orgIds = [...new Set(servers.map((s) => s.org_id))];
+      let queued = 0;
+      for (const orgId of orgIds) {
+        const res = await fetch(`/api/orgs/${orgId}/restart-all`, { method: "POST", headers: authHeaders() });
+        const data = (await res.json().catch(() => ({}))) as { queued?: number; error?: string };
+        if (res.ok) queued += data.queued ?? 0;
+        // A 403 (no admin servers in that org) is not fatal across many orgs.
+        else if (res.status !== 403) throw new Error(data.error || `Restart failed (${res.status})`);
+      }
+      setRestartNote(queued > 0 ? `Restart queued for ${queued} server${queued === 1 ? "" : "s"}. They reconnect within a minute.` : "No servers you administer to restart.");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -66,6 +92,15 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
               {orgs.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
             </select>
           )}
+          <button
+            type="button"
+            onClick={restartAll}
+            disabled={restarting || servers.length === 0}
+            title="Restart the daemon on every server you administer (in the current filter)"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-300 bg-zinc-800 border border-zinc-700 hover:border-yellow-500/50 hover:bg-zinc-700 transition-colors disabled:opacity-50"
+          >
+            {restarting ? "Restarting…" : "Restart all"}
+          </button>
           <Link
             href={addServerHref}
             className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-300 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors"
@@ -74,6 +109,12 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
           </Link>
         </div>
       </div>
+
+      {restartNote && (
+        <div className="mb-4 rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-3">
+          <p className="text-sm text-green-400">{restartNote}</p>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3">

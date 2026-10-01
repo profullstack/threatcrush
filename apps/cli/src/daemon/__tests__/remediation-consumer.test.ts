@@ -148,6 +148,31 @@ describe('remediation consumer', () => {
       .toMatchObject({ status: 'failed' });
   });
 
+  it('executes a restart: reports executed now, restarts shortly after', async () => {
+    vi.useFakeTimers();
+    try {
+      const { manager, log } = setup();
+      let restarted = 0;
+      const consumer = new RemediationConsumer(manager, { log, restartDaemon: () => { restarted += 1; } });
+      // Reports success immediately so the result lands before the process dies.
+      expect(await consumer.execute(action({ action_type: 'restart', target_value: 'daemon' })))
+        .toMatchObject({ status: 'executed' });
+      expect(restarted).toBe(0);
+      // The actual restart fires a few seconds later.
+      vi.advanceTimersByTime(3500);
+      expect(restarted).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails a restart when the daemon cannot restart itself', async () => {
+    const { manager, log } = setup();
+    const consumer = new RemediationConsumer(manager, { log }); // no restartDaemon
+    expect(await consumer.execute(action({ action_type: 'restart', target_value: 'daemon' })))
+      .toMatchObject({ status: 'failed' });
+  });
+
   it('retries a PATCH the dashboard did not take, without executing again', async () => {
     const { manager, log } = setup();
     let patchUp = false;

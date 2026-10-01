@@ -1004,6 +1004,14 @@ serversCmd
     await serversCommand({ action: "unlink" });
   });
 
+serversCmd
+  .command("restart-all")
+  .option("--org <id|slug>", "Organization (default: current org, or your only org)")
+  .description("Queue a daemon restart for every server you administer")
+  .action(async (opts: { org?: string }) => {
+    await serversCommand({ action: "restart-all", org: opts.org });
+  });
+
 // ─── Properties ───
 
 const propsCmd = program

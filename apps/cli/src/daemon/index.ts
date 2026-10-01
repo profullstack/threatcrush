@@ -1,5 +1,5 @@
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -81,6 +81,17 @@ export async function runDaemon(): Promise<void> {
 
   const version = readVersion();
   logLine(`[daemon] starting threatcrushd v${version} mode=${PATHS.mode}`);
+
+  // Restart this daemon, used by the dashboard's "restart" action. Under systemd
+  // let the unit do it cleanly; otherwise re-exec a fresh daemon and exit.
+  const restartDaemon = (): void => {
+    if (PATHS.mode === 'system') {
+      spawn('systemctl', ['restart', 'threatcrushd'], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: 'ignore' }).unref();
+      setTimeout(() => process.exit(0), 500).unref();
+    }
+  };
 
   // Checked before the state DB opens: on too old a Node the SQLite driver
   // segfaults, which kills the process before any catch can log why.
@@ -183,7 +194,7 @@ export async function runDaemon(): Promise<void> {
       runHardening: runHardeningChecks,
     });
     cloudSync.start();
-    remediationConsumer = new RemediationConsumer(remediation, { log: logLine });
+    remediationConsumer = new RemediationConsumer(remediation, { log: logLine, restartDaemon });
     remediationConsumer.start();
     allowlistSync = new AllowlistSync(remediation, { log: logLine });
     allowlistSync.start();
