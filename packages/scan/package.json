@@ -1,6 +1,6 @@
 {
   "name": "@threatcrush/scan",
-  "version": "0.13.12",
+  "version": "0.13.13",
   "description": "ThreatCrush scan rules and engine, shared by the CLI, web, desktop and extension.",
   "license": "MIT",
   "type": "module",
