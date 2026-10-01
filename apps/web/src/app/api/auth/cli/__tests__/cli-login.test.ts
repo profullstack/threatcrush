@@ -126,7 +126,9 @@ describe("CLI login by link", () => {
     const { p, data } = await begin();
     const poll = () => token(post("/api/auth/cli/token", { request_id: data.request_id, code_verifier: p.verifier }));
 
+    // 2xx, so a waiting terminal never looks like a 4xx-spraying scanner.
     const pending = await poll();
+    expect(pending.status).toBe(202);
     expect(await pending.json()).toEqual({ error: "authorization_pending" });
 
     signedInAs = "anthony";

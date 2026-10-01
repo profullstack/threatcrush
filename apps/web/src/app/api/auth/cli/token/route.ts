@@ -5,6 +5,11 @@ import { isExpired, isRequestId, isValidVerifier, mintSession, verifierMatches }
 // POST /api/auth/cli/token { request_id, code_verifier } — the CLI polls this
 // until the request is approved, then receives a session of its own. Error
 // codes follow RFC 8628 so the CLI can tell "keep waiting" from "give up".
+//
+// "Keep waiting" is a 202, not RFC 8628's 400: a terminal polling every 3s
+// produced 20 4xx responses a minute, which is exactly what ThreatCrush's own
+// web-scanner-detection rule bans, and on 2026-10-01 dev2 banned four of our
+// own servers mid-login.
 export async function POST(req: NextRequest) {
   try {
     let body: { request_id?: unknown; code_verifier?: unknown };
@@ -38,7 +43,7 @@ export async function POST(req: NextRequest) {
     if (request.status === "pending") {
       return isExpired(request.expires_at)
         ? NextResponse.json({ error: "expired_token" }, { status: 400 })
-        : NextResponse.json({ error: "authorization_pending" }, { status: 400 });
+        : NextResponse.json({ error: "authorization_pending" }, { status: 202 });
     }
 
     // Approved. Claim it before minting, so a replayed poll can never mint twice.
