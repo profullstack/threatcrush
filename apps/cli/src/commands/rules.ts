@@ -68,7 +68,7 @@ export async function rulesShowCommand(ruleId: string): Promise<void> {
   if (rule.remediation) {
     console.log(`  Remediation:  ${chalk.gray(rule.remediation.description || rule.remediation.action || 'none')}`);
     if (rule.remediation.action === 'block') {
-      console.log(`  Ban length:   ${chalk.gray('escalation ladder, 1m → 2m → 3m → 5m → 8m … up to max_ban')}`);
+      console.log(`  Ban length:   ${chalk.gray('escalation ladder, doubling from first_ban: 15m → 30m → 1h → 2h … up to max_ban')}`);
     }
   }
   console.log();

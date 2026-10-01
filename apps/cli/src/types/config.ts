@@ -35,9 +35,11 @@ export interface RemediationSection {
   dry_run?: boolean;
   backend?: 'auto' | 'fail2ban' | 'nftables' | 'iptables' | 'dry-run';
   min_severity?: 'info' | 'low' | 'medium' | 'high' | 'critical';
-  /** Ceiling on the escalating ladder, e.g. "24h". */
+  /** The first offence's ban, e.g. "15m"; each later offence doubles it. */
+  first_ban?: string;
+  /** Ceiling on the escalating ladder, e.g. "7d". */
   max_ban?: string;
-  /** How long an offence counts towards escalation, e.g. "24h". */
+  /** How long an offence counts towards escalation, e.g. "30d". */
   strike_memory?: string;
   /** Extra never-block addresses or CIDRs, on top of the built-in set. */
   protected?: string[];
@@ -46,7 +48,7 @@ export interface RemediationSection {
   protect_current_ssh_client?: boolean;
   /** Never auto-ban a Googlebot/Bingbot verified by forward-confirmed reverse DNS. Default true. */
   spare_verified_crawlers?: boolean;
-  /** Historical spelling, seconds. Superseded by the Fibonacci ladder. */
+  /** Historical spelling, seconds. Superseded by the doubling ladder. */
   default_ttl_seconds?: number;
 }
 

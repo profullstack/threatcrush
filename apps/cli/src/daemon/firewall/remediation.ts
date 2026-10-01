@@ -5,7 +5,7 @@ import type { EventBus } from '../event-bus.js';
 import { getModuleState, setModuleState } from '../../core/state.js';
 import { PATHS } from '../paths.js';
 import type { ThreatEvent } from '../../types/events.js';
-import { banSeconds, formatDuration, pruneStrikes, recordStrike, type Strike } from './backoff.js';
+import { DEFAULT_FIRST_BAN_SECONDS, banSeconds, formatDuration, pruneStrikes, recordStrike, type Strike } from './backoff.js';
 import {
   DEFAULT_PROTECTED,
   currentSshClient,
@@ -22,7 +22,7 @@ export interface BlockEntry {
   blocked_at: number;
   expires_at: number;
   dry_run: boolean;
-  /** Which offence this ban was — the rung of the Fibonacci ladder. */
+  /** Which offence this ban was — the rung of the doubling ladder. */
   strikes: number;
   /** How the ban came about, so the dashboard can tell them apart. */
   source: 'auto' | 'manual';
@@ -38,6 +38,8 @@ export interface RemediationConfig {
    */
   dry_run: boolean;
   min_severity: string;
+  /** The first offence's ban; each later offence doubles it. */
+  first_ban_seconds: number;
   /** Ceiling for the escalating ladder. Nothing is ever permanent (R2). */
   max_ban_seconds: number;
   /** How long an offence is remembered when deciding the next ban length. */
@@ -57,8 +59,11 @@ const DEFAULT_CONFIG: RemediationConfig = {
   enabled: true,
   dry_run: false,
   min_severity: 'high',
-  max_ban_seconds: 86400,
-  strike_memory_seconds: 86400,
+  first_ban_seconds: DEFAULT_FIRST_BAN_SECONDS,
+  max_ban_seconds: 7 * 86400,
+  // Longer than the ceiling, or an address that reaches it is forgotten while
+  // banned and comes back at the first rung.
+  strike_memory_seconds: 30 * 86400,
   allowlist: [],
   protect_current_ssh_client: true,
   spare_verified_crawlers: true,
@@ -205,9 +210,9 @@ export class RemediationManager {
   }
 
   /**
-   * Ban `ip`. With no explicit TTL the length comes from the Fibonacci ladder:
-   * 1m, 2m, 3m, 5m, 8m, 13m … for the 1st, 2nd, 3rd offence and so on, clamped
-   * to `max_ban_seconds`.
+   * Ban `ip`. With no explicit TTL the length comes from the doubling ladder:
+   * `first_ban_seconds` (15m by default), then 30m, 1h, 2h … for the 2nd, 3rd,
+   * 4th offence and so on, clamped to `max_ban_seconds`.
    */
   async ban(
     ip: string,
@@ -264,7 +269,7 @@ export class RemediationManager {
     }
 
     const strike = recordStrike(this.strikes, ip, now, this.config.strike_memory_seconds);
-    const ttl = opts.ttlSeconds ?? banSeconds(strike, this.config.max_ban_seconds);
+    const ttl = opts.ttlSeconds ?? banSeconds(strike, this.config.max_ban_seconds, this.config.first_ban_seconds);
 
     const entry: BlockEntry = {
       ip,
@@ -377,6 +382,7 @@ export class RemediationManager {
     backend: string;
     min_severity: string;
     banned: number;
+    first_ban_seconds: number;
     max_ban_seconds: number;
     warning?: string;
   } {
@@ -386,6 +392,7 @@ export class RemediationManager {
       backend: this.adapter.name,
       min_severity: this.config.min_severity,
       banned: this.blocklist.length,
+      first_ban_seconds: this.config.first_ban_seconds,
       max_ban_seconds: this.config.max_ban_seconds,
       warning: this.privilegeWarning(),
     };
