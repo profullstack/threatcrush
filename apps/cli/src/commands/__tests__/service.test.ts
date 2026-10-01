@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { nodeVersionDir, stableBinPath, systemdUnavailableReason } from "../service.js";
+import { nodeVersionDir, renderUnit, stableBinPath, systemdUnavailableReason } from "../service.js";
 
 const UNIT = readFileSync(
   join(__dirname, "..", "..", "systemd", "threatcrushd.service"),
@@ -59,6 +59,33 @@ describe("systemd unit template", () => {
     expect(UNIT).toMatch(/^ProtectHome=read-only$/m);
     const readWrite = UNIT.split("\n").find((l) => l.startsWith("ReadWritePaths="));
     expect(readWrite).toContain("{{CONFIG_DIR}}");
+  });
+});
+
+describe("renderUnit", () => {
+  const UNIT = readFileSync(join(__dirname, "..", "..", "systemd", "threatcrushd.service"), "utf-8");
+  const rendered = renderUnit(UNIT, {
+    exec: "/usr/bin/node /usr/lib/node_modules/@profullstack/threatcrush/dist/index.js daemon",
+    binPath: "/usr/lib/node_modules/@profullstack/threatcrush/dist/index.js",
+    configDir: "/root/.threatcrush",
+  });
+
+  it("substitutes every placeholder, leaving none behind", () => {
+    // The bug this test exists for: the template names {{CONFIG_DIR}} in a
+    // comment AND in ReadWritePaths, and a non-global replace left the real one
+    // literal — systemd then ignored it ("path is not absolute") and the
+    // session dir stayed read-only.
+    expect(rendered).not.toMatch(/\{\{.*?\}\}/);
+  });
+
+  it("writes an absolute, writable config dir into ReadWritePaths", () => {
+    const readWrite = rendered.split("\n").find((l) => l.startsWith("ReadWritePaths="))!;
+    expect(readWrite).toContain("/root/.threatcrush");
+    expect(readWrite).toMatch(/ReadWritePaths=(\/\S+ )+\/root\/\.threatcrush$/);
+  });
+
+  it("sets ExecStart to the resolved command", () => {
+    expect(rendered).toMatch(/^ExecStart=\/usr\/bin\/node \S+\/dist\/index\.js daemon$/m);
   });
 });
 

@@ -83,6 +83,24 @@ export function execStartCommand(binPath: string, nodePath: string, isNodeScript
 }
 
 /**
+ * Fill the unit template's placeholders. `replaceAll`, not `replace`: the
+ * template names `{{CONFIG_DIR}}` in a comment as well as in `ReadWritePaths=`,
+ * and `String.replace(string, …)` swaps only the first match — which left the
+ * real ReadWritePaths entry as a literal placeholder that systemd ignored, so
+ * the session dir stayed read-only and the EROFS/offline bug was not actually
+ * fixed. Asserted by service.test.ts.
+ */
+export function renderUnit(
+  template: string,
+  opts: { exec: string; binPath: string; configDir: string },
+): string {
+  return template
+    .replaceAll('{{BIN_PATH}} daemon', opts.exec)
+    .replaceAll('{{BIN_PATH}}', opts.binPath)
+    .replaceAll('{{CONFIG_DIR}}', opts.configDir);
+}
+
+/**
  * The install tree of one particular Node version that `path` lives in, if any:
  * mise (`installs/node/<v>`, including its moving `latest`), asdf
  * (`installs/nodejs/<v>`), nvm
@@ -270,10 +288,7 @@ export async function installServiceCommand(): Promise<void> {
   // The daemon runs as root under the unit, so its session lives in root's
   // ~/.threatcrush. It must be writable or the cloud token refresh hits EROFS.
   const configDir = join(homedir(), '.threatcrush');
-  const unit = resolveTemplate()
-    .replace('{{BIN_PATH}} daemon', exec)
-    .replace('{{BIN_PATH}}', binPath)
-    .replace('{{CONFIG_DIR}}', configDir);
+  const unit = renderUnit(resolveTemplate(), { exec, binPath, configDir });
   writeFileSync(UNIT_PATH, unit, { mode: 0o644 });
   console.log(chalk.green(`  ✓ Installed unit file: ${UNIT_PATH}`));
   console.log(chalk.dim(`    ExecStart=${exec}`));
