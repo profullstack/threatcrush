@@ -92,7 +92,8 @@ export async function addMember(orgId: string, email: string, role = "member") {
     const err = await res.json().catch(() => ({ error: "Failed to add member" }));
     throw new Error(err.error || "Failed to add member");
   }
-  return res.json() as Promise<{ member: Record<string, unknown> }>;
+  // Either an existing user was added, or an invite was created for a new email.
+  return res.json() as Promise<{ member?: Record<string, unknown>; invited?: boolean; email?: string; url?: string; emailed?: boolean }>;
 }
 
 export async function updateMemberRole(orgId: string, userId: string, role: string) {

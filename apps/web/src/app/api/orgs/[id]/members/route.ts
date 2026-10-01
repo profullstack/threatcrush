@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { createOrgInvite, type OrgRole } from "@/lib/invites";
 
 // GET /api/orgs/[id]/members — List organization members
 export async function GET(
@@ -126,14 +127,27 @@ export async function POST(
     }
 
     // Find user by email
-    const { data: targetUser, error: userError } = await getSupabaseAdmin()
+    const normalizedEmail = email.toLowerCase().trim();
+    const { data: targetUser } = await getSupabaseAdmin()
       .from("user_profiles")
       .select("id, email")
-      .eq("email", email.toLowerCase())
-      .single();
+      .eq("email", normalizedEmail)
+      .maybeSingle();
 
-    if (userError || !targetUser) {
-      return NextResponse.json({ error: "User with this email not found. They need to sign up first." }, { status: 404 });
+    // No account yet: invite them instead of dead-ending. They join the org at
+    // this role when they accept.
+    if (!targetUser) {
+      const { data: org } = await getSupabaseAdmin().from("organizations").select("name").eq("id", orgId).maybeSingle();
+      const invite = await createOrgInvite(getSupabaseAdmin(), {
+        orgId,
+        email: normalizedEmail,
+        role: role as OrgRole,
+        invitedBy: user.id,
+        inviterEmail: user.email ?? null,
+        orgName: org?.name ?? "your organization",
+      });
+      if (!invite) return NextResponse.json({ error: "Could not create the invite" }, { status: 500 });
+      return NextResponse.json({ invited: true, email: normalizedEmail, url: invite.url, emailed: invite.emailed }, { status: 201 });
     }
 
     // Check if already a member

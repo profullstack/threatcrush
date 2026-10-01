@@ -57,7 +57,8 @@ export const teamsApi = {
   remove: (orgId: string, teamId: string) => call(`${base(orgId)}/teams/${teamId}`, { method: "DELETE" }),
 
   addMember: (orgId: string, teamId: string, email: string, role: TeamRole) =>
-    call(`${base(orgId)}/teams/${teamId}/members`, { method: "POST", body: { email, role } }),
+    call<{ member?: unknown; invited?: boolean; email?: string; url?: string; emailed?: boolean }>(
+      `${base(orgId)}/teams/${teamId}/members`, { method: "POST", body: { email, role } }),
   setMemberRole: (orgId: string, teamId: string, userId: string, role: TeamRole) =>
     call(`${base(orgId)}/teams/${teamId}/members/${userId}`, { method: "PATCH", body: { role } }),
   removeMember: (orgId: string, teamId: string, userId: string) =>
