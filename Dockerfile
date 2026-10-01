@@ -1,3 +1,15 @@
+# threatcrush.com web app, run on Bun.
+#
+# Only the web container's runtime is Bun. pnpm stays the repo's package manager
+# because the same workspace builds and publishes the threatcrush CLI and the
+# desktop app; the install below is unchanged. Next is then built with
+# `bun --bun next build` and the standalone server runs under Bun.
+# dev2 builds this file (/home/anthony/www/threatcrush.com) and passes three
+# NEXT_PUBLIC_* build args. The Node image never declared them, so its build
+# never saw them; they stay undeclared so this build is identical. Port 3000,
+# env and the health path are unchanged.
+FROM oven/bun:1.4.0-slim AS bun
+
 FROM node:22-slim AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
@@ -22,31 +34,31 @@ RUN pnpm install --frozen-lockfile
 # Now bring in the rest of the source.
 COPY . .
 
-# Build the web app only for the container image.
-RUN pnpm --filter @profullstack/threatcrush-web build
+# Build the web app only for the container image, with Next running on Bun.
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+RUN cd apps/web && bun --bun node_modules/next/dist/bin/next build
 
-FROM node:22-slim AS runner
+FROM oven/bun:1.4.0-slim AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=3000
-ENV NODE_OPTIONS=--max-old-space-size=1024
 
 WORKDIR /app
 
-COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
-COPY --from=builder --chown=node:node /app/apps/web/public ./apps/web/public
-COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=bun:bun /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=bun:bun /app/apps/web/public ./apps/web/public
+COPY --from=builder --chown=bun:bun /app/apps/web/.next/static ./apps/web/.next/static
 
-USER node
+# The oven/bun image ships a non-root `bun` user.
+USER bun
 
 EXPOSE 3000
 
-# The slim image has neither curl nor wget, so the probe uses Node's fetch.
 # /api/health answers 503 when the database is unreachable, which marks the
 # container unhealthy instead of reporting a web process that cannot serve.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+  CMD ["bun", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 
-CMD ["node", "apps/web/server.js"]
+CMD ["bun", "apps/web/server.js"]
