@@ -6,6 +6,7 @@ import { listOrganizations, listServers } from "@/lib/organizations";
 import { authHeaders } from "@/lib/auth-client";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 import ConnectServerHint from "@/components/ConnectServerHint";
+import FixReportActions from "@/components/FixReportActions";
 import Link from "next/link";
 
 interface Detection {
@@ -27,6 +28,7 @@ interface Organization {
   id: string;
   name: string;
   slug: string;
+  user_role?: string;
 }
 
 const REFRESH_MS = 30_000;
@@ -225,12 +227,15 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
               <p className="text-sm text-zinc-500">{org.name} &middot; {total} total</p>
             </div>
           </div>
-          {refreshedAt && (
-            <span className="inline-flex items-center gap-1.5 text-xs text-zinc-500" title="Refreshes every 30 seconds while this tab is visible">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-              Updated {refreshedAt.toLocaleTimeString()}
-            </span>
-          )}
+          <div className="flex items-start gap-4">
+            {refreshedAt && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-zinc-500 mt-2" title="Refreshes every 30 seconds while this tab is visible">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
+                Updated {refreshedAt.toLocaleTimeString()}
+              </span>
+            )}
+            <FixReportActions orgId={org.id} canManage={org.user_role === "owner" || org.user_role === "admin"} />
+          </div>
         </div>
 
         {/* Filters */}

@@ -38,6 +38,9 @@ export default function SiteHeader() {
             <img src="/logo.svg" alt="ThreatCrush" className="h-12 w-auto sm:h-14" />
           </a>
           <div className="hidden md:flex items-center gap-5 text-sm text-tc-text-dim">
+            {signedIn && (
+              <a href="/dashboard" className="text-tc-green transition-colors">Dashboard</a>
+            )}
             <a href="/store" className="text-tc-green transition-colors">Module Store</a>
             <a href="/blog" className="hover:text-tc-green transition-colors">Blog</a>
             <a href="/docs" className="hover:text-tc-green transition-colors">Docs</a>
@@ -227,6 +230,7 @@ export default function SiteHeader() {
               <a href="/#faq" className="hover:text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>FAQ</a>
               {signedIn ? (
                 <>
+                  <a href="/dashboard" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Dashboard</a>
                   <a href="/account" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Account</a>
                   {profile?.is_admin && (
                     <a href="/admin" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Admin</a>
