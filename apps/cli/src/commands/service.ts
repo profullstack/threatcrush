@@ -1,6 +1,7 @@
 import { execSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
 import { daemonNodeProblem, versionOfNode } from '../core/node-runtime.js';
@@ -266,7 +267,13 @@ export async function installServiceCommand(): Promise<void> {
     }
   }
   const exec = execStartCommand(binPath, nodePath, isNodeScript);
-  const unit = resolveTemplate().replace('{{BIN_PATH}} daemon', exec).replace('{{BIN_PATH}}', binPath);
+  // The daemon runs as root under the unit, so its session lives in root's
+  // ~/.threatcrush. It must be writable or the cloud token refresh hits EROFS.
+  const configDir = join(homedir(), '.threatcrush');
+  const unit = resolveTemplate()
+    .replace('{{BIN_PATH}} daemon', exec)
+    .replace('{{BIN_PATH}}', binPath)
+    .replace('{{CONFIG_DIR}}', configDir);
   writeFileSync(UNIT_PATH, unit, { mode: 0o644 });
   console.log(chalk.green(`  ✓ Installed unit file: ${UNIT_PATH}`));
   console.log(chalk.dim(`    ExecStart=${exec}`));
@@ -282,7 +289,7 @@ export async function installServiceCommand(): Promise<void> {
     console.log(chalk.dim('    Installing with a system Node (/usr/bin/node or /usr/local/bin/node) avoids this.'));
   }
 
-  ensureSystemDirs();
+  ensureSystemDirs(configDir);
 
   // The daemon this service replaces has to go first, or two daemons run at
   // once and the client prefers the wrong one.
@@ -317,7 +324,7 @@ export async function installServiceCommand(): Promise<void> {
 // systemd `ReadWritePaths=` requires these to exist before the unit starts,
 // and we want module installs / config edits to be writable by `adm` group
 // members (same boundary used for log read access and IPC socket access).
-function ensureSystemDirs(): void {
+function ensureSystemDirs(configDir: string): void {
   // Only the config side is group-writable. The runtime dirs used to be 0775
   // adm as well, which meant an adm member could replace files the daemon
   // relies on for its own authorization — including the control token that now
@@ -329,6 +336,9 @@ function ensureSystemDirs(): void {
     { path: '/etc/threatcrush/threatcrushd.conf.d', groupWritable: true },
     { path: '/var/log/threatcrush', groupWritable: false },
     { path: '/var/lib/threatcrush', groupWritable: false },
+    // The daemon's own session dir, root-only: it holds the cloud access and
+    // refresh tokens, so nobody else may read or write it.
+    { path: configDir, groupWritable: false },
     // /run/threatcrush is deliberately absent: it lives on a tmpfs, so creating
     // it here only lasts until the next reboot. The unit's RuntimeDirectory=
     // recreates it on every start instead.

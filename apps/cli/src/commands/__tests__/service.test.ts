@@ -51,6 +51,15 @@ describe("systemd unit template", () => {
   it("lets systemd create the runtime directory on each start", () => {
     expect(UNIT).toMatch(/^RuntimeDirectory=threatcrush$/m);
   });
+
+  it("makes the daemon's session dir writable despite ProtectHome, so token refresh can persist", () => {
+    // ProtectHome=read-only would otherwise make ~/.threatcrush read-only; the
+    // {{CONFIG_DIR}} placeholder (filled in by install-service) punches it back
+    // to writable, which is what the EROFS → all-offline bug needed.
+    expect(UNIT).toMatch(/^ProtectHome=read-only$/m);
+    const readWrite = UNIT.split("\n").find((l) => l.startsWith("ReadWritePaths="));
+    expect(readWrite).toContain("{{CONFIG_DIR}}");
+  });
 });
 
 describe("systemdUnavailableReason", () => {

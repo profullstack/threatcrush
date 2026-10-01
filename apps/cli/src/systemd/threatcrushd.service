@@ -16,8 +16,13 @@ TimeoutStopSec=10
 # Security hardening — adjust as needed
 NoNewPrivileges=true
 ProtectSystem=full
+# ProtectHome is read-only, but the daemon must write its own cloud session
+# dir (it rotates and re-saves the access/refresh token on every refresh).
+# {{CONFIG_DIR}} is the daemon user's ~/.threatcrush, punched back to writable
+# here by `threatcrush install-service`. Without it the token refresh hit
+# EROFS, the heartbeat stopped, and every server showed offline after an hour.
 ProtectHome=read-only
-ReadWritePaths=/etc/threatcrush /var/log/threatcrush /var/lib/threatcrush
+ReadWritePaths=/etc/threatcrush /var/log/threatcrush /var/lib/threatcrush {{CONFIG_DIR}}
 # /var/run is a symlink to /run, which is a tmpfs — anything created there at
 # install time is gone after the next reboot. Listing it under ReadWritePaths
 # then makes the unit fail 226/NAMESPACE on every start. RuntimeDirectory has
