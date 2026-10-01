@@ -11,11 +11,13 @@ async function findInvite(token: string) {
   if (!TOKEN.test(token)) return null;
   const { data } = await getSupabaseAdmin()
     .from("team_invites")
-    .select("id, org_id, team_id, email, role, expires_at, accepted_at, revoked_at, organizations(name), teams(name)")
+    .select("id, org_id, team_id, email, role, org_role, expires_at, accepted_at, revoked_at, organizations(name), teams(name)")
     .eq("token_hash", hashSecret(token))
     .maybeSingle();
   return data;
 }
+
+const ORG_RANK: Record<string, number> = { guest: 1, member: 2, admin: 3, owner: 4 };
 
 function one<T>(v: T | T[] | null | undefined): T | null {
   return Array.isArray(v) ? v[0] ?? null : v ?? null;
@@ -34,7 +36,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
         org_name: one(invite.organizations as { name: string } | { name: string }[] | null)?.name ?? null,
         team_name: one(invite.teams as { name: string } | { name: string }[] | null)?.name ?? null,
         email: invite.email,
-        role: invite.role,
+        role: invite.role ?? invite.org_role,
         expires_at: invite.expires_at,
         status,
       },
@@ -68,18 +70,31 @@ export async function POST(req: NextRequest, { params }: Params) {
       .maybeSingle();
     if (!claimed) return fail(410, "This invite has expired or was already used");
 
-    // Into the organization as a guest, unless already in it.
     const { data: membership } = await admin
       .from("organization_members")
       .select("role")
       .eq("org_id", invite.org_id)
       .eq("user_id", p.userId)
       .maybeSingle();
+    const { data: org } = await admin.from("organizations").select("slug").eq("id", invite.org_id).maybeSingle();
+
+    // Org-level invite: join the org at the invited role (never lower an
+    // existing one), no team.
+    if (!invite.team_id) {
+      const want = typeof invite.org_role === "string" ? invite.org_role : "member";
+      if (!membership) {
+        await admin.from("organization_members").insert({ org_id: invite.org_id, user_id: p.userId, role: want });
+      } else if ((ORG_RANK[want] ?? 0) > (ORG_RANK[membership.role] ?? 0)) {
+        await admin.from("organization_members").update({ role: want }).eq("org_id", invite.org_id).eq("user_id", p.userId);
+      }
+      return NextResponse.json({ accepted: true, org_slug: org?.slug ?? null, role: want });
+    }
+
+    // Team invite: into the org as a guest if new, then onto the team, never
+    // lowering a team role they already have.
     if (!membership) {
       await admin.from("organization_members").insert({ org_id: invite.org_id, user_id: p.userId, role: "guest" });
     }
-
-    // Onto the team, never lowering a role they already have there.
     const role = isTeamRole(invite.role) ? invite.role : "read";
     const { data: seat } = await admin
       .from("team_members")
@@ -92,7 +107,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       .from("team_members")
       .upsert({ team_id: invite.team_id, user_id: p.userId, role: keep }, { onConflict: "team_id,user_id" });
 
-    const { data: org } = await admin.from("organizations").select("slug").eq("id", invite.org_id).maybeSingle();
     return NextResponse.json({ accepted: true, org_slug: org?.slug ?? null, team_id: invite.team_id, role: keep });
   } catch (err) {
     console.error("Accept invite error:", err);

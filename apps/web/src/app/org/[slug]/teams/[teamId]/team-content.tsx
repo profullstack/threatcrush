@@ -264,9 +264,14 @@ export default function TeamContent({ slug, teamId }: { slug: string; teamId: st
             <form className="flex flex-wrap gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                void act(() => teamsApi.addMember(org.id, teamId, memberEmail.trim(), memberRole).then(() => setMemberEmail("")), "Added to the team.");
+                void act(async () => {
+                  const res = await teamsApi.addMember(org.id, teamId, memberEmail.trim(), memberRole);
+                  setMemberEmail("");
+                  // New email with no account: an invite was created, show its link.
+                  if (res.invited && res.url) setInviteLink({ url: res.url, emailed: Boolean(res.emailed) });
+                }, "Member added or invited.");
               }}>
-              <input className={`${input} flex-1 min-w-[12rem]`} type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} placeholder="Email of someone already in the organization" aria-label="Member email" />
+              <input className={`${input} flex-1 min-w-[12rem]`} type="email" value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} placeholder="Email — they're invited if they have no account yet" aria-label="Member email" />
               <RoleSelect value={memberRole} onChange={setMemberRole} label="Role for new member" />
               <button type="submit" className={primary} disabled={busy || !memberEmail.trim()}>Add</button>
             </form>

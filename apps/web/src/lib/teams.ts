@@ -67,27 +67,35 @@ export async function uniqueSlug(admin: SupabaseClient, table: "teams" | "fleets
   for (let i = 2; ; i++) if (!taken.has(`${base}-${i}`)) return `${base}-${i}`;
 }
 
-const ROLE_WORDS: Record<TeamRole, string> = {
+const ROLE_WORDS: Record<string, string> = {
   read: "read-only access",
   write: "write access",
   admin: "admin access",
+  member: "member access",
+  owner: "owner access",
+  guest: "guest access",
 };
 
-/** Best effort: the invite is valid whether or not the email goes out. */
+/**
+ * Best effort: the invite is valid whether or not the email goes out.
+ * `teamName` null means an org-level invite (join the organization itself).
+ */
 export async function sendInviteEmail(opts: {
   to: string;
   orgName: string;
-  teamName: string;
-  role: TeamRole;
+  teamName: string | null;
+  role: string;
   inviter: string | null;
   url: string;
 }): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return false;
   const who = opts.inviter ?? "Someone";
-  const subject = `${who} invited you to ${opts.teamName} on ThreatCrush`;
+  const where = opts.teamName ? `the ${opts.teamName} team in ${opts.orgName}` : opts.orgName;
+  const access = ROLE_WORDS[opts.role] ?? `${opts.role} access`;
+  const subject = `${who} invited you to ${opts.teamName ?? opts.orgName} on ThreatCrush`;
   const text =
-    `${who} invited you to the ${opts.teamName} team in ${opts.orgName} on ThreatCrush, with ${ROLE_WORDS[opts.role]}.\n\n` +
+    `${who} invited you to ${where} on ThreatCrush, with ${access}.\n\n` +
     `Accept: ${opts.url}\n\nThe link works once and expires in 14 days.`;
   try {
     const { error } = await new Resend(apiKey).emails.send({ from: INVITE_FROM, to: [opts.to], subject, text });

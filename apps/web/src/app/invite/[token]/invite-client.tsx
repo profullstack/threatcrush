@@ -4,13 +4,27 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { authHeaders } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
-import { ROLE_HELP, ROLE_LABEL, type TeamRole } from "@/lib/teams-client";
+import { ROLE_HELP, ROLE_LABEL } from "@/lib/teams-client";
+
+// Team invites use read/write/admin; org invites use owner/admin/member/guest.
+const ORG_ROLE_HELP: Record<string, string> = {
+  owner: "Full control of the organization",
+  admin: "Manage the organization, its servers and teams",
+  member: "See and act on servers that are not in a team fleet",
+  guest: "See only the teams you are added to",
+};
+function roleLabel(role: string): string {
+  return (ROLE_LABEL as Record<string, string>)[role] ?? role.charAt(0).toUpperCase() + role.slice(1);
+}
+function roleHelp(role: string): string {
+  return (ROLE_HELP as Record<string, string>)[role] ?? ORG_ROLE_HELP[role] ?? "";
+}
 
 interface Invite {
   org_name: string | null;
   team_name: string | null;
   email: string;
-  role: TeamRole;
+  role: string;
   expires_at: string;
   status: "pending" | "accepted" | "revoked" | "expired";
 }
@@ -38,7 +52,9 @@ export default function InviteClient({ token }: { token: string }) {
       const res = await fetch(`/api/invites/${encodeURIComponent(token)}`, { method: "POST", headers: authHeaders() });
       const data = (await res.json().catch(() => ({}))) as { org_slug?: string; team_id?: string; error?: string };
       if (!res.ok) throw new Error(data.error || "Could not accept the invite");
-      window.location.href = data.org_slug && data.team_id ? `/org/${data.org_slug}/teams/${data.team_id}` : "/dashboard";
+      window.location.href = data.org_slug
+        ? (data.team_id ? `/org/${data.org_slug}/teams/${data.team_id}` : `/org/${data.org_slug}`)
+        : "/dashboard";
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -63,11 +79,18 @@ export default function InviteClient({ token }: { token: string }) {
           {invite && (
             <>
               <p className="text-tc-text">
-                You are invited to <span className="text-white font-semibold">{invite.team_name ?? "a team"}</span> in{" "}
-                <span className="text-white font-semibold">{invite.org_name ?? "an organization"}</span> with{" "}
-                <span className="text-tc-green font-semibold">{ROLE_LABEL[invite.role]}</span> access.
+                You are invited to{" "}
+                {invite.team_name ? (
+                  <>
+                    <span className="text-white font-semibold">{invite.team_name}</span> in{" "}
+                    <span className="text-white font-semibold">{invite.org_name ?? "an organization"}</span>
+                  </>
+                ) : (
+                  <span className="text-white font-semibold">{invite.org_name ?? "an organization"}</span>
+                )}{" "}
+                with <span className="text-tc-green font-semibold">{roleLabel(invite.role)}</span> access.
               </p>
-              <p className="text-sm text-tc-text-dim">{ROLE_HELP[invite.role]}.</p>
+              <p className="text-sm text-tc-text-dim">{roleHelp(invite.role)}.</p>
               <p className="text-xs text-tc-text-dim">Sent to {invite.email}.</p>
 
               {invite.status !== "pending" ? (

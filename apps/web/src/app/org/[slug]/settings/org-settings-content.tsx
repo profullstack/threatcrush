@@ -101,11 +101,15 @@ export default function OrgSettingsContent({ slug }: { slug: string }) {
     setInviting(true);
     setError("");
     try {
-      const { member } = await addMember(org.id, inviteEmail, "member");
-      setMembers([...members, member as unknown as MemberData]);
+      const res = await addMember(org.id, inviteEmail, "member");
       setInviteEmail("");
-      setSuccess("Member invited");
-      setTimeout(() => setSuccess(""), 3000);
+      if (res.invited) {
+        setSuccess(res.emailed ? `Invite emailed to ${res.email}` : `Invite created for ${res.email}. Copy the link: ${res.url}`);
+      } else if (res.member) {
+        setMembers([...members, res.member as unknown as MemberData]);
+        setSuccess("Member added");
+      }
+      setTimeout(() => setSuccess(""), 8000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to invite member");
     } finally {
