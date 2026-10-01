@@ -87,6 +87,12 @@ export interface State {
    */
   moduleFilter: string | null;
   /**
+   * When set, the feed shows only events from this source IP. Set by clicking a
+   * row in TOP THREATS (or BANNED), so "what has this one address done" is one
+   * click away instead of a scroll through everything.
+   */
+  sourceFilter: string | null;
+  /**
    * Show low-severity 4xx lines in the feed. Off by default: on a box serving
    * paywalled sites they are most of the traffic (a one-request-per-address
    * proxy swarm against x402 routes put ~150k of them through dev2) and they
@@ -116,6 +122,8 @@ export type Action =
   | { type: 'busy'; busy: boolean }
   | { type: 'toggle_module_filter' }
   | { type: 'clear_module_filter' }
+  | { type: 'toggle_source_filter' }
+  | { type: 'clear_source_filter' }
   | { type: 'toggle_noise' }
   | { type: 'reset' };
 
@@ -154,6 +162,7 @@ export function initialState(now: number = Date.now()): State {
     busy: false,
     moduleIndex: 0,
     moduleFilter: null,
+    sourceFilter: null,
     showNoise: false,
   };
 }
@@ -163,17 +172,26 @@ export function isNoise(event: ThreatEvent): boolean {
   return (event.severity === 'low' || event.severity === 'info') && /^Client error 4\d\d:/.test(event.message);
 }
 
-/** The events the feed should show, honouring the module filter and the noise toggle. */
+/** Does this event pass the active module and source filters? */
+function matchesFilters(state: State, e: ThreatEvent): boolean {
+  return (!state.moduleFilter || e.module === state.moduleFilter)
+    && (!state.sourceFilter || e.source_ip === state.sourceFilter);
+}
+
+/** The events the feed should show, honouring the filters and the noise toggle. */
 export function visibleEvents(state: State): ThreatEvent[] {
-  return state.events.filter(
-    (e) => (!state.moduleFilter || e.module === state.moduleFilter) && (state.showNoise || !isNoise(e)),
-  );
+  return state.events.filter((e) => matchesFilters(state, e) && (state.showNoise || !isNoise(e)));
 }
 
 /** How many buffered events the noise toggle is hiding right now. */
 export function hiddenNoise(state: State): number {
   if (state.showNoise) return 0;
-  return state.events.filter((e) => (!state.moduleFilter || e.module === state.moduleFilter) && isNoise(e)).length;
+  return state.events.filter((e) => matchesFilters(state, e) && isNoise(e)).length;
+}
+
+/** True when any feed filter is active. */
+export function hasFilter(state: State): boolean {
+  return Boolean(state.moduleFilter || state.sourceFilter);
 }
 
 /** True when `ip` currently has a ban in force. */
@@ -356,6 +374,18 @@ export function reducer(state: State, action: Action): State {
     case 'clear_module_filter':
       return { ...state, moduleFilter: null, scrollBack: 0 };
 
+    case 'toggle_source_filter': {
+      // The IP of the row the operator clicked/selected, in whichever of the
+      // two source panels has focus.
+      const ip = selectedIp(state);
+      if (!ip) return state;
+      const sourceFilter = state.sourceFilter === ip ? null : ip;
+      return { ...state, sourceFilter, scrollBack: 0 };
+    }
+
+    case 'clear_source_filter':
+      return { ...state, sourceFilter: null, scrollBack: 0 };
+
     case 'toggle_noise':
       return { ...state, showNoise: !state.showNoise, scrollBack: 0 };
 
@@ -397,6 +427,7 @@ export function reducer(state: State, action: Action): State {
         firewall: state.firewall,
         focus: state.focus,
         moduleFilter: state.moduleFilter,
+        sourceFilter: state.sourceFilter,
         moduleIndex: state.moduleIndex,
         showNoise: state.showNoise,
       };

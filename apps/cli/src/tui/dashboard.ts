@@ -220,7 +220,8 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
     switch (event.key) {
       case 'escape':
         // Escape backs out of a filter first; only quits when there is none.
-        if (state.moduleFilter) dispatch({ type: 'clear_module_filter' });
+        if (state.sourceFilter) dispatch({ type: 'clear_source_filter' });
+        else if (state.moduleFilter) dispatch({ type: 'clear_module_filter' });
         else quit();
         break;
       case 'q':
@@ -229,7 +230,10 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
         break;
       case 'enter':
       case 'return':
-        dispatch({ type: 'toggle_module_filter' });
+        // Filter by whatever the focused panel points at: a module, or a source
+        // IP in TOP THREATS / BANNED.
+        if (state.focus === 'modules') dispatch({ type: 'toggle_module_filter' });
+        else if (state.focus === 'threats' || state.focus === 'bans') dispatch({ type: 'toggle_source_filter' });
         break;
       case 'p':
       case 'space':
@@ -281,15 +285,18 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
     renderDashboard(ui, state, theme, {
       demo: options.demo,
       onFeedScroll: (delta) => dispatch({ type: 'scroll', delta: -delta }),
-      // One click both focuses the panel and picks the row — the operator
-      // should not have to click to focus and click again to select.
+      // One click focuses the panel, picks the row, and filters the feed to that
+      // source — "what has this one IP done" in a single click. Clicking the
+      // same row again clears the filter.
       onThreatSelect: (row) => {
         dispatch({ type: 'focus', focus: 'threats' });
         dispatch({ type: 'select_at', index: row });
+        dispatch({ type: 'toggle_source_filter' });
       },
       onBanSelect: (row) => {
         dispatch({ type: 'focus', focus: 'bans' });
         dispatch({ type: 'select_at', index: row });
+        dispatch({ type: 'toggle_source_filter' });
       },
       // One click on a module both selects it and pins the feed to it; a
       // second click on the same module releases the feed.
