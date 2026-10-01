@@ -6,6 +6,7 @@ import { listOrganizations, listServers, type Server } from "@/lib/organizations
 import { authHeaders } from "@/lib/auth-client";
 import { serverConnectionState } from "@/lib/server-status";
 import ConnectServerHint from "@/components/ConnectServerHint";
+import FixReportActions from "@/components/FixReportActions";
 import Link from "next/link";
 
 interface Finding {
@@ -25,7 +26,7 @@ interface ServerFindings {
   score: number;
 }
 
-interface Organization { id: string; name: string; slug: string; }
+interface Organization { id: string; name: string; slug: string; user_role?: string; }
 
 const STATUS_ICONS: Record<string, { icon: string; color: string }> = {
   pass: { icon: "\u2713", color: "text-green-400" },
@@ -114,11 +115,14 @@ export default function FindingsContent({ slug }: { slug: string }) {
               <p className="text-sm text-zinc-500">{org.name}</p>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-sm text-zinc-500">Fleet Score</p>
-            <p className={`text-3xl font-bold ${avgScore >= 80 ? "text-green-400" : avgScore >= 60 ? "text-yellow-400" : "text-red-400"}`}>
-              {avgScore}/100
-            </p>
+          <div className="flex items-start gap-6">
+            <FixReportActions orgId={org.id} canManage={org.user_role === "owner" || org.user_role === "admin"} />
+            <div className="text-right">
+              <p className="text-sm text-zinc-500">Fleet Score</p>
+              <p className={`text-3xl font-bold ${avgScore >= 80 ? "text-green-400" : avgScore >= 60 ? "text-yellow-400" : "text-red-400"}`}>
+                {avgScore}/100
+              </p>
+            </div>
           </div>
         </div>
 
