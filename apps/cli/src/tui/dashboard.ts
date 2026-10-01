@@ -245,6 +245,9 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
       case 'n':
         dispatch({ type: 'toggle_noise' });
         break;
+      case 'c':
+        dispatch({ type: 'toggle_cron' });
+        break;
       case 'tab':
         dispatch({ type: 'focus_next' });
         break;

@@ -192,7 +192,7 @@ describe('routine 4xx noise', () => {
     const out = screen(state);
     expect(out).toContain('Attack detected [RFI]');
     expect(out).not.toContain('Client error 402');
-    expect(out).toContain('3 routine 4xx hidden');
+    expect(out).toContain('3 routine hidden');
   });
 
   it('comes back with n', () => {

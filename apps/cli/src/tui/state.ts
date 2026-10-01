@@ -99,6 +99,14 @@ export interface State {
    * buried every real detection. They still count in SEVERITY; `n` shows them.
    */
   showNoise: boolean;
+  /**
+   * Hide routine `[CRON] (user) CMD (…)` lines. Off by default: unlike 4xx/veth
+   * churn, a once-a-minute keepalive cron is not universal, so we show it until
+   * an operator decides it is noise on their box. `c` toggles it. A cron that
+   * did something attack-shaped still trips a detection rule and is never
+   * low/info here, so muting the keepalive never hides a real finding.
+   */
+  muteCron: boolean;
 }
 
 export type Action =
@@ -125,6 +133,7 @@ export type Action =
   | { type: 'toggle_source_filter' }
   | { type: 'clear_source_filter' }
   | { type: 'toggle_noise' }
+  | { type: 'toggle_cron' }
   | { type: 'reset' };
 
 export const TIMELINE_SLOTS = 60;
@@ -164,20 +173,31 @@ export function initialState(now: number = Date.now()): State {
     moduleFilter: null,
     sourceFilter: null,
     showNoise: false,
+    muteCron: false,
   };
 }
 
+/** Matches a routine `[CRON] (user) CMD (…)` keepalive line. */
+export function isCronLine(event: ThreatEvent): boolean {
+  if (event.severity !== 'low' && event.severity !== 'info') return false;
+  return /\[CRON\] \([^)]+\) CMD /.test(event.message);
+}
+
 /**
- * Low-value lines hidden from the feed by default (toggled back with `n`):
- *   - routine 4xx a web server answered;
- *   - container veth/bridge churn ("veth…: entered promiscuous/allmulticast
- *     mode"), which the kernel logs on every container start. A promiscuous
+ * Low-value lines hidden from the feed. Two independent groups:
+ *   - 4xx a web server answered, and container veth/bridge churn ("veth…:
+ *     entered promiscuous/allmulticast mode") the kernel logs on every
+ *     container start — hidden by default, toggled back with `n`. A promiscuous
  *     NIC that actually matters trips the `nic-promiscuous-mode` rule at
  *     `medium`, which this never hides.
+ *   - routine `[CRON] … CMD` keepalive runs — only when `muteCron` is on (off
+ *     by default, toggled with `c`), since a once-a-minute cron is not noise on
+ *     every box the way veth churn is.
  */
-export function isNoise(event: ThreatEvent): boolean {
+export function isNoise(event: ThreatEvent, muteCron = false): boolean {
   if (event.severity !== 'low' && event.severity !== 'info') return false;
   if (/^Client error 4\d\d:/.test(event.message)) return true;
+  if (muteCron && isCronLine(event)) return true;
   return /\b(veth|docker|br-|cni|cali|flannel|vxlan)[\w.-]*: entered (promiscuous|allmulticast) mode|\(unregistering\): left (promiscuous|allmulticast) mode/.test(event.message);
 }
 
@@ -189,13 +209,13 @@ function matchesFilters(state: State, e: ThreatEvent): boolean {
 
 /** The events the feed should show, honouring the filters and the noise toggle. */
 export function visibleEvents(state: State): ThreatEvent[] {
-  return state.events.filter((e) => matchesFilters(state, e) && (state.showNoise || !isNoise(e)));
+  return state.events.filter((e) => matchesFilters(state, e) && (state.showNoise || !isNoise(e, state.muteCron)));
 }
 
 /** How many buffered events the noise toggle is hiding right now. */
 export function hiddenNoise(state: State): number {
   if (state.showNoise) return 0;
-  return state.events.filter((e) => matchesFilters(state, e) && isNoise(e)).length;
+  return state.events.filter((e) => matchesFilters(state, e) && isNoise(e, state.muteCron)).length;
 }
 
 /** True when any feed filter is active. */
@@ -398,6 +418,9 @@ export function reducer(state: State, action: Action): State {
     case 'toggle_noise':
       return { ...state, showNoise: !state.showNoise, scrollBack: 0 };
 
+    case 'toggle_cron':
+      return { ...state, muteCron: !state.muteCron, scrollBack: 0 };
+
     case 'counters':
       return {
         ...state,
@@ -439,6 +462,7 @@ export function reducer(state: State, action: Action): State {
         sourceFilter: state.sourceFilter,
         moduleIndex: state.moduleIndex,
         showNoise: state.showNoise,
+        muteCron: state.muteCron,
       };
   }
 }

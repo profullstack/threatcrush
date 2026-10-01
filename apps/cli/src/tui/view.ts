@@ -9,6 +9,7 @@ import {
   hasFilter,
   hiddenNoise,
   isBanned,
+  isCronLine,
   severityTotal,
   visibleEvents,
   type State,
@@ -202,7 +203,11 @@ function severityPanel(parent: Container, state: State, theme: Theme): void {
 
 function noiseNote(state: State): string | undefined {
   const hidden = hiddenNoise(state);
-  return hidden > 0 ? `${hidden} routine 4xx hidden · n shows` : undefined;
+  if (hidden === 0) return undefined;
+  // When cron muting is on, the hidden count mixes 4xx/veth with cron lines; name
+  // both keys so the operator knows which toggle brings each group back.
+  const keys = state.muteCron ? 'n/c show' : 'n shows';
+  return `${hidden} routine hidden · ${keys}`;
 }
 
 /** A short description of the active feed filters, e.g. "src 1.2.3.4" or "ssh-guard · src 1.2.3.4". */
@@ -493,6 +498,11 @@ function footer(ui: Container, state: State, theme: Theme): void {
       { key: 'p', label: state.paused ? 'resume' : 'pause' },
       { key: 'r', label: 'reset' },
       { key: 'n', label: state.showNoise ? 'hide 4xx' : 'show 4xx' },
+      // Only offer the cron toggle once a cron line has actually shown up, or
+      // while it is muting, so the hint never advertises a key with nothing to act on.
+      ...(state.muteCron || state.events.some(isCronLine)
+        ? [{ key: 'c', label: state.muteCron ? 'show cron' : 'mute cron' }]
+        : []),
     ],
     right: [
       // The notice is the answer to "did my keypress do anything", so it takes

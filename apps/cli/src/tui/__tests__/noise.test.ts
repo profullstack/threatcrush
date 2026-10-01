@@ -7,6 +7,17 @@ function ev(message: string, severity: EventSeverity = 'info'): ThreatEvent {
 }
 
 describe('feed noise', () => {
+  it('shows cron CMD lines by default, hides them only when muteCron is on', () => {
+    const cron = ev('[CRON] (root) CMD (curl -fsS -m 55 -o /dev/null https://coinpayportal.com/api/cron/monitor-payments)');
+    // Default (muteCron off): a keepalive cron is visible.
+    expect(isNoise(cron)).toBe(false);
+    // With the `c` toggle on, it is noise and drops out of the feed.
+    expect(isNoise(cron, true)).toBe(true);
+    expect(isNoise(ev('[CRON] (anthony) CMD (/usr/bin/node /home/anthony/job.js)'), true)).toBe(true);
+    // A real attack line stays visible even with cron muting on.
+    expect(isNoise(ev('Attack [RCE]: GET /x', 'high'), true)).toBe(false);
+  });
+
   it('hides routine 4xx and container veth churn', () => {
     expect(isNoise(ev('Client error 404: GET /x'))).toBe(true);
     expect(isNoise(ev('[kernel] veth69e02ee: entered promiscuous mode'))).toBe(true);
