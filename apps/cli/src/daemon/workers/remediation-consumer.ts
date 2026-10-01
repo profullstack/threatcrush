@@ -43,7 +43,11 @@ export class RemediationConsumer {
 
   constructor(
     private manager: ConsumerManager,
-    private opts: { log: (line: string) => void; pollMs?: number },
+    // `restartDaemon` is how a dashboard-queued `restart` action restarts this
+    // process (systemctl restart in system mode). Scheduled a few seconds out
+    // so the "executed" result is reported before the process dies — otherwise
+    // the action stays `executing`, returns to `pending`, and restart-loops.
+    private opts: { log: (line: string) => void; pollMs?: number; restartDaemon?: () => void },
   ) {}
 
   start(): void {
@@ -170,6 +174,19 @@ export class RemediationConsumer {
           }
           this.manager.removeFromAllowlist(target);
           return { status: 'executed', executed_at };
+        case 'restart': {
+          if (!this.opts.restartDaemon) return failed('restart not supported by this daemon');
+          // Report success now, restart shortly after so the result lands first.
+          setTimeout(() => {
+            try {
+              this.opts.log('[cloud] dashboard requested a restart — restarting now');
+              this.opts.restartDaemon?.();
+            } catch (err) {
+              this.opts.log(`[cloud] restart failed: ${(err as Error).message}`);
+            }
+          }, 3000).unref?.();
+          return { status: 'executed', executed_at };
+        }
         default:
           return failed(`unsupported action_type: ${action.action_type}`);
       }

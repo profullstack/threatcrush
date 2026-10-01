@@ -53,8 +53,41 @@ export async function serversCommand(options: { action?: string; name?: string; 
     return;
   }
 
+  if (action === "restart-all") {
+    await restartAllCommand({ org });
+    return;
+  }
+
   console.log(chalk.red(`  Unknown action: ${action}`));
-  console.log(chalk.dim("  Available: list, link, unlink\n"));
+  console.log(chalk.dim("  Available: list, link, unlink, restart-all\n"));
+}
+
+async function restartAllCommand(opts: { org?: string }): Promise<void> {
+  let orgs: Org[];
+  try {
+    orgs = await fetchOrgs();
+  } catch {
+    console.log(chalk.red("  Not logged in. Run `threatcrush login`.\n"));
+    process.exitCode = 1;
+    return;
+  }
+  let org: Org;
+  try {
+    org = await chooseOrg(orgs, opts.org, askChoice);
+  } catch (err) {
+    console.log(chalk.red(`  ✗ ${(err as Error).message}\n`));
+    process.exitCode = 1;
+    return;
+  }
+
+  const res = await cloudFetch(`/api/orgs/${org.id}/restart-all`, { method: "POST", body: "{}" });
+  const data = await res.json().catch(() => ({})) as { queued?: number; error?: string };
+  if (!res.ok) {
+    console.log(chalk.red(`  ✗ ${data.error || `Restart failed (${res.status})`}\n`));
+    process.exitCode = 1;
+    return;
+  }
+  console.log(chalk.green(`  ✓ Restart queued for ${data.queued ?? 0} server(s) in /${org.slug}. They reconnect within a minute.\n`));
 }
 
 async function fetchOrgs(): Promise<Org[]> {
