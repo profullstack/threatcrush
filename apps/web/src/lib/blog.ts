@@ -1,5 +1,5 @@
 import "server-only";
-import DOMPurify from "isomorphic-dompurify";
+import { sanitizeBlogHtml } from "./sanitize-blog-html";
 import { getSupabaseAdmin } from "./supabase";
 
 export type BlogPost = {
@@ -69,22 +69,8 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
   return (data as BlogPost) ?? null;
 }
 
-const SANITIZE_OPTIONS = {
-  ALLOWED_TAGS: [
-    "h1", "h2", "h3", "h4", "h5", "h6",
-    "p", "br", "hr",
-    "strong", "em", "b", "i", "u", "s", "code", "pre", "blockquote",
-    "ul", "ol", "li",
-    "a", "img", "figure", "figcaption",
-    "table", "thead", "tbody", "tr", "th", "td",
-    "span", "div",
-  ],
-  ALLOWED_ATTR: ["href", "src", "alt", "title", "target", "rel", "class", "id", "loading"],
-  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|\/|#)/i,
-};
-
 export function sanitizeHtml(html: string): string {
-  return DOMPurify.sanitize(html, SANITIZE_OPTIONS);
+  return sanitizeBlogHtml(html);
 }
 
 export function formatDate(iso: string): string {
