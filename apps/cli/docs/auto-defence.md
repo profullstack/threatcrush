@@ -8,14 +8,14 @@ and remove bans by hand. This is on by default.
 ThreatCrush bans on the first detection, and every repeat offence doubles the
 ban:
 
-| Offence | 1   | 2   | 3  | 4  | 5  | 6  | 7   | 8   | 9      | 10    | 11+ |
-|---------|-----|-----|----|----|----|----|-----|-----|--------|-------|-----|
-| Ban     | 15m | 30m | 1h | 2h | 4h | 8h | 16h | 32h | 2d 16h | 5d 8h | 7d  |
+| Offence | 1  | 2   | 3   | 4   | 5      | 6      | 7      | 8       | 9       | 10     | 11     | 12+ |
+|---------|----|-----|-----|-----|--------|--------|--------|---------|---------|--------|--------|-----|
+| Ban     | 5m | 10m | 20m | 40m | 1h 20m | 2h 40m | 5h 20m | 10h 40m | 21h 20m | 1d 18h | 3d 13h | 7d  |
 
-The first rung is `first_ban` (15m by default) and the ladder stops at
-`max_ban` (7d by default). Fifteen minutes is long enough that a scanner sweeping
-the internet moves on, and short enough that a false positive is not an
-incident.
+The first rung is `first_ban` (5m by default) and the ladder stops at
+`max_ban` (7d by default). A first offence costs five minutes, so a false
+positive is barely an incident, while a host that keeps coming back is at a day
+by its ninth visit.
 
 This replaced a Fibonacci ladder in minutes (1m, 2m, 3m, 5m …) that scanners
 simply waited out: on dev1, 175 addresses were banned 1,430 times between them.
@@ -222,7 +222,7 @@ enabled = true
 mode = "enforce"              # or "dry_run" to log without blocking
 backend = "auto"              # auto | fail2ban | nftables | iptables
 min_severity = "high"
-first_ban = "15m"             # each repeat offence doubles it
+first_ban = "5m"              # each repeat offence doubles it
 max_ban = "7d"
 strike_memory = "30d"
 protected = ["203.0.113.7/32"]

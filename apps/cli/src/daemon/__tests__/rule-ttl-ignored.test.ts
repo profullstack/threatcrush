@@ -7,7 +7,7 @@ import type * as LoaderModule from '../rules/loader.js';
 /**
  * Rules used to declare `remediation.ttl_seconds` and `rules show` printed it,
  * but since the escalation ladder (PRD 0010) nothing reads it: every ban is
- * 15m → 30m → 1h … whatever the rule says. An operator's rule file that still
+ * 5m → 10m → 20m … whatever the rule says. An operator's rule file that still
  * carries it must keep loading, be told once that the value does nothing, and
  * never be shown a ban length it will not get.
  */

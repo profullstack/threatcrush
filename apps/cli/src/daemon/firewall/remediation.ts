@@ -211,7 +211,7 @@ export class RemediationManager {
 
   /**
    * Ban `ip`. With no explicit TTL the length comes from the doubling ladder:
-   * `first_ban_seconds` (15m by default), then 30m, 1h, 2h … for the 2nd, 3rd,
+   * `first_ban_seconds` (5m by default), then 10m, 20m, 40m … for the 2nd, 3rd,
    * 4th offence and so on, clamped to `max_ban_seconds`.
    */
   async ban(
