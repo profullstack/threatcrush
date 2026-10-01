@@ -230,12 +230,9 @@ export default function RootLayout({
           {children}
           <SiteFooter />
         </AuthProvider>
-        <Script
-          id="robauto-pixel"
-          src="https://robauto.ai/pixel.js"
-          data-site="dc9ed120-6cdb-4ded-8202-089d1f270e5e"
-          strategy="afterInteractive"
-        />
+        {/* robauto: posted inline. Its pixel.js is not loaded: without a
+            data-endpoint it requested "null?pid=…" (a 404 on every page) and
+            skipped the beacon, which this script already sends. */}
         <Script id="robauto-track" strategy="afterInteractive">
           {`(function(){var pid="dc9ed120-6cdb-4ded-8202-089d1f270e5e";var ep="https://hkeytqaukllckucnhzey.supabase.co/functions/v1/track";var d=JSON.stringify({path:location.pathname,url:location.href,referer:document.referrer});if(navigator.sendBeacon){navigator.sendBeacon(ep+"?pid="+pid,d)}else{var x=new XMLHttpRequest();x.open("POST",ep+"?pid="+pid);x.setRequestHeader("Content-Type","application/json");x.send(d)}})();`}
         </Script>
