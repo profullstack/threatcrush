@@ -173,15 +173,18 @@ export async function DELETE(
 
     const { id } = await params;
 
-    // Check user is creator
-    const { data: org, error: orgError } = await getSupabaseAdmin()
-      .from("organizations")
-      .select("created_by")
-      .eq("id", id)
-      .single();
+    // Owners delete the organization. It used to be whoever created it, so a
+    // second owner saw the Danger Zone and got a 403, and a creator demoted to
+    // member could still delete it.
+    const { data: membership } = await getSupabaseAdmin()
+      .from("organization_members")
+      .select("role")
+      .eq("org_id", id)
+      .eq("user_id", user.id)
+      .maybeSingle();
 
-    if (orgError || !org || org.created_by !== user.id) {
-      return NextResponse.json({ error: "Not authorized to delete this organization" }, { status: 403 });
+    if (membership?.role !== "owner") {
+      return NextResponse.json({ error: "Only owners can delete this organization" }, { status: 403 });
     }
 
     const { error: deleteError } = await getSupabaseAdmin()

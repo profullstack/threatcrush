@@ -1,39 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { roleInScope, visibleIn } from "@/lib/access";
+import { requireOrgScope } from "@/lib/route-access";
 
-// GET /api/orgs/[org_id]/servers — List servers in organization
+// GET /api/orgs/[org_id]/servers — the org's servers the caller can see (team
+// fleets, agent keys: see lib/access), with the caller's role on each.
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const { data: { user } } = await getSupabaseAdmin().auth.getUser(token);
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
     const { id: orgId } = await params;
+    const access = await requireOrgScope(req, orgId);
+    if ("error" in access) return access.error;
 
-    // Check membership
-    const { data: membership } = await getSupabaseAdmin()
-      .from("organization_members")
-      .select("role")
-      .eq("org_id", orgId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (!membership) {
-      return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
-    }
-
-    const { data: servers, error } = await getSupabaseAdmin()
+    const { data: servers, error } = await access.admin
       .from("servers")
       .select("*")
       .eq("org_id", orgId)
@@ -44,7 +25,8 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch servers" }, { status: 500 });
     }
 
-    return NextResponse.json({ servers: servers || [] });
+    const visible = visibleIn(access.scope, servers || []).map((s) => ({ ...s, my_role: roleInScope(access.scope, s) }));
+    return NextResponse.json({ servers: visible });
   } catch (err) {
     console.error("List servers error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

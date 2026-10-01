@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedRequestUser, unauthorized } from "@/lib/api-auth";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { atLeast, roleInScope } from "@/lib/access";
+import { requireOrgScope } from "@/lib/route-access";
 
 // PATCH /api/orgs/[id]/remediations/[action_id]
 // Body: { status: 'executed'|'failed', error?, dry_run?, executed_at? }
@@ -12,19 +12,10 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string; action_id: string }> },
 ) {
   try {
-    const auth = await getAuthenticatedRequestUser(req);
-    if (!auth) return unauthorized();
-
     const { id: orgId, action_id: actionId } = await params;
-    const admin = getSupabaseAdmin();
-
-    const { data: membership } = await admin
-      .from("organization_members")
-      .select("role")
-      .eq("org_id", orgId)
-      .eq("user_id", auth.userId)
-      .maybeSingle();
-    if (!membership) return NextResponse.json({ error: "Not a member" }, { status: 403 });
+    const access = await requireOrgScope(req, orgId);
+    if ("error" in access) return access.error;
+    const admin = access.admin;
 
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
     if (!body || typeof body !== "object") {
@@ -51,11 +42,19 @@ export async function PATCH(
 
     const { data: current } = await admin
       .from("remediation_actions")
-      .select("id, status, metadata")
+      .select("id, status, metadata, server_id")
       .eq("organization_id", orgId)
       .eq("id", actionId)
       .maybeSingle();
     if (!current) return NextResponse.json({ error: "Remediation not found" }, { status: 404 });
+
+    // Reporting the outcome is the daemon acting on its server: write access.
+    const { data: server } = current.server_id
+      ? await admin.from("servers").select("id, fleet_id").eq("id", current.server_id).maybeSingle()
+      : { data: null };
+    if (!server || !atLeast(roleInScope(access.scope, server), "write")) {
+      return NextResponse.json({ error: "Remediation not found" }, { status: 404 });
+    }
     if (current.status !== "executing") {
       return NextResponse.json(
         { error: `Remediation is ${current.status}, not executing` },

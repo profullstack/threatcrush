@@ -31,6 +31,13 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }));
 
+// Access rules have their own tests; here an org membership means write on
+// the org's fleet-less servers, and no membership means no access.
+vi.mock("@/lib/access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/access")>()),
+  serverScopeIn: async () => (state.membership ? { all: false, fleetRoles: new Map(), unfleeted: "write" } : null),
+}));
+
 import { POST } from "@/app/api/orgs/[id]/servers/[server_id]/remediations/claim/route";
 
 function claim(token: string | null = "good-token") {
@@ -61,7 +68,8 @@ describe("POST /api/orgs/:id/servers/:server_id/remediations/claim", () => {
 
   it("refuses callers who are not members of the org", async () => {
     state.membership = null;
-    expect((await claim()).status).toBe(403);
+    // Same answer as an unknown server, so server ids can't be probed.
+    expect((await claim()).status).toBe(404);
     expect(state.rpc).not.toHaveBeenCalled();
   });
 

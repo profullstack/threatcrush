@@ -13,6 +13,8 @@ export interface FleetServer {
   org_id: string;
   org_name: string;
   org_slug: string;
+  fleet_id: string | null;
+  fleet_name: string | null;
   last_seen: string | null;
   threatcrushd_version: string | null;
   connection: ServerConnectionState;
@@ -50,6 +52,7 @@ interface ServerRow {
   hostname: string | null;
   ip_address: string | null;
   org_id: string;
+  fleet_id?: string | null;
   last_seen: string | null;
   threatcrushd_version: string | null;
   config: Record<string, unknown> | null;
@@ -61,6 +64,7 @@ export function buildFleet(
   rows: ServerRow[],
   orgs: Map<string, { name: string; slug: string }>,
   now: number = Date.now(),
+  fleetNames: Map<string, string> = new Map(),
 ): { servers: FleetServer[]; summary: FleetSummary } {
   const latest = rows
     .map((r) => r.threatcrushd_version)
@@ -80,6 +84,8 @@ export function buildFleet(
       org_id: r.org_id,
       org_name: org?.name ?? "—",
       org_slug: org?.slug ?? "",
+      fleet_id: r.fleet_id ?? null,
+      fleet_name: r.fleet_id ? fleetNames.get(r.fleet_id) ?? null : null,
       last_seen: r.last_seen,
       threatcrushd_version: r.threatcrushd_version,
       connection: serverConnectionState(r.last_seen, now),

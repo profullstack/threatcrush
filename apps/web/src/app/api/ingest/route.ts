@@ -1,6 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { dispatchDetectionAlerts } from "@/lib/alerts/dispatch";
-import { getAuthenticatedRequestUser, unauthorized } from "@/lib/api-auth";
+import { unauthorized } from "@/lib/api-auth";
+import { atLeast, getPrincipal, roleInScope, serverScopeIn, type ServerScope } from "@/lib/access";
 import {
   INGEST_MAX_BODY_BYTES,
   INGEST_MAX_EVENTS,
@@ -41,7 +42,9 @@ function badRequest(error: string) {
 // heartbeat/detection bodies are the same shape and still accepted).
 export async function POST(req: NextRequest) {
   try {
-    const auth = await getAuthenticatedRequestUser(req);
+    const admin = getSupabaseAdmin();
+    // A user session or a write agent key (lib/access).
+    const auth = await getPrincipal(req, admin);
     if (!auth) return unauthorized();
 
     const text = await readBodyCapped(req, INGEST_MAX_BODY_BYTES);
@@ -70,32 +73,24 @@ export async function POST(req: NextRequest) {
       else rejected.push({ index, error: parsed.error });
     });
 
-    // Resolve access once per distinct server: server → org, then the caller's
-    // memberships among those orgs. Unknown servers and servers in orgs the
-    // caller doesn't belong to get the same answer, so ids can't be probed.
-    const admin = getSupabaseAdmin();
+    // Resolve access once per distinct server: server → org → the caller's
+    // scope in that org, and the daemon needs write on the server. Unknown
+    // servers and servers the caller can't write to get the same answer, so
+    // ids can't be probed.
     const serverIds = [...new Set(valid.map((v) => v.event.server_id))];
     const serverOrg = new Map<string, string>();
     if (serverIds.length > 0) {
       const { data: servers, error: serversError } = await admin
         .from("servers")
-        .select("id, org_id")
+        .select("id, org_id, fleet_id")
         .in("id", serverIds);
       if (serversError) throw new Error(`servers lookup: ${serversError.message}`);
 
-      const orgIds = [...new Set((servers ?? []).map((s: { org_id: string }) => s.org_id))];
-      const memberOf = new Set<string>();
-      if (orgIds.length > 0) {
-        const { data: memberships, error: membersError } = await admin
-          .from("organization_members")
-          .select("org_id")
-          .eq("user_id", auth.userId)
-          .in("org_id", orgIds);
-        if (membersError) throw new Error(`membership lookup: ${membersError.message}`);
-        for (const m of memberships ?? []) memberOf.add((m as { org_id: string }).org_id);
-      }
-      for (const s of (servers ?? []) as Array<{ id: string; org_id: string }>) {
-        if (memberOf.has(s.org_id)) serverOrg.set(s.id, s.org_id);
+      const scopes = new Map<string, ServerScope | null>();
+      for (const s of (servers ?? []) as Array<{ id: string; org_id: string; fleet_id: string | null }>) {
+        if (!scopes.has(s.org_id)) scopes.set(s.org_id, await serverScopeIn(admin, auth, s.org_id));
+        const scope = scopes.get(s.org_id);
+        if (scope && atLeast(roleInScope(scope, s), "write")) serverOrg.set(s.id, s.org_id);
       }
     }
 

@@ -24,6 +24,8 @@ vi.mock("@/lib/supabase", () => ({
   getSupabaseAdmin: () => ({
     from: (table: string) => {
       if (table === "organization_members") return recordQuery({ data: state.membership, error: null });
+      // The action's server, in no fleet: org members have write on it.
+      if (table === "servers") return recordQuery({ data: { id: "srv-1", fleet_id: null }, error: null });
       if (table === "remediation_actions") {
         const calls: QueryCall[] = [];
         state.actionCalls.push(calls);
@@ -32,6 +34,13 @@ vi.mock("@/lib/supabase", () => ({
       throw new Error(`Unexpected table ${table}`);
     },
   }),
+}));
+
+// Access rules have their own tests; here an org membership means write on
+// the org's fleet-less servers, and no membership means no access.
+vi.mock("@/lib/access", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/access")>()),
+  serverScopeIn: async () => (state.membership ? { all: false, fleetRoles: new Map(), unfleeted: "write" } : null),
 }));
 
 import { PATCH } from "@/app/api/orgs/[id]/remediations/[action_id]/route";
@@ -50,7 +59,8 @@ function patch(body: unknown, token: string | null = "good-token") {
 }
 
 function stored(row: Row) {
-  state.actionResults.push({ data: row, error: null });
+  // Every remediation targets a server; the route checks write access on it.
+  state.actionResults.push({ data: row ? { server_id: "srv-1", ...row } : row, error: null });
 }
 
 function updateCall(): unknown {

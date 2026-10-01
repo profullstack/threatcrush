@@ -41,6 +41,8 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/api/auth/cli/token", limit: 40, windowMs: 60_000 },
   // Public fix reports: the token is the credential, so guessing is capped too.
   { prefix: "/r/", limit: 30, windowMs: 60_000 },
+  // Invite tokens are credentials too.
+  { prefix: "/api/invites/", limit: 30, windowMs: 60_000 },
   { prefix: "/api/hooks/", limit: 60, windowMs: 60_000 },
   { prefix: "/api/scan", limit: 20, windowMs: 60_000 },
   { prefix: "/api/modules/fetch-meta", limit: 20, windowMs: 60_000 },

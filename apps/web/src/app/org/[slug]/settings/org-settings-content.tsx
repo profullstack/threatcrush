@@ -287,6 +287,7 @@ export default function OrgSettingsContent({ slug }: { slug: string }) {
                       <option value="owner">Owner</option>
                       <option value="admin">Admin</option>
                       <option value="member">Member</option>
+                      <option value="guest">Guest (teams only)</option>
                     </select>
                   ) : (
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${

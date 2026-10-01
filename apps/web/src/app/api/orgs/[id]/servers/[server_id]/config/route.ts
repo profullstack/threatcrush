@@ -1,31 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedRequestUser, unauthorized } from "@/lib/api-auth";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { requireServer } from "@/lib/route-access";
 import { MAX_CONFIG_BYTES, isPlainObject, redactConfig } from "@/lib/server-config";
 
 // PUT /api/orgs/[org_id]/servers/[id]/config — `threatcrush save` stores the
-// machine's daemon config (secrets redacted) on its server row.
+// machine's daemon config (secrets redacted) on its server row. Write access:
+// it is something the machine reports, like a heartbeat.
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; server_id: string }> }
 ) {
   try {
-    const user = await getAuthenticatedRequestUser(req);
-    if (!user) return unauthorized();
-
     const { id: orgId, server_id } = await params;
-
-    // Same rule as editing the server: admins and owners.
-    const { data: membership } = await getSupabaseAdmin()
-      .from("organization_members")
-      .select("role")
-      .eq("org_id", orgId)
-      .eq("user_id", user.userId)
-      .single();
-
-    if (!membership || !["owner", "admin"].includes(membership.role)) {
-      return NextResponse.json({ error: "Not authorized to update this server" }, { status: 403 });
-    }
+    const access = await requireServer(req, orgId, server_id, "write", "id, org_id, fleet_id");
+    if ("error" in access) return access.error;
 
     const raw = await req.text();
     if (Buffer.byteLength(raw) > MAX_CONFIG_BYTES) {
@@ -43,7 +30,7 @@ export async function PUT(
     }
 
     const savedAt = new Date().toISOString();
-    const { data: server, error } = await getSupabaseAdmin()
+    const { data: server, error } = await access.admin
       .from("servers")
       .update({ config: redactConfig(body.config), config_saved_at: savedAt })
       .eq("org_id", orgId)

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthenticatedRequestUser, unauthorized } from "@/lib/api-auth";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { requireServer } from "@/lib/route-access";
 
 type ClaimedRow = {
   id: string;
@@ -20,29 +19,11 @@ export async function POST(
   { params }: { params: Promise<{ id: string; server_id: string }> },
 ) {
   try {
-    const auth = await getAuthenticatedRequestUser(req);
-    if (!auth) return unauthorized();
-
     const { id: orgId, server_id: serverId } = await params;
-    const admin = getSupabaseAdmin();
-
-    const { data: membership } = await admin
-      .from("organization_members")
-      .select("role")
-      .eq("org_id", orgId)
-      .eq("user_id", auth.userId)
-      .maybeSingle();
-    if (!membership) return NextResponse.json({ error: "Not a member" }, { status: 403 });
-
-    const { data: server } = await admin
-      .from("servers")
-      .select("id")
-      .eq("org_id", orgId)
-      .eq("id", serverId)
-      .maybeSingle();
-    if (!server) {
-      return NextResponse.json({ error: "Server not found in this organization" }, { status: 404 });
-    }
+    // Write access: the daemon (a user session or a write agent key) acts on its server.
+    const access = await requireServer(req, orgId, serverId, "write", "id, org_id, fleet_id");
+    if ("error" in access) return access.error;
+    const admin = access.admin;
 
     const { data, error } = await admin.rpc("claim_server_remediations", {
       p_org_id: orgId,

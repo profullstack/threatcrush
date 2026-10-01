@@ -145,7 +145,12 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
         </div>
 
         {/* Quick Navigation */}
-        <div className="grid grid-cols-2 gap-3 mb-8 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 mb-8 sm:grid-cols-5">
+          <Link href={`/org/${org.slug}/teams`}
+            className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-purple-500/30 transition-colors group">
+            <p className="text-sm text-zinc-500 group-hover:text-purple-400">Teams</p>
+            <p className="text-lg font-bold text-white mt-1">Fleets &amp; Access</p>
+          </Link>
           <Link href={`/org/${org.slug}/detections`}
             className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-red-500/30 transition-colors group">
             <p className="text-sm text-zinc-500 group-hover:text-red-400">Detections</p>

@@ -1,26 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parsePaginationParam } from "@/lib/pagination";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { atLeast, serverRoleOf } from "@/lib/access";
+import { requireOrgScope, visibleServerIds } from "@/lib/route-access";
 
-// GET /api/orgs/[id]/remediations
+// GET /api/orgs/[id]/remediations — actions on the servers the caller can see
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const admin = getSupabaseAdmin();
-    const { data: { user } } = await admin.auth.getUser(token);
-    if (!user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-
     const { id: orgId } = await params;
-
-    const { data: membership } = await admin.from("organization_members")
-      .select("role").eq("org_id", orgId).eq("user_id", user.id).single();
-    if (!membership) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    const access = await requireOrgScope(req, orgId);
+    if ("error" in access) return access.error;
+    const admin = access.admin;
 
     const url = new URL(req.url);
     const serverId = url.searchParams.get("server_id");
@@ -28,11 +20,15 @@ export async function GET(
     const limit = parsePaginationParam(url.searchParams.get("limit"), 50, { min: 1, max: 200 });
     const offset = parsePaginationParam(url.searchParams.get("offset"), 0);
 
+    const visible = await visibleServerIds(admin, orgId, access.scope);
+    if (visible && visible.length === 0) return NextResponse.json({ remediations: [], total: 0 });
+
     let query = admin.from("remediation_actions").select("*", { count: "exact" })
       .eq("organization_id", orgId)
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
+    if (visible) query = query.in("server_id", visible);
     if (serverId) query = query.eq("server_id", serverId);
     if (status) query = query.eq("status", status);
 
@@ -52,21 +48,10 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-    if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-
-    const admin = getSupabaseAdmin();
-    const { data: { user } } = await admin.auth.getUser(token);
-    if (!user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-
     const { id: orgId } = await params;
-
-    const { data: membership } = await admin.from("organization_members")
-      .select("role").eq("org_id", orgId).eq("user_id", user.id).single();
-    if (!membership || !["owner", "admin"].includes(membership.role)) {
-      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
-    }
+    const access = await requireOrgScope(req, orgId);
+    if ("error" in access) return access.error;
+    const admin = access.admin;
 
     const body = await req.json();
     const { server_id, action_type, target_value, ttl_seconds, detection_id } = body as {
@@ -89,16 +74,22 @@ export async function POST(
     // never checked against this org, so an admin of one org could queue a
     // remediation against another org's server.
     const { data: server } = await admin.from("servers")
-      .select("id")
+      .select("id, org_id, fleet_id")
       .eq("org_id", orgId)
       .eq("id", server_id)
       .maybeSingle();
 
-    if (!server) {
+    // A ban is write on that server; changing who can never be banned is admin.
+    const role = server ? await serverRoleOf(admin, access.p, server) : null;
+    if (!server || !role) {
       return NextResponse.json(
         { error: "Server not found in this organization" },
         { status: 404 },
       );
+    }
+    const needed = action_type.startsWith("allowlist_") ? "admin" : "write";
+    if (!atLeast(role, needed)) {
+      return NextResponse.json({ error: `This needs ${needed} access to the server` }, { status: 403 });
     }
 
     if (detection_id) {

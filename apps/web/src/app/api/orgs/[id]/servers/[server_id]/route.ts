@@ -1,87 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabase";
+import { requireServer } from "@/lib/route-access";
 
-// GET /api/orgs/[org_id]/servers/[id] — Get server details
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string; server_id: string }> }
-) {
+type Params = { params: Promise<{ id: string; server_id: string }> };
+
+// GET /api/orgs/[org_id]/servers/[id] — Get server details (read access)
+export async function GET(req: NextRequest, { params }: Params) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const { data: { user } } = await getSupabaseAdmin().auth.getUser(token);
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
     const { id: orgId, server_id } = await params;
-
-    // Check membership
-    const { data: membership } = await getSupabaseAdmin()
-      .from("organization_members")
-      .select("role")
-      .eq("org_id", orgId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (!membership) {
-      return NextResponse.json({ error: "Not a member of this organization" }, { status: 403 });
-    }
-
-    const { data: server, error } = await getSupabaseAdmin()
-      .from("servers")
-      .select("*")
-      .eq("org_id", orgId)
-      .eq("id", server_id)
-      .single();
-
-    if (error || !server) {
-      return NextResponse.json({ error: "Server not found" }, { status: 404 });
-    }
-
-    return NextResponse.json({ server });
+    const access = await requireServer(req, orgId, server_id, "read");
+    if ("error" in access) return access.error;
+    return NextResponse.json({ server: { ...access.server, my_role: access.role } });
   } catch (err) {
     console.error("Get server error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
-// PATCH /api/orgs/[org_id]/servers/[id] — Update server metadata
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string; server_id: string }> }
-) {
+// PATCH /api/orgs/[org_id]/servers/[id] — Update server metadata (admin access)
+export async function PATCH(req: NextRequest, { params }: Params) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const { data: { user } } = await getSupabaseAdmin().auth.getUser(token);
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
     const { id: orgId, server_id } = await params;
-
-    // Check user is admin/owner
-    const { data: membership } = await getSupabaseAdmin()
-      .from("organization_members")
-      .select("role")
-      .eq("org_id", orgId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (!membership || !["owner", "admin"].includes(membership.role)) {
-      return NextResponse.json({ error: "Not authorized to update this server" }, { status: 403 });
-    }
+    const access = await requireServer(req, orgId, server_id, "admin", "id, org_id, fleet_id");
+    if ("error" in access) return access.error;
 
     const body = await req.json();
     const allowedFields = ["name", "hostname", "ip_address", "port", "ssh_username"];
@@ -97,7 +37,7 @@ export async function PATCH(
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }
 
-    const { data: server, error } = await getSupabaseAdmin()
+    const { data: server, error } = await access.admin
       .from("servers")
       .update(updates)
       .eq("org_id", orgId)
@@ -117,39 +57,14 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/orgs/[org_id]/servers/[id] — Remove server
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string; server_id: string }> }
-) {
+// DELETE /api/orgs/[org_id]/servers/[id] — Remove server (admin access)
+export async function DELETE(req: NextRequest, { params }: Params) {
   try {
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
-    const { data: { user } } = await getSupabaseAdmin().auth.getUser(token);
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
     const { id: orgId, server_id } = await params;
+    const access = await requireServer(req, orgId, server_id, "admin", "id, org_id, fleet_id");
+    if ("error" in access) return access.error;
 
-    // Check user is admin/owner
-    const { data: membership } = await getSupabaseAdmin()
-      .from("organization_members")
-      .select("role")
-      .eq("org_id", orgId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (!membership || !["owner", "admin"].includes(membership.role)) {
-      return NextResponse.json({ error: "Not authorized to remove this server" }, { status: 403 });
-    }
-
-    const { error } = await getSupabaseAdmin()
+    const { error } = await access.admin
       .from("servers")
       .delete()
       .eq("org_id", orgId)
