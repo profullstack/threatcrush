@@ -1,0 +1,30 @@
+{
+  "network links aside": {
+    "input": "<aside class=\"cp-network-links\" data-cp-network>\n  <h2>Elsewhere on this topic</h2>\n  <ul>\n  <li><a href=\"https://qrypt.chat/blog/security-service-private-messaging-architecture-2026\" rel=\"noopener\">Security Service Architecture for Private Messaging Teams in 2026</a></li>\n  <li><a href=\"https://vu1nz.com/blog/brinks-home-security-cicd-security-model\" rel=\"noopener\">Brinks Home Security as a CI/CD Security Model: Alerts, Ownership, and Response</a></li>\n  <li><a href=\"https://logicsrc.com/blog/security-operations-ai-agents-open-standards\" rel=\"noopener\">Security Operations AI Agents Need Standards, Not Another SOC Copilot</a></li>\n  <li><a href=\"https://www.digitimes.com/news/a20260831PD202/6g-equipment-5g-policy.html\" rel=\"nofollow ugc noopener\">US rallies 24 nations to compete for 6G</a></li>\n  <li><a href=\"https://www.digitimes.com/news/a20260831PD201/shanghai-packaging-chips-government-industrial.html\" rel=\"nofollow ugc noopener\">Shanghai&#39;s 15th Five-Year Plan bets on chips, AI, advanced packaging</a></li>\n  <li><a href=\"https://www.digitimes.com/news/a20260831VL208/cxmt-xiaomi-production-flagship-commercial.html\" rel=\"nofollow ugc noopener\">CXMT starts LPDDR6 mass production for Xiaomi 18 Fold, claiming global first</a></li>\n  </ul>\n</aside>",
+    "expected": "\n  <h2>Elsewhere on this topic</h2>\n  <ul>\n  <li><a href=\"https://qrypt.chat/blog/security-service-private-messaging-architecture-2026\">Security Service Architecture for Private Messaging Teams in 2026</a></li>\n  <li><a href=\"https://vu1nz.com/blog/brinks-home-security-cicd-security-model\">Brinks Home Security as a CI/CD Security Model: Alerts, Ownership, and Response</a></li>\n  <li><a href=\"https://logicsrc.com/blog/security-operations-ai-agents-open-standards\">Security Operations AI Agents Need Standards, Not Another SOC Copilot</a></li>\n  <li><a href=\"https://www.digitimes.com/news/a20260831PD202/6g-equipment-5g-policy.html\">US rallies 24 nations to compete for 6G</a></li>\n  <li><a href=\"https://www.digitimes.com/news/a20260831PD201/shanghai-packaging-chips-government-industrial.html\">Shanghai's 15th Five-Year Plan bets on chips, AI, advanced packaging</a></li>\n  <li><a href=\"https://www.digitimes.com/news/a20260831VL208/cxmt-xiaomi-production-flagship-commercial.html\">CXMT starts LPDDR6 mass production for Xiaomi 18 Fold, claiming global first</a></li>\n  </ul>\n"
+  },
+  "ad slot with script": {
+    "input": "<div data-cp-ad data-slot=\"f41fc35a-82d7-4795-b68e-c4af5a2ef0b6\" data-format=\"banner_728x90\"></div>\n<script async src=\"https://crawlproof.com/ad.js\"></script>",
+    "expected": "<div data-cp-ad=\"\" data-slot=\"f41fc35a-82d7-4795-b68e-c4af5a2ef0b6\" data-format=\"banner_728x90\"></div>\n"
+  },
+  "video iframe embed": {
+    "input": "<iframe width=\"100%\" style=\"aspect-ratio: 16 / 9;\" src=\"https://www.youtube.com/embed/2BOOl8_nwjQ\" frameborder=\"0\" allow=\"autoplay; encrypted-media\" allowfullscreen></iframe>",
+    "expected": ""
+  },
+  "aligned table": {
+    "input": "<table>\n<thead>\n<tr>\n<th>Discipline</th>\n<th>Primary Goal</th>\n<th>Key Question</th>\n<th>Timing</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>Threat Analysis</td>\n<td>Explain observed activity and guide response</td>\n<td>What happened, how serious is it, and what should we do now?</td>\n<td>During and after observed events</td>\n</tr>\n<tr>\n<td>Threat Intelligence</td>\n<td>Provide adversary and environment context</td>\n<td>Who is likely to act, how do they operate, and what indicators matter?</td>\n<td>Before, during, and after incidents</td>\n</tr>\n<tr>\n<td>Threat Modeling</td>\n<td>Anticipate risks in systems and workflows</td>\n<td>How could this system be attacked and where are the weak paths?</td>\n<td>Mostly before deployment, then revisited</td>\n</tr>\n<tr>\n<td>Threat Hunting</td>\n<td>Search for missed or stealthy malicious activity</td>\n<td>What hostile behavior are our controls not surfacing yet?</td>\n<td>Proactive and iterative</td>\n</tr>\n</tbody></table>",
+    "expected": "<table>\n<thead>\n<tr>\n<th>Discipline</th>\n<th>Primary Goal</th>\n<th>Key Question</th>\n<th>Timing</th>\n</tr>\n</thead>\n<tbody><tr>\n<td>Threat Analysis</td>\n<td>Explain observed activity and guide response</td>\n<td>What happened, how serious is it, and what should we do now?</td>\n<td>During and after observed events</td>\n</tr>\n<tr>\n<td>Threat Intelligence</td>\n<td>Provide adversary and environment context</td>\n<td>Who is likely to act, how do they operate, and what indicators matter?</td>\n<td>Before, during, and after incidents</td>\n</tr>\n<tr>\n<td>Threat Modeling</td>\n<td>Anticipate risks in systems and workflows</td>\n<td>How could this system be attacked and where are the weak paths?</td>\n<td>Mostly before deployment, then revisited</td>\n</tr>\n<tr>\n<td>Threat Hunting</td>\n<td>Search for missed or stealthy malicious activity</td>\n<td>What hostile behavior are our controls not surfacing yet?</td>\n<td>Proactive and iterative</td>\n</tr>\n</tbody></table>"
+  },
+  "code block": {
+    "input": "<pre><code class=\"language-kusto\">SigninLogs\n| where ResultType != 0\n| summarize FailedUsers=dcount(UserPrincipalName), Apps=dcount(AppDisplayName) by IPAddress, bin(TimeGenerated, 15m)\n| where FailedUsers &gt; 10\n</code></pre>",
+    "expected": "<pre><code class=\"language-kusto\">SigninLogs\n| where ResultType != 0\n| summarize FailedUsers=dcount(UserPrincipalName), Apps=dcount(AppDisplayName) by IPAddress, bin(TimeGenerated, 15m)\n| where FailedUsers &gt; 10\n</code></pre>"
+  },
+  "task list input": {
+    "input": "<li><input type=\"checkbox\" disabled=\"\" />Audit current log source coverage against ATT&amp;CK data source objects</li>",
+    "expected": "<li>Audit current log source coverage against ATT&amp;CK data source objects</li>"
+  },
+  "heading with id": {
+    "input": "<h2 id=\"table-of-contents\">Table of Contents</h2>",
+    "expected": "<h2 id=\"table-of-contents\">Table of Contents</h2>"
+  }
+}
