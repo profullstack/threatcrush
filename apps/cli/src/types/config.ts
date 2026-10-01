@@ -35,7 +35,7 @@ export interface RemediationSection {
   dry_run?: boolean;
   backend?: 'auto' | 'fail2ban' | 'nftables' | 'iptables' | 'dry-run';
   min_severity?: 'info' | 'low' | 'medium' | 'high' | 'critical';
-  /** The first offence's ban, e.g. "15m"; each later offence doubles it. */
+  /** The first offence's ban, e.g. "5m"; each later offence doubles it. */
   first_ban?: string;
   /** Ceiling on the escalating ladder, e.g. "7d". */
   max_ban?: string;

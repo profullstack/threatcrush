@@ -25,8 +25,8 @@ describe('backoffFactor', () => {
 });
 
 describe('banSeconds', () => {
-  it('starts at fifteen minutes and doubles', () => {
-    expect([1, 2, 3, 4, 5].map((n) => banSeconds(n, 7 * 86400))).toEqual([900, 1800, 3600, 7200, 14400]);
+  it('starts at five minutes and doubles', () => {
+    expect([1, 2, 3, 4, 5].map((n) => banSeconds(n, 7 * 86400))).toEqual([300, 600, 1200, 2400, 4800]);
   });
 
   it('starts from a configured first ban', () => {
@@ -44,7 +44,7 @@ describe('banSeconds', () => {
   });
 
   it('never cuts the first ban short with a ceiling below it', () => {
-    expect(banSeconds(1, 300)).toBe(900);
+    expect(banSeconds(1, 120)).toBe(300);
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * Escalating ban durations for repeat offenders (PRD 0010 R8).
  *
- * Every offence doubles the ban: 15m, 30m, 1h, 2h, 4h, 8h, 16h, … from the
+ * Every offence doubles the ban: 5m, 10m, 20m, 40m, 80m, … from the
  * first detection, clamped to `max_ban`. This replaced a Fibonacci ladder in
  * minutes (1m, 2m, 3m, 5m …) that a scanner simply waited out: on dev1, 175
  * addresses were banned 1,430 times between them, most of them eight or more
@@ -9,7 +9,7 @@
  */
 
 /** The default first ban. Long enough that a scanner moves on, short enough to survive a false positive. */
-export const DEFAULT_FIRST_BAN_SECONDS = 15 * 60;
+export const DEFAULT_FIRST_BAN_SECONDS = 5 * 60;
 
 /** Multiplier on the first ban for the nth offence, 1-indexed: 1, 2, 4, 8, … */
 export function backoffFactor(strike: number): number {

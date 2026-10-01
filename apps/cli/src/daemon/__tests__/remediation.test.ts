@@ -72,13 +72,13 @@ describe('RemediationManager', () => {
     expect(adapter.blocked.has('45.33.22.11')).toBe(true);
   });
 
-  it('bans for fifteen minutes on the first offence', async () => {
+  it('bans for five minutes on the first offence', async () => {
     const manager = make();
     await manager.handleDetection(detection('45.33.22.11'));
 
     const [entry] = manager.getBlocklist();
     expect(entry.strikes).toBe(1);
-    expect(Math.round((entry.expires_at - entry.blocked_at) / 1000)).toBe(900);
+    expect(Math.round((entry.expires_at - entry.blocked_at) / 1000)).toBe(300);
   });
 
   it('honours a configured first ban', async () => {
@@ -101,7 +101,7 @@ describe('RemediationManager', () => {
       await manager.unban('45.33.22.11');
     }
 
-    expect(lengths).toEqual([900, 1800, 3600, 7200, 14400]);
+    expect(lengths).toEqual([300, 600, 1200, 2400, 4800]);
   });
 
   it('ignores anything below the severity floor', async () => {
