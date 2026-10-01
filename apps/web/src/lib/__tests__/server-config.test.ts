@@ -21,6 +21,13 @@ describe("redactConfig", () => {
     });
   });
 
+  it("drops keys that could reach a prototype", () => {
+    const out = redactConfig(JSON.parse('{"__proto__": {"polluted": true}, "remediation": {"constructor": 1, "max_ban": "7d"}}')) as Record<string, Record<string, unknown>>;
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.keys(out)).toEqual(["remediation"]);
+    expect(Object.keys(out.remediation)).toEqual(["max_ban"]);
+  });
+
   it("redacts inside arrays", () => {
     expect(redactConfig({ hooks: [{ token: "t", name: "a" }] })).toEqual({ hooks: [{ token: REDACTED, name: "a" }] });
   });

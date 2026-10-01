@@ -12,13 +12,17 @@ import { PATHS } from '../daemon/paths.js';
  */
 const SECRET_KEY = /pass(word)?|secret|token|api_?key|private|webhook|dsn|url|routing_key|auth/i;
 export const REDACTED = '[redacted]';
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 export function redactConfig(value: unknown, depth = 0): unknown {
   if (depth > 10) return REDACTED;
   if (Array.isArray(value)) return value.map((v) => redactConfig(v, depth + 1));
   if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
+    // Null prototype, and keys that could reach a prototype are dropped: the
+    // keys come from the uploaded config.
+    const out: Record<string, unknown> = Object.create(null);
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      if (UNSAFE_KEYS.has(key)) continue;
       out[key] = SECRET_KEY.test(key) && v !== null && typeof v !== 'object' && typeof v !== 'boolean'
         ? REDACTED
         : redactConfig(v, depth + 1);
