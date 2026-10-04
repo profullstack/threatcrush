@@ -211,3 +211,18 @@ describe('routine 4xx noise', () => {
     expect(screen(state)).toContain('Nothing but routine 4xx');
   });
 });
+
+describe('watchdog badge', () => {
+  it('is absent until watchdog mode is on', () => {
+    expect(screen(live())).not.toContain('WATCHDOG');
+  });
+
+  it('shows logged and answered counts, and survives a reset', () => {
+    let state = reducer(live(), { type: 'watchdog', watchdog: { on: true, logged: 12, answered: 3, errored: 1 } });
+    const text = screen(state);
+    expect(text).toContain('◉ WATCHDOG 12 · 3 answered · 1 5xx');
+    expect(text).toContain('watchdog off');
+    state = reducer(state, { type: 'reset' });
+    expect(state.watchdog.logged).toBe(12);
+  });
+});

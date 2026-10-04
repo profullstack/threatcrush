@@ -63,6 +63,20 @@ function connectionBadge(state: State, demo: boolean) {
   return { glyph: '○', label: 'OFFLINE', color: severityColors.high };
 }
 
+/**
+ * `◉ WATCHDOG 42 · 3 answered`. Answered (2xx) and errored (5xx) attacks are
+ * the ones to triage, so they turn the badge red; refused-only stays amber.
+ */
+export function watchdogBadge(state: State): { label: string; color: number } | null {
+  const wd = state.watchdog;
+  if (!wd.on) return null;
+  const hot = wd.answered + wd.errored;
+  const parts = [`◉ WATCHDOG ${formatCount(wd.logged)}`];
+  if (wd.answered) parts.push(`${formatCount(wd.answered)} answered`);
+  if (wd.errored) parts.push(`${formatCount(wd.errored)} 5xx`);
+  return { label: parts.join(' · '), color: hot > 0 ? severityColors.high : severityColors.medium };
+}
+
 function header(ui: Container, state: State, theme: Theme, demo: boolean): void {
   const badge = connectionBadge(state, demo);
   const uptime = state.daemon ? formatUptime(state.daemon.uptimeSeconds) : '—';
@@ -73,6 +87,8 @@ function header(ui: Container, state: State, theme: Theme, demo: boolean): void 
       row.text(`${badge.glyph} ${badge.label}`, { fg: badge.color, bold: true, size: 12 });
       row.text(state.connectionLabel, { fg: theme.muted, size: 'fill' });
       if (state.paused) row.text('⏸ PAUSED', { fg: severityColors.medium, bold: true, size: 10 });
+      const wd = watchdogBadge(state);
+      if (wd) row.text(wd.label, { fg: wd.color, bold: true, size: wd.label.length + 1 });
       row.text(`uptime ${uptime}`, { fg: theme.muted, size: 16, align: 'right' });
     });
   });
@@ -498,6 +514,7 @@ function footer(ui: Container, state: State, theme: Theme): void {
       { key: 'p', label: state.paused ? 'resume' : 'pause' },
       { key: 'r', label: 'reset' },
       { key: 'n', label: state.showNoise ? 'hide 4xx' : 'show 4xx' },
+      { key: 'w', label: state.watchdog.on ? 'watchdog off' : 'watchdog' },
       // Only offer the cron toggle once a cron line has actually shown up, or
       // while it is muting, so the hint never advertises a key with nothing to act on.
       ...(state.muteCron || state.events.some(isCronLine)

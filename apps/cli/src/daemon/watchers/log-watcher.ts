@@ -124,6 +124,12 @@ export class LogWatcher {
       const reqPath = (entry.fields.path || '').split('?')[0];
       if (reqPath) details.path = reqPath;
       if (entry.fields.user_agent) details.ua = entry.fields.user_agent;
+      // How the server answered, and the request as sent. Watchdog mode needs
+      // both: a probe that came back 200 is a possible hole, the same probe
+      // 404'd is noise — and the querystring is where the payload lives.
+      if (Number.isFinite(status)) details.status = status;
+      if (entry.fields.method) details.method = entry.fields.method;
+      if (entry.fields.path) details.url = entry.fields.path.slice(0, 2048);
       if (crs.score > 0) {
         Object.assign(details, {
           attack_type: crs.attackType,

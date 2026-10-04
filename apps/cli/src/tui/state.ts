@@ -107,6 +107,20 @@ export interface State {
    * low/info here, so muting the keepalive never hides a real finding.
    */
   muteCron: boolean;
+  /**
+   * Watchdog mode: every attack is appended to a log on disk for later triage
+   * (`threatcrush watchdog list`). The counts are what the header shows; the
+   * log itself is owned by the dashboard, not the reducer, since it is I/O.
+   */
+  watchdog: WatchdogView;
+}
+
+export interface WatchdogView {
+  on: boolean;
+  /** Attacks logged this session, and how many the target actually answered. */
+  logged: number;
+  answered: number;
+  errored: number;
 }
 
 export type Action =
@@ -134,6 +148,7 @@ export type Action =
   | { type: 'clear_source_filter' }
   | { type: 'toggle_noise' }
   | { type: 'toggle_cron' }
+  | { type: 'watchdog'; watchdog: WatchdogView }
   | { type: 'reset' };
 
 export const TIMELINE_SLOTS = 60;
@@ -174,6 +189,7 @@ export function initialState(now: number = Date.now()): State {
     sourceFilter: null,
     showNoise: false,
     muteCron: false,
+    watchdog: { on: false, logged: 0, answered: 0, errored: 0 },
   };
 }
 
@@ -421,6 +437,9 @@ export function reducer(state: State, action: Action): State {
     case 'toggle_cron':
       return { ...state, muteCron: !state.muteCron, scrollBack: 0 };
 
+    case 'watchdog':
+      return { ...state, watchdog: action.watchdog };
+
     case 'counters':
       return {
         ...state,
@@ -463,6 +482,8 @@ export function reducer(state: State, action: Action): State {
         moduleIndex: state.moduleIndex,
         showNoise: state.showNoise,
         muteCron: state.muteCron,
+        // Reset clears the view; the watchdog log on disk is not the view.
+        watchdog: state.watchdog,
       };
   }
 }
