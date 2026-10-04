@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { FeedbackWidget } from "@profullstack/stack/feedback";
 import "./globals.css";
 import { serializeJsonForHtml } from "@/lib/safe-json";
 import SiteHeader from "@/components/SiteHeader";
@@ -244,7 +243,6 @@ export default function RootLayout({
           strategy="afterInteractive"
         />
               <Script data-site="09d382f0-1b98-4d28-b360-78eaf4e030f2" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
-      <FeedbackWidget property="threatcrush.com" />
       </body>
     </html>
   );

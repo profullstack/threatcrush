@@ -22,18 +22,17 @@ const securityHeaders = [
     //
     // The third-party hosts are exactly what app/layout.tsx loads on every
     // page: the robauto, datafa.st and crawlproof analytics scripts (crawlproof
-    // may add its own careers.js), the profullstack feedback widget (script +
-    // its panel iframe), and Google Fonts (stylesheet + font files). Their
+    // may add its own careers.js), and Google Fonts (stylesheet + font files). Their
     // beacons and XHRs already fall under connect-src https:.
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://robauto.ai https://datafa.st https://crawlproof.com https://feedback.profullstack.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://robauto.ai https://datafa.st https://crawlproof.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data: https://fonts.gstatic.com",
       "connect-src 'self' https:",
-      "frame-src 'self' https://feedback.profullstack.com",
+      "frame-src 'self'",
       "frame-ancestors 'self'",
       "base-uri 'self'",
       "form-action 'self'",

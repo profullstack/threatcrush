@@ -128,7 +128,6 @@ export default function PrivacyPage() {
               <li><span className="text-tc-text">DataFast</span> (datafa.st) — website analytics.</li>
               <li><span className="text-tc-text">Robauto</span> (robauto.ai) — a pixel script, and a beacon that sends the page path, URL and referrer to Robauto&apos;s tracking endpoint.</li>
               <li><span className="text-tc-text">Crawlproof</span> (crawlproof.com) — a statistics script.</li>
-              <li><span className="text-tc-text">Profullstack Feedback</span> (feedback.profullstack.com) — the feedback widget; feedback you submit goes to that service.</li>
               <li><span className="text-tc-text">Google Fonts</span> (fonts.googleapis.com) — web fonts; your browser requests them from Google.</li>
             </ul>
             <p className={p}>
