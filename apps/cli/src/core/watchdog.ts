@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync, fstatSync } from 'node:fs';
+import { appendFileSync, chmodSync, chownSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync, fstatSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import type { EventSeverity, ThreatEvent } from '../types/events.js';
@@ -207,24 +207,51 @@ export interface WatchdogStats {
   errored: number;
 }
 
+export interface WatchdogLogOptions {
+  /**
+   * Share the directory with this group: setgid 2770, files 660. The root
+   * daemon passes the `adm` gid — the group its socket already trusts — so a
+   * log-reading user can run `threatcrush watchdog list` and `mark` (which
+   * writes triage.json) without sudo. Unset: owner-only, 700/600.
+   */
+  shareGid?: number;
+}
+
+/** True when `dir` was set up group-shared (setgid), so new files should be 660. */
+function isShared(dir: string): boolean {
+  try {
+    return (statSync(dir).mode & 0o2000) !== 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Appends attacks to the log. Buffered — a scanner can send hundreds a second
- * and a synchronous write per event would stall the render loop — and flushed
- * on `flush()`, which the dashboard calls once a second and on exit.
+ * Appends attacks to the log. The daemon owns one, fed from its event bus.
+ * Buffered — a scanner can send hundreds a second and a synchronous write per
+ * event would stall the bus — and flushed on `flush()`, which the daemon calls
+ * once a second and on shutdown.
  */
 export class WatchdogLog {
   readonly dir: string;
   readonly file: string;
   private buffer: string[] = [];
   private seen = new Set<string>();
+  private readonly shareGid?: number;
   readonly stats: WatchdogStats = { logged: 0, answered: 0, errored: 0 };
 
-  constructor(dir: string) {
+  constructor(dir: string, options: WatchdogLogOptions = {}) {
     this.dir = dir;
     this.file = join(dir, LOG_FILE);
-    mkdirSync(dir, { recursive: true });
-    // Seed from the tail of the existing log, so the 100-event backfill the
-    // dashboard does on every (re)connect does not log the same attacks again.
+    this.shareGid = options.shareGid;
+    mkdirSync(dir, { recursive: true, mode: this.shareGid === undefined ? 0o700 : 0o2770 });
+    if (this.shareGid !== undefined) {
+      chownSync(dir, process.getuid?.() ?? 0, this.shareGid);
+      // mkdir's mode is masked by the umask and ignored for an existing dir.
+      chmodSync(dir, 0o2770);
+    }
+    // Seed from the tail of the existing log, so an event seen twice (a module
+    // replaying on restart) is not logged twice.
     for (const r of readTail(this.file, 512 * 1024)) this.remember(dedupeKey(r));
   }
 
@@ -260,7 +287,14 @@ export class WatchdogLog {
         renameSync(this.file, join(this.dir, ROTATED_FILE));
       }
     } catch { /* rotation is best-effort; appending still works */ }
-    appendFileSync(this.file, chunk, { mode: 0o600 });
+    appendFileSync(this.file, chunk, { mode: this.shareGid === undefined ? 0o600 : 0o660 });
+    if (this.shareGid !== undefined) {
+      // A fresh file after rotation is root:root 0600 under the umask; regroup it.
+      try {
+        chownSync(this.file, process.getuid?.() ?? 0, this.shareGid);
+        chmodSync(this.file, 0o660);
+      } catch { /* the log is still written; only group reads suffer */ }
+    }
   }
 }
 
@@ -323,7 +357,11 @@ export function writeTriage(dir: string, map: TriageMap): void {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, TRIAGE_FILE);
   // Write-then-rename so a crash never leaves half a verdict file.
-  writeFileSync(`${file}.tmp`, JSON.stringify(map, null, 2) + '\n', { mode: 0o600 });
+  // In the daemon's group-shared dir the verdicts must stay group-writable, or
+  // the next teammate's `mark` fails. The setgid bit already gives the group.
+  const mode = isShared(dir) ? 0o660 : 0o600;
+  writeFileSync(`${file}.tmp`, JSON.stringify(map, null, 2) + '\n', { mode });
+  try { chmodSync(`${file}.tmp`, mode); } catch { /* umask fallback is still private */ }
   renameSync(`${file}.tmp`, file);
 }
 

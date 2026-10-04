@@ -75,6 +75,21 @@ export interface DaemonStatusReply {
    * still read a status reply from an older daemon.
    */
   stateDb?: boolean;
+  /**
+   * The daemon's attack log for triage (`threatcrush watchdog`). Counts are
+   * since this daemon started. Absent from a daemon that predates it.
+   */
+  watchdog?: WatchdogStatus;
+}
+
+export interface WatchdogStatus {
+  enabled: boolean;
+  dir: string;
+  logged: number;
+  answered: number;
+  errored: number;
+  /** Set when the log could not be opened or written, e.g. a read-only state dir. */
+  error?: string;
 }
 
 export interface EventPush {

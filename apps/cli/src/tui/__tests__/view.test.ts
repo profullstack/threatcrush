@@ -217,12 +217,25 @@ describe('watchdog badge', () => {
     expect(screen(live())).not.toContain('WATCHDOG');
   });
 
-  it('shows logged and answered counts, and survives a reset', () => {
-    let state = reducer(live(), { type: 'watchdog', watchdog: { on: true, logged: 12, answered: 3, errored: 1 } });
-    const text = screen(state);
-    expect(text).toContain('◉ WATCHDOG 12 · 3 answered · 1 5xx');
-    expect(text).toContain('watchdog off');
+  it('shows the daemon-reported counts, survives a reset, and clears when the daemon goes', () => {
+    let state = reducer(live(), {
+      type: 'connected',
+      label: 'daemon pid 4242',
+      status: { ...status, watchdog: { enabled: true, dir: '/w', logged: 12, answered: 3, errored: 1 } },
+    });
+    expect(screen(state)).toContain('◉ WATCHDOG 12 · 3 answered · 1 5xx');
     state = reducer(state, { type: 'reset' });
     expect(state.watchdog.logged).toBe(12);
+    state = reducer(state, { type: 'connection_lost', label: 'gone' });
+    expect(screen(state)).not.toContain('WATCHDOG');
+  });
+
+  it('stays hidden for a daemon with watchdog disabled', () => {
+    const state = reducer(live(), {
+      type: 'connected',
+      label: 'daemon pid 4242',
+      status: { ...status, watchdog: { enabled: false, dir: '/w', logged: 0, answered: 0, errored: 0 } },
+    });
+    expect(screen(state)).not.toContain('WATCHDOG');
   });
 });

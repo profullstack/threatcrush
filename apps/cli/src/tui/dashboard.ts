@@ -7,16 +7,10 @@ import { formatDuration } from '../daemon/firewall/backoff.js';
 import { threatcrushTheme } from './theme.js';
 import { renderDashboard } from './view.js';
 import { demoEvent } from './demo.js';
-import { WatchdogLog, WATCHDOG_DIRNAME } from '../core/watchdog.js';
-import { join } from 'node:path';
 
 export interface DashboardOptions {
   /** Replay canned events instead of connecting. Never entered by accident. */
   demo?: boolean;
-  /** Start with watchdog mode on: every attack is logged for later triage. */
-  watchdog?: boolean;
-  /** Where the watchdog log lives. Defaults to `<stateDir>/watchdog`. */
-  watchdogDir?: string;
 }
 
 const RECONNECT_MS = 2000;
@@ -41,74 +35,6 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
   let client: IpcClient | null = null;
   let stopped = false;
   const timers: NodeJS.Timeout[] = [];
-  // ------------------------------------------------------------ watchdog
-  //
-  // Opened on first use, so a dashboard that never turns it on never creates
-  // the directory. Demo mode refuses: canned attacks in the real log would be
-  // triaged by someone who believes they happened.
-  const watchdogDir = options.watchdogDir ?? join(PATHS.stateDir, WATCHDOG_DIRNAME);
-  let watchdog: WatchdogLog | null = null;
-  let watchdogOn = false;
-
-  const publishWatchdog = (): void => {
-    dispatch({
-      type: 'watchdog',
-      watchdog: {
-        on: watchdogOn,
-        logged: watchdog?.stats.logged ?? 0,
-        answered: watchdog?.stats.answered ?? 0,
-        errored: watchdog?.stats.errored ?? 0,
-      },
-    });
-  };
-
-  /** Every event the feed sees passes through here; only attacks are kept. */
-  const observe = (event: ThreatEvent): void => {
-    if (!watchdogOn || !watchdog) return;
-    const rec = watchdog.record(event);
-    if (rec) publishWatchdog();
-  };
-
-  const flushWatchdog = (): void => {
-    if (!watchdog) return;
-    try {
-      watchdog.flush();
-    } catch (err) {
-      // A full disk or a root-owned directory: say so and stop, rather than
-      // silently dropping attacks the operator thinks are being kept.
-      watchdogOn = false;
-      dispatch({ type: 'notice', text: `watchdog stopped: ${(err as Error).message}`, tone: 'error' });
-      publishWatchdog();
-    }
-  };
-
-  const setWatchdog = (on: boolean): void => {
-    if (on && options.demo) {
-      dispatch({ type: 'notice', text: 'demo mode — watchdog does not log canned events', tone: 'error' });
-      return;
-    }
-    if (on && !watchdog) {
-      try {
-        watchdog = new WatchdogLog(watchdogDir);
-      } catch (err) {
-        dispatch({ type: 'notice', text: `watchdog: ${(err as Error).message}`, tone: 'error' });
-        return;
-      }
-    }
-    watchdogOn = on;
-    if (on) {
-      // "Log all attacks" includes the ones already on screen.
-      for (const event of state.events) watchdog?.record(event);
-      for (const event of state.parked) watchdog?.record(event);
-      flushWatchdog();
-      dispatch({ type: 'notice', text: `watchdog → ${watchdog?.file}`, tone: 'ok' });
-    } else {
-      flushWatchdog();
-      dispatch({ type: 'notice', text: 'watchdog off — `threatcrush watchdog list` to triage', tone: 'ok' });
-    }
-    publishWatchdog();
-  };
-
   // Assigned when a live connection exists; a no-op in demo mode.
   let refreshBans: () => Promise<void> = async () => {};
 
@@ -124,7 +50,6 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
     timers.length = 0;
     try { client?.close(); } catch { /* already gone */ }
     client = null;
-    flushWatchdog();
   };
 
   // ---------------------------------------------------------------- demo
@@ -141,10 +66,7 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
     // `threatcrush start` in another pane brings the screen to life on its own.
 
     const onEvent = (event: ThreatEvent): void => {
-      if (!stopped) {
-        dispatch({ type: 'event', event });
-        observe(event);
-      }
+      if (!stopped) dispatch({ type: 'event', event });
       // A ban the daemon decided on by itself shows up as an event; pull the
       // list straight away so the row is marked before the next poll.
       if (!stopped && event.module === 'firewall-rules') void refreshBans();
@@ -209,9 +131,7 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
         try {
           const recent = await next.recentEvents(100);
           for (const event of recent) {
-            const restored = { ...event, timestamp: new Date(event.timestamp) };
-            dispatch({ type: 'event', event: restored });
-            observe(restored);
+            dispatch({ type: 'event', event: { ...event, timestamp: new Date(event.timestamp) } });
           }
         } catch { /* no history is fine */ }
 
@@ -228,12 +148,7 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
   }
 
   // Drives the events/sec graph. One slot per second, always.
-  every(1000, () => {
-    dispatch({ type: 'tick' });
-    flushWatchdog();
-  });
-
-  if (options.watchdog) setWatchdog(true);
+  every(1000, () => dispatch({ type: 'tick' }));
 
   // --------------------------------------------------------------- input
 
@@ -332,9 +247,6 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
         break;
       case 'c':
         dispatch({ type: 'toggle_cron' });
-        break;
-      case 'w':
-        setWatchdog(!watchdogOn);
         break;
       case 'tab':
         dispatch({ type: 'focus_next' });

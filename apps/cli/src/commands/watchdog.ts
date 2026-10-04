@@ -22,18 +22,19 @@ export interface WatchdogCommonOptions {
 }
 
 /**
- * The log a root dashboard wrote lives under /var/lib, a user one under
- * ~/.threatcrush. Without `--dir`, use this process's own and fall back to the
- * system one when only that exists, so `sudo threatcrush tui --watchdog` and a
- * later unprivileged `threatcrush watchdog list` meet in the same place.
+ * The daemon writes the log: under /var/lib when it runs as root, under
+ * ~/.threatcrush when it does not. Prefer the system daemon's, for the same
+ * reason the client prefers its socket — it is the one watching the real
+ * traffic — and a root daemon shares the directory with `adm`, so an
+ * unprivileged `threatcrush watchdog` can read it and record verdicts.
+ * A custom `[watchdog] dir` needs `--dir` or THREATCRUSH_WATCHDOG_DIR.
  */
 export function resolveWatchdogDir(dir?: string): string {
   if (dir) return dir;
   if (process.env.THREATCRUSH_WATCHDOG_DIR) return process.env.THREATCRUSH_WATCHDOG_DIR;
-  const own = join(PATHS.stateDir, WATCHDOG_DIRNAME);
   const system = join('/var/lib/threatcrush', WATCHDOG_DIRNAME);
-  if (!existsSync(own) && existsSync(system)) return system;
-  return own;
+  if (existsSync(system)) return system;
+  return join(PATHS.stateDir, WATCHDOG_DIRNAME);
 }
 
 function load(dir: string): Finding[] {
@@ -89,7 +90,7 @@ export function watchdogListCommand(opts: WatchdogListOptions): void {
   if (findings.length === 0) {
     const empty = existsSync(join(dir, 'attacks.jsonl'))
       ? 'Nothing to triage.' + (opts.all ? '' : ' (refused and triaged findings hidden; --all shows them)')
-      : `No watchdog log at ${dir}. Start one with: threatcrush tui --watchdog (or press w in the dashboard).`;
+      : `No watchdog log at ${dir}. The daemon writes it: threatcrush start (or upgrade + restart an older daemon).`;
     console.log(chalk.dim(empty));
     return;
   }

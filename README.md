@@ -115,12 +115,12 @@ Full command reference: [threatcrush.com/docs](https://threatcrush.com/docs).
 
 ### Watchdog mode: was that attack a real hole?
 
-A ban answers "who attacked", not "did it work". Watchdog mode keeps every
-attack the dashboard sees, so each one can be verified afterwards and, when it
-turns out to be a hole, fixed in a PR.
+A ban answers "who attacked", not "did it work". The daemon keeps every
+attack it sees, so each one can be verified afterwards and, when it turns out
+to be a hole, fixed in a PR. It is on by default; the dashboard header shows
+`◉ WATCHDOG 42 · 3 answered` while it runs.
 
 ```bash
-threatcrush tui --watchdog          # or press w in the dashboard
 threatcrush watchdog                # what to triage, worst first
 threatcrush watchdog show <id>      # samples, sources, status codes, a repro curl
 threatcrush watchdog brief <id>     # Markdown hand-off for an issue, PR or agent
@@ -135,6 +135,16 @@ target answered: **answered** (2xx: the app served the payload) first, then
 **errored** (5xx: it crashed on it), then non-HTTP detections, redirects, and
 **refused** (4xx) last. Refused and already-triaged findings are hidden unless
 you pass `--all`. Verdicts live in `triage.json` next to the log.
+
+A root daemon writes to `/var/lib/threatcrush/watchdog`, shared with the `adm`
+group (the same group its socket trusts), so log readers can triage without
+sudo. To turn it off or move it:
+
+```toml
+[watchdog]
+enabled = false                 # default true
+dir = "/srv/threatcrush/watchdog"  # then pass --dir to `threatcrush watchdog`
+```
 
 ## Features
 

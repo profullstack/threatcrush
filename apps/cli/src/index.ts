@@ -318,7 +318,6 @@ program
 ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush monitor          ${chalk.dim("# Real-time monitoring")}
   ${chalk.green("$")} threatcrush tui              ${chalk.dim("# Interactive dashboard")}
-  ${chalk.green("$")} threatcrush tui --watchdog   ${chalk.dim("# ...logging every attack for triage")}
   ${chalk.green("$")} threatcrush watchdog         ${chalk.dim("# Triage logged attacks: hole or not?")}
   ${chalk.green("$")} threatcrush scan ./src       ${chalk.dim("# Scan code for vulns")}
   ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
@@ -364,17 +363,15 @@ program
   .description("Interactive security dashboard (htop for security)")
   .alias("dashboard")
   .option("--demo", "Run on canned events instead of connecting to the daemon")
-  .option("--watchdog", "Start in watchdog mode: log every attack for triage (toggle with w)")
-  .option("--watchdog-dir <dir>", "Where to keep the watchdog log (default: <state dir>/watchdog)")
   .action(async (opts) => {
-    await monitorCommand({ tui: true, demo: opts.demo, watchdog: opts.watchdog, watchdogDir: opts.watchdogDir });
+    await monitorCommand({ tui: true, demo: opts.demo });
   });
 
 // ─── Watchdog: triage the attacks the dashboard logged ───
 
 const watchdogCmd = program
   .command("watchdog")
-  .description("Triage attacks logged by `tui --watchdog`: was it a hole? fix it, PR it, mark it")
+  .description("Triage the attacks the daemon logged: was it a hole? fix it, PR it, mark it")
   .option("--dir <dir>", "Watchdog log directory")
   .action((opts) => {
     watchdogListCommand(opts);

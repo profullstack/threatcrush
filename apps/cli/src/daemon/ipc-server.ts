@@ -11,6 +11,7 @@ import type {
   IpcPush,
   DaemonStatusReply,
   BlocklistReply,
+  WatchdogStatus,
 } from './ipc-protocol.js';
 import type { ModuleHost } from './module-host.js';
 import type { RemediationManager } from './firewall/remediation.js';
@@ -35,6 +36,7 @@ export class IpcServer {
     private version: string,
     private moduleHost: ModuleHost,
     private remediation?: RemediationManager,
+    private watchdog?: () => WatchdogStatus,
   ) {
     bus.on('event', (event: ThreatEvent) => {
       this.counters.events++;
@@ -176,6 +178,7 @@ export class IpcServer {
           modules: this.moduleHost.summary(),
           counters: { ...this.counters },
           stateDb: isStateDbAvailable(),
+          ...(this.watchdog ? { watchdog: this.watchdog() } : {}),
         };
         return this.send(client, { id: req.id, ok: true, result: status });
       }

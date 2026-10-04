@@ -12,8 +12,6 @@ interface MonitorOptions {
   module?: string;
   tui?: boolean;
   demo?: boolean;
-  watchdog?: boolean;
-  watchdogDir?: string;
 }
 
 interface LogWatcher {
@@ -33,7 +31,7 @@ export async function monitorCommand(options: MonitorOptions): Promise<void> {
   if (options.tui || options.demo) {
     // Loaded on demand so the plain monitor never pays for the dashboard.
     const { startDashboard } = await import('../tui/dashboard.js');
-    await startDashboard({ demo: options.demo, watchdog: options.watchdog, watchdogDir: options.watchdogDir });
+    await startDashboard({ demo: options.demo });
     return;
   }
 

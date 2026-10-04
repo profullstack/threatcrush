@@ -514,7 +514,6 @@ function footer(ui: Container, state: State, theme: Theme): void {
       { key: 'p', label: state.paused ? 'resume' : 'pause' },
       { key: 'r', label: 'reset' },
       { key: 'n', label: state.showNoise ? 'hide 4xx' : 'show 4xx' },
-      { key: 'w', label: state.watchdog.on ? 'watchdog off' : 'watchdog' },
       // Only offer the cron toggle once a cron line has actually shown up, or
       // while it is muting, so the hint never advertises a key with nothing to act on.
       ...(state.muteCron || state.events.some(isCronLine)
