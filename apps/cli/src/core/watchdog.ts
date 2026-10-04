@@ -255,7 +255,8 @@ export class WatchdogLog {
     const chunk = this.buffer.join('\n') + '\n';
     this.buffer = [];
     try {
-      if (existsSync(this.file) && statSync(this.file).size > ROTATE_BYTES) {
+      // statSync throws on a missing file, which the catch treats as "nothing to rotate".
+      if (statSync(this.file).size > ROTATE_BYTES) {
         renameSync(this.file, join(this.dir, ROTATED_FILE));
       }
     } catch { /* rotation is best-effort; appending still works */ }
@@ -276,8 +277,14 @@ function parseLines(text: string): AttackRecord[] {
 }
 
 function readTail(file: string, bytes: number): AttackRecord[] {
-  if (!existsSync(file)) return [];
-  const fd = openSync(file, 'r');
+  // Open, don't check-then-open: the dashboard may rotate the file in between.
+  let fd: number;
+  try {
+    fd = openSync(file, 'r');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
   try {
     const size = fstatSync(fd).size;
     const start = Math.max(0, size - bytes);
