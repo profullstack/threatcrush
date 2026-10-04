@@ -83,6 +83,16 @@ export interface CloudSection {
   min_severity?: 'info' | 'low' | 'medium' | 'high' | 'critical';
 }
 
+/**
+ * `[watchdog]` — keep every attack on disk for triage (`threatcrush watchdog`).
+ */
+export interface WatchdogSection {
+  /** Default true. `false` stops the daemon writing the attack log. */
+  enabled?: boolean;
+  /** Default `<state dir>/watchdog` (/var/lib/threatcrush/watchdog as root). */
+  dir?: string;
+}
+
 export interface ThreatCrushConfig {
   daemon: DaemonConfig;
   api: ApiConfig;
@@ -91,6 +101,7 @@ export interface ThreatCrushConfig {
   remediation?: RemediationSection;
   detection?: DetectionSection;
   cloud?: CloudSection;
+  watchdog?: WatchdogSection;
   license?: {
     key_file?: string;
     key?: string;

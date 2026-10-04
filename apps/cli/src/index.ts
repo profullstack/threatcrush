@@ -8,6 +8,13 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { monitorCommand } from "./commands/monitor.js";
+import {
+  watchdogBriefCommand,
+  watchdogListCommand,
+  watchdogMarkCommand,
+  watchdogPathCommand,
+  watchdogShowCommand,
+} from "./commands/watchdog.js";
 import { parseFailOn, scanCommand, type ScanFormat } from "./commands/scan.js";
 import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
@@ -311,6 +318,7 @@ program
 ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush monitor          ${chalk.dim("# Real-time monitoring")}
   ${chalk.green("$")} threatcrush tui              ${chalk.dim("# Interactive dashboard")}
+  ${chalk.green("$")} threatcrush watchdog         ${chalk.dim("# Triage logged attacks: hole or not?")}
   ${chalk.green("$")} threatcrush scan ./src       ${chalk.dim("# Scan code for vulns")}
   ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
   ${chalk.green("$")} threatcrush ai-scan URL      ${chalk.dim("# Red-team your AI/LLM endpoint (OWASP LLM Top 10)")}
@@ -357,6 +365,60 @@ program
   .option("--demo", "Run on canned events instead of connecting to the daemon")
   .action(async (opts) => {
     await monitorCommand({ tui: true, demo: opts.demo });
+  });
+
+// ─── Watchdog: triage the attacks the dashboard logged ───
+
+const watchdogCmd = program
+  .command("watchdog")
+  .description("Triage the attacks the daemon logged: was it a hole? fix it, PR it, mark it")
+  .option("--dir <dir>", "Watchdog log directory")
+  .action((opts) => {
+    watchdogListCommand(opts);
+  });
+
+watchdogCmd
+  .command("list")
+  .alias("ls")
+  .description("Findings to triage, worst first (answered 2xx, then 5xx, ...)")
+  .option("--status <status>", "Only this triage status: new | hole | fp | fixed")
+  .option("--outcome <outcome>", "Only this outcome: answered | errored | unknown | redirected | refused")
+  .option("-a, --all", "Include refused and already-triaged findings")
+  .option("-n, --limit <n>", "Show at most n findings", "50")
+  .option("--json", "Output findings as JSON")
+  .action((_opts, cmd) => {
+    watchdogListCommand(cmd.optsWithGlobals());
+  });
+
+watchdogCmd
+  .command("show <id>")
+  .description("Every detail of one finding: samples, sources, a repro command")
+  .option("--json", "Output as JSON")
+  .action((id: string, _opts, cmd) => {
+    watchdogShowCommand(id, cmd.optsWithGlobals());
+  });
+
+watchdogCmd
+  .command("brief <id>")
+  .description("Markdown hand-off to verify and fix one finding (paste into an issue, PR or agent)")
+  .action((id: string, _opts, cmd) => {
+    watchdogBriefCommand(id, cmd.optsWithGlobals());
+  });
+
+watchdogCmd
+  .command("mark <id> <status>")
+  .description("Record a verdict: hole | fp | fixed | new")
+  .option("--note <text>", "Why: what you checked, what you found")
+  .option("--pr <url>", "The PR that fixes it")
+  .action((id: string, status: string, _opts, cmd) => {
+    watchdogMarkCommand(id, status, cmd.optsWithGlobals());
+  });
+
+watchdogCmd
+  .command("path")
+  .description("Print the watchdog log directory")
+  .action((_opts, cmd) => {
+    watchdogPathCommand(cmd.optsWithGlobals());
   });
 
 program

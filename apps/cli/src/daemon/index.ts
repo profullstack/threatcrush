@@ -19,6 +19,7 @@ import { RemediationManager } from './firewall/remediation.js';
 import { remediationSettings } from './firewall/settings.js';
 import { formatDuration } from './firewall/backoff.js';
 import { bus } from './event-bus.js';
+import { startWatchdog } from './watchdog-service.js';
 import { initStateDB, closeDB } from '../core/state.js';
 import { loadConfig } from '../core/config.js';
 import { configureAttackDetection } from '../core/log-parser.js';
@@ -204,7 +205,10 @@ export async function runDaemon(): Promise<void> {
       : '[cloud] not linked; run `threatcrush login` and `threatcrush servers link` to report to the dashboard');
   }
 
-  const ipc = new IpcServer(version, moduleHost, remediation);
+  // Every attack to disk for triage (`threatcrush watchdog`), dashboard or not.
+  const watchdog = startWatchdog({ bus, config: config.watchdog, stateDir: PATHS.stateDir, log: logLine });
+
+  const ipc = new IpcServer(version, moduleHost, remediation, () => watchdog.status());
   await ipc.start();
   logLine(`[daemon] ipc listening on ${PATHS.socket}`);
 
@@ -216,6 +220,7 @@ export async function runDaemon(): Promise<void> {
     try { allowlistSync?.stop(); } catch {}
     try { await cloudSync?.stop(); } catch {}
     try { await moduleHost.stop(); } catch {}
+    try { watchdog.stop(); } catch {}
     try { await ipc.stop(); } catch {}
     try { closeDB(); } catch {}
     try { await flushTelemetry(); } catch {}

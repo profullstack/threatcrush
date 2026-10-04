@@ -113,6 +113,39 @@ threatcrush update       # Upgrade the CLI using the supported path
 
 Full command reference: [threatcrush.com/docs](https://threatcrush.com/docs).
 
+### Watchdog mode: was that attack a real hole?
+
+A ban answers "who attacked", not "did it work". The daemon keeps every
+attack it sees, so each one can be verified afterwards and, when it turns out
+to be a hole, fixed in a PR. It is on by default; the dashboard header shows
+`◉ WATCHDOG 42 · 3 answered` while it runs.
+
+```bash
+threatcrush watchdog                # what to triage, worst first
+threatcrush watchdog show <id>      # samples, sources, status codes, a repro curl
+threatcrush watchdog brief <id>     # Markdown hand-off for an issue, PR or agent
+threatcrush watchdog mark <id> fp --note "static route, no DB"
+threatcrush watchdog mark <id> fixed --pr https://github.com/org/repo/pull/123
+```
+
+Attacks are appended to `<state dir>/watchdog/attacks.jsonl` (rotated at 50 MB)
+and grouped into findings by vhost, method, path and attack type, so ten
+thousand scanner hits on one endpoint are one row. Findings sort by how the
+target answered: **answered** (2xx: the app served the payload) first, then
+**errored** (5xx: it crashed on it), then non-HTTP detections, redirects, and
+**refused** (4xx) last. Refused and already-triaged findings are hidden unless
+you pass `--all`. Verdicts live in `triage.json` next to the log.
+
+A root daemon writes to `/var/lib/threatcrush/watchdog`, shared with the `adm`
+group (the same group its socket trusts), so log readers can triage without
+sudo. To turn it off or move it:
+
+```toml
+[watchdog]
+enabled = false                 # default true
+dir = "/srv/threatcrush/watchdog"  # then pass --dir to `threatcrush watchdog`
+```
+
 ## Features
 
 | Feature | Description |

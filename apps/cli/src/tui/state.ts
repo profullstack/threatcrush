@@ -107,6 +107,28 @@ export interface State {
    * low/info here, so muting the keepalive never hides a real finding.
    */
   muteCron: boolean;
+  /**
+   * The daemon's watchdog log: every attack kept on disk for triage
+   * (`threatcrush watchdog`). Read from `status`; the daemon owns the log.
+   */
+  watchdog: WatchdogView;
+}
+
+export interface WatchdogView {
+  on: boolean;
+  /** Attacks the daemon logged since it started, and how many were answered (2xx) or crashed (5xx). */
+  logged: number;
+  answered: number;
+  errored: number;
+}
+
+const OFF_WATCHDOG: WatchdogView = { on: false, logged: 0, answered: 0, errored: 0 };
+
+/** An older daemon has no `watchdog` in its status; that reads as off. */
+function watchdogView(status: DaemonStatusReply): WatchdogView {
+  const wd = status.watchdog;
+  if (!wd) return OFF_WATCHDOG;
+  return { on: wd.enabled, logged: wd.logged, answered: wd.answered, errored: wd.errored };
 }
 
 export type Action =
@@ -174,6 +196,7 @@ export function initialState(now: number = Date.now()): State {
     sourceFilter: null,
     showNoise: false,
     muteCron: false,
+    watchdog: OFF_WATCHDOG,
   };
 }
 
@@ -267,6 +290,7 @@ export function reducer(state: State, action: Action): State {
         connectionLabel: action.label,
         daemon: action.status,
         modules: action.status.modules,
+        watchdog: watchdogView(action.status),
         counters: {
           events: action.status.counters.events,
           threats: action.status.counters.threats,
@@ -275,7 +299,7 @@ export function reducer(state: State, action: Action): State {
       };
 
     case 'connection_lost':
-      return { ...state, connection: 'lost', connectionLabel: action.label, daemon: null };
+      return { ...state, connection: 'lost', connectionLabel: action.label, daemon: null, watchdog: OFF_WATCHDOG };
 
     case 'event': {
       // Pausing parks events instead of dropping them. The old build discarded
@@ -463,6 +487,8 @@ export function reducer(state: State, action: Action): State {
         moduleIndex: state.moduleIndex,
         showNoise: state.showNoise,
         muteCron: state.muteCron,
+        // Reset clears the view; the watchdog log on disk is not the view.
+        watchdog: state.watchdog,
       };
   }
 }
