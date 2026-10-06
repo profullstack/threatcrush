@@ -45,6 +45,7 @@ export function loadConfig(configPath?: string): ThreatCrushConfig {
       detection: parsed.detection,
       cloud: parsed.cloud,
       watchdog: parsed.watchdog,
+      storage: parsed.storage,
       license: parsed.license,
     };
   } catch {

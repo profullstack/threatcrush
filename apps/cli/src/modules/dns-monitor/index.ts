@@ -5,9 +5,10 @@
  * Sources: resolver logs, systemd-resolved, dnsmasq logs, passive :53 observation.
  */
 
-import { existsSync, statSync, createReadStream, accessSync, constants } from 'node:fs';
+import { existsSync, accessSync, constants } from 'node:fs';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { LogTail } from '../../core/log-tail.js';
 import type { EventBus } from '../../daemon/event-bus.js';
 import { insertEvent } from '../../core/state.js';
 import type { ThreatEvent, EventSeverity } from '../../types/events.js';
@@ -54,7 +55,7 @@ export function qtypeName(qtype: number): string {
 export class DnsMonitor {
   private active = false;
   private timers = new Map<string, NodeJS.Timeout>();
-  private positions = new Map<string, number>();
+  private tails = new Map<string, LogTail>();
 
   // Tracking windows
   private txtQueryCounts = new Map<string, { count: number; firstSeen: number }>();
@@ -177,29 +178,10 @@ export class DnsMonitor {
   isActive(): boolean { return this.active; }
 
   private tailLog(path: string): void {
-    try {
-      this.positions.set(path, statSync(path).size);
-    } catch {
-      this.positions.set(path, 0);
-    }
-
-    const timer = setInterval(() => this.pollLog(path), 2000);
+    const tail = new LogTail(path);
+    this.tails.set(path, tail);
+    const timer = setInterval(() => tail.poll((line) => this.parseDnsLine(line)), 2000);
     this.timers.set(path, timer);
-  }
-
-  private pollLog(path: string): void {
-    let stat;
-    try { stat = statSync(path); } catch { return; }
-    const prev = this.positions.get(path) ?? 0;
-
-    if (stat.size < prev) { this.positions.set(path, 0); return; }
-    if (stat.size === prev) return;
-
-    const stream = createReadStream(path, { start: prev, encoding: 'utf-8' });
-    stream.on('error', () => this.positions.set(path, stat.size));
-    const rl = createInterface({ input: stream });
-    rl.on('line', (line) => this.parseDnsLine(line));
-    rl.on('close', () => this.positions.set(path, stat.size));
   }
 
   private parseDnsLine(line: string): void {

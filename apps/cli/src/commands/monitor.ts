@@ -1,6 +1,6 @@
-import { existsSync, createReadStream, statSync, accessSync, constants } from 'node:fs';
-import { createInterface } from 'node:readline';
+import { existsSync, accessSync, constants } from 'node:fs';
 import { watch } from 'node:fs';
+import { LogTail } from '../core/log-tail.js';
 import chalk from 'chalk';
 import { formatEvent, logger, banner } from '../core/logger.js';
 import { assessNginxRequest, attackSeverity, autoDetectParser, configureAttackDetection, parseAuthLog, parseNginxLog } from '../core/log-parser.js';
@@ -110,37 +110,15 @@ export async function monitorCommand(options: MonitorOptions): Promise<void> {
 function tailLog(source: LogWatcher): void {
   const { path, name, category } = source;
 
-  // Start reading from end of file
-  const stat = statSync(path);
-  let position = stat.size;
-
+  // From the end of the file; each new line exactly once (see LogTail).
+  const tail = new LogTail(path);
+  let warned = false;
   const checkForNewData = () => {
     try {
-      const currentStat = statSync(path);
-      if (currentStat.size <= position) {
-        if (currentStat.size < position) position = 0; // file rotated
-        return;
-      }
-
-      const stream = createReadStream(path, { start: position, encoding: 'utf-8' });
-      stream.on('error', (err) => {
-        // Permission or IO error mid-read; log once and stop polling this source.
-        logger.warn(`stopped tailing ${path}: ${(err as NodeJS.ErrnoException).code || err.message}`);
-        position = currentStat.size;
-      });
-      const rl = createInterface({ input: stream });
-      rl.on('error', () => { /* surfaced via stream 'error' above */ });
-
-      rl.on('line', (line) => {
-        if (!line.trim()) return;
-        processLine(line, name, category);
-      });
-
-      rl.on('close', () => {
-        position = currentStat.size;
-      });
-    } catch {
-      // file may not be readable
+      tail.poll((line) => processLine(line, name, category));
+    } catch (err) {
+      if (!warned) logger.warn(`cannot read ${path}: ${(err as NodeJS.ErrnoException).code || (err as Error).message}`);
+      warned = true;
     }
   };
 

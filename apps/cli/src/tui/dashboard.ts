@@ -1,4 +1,4 @@
-import { createApp } from '@profullstack/hqtui';
+import { clipboardSequence, createApp } from '@profullstack/hqtui';
 import { IpcClient } from '../core/ipc-client.js';
 import { PATHS } from '../daemon/paths.js';
 import type { ThreatEvent } from '../types/events.js';
@@ -30,6 +30,19 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
   const dispatch = (action: Action): void => {
     state = reducer(state, action);
     app.invalidate();
+  };
+
+  // Click a status-bar message, or press y, to put it on the clipboard: OSC 52,
+  // which the terminal (and tmux, wrapped) hands to the system clipboard, so it
+  // works over ssh too. Terminals that refuse OSC 52 ignore it silently.
+  const copyText = (text: string): void => {
+    if (!text) return;
+    try {
+      process.stdout.write(clipboardSequence(text, !!process.env.TMUX));
+      dispatch({ type: 'notice', text: `copied to clipboard: ${text.length > 60 ? `${text.slice(0, 57)}...` : text}`, tone: 'ok' });
+    } catch (err) {
+      dispatch({ type: 'notice', text: `copy failed: ${(err as Error).message}`, tone: 'error' });
+    }
   };
 
   let client: IpcClient | null = null;
@@ -248,6 +261,9 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
       case 'c':
         dispatch({ type: 'toggle_cron' });
         break;
+      case 'y':
+        copyText(state.notice?.tone === 'error' ? state.notice.text : state.lastError ?? state.notice?.text ?? '');
+        break;
       case 'tab':
         dispatch({ type: 'focus_next' });
         break;
@@ -287,6 +303,7 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
   app.render(({ ui, theme }) => {
     renderDashboard(ui, state, theme, {
       demo: options.demo,
+      onCopy: copyText,
       onFeedScroll: (delta) => dispatch({ type: 'scroll', delta: -delta }),
       // One click focuses the panel, picks the row, and filters the feed to that
       // source — "what has this one IP done" in a single click. Clicking the

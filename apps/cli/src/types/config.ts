@@ -102,6 +102,13 @@ export interface ThreatCrushConfig {
   detection?: DetectionSection;
   cloud?: CloudSection;
   watchdog?: WatchdogSection;
+  /** How long the events table keeps history; see core/state.ts pruneEvents. */
+  storage?: {
+    /** e.g. "14d" (default). Older events are deleted. */
+    event_retention?: string;
+    /** Hard cap on stored events (default 2,000,000); the oldest go first. */
+    max_events?: number;
+  };
   license?: {
     key_file?: string;
     key?: string;

@@ -1037,8 +1037,10 @@ const serversCmd = program
   .alias("server")
   .alias("srv")
   .description("Manage servers")
-  .action(async (opts) => {
-    await serversCommand({ action: opts });
+  // No subcommand lists them. Commander hands this action its options object,
+  // which used to be passed as the action name: "Unknown action: [object Object]".
+  .action(async () => {
+    await serversCommand({ action: "list" });
   });
 
 serversCmd
