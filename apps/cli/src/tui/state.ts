@@ -46,6 +46,8 @@ export interface FirewallInfo {
 }
 
 export const NOTICE_MS = 6000;
+/** Errors stay long enough to read, and to click to copy. */
+export const ERROR_NOTICE_MS = 30_000;
 
 export interface State {
   connection: Connection;
@@ -76,6 +78,8 @@ export interface State {
   threatIndex: number;
   banIndex: number;
   notice: Notice | null;
+  /** The last error shown (a failed ban, a lost daemon), for `y` to copy after it fades. */
+  lastError: string | null;
   /** Set while a ban/unban is in flight, so the key does not fire twice. */
   busy: boolean;
   /** Selected row in MODULES. */
@@ -190,6 +194,7 @@ export function initialState(now: number = Date.now()): State {
     threatIndex: 0,
     banIndex: 0,
     notice: null,
+    lastError: null,
     busy: false,
     moduleIndex: 0,
     moduleFilter: null,
@@ -299,7 +304,14 @@ export function reducer(state: State, action: Action): State {
       };
 
     case 'connection_lost':
-      return { ...state, connection: 'lost', connectionLabel: action.label, daemon: null, watchdog: OFF_WATCHDOG };
+      return {
+        ...state,
+        connection: 'lost',
+        connectionLabel: action.label,
+        daemon: null,
+        watchdog: OFF_WATCHDOG,
+        lastError: action.label.startsWith('demo mode') ? state.lastError : action.label,
+      };
 
     case 'event': {
       // Pausing parks events instead of dropping them. The old build discarded
@@ -407,8 +419,9 @@ export function reducer(state: State, action: Action): State {
         notice: {
           text: action.text,
           tone: action.tone,
-          until: (action.now ?? Date.now()) + NOTICE_MS,
+          until: (action.now ?? Date.now()) + (action.tone === 'error' ? ERROR_NOTICE_MS : NOTICE_MS),
         },
+        lastError: action.tone === 'error' ? action.text : state.lastError,
       };
 
     case 'busy':

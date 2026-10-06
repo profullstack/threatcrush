@@ -20,7 +20,8 @@ import { remediationSettings } from './firewall/settings.js';
 import { formatDuration } from './firewall/backoff.js';
 import { bus } from './event-bus.js';
 import { startWatchdog } from './watchdog-service.js';
-import { initStateDB, closeDB } from '../core/state.js';
+import { initStateDB, closeDB, pruneEvents, DEFAULT_EVENT_RETENTION_SECONDS, DEFAULT_MAX_EVENTS } from '../core/state.js';
+import { parseDuration } from './firewall/backoff.js';
 import { loadConfig } from '../core/config.js';
 import { configureAttackDetection } from '../core/log-parser.js';
 import { captureException, flushTelemetry, initTelemetry } from '../core/telemetry.js';
@@ -111,6 +112,22 @@ export async function runDaemon(): Promise<void> {
 
   const config = loadConfig(existsSync(PATHS.configFile) ? PATHS.configFile : undefined);
   configureAttackDetection(config.detection);
+
+  // Bounded history: without this the events table grew without limit (85 GB
+  // on dev2) and the daemon stopped answering. A few batches every minute
+  // catches up on a backlog without ever holding the daemon for long.
+  const retentionSeconds = parseDuration(config.storage?.event_retention) ?? DEFAULT_EVENT_RETENTION_SECONDS;
+  const maxEvents = config.storage?.max_events ?? DEFAULT_MAX_EVENTS;
+  const prune = () => {
+    try {
+      const n = pruneEvents({ retentionSeconds, maxEvents });
+      if (n) logLine(`[daemon] pruned ${n} events (keep ${config.storage?.event_retention ?? '14d'}, at most ${maxEvents})`);
+    } catch (err) {
+      logLine(`[daemon] event pruning failed: ${(err as Error).message}`);
+    }
+  };
+  setTimeout(prune, 5_000);
+  setInterval(prune, 60_000);
 
   bus.on('event', (event: ThreatEvent) => {
     logLine(`[event] ${event.severity} ${event.module} ${event.message}`);

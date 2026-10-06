@@ -24,6 +24,8 @@ export interface ViewOptions {
   onBanSelect?: (visibleRow: number) => void;
   /** Click a module row to show only its events. */
   onModuleSelect?: (visibleRow: number) => void;
+  /** Click a status-bar message (an error, a ban result) to copy its text. */
+  onCopy?: (text: string) => void;
   demo?: boolean;
 }
 
@@ -498,8 +500,10 @@ function throughputPanel(parent: Container, state: State, theme: Theme): void {
   );
 }
 
-function footer(ui: Container, state: State, theme: Theme): void {
+function footer(ui: Container, state: State, theme: Theme, options: ViewOptions = {}): void {
   const onFeed = state.focus === 'feed';
+  const notice = state.notice;
+  const copyNotice = notice && options.onCopy ? () => options.onCopy?.(notice.text) : undefined;
   ui.statusBar({
     size: 1,
     items: [
@@ -519,11 +523,17 @@ function footer(ui: Container, state: State, theme: Theme): void {
       ...(state.muteCron || state.events.some(isCronLine)
         ? [{ key: 'c', label: state.muteCron ? 'show cron' : 'mute cron' }]
         : []),
+      ...(state.lastError ? [{ key: 'y', label: 'copy error' }] : []),
     ],
     right: [
       // The notice is the answer to "did my keypress do anything", so it takes
       // the slot for as long as it lives.
-      { label: state.notice?.text ?? '', color: state.notice?.tone === 'error' ? severityColors.high : theme.success },
+      // Click it to copy the text: an error is something to paste somewhere.
+      {
+        label: notice ? (notice.tone === 'error' && copyNotice ? `${notice.text}  ⧉` : notice.text) : '',
+        color: notice?.tone === 'error' ? severityColors.high : theme.success,
+        onPress: copyNotice,
+      },
       {
         label: state.paused && state.parked.length > 0 ? `${state.parked.length} held` : '',
         color: severityColors.medium,
@@ -573,6 +583,6 @@ export function renderDashboard(
       });
     });
 
-    footer(col, state, theme);
+    footer(col, state, theme, options);
   });
 }

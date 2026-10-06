@@ -102,38 +102,92 @@ export function getRecentEvents(limit: number = 50): ThreatEvent[] {
   return rows.map(rowToEvent);
 }
 
+// Every query the daemon answers over IPC must cost the same on a 50 MB
+// database as on an 85 GB one: better-sqlite3 is synchronous, so a scan of the
+// whole events table freezes the daemon, and a ban sent from the dashboard
+// times out behind it. Counts and top sources therefore look at the newest
+// RECENT_WINDOW events only (newest by id, which is the primary key).
+export const RECENT_WINDOW = 200_000;
+
+/** Events ever recorded (the AUTOINCREMENT sequence): O(1), never a scan. */
+function eventsEverRecorded(database: Database.Database): number {
+  const row = database.prepare(`SELECT seq FROM sqlite_sequence WHERE name = 'events'`).get() as { seq?: number } | undefined;
+  return row?.seq ?? 0;
+}
+
 export function getEventCount(since?: Date): number {
   const database = tryDb();
   if (!database) return 0;
   if (since) {
-    return (database.prepare(`SELECT COUNT(*) as count FROM events WHERE timestamp >= ?`)
-      .get(since.toISOString()) as any).count;
+    return (database.prepare(
+      `SELECT COUNT(*) as count FROM (SELECT timestamp FROM events ORDER BY id DESC LIMIT ?) WHERE timestamp >= ?`,
+    ).get(RECENT_WINDOW, since.toISOString()) as any).count;
   }
-  return (database.prepare(`SELECT COUNT(*) as count FROM events`).get() as any).count;
+  return eventsEverRecorded(database);
 }
 
 export function getThreatCount(since?: Date): number {
   const database = tryDb();
   if (!database) return 0;
   const severities = "('medium','high','critical')";
-  if (since) {
-    return (database.prepare(
-      `SELECT COUNT(*) as count FROM events WHERE severity IN ${severities} AND timestamp >= ?`
-    ).get(since.toISOString()) as any).count;
-  }
+  const cutoff = since ? since.toISOString() : '';
   return (database.prepare(
-    `SELECT COUNT(*) as count FROM events WHERE severity IN ${severities}`
-  ).get() as any).count;
+    `SELECT COUNT(*) as count FROM (SELECT severity, timestamp FROM events ORDER BY id DESC LIMIT ?)
+     WHERE severity IN ${severities} AND timestamp >= ?`,
+  ).get(RECENT_WINDOW, cutoff) as any).count;
 }
 
 export function getTopSources(limit: number = 10): Array<{ ip: string; count: number }> {
   const database = tryDb();
   if (!database) return [];
   return database.prepare(`
-    SELECT source_ip as ip, COUNT(*) as count FROM events
+    SELECT source_ip as ip, COUNT(*) as count
+    FROM (SELECT source_ip FROM events ORDER BY id DESC LIMIT ?)
     WHERE source_ip IS NOT NULL
     GROUP BY source_ip ORDER BY count DESC LIMIT ?
-  `).all(limit) as any[];
+  `).all(RECENT_WINDOW, limit) as any[];
+}
+
+export const DEFAULT_EVENT_RETENTION_SECONDS = 14 * 86_400;
+export const DEFAULT_MAX_EVENTS = 2_000_000;
+
+/**
+ * Deletes events older than the retention, and beyond the row cap, in small
+ * batches so no single call holds the daemon for long. Returns how many went.
+ * The file does not shrink (SQLite reuses the space), which is what we want:
+ * it stops growing.
+ */
+export function pruneEvents(
+  opts: { retentionSeconds?: number; maxEvents?: number; batch?: number; maxBatches?: number; now?: number } = {},
+): number {
+  const database = tryDb();
+  if (!database) return 0;
+  const retention = opts.retentionSeconds ?? DEFAULT_EVENT_RETENTION_SECONDS;
+  const maxEvents = opts.maxEvents ?? DEFAULT_MAX_EVENTS;
+  const batch = opts.batch ?? 5_000;
+  const maxBatches = opts.maxBatches ?? 20;
+  const cutoff = new Date((opts.now ?? Date.now()) - retention * 1000).toISOString();
+  const byAge = database.prepare(
+    `DELETE FROM events WHERE id IN (SELECT id FROM events WHERE timestamp < ? ORDER BY id LIMIT ?)`,
+  );
+  const lowest = database.prepare(`SELECT MIN(id) as lo, MAX(id) as hi FROM events`);
+  const byCount = database.prepare(`DELETE FROM events WHERE id < ?`);
+  let deleted = 0;
+  for (let i = 0; i < maxBatches; i++) {
+    const n = byAge.run(cutoff, batch).changes;
+    deleted += n;
+    if (n < batch) break;
+  }
+  // Ids are dense apart from what was deleted, so hi - cap is where to cut;
+  // one batch at a time from the bottom.
+  for (let i = 0; i < maxBatches; i++) {
+    const { lo, hi } = lowest.get() as { lo: number | null; hi: number | null };
+    if (lo === null || hi === null || hi - lo + 1 <= maxEvents) break;
+    const n = byCount.run(Math.min(lo + batch, hi - maxEvents + 1)).changes;
+    deleted += n;
+    if (n === 0) break;
+  }
+  return deleted;
 }
 
 export function getModuleState(module: string, key: string): unknown {
