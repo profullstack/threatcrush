@@ -39,4 +39,14 @@ describe('explainBlockFailure', () => {
     expect(message).toContain('nftables');
     expect(message).not.toMatch(/install-service/);
   });
+
+  it('names the read-only path and the reinstall when the unit sandbox blocks a write', () => {
+    const message = explainBlockFailure(
+      new Error("EROFS: read-only file system, open '/etc/fail2ban/filter.d/threatcrush.conf'"),
+      'fail2ban',
+    );
+    expect(message).toContain('/etc/fail2ban/filter.d/threatcrush.conf');
+    expect(message).toContain('install-service');
+    expect(message).not.toMatch(/running as/);
+  });
 });

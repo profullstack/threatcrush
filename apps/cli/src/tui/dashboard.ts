@@ -1,4 +1,4 @@
-import { clipboardSequence, createApp } from '@profullstack/hqtui';
+import { createApp } from '@profullstack/hqtui';
 import { IpcClient } from '../core/ipc-client.js';
 import { PATHS } from '../daemon/paths.js';
 import type { ThreatEvent } from '../types/events.js';
@@ -7,6 +7,7 @@ import { formatDuration } from '../daemon/firewall/backoff.js';
 import { threatcrushTheme } from './theme.js';
 import { renderDashboard } from './view.js';
 import { demoEvent } from './demo.js';
+import { copyToClipboard, describeCopy } from './clipboard.js';
 
 export interface DashboardOptions {
   /** Replay canned events instead of connecting. Never entered by accident. */
@@ -32,17 +33,13 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
     app.invalidate();
   };
 
-  // Click a status-bar message, or press y, to put it on the clipboard: OSC 52,
-  // which the terminal (and tmux, wrapped) hands to the system clipboard, so it
-  // works over ssh too. Terminals that refuse OSC 52 ignore it silently.
+  // Click a status-bar message, or press y, to put it on the clipboard. OSC 52
+  // alone was silently refused by iTerm2 and by tmux without allow-passthrough,
+  // so this tries every route and says which one took; see clipboard.ts.
   const copyText = (text: string): void => {
     if (!text) return;
-    try {
-      process.stdout.write(clipboardSequence(text, !!process.env.TMUX));
-      dispatch({ type: 'notice', text: `copied to clipboard: ${text.length > 60 ? `${text.slice(0, 57)}...` : text}`, tone: 'ok' });
-    } catch (err) {
-      dispatch({ type: 'notice', text: `copy failed: ${(err as Error).message}`, tone: 'error' });
-    }
+    const result = copyToClipboard(text);
+    dispatch({ type: 'notice', text: describeCopy(result), tone: result.via.length > 0 || result.file ? 'ok' : 'error' });
   };
 
   let client: IpcClient | null = null;

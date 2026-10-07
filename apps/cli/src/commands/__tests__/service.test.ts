@@ -81,7 +81,18 @@ describe("renderUnit", () => {
   it("writes an absolute, writable config dir into ReadWritePaths", () => {
     const readWrite = rendered.split("\n").find((l) => l.startsWith("ReadWritePaths="))!;
     expect(readWrite).toContain("/root/.threatcrush");
-    expect(readWrite).toMatch(/ReadWritePaths=(\/\S+ )+\/root\/\.threatcrush$/);
+    expect(readWrite).toMatch(/ReadWritePaths=(\/\S+ )+\/root\/\.threatcrush( |$)/);
+  });
+
+  it("lets the fail2ban backend write its jail, and tolerates boxes without fail2ban", () => {
+    // ProtectSystem=full made /etc read-only, so the first fail2ban ban died
+    // with EROFS writing /etc/fail2ban/filter.d/threatcrush.conf (vienna,
+    // 2026-10-07). The '-' prefix keeps a box with no /etc/fail2ban starting.
+    const readWrite = rendered.split("\n").find((l) => l.startsWith("ReadWritePaths="))!;
+    expect(readWrite.split(/[= ]/)).toContain("-/etc/fail2ban");
+    for (const path of readWrite.slice("ReadWritePaths=".length).split(" ")) {
+      expect(path.replace(/^-/, "")).toMatch(/^\//);
+    }
   });
 
   it("sets ExecStart to the resolved command", () => {
