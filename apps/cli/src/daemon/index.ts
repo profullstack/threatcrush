@@ -159,7 +159,9 @@ export async function runDaemon(): Promise<void> {
     if (event.module !== 'rule-engine') ruleEngine.evaluate(event);
   });
   logLine(`[daemon] rule engine loaded ${ruleEngine.getRules().length} rules`);
-  setInterval(() => ruleEngine.cleanup(), 300_000);
+  // Every minute: a window whose source never returns is dropped once it
+  // expires, instead of holding its events for the life of the daemon.
+  setInterval(() => ruleEngine.cleanup(), 60_000);
 
   // Firewall auto-remediation (PRD 02 / PRD 0010)
   const settings = remediationSettings(config.remediation);
