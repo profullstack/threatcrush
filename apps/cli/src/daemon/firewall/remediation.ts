@@ -95,6 +95,19 @@ export function isSuccessfulAuth(message: string): boolean {
 
 export function explainBlockFailure(err: Error, backend: string): string {
   const raw = err.message || String(err);
+
+  // EROFS is the systemd sandbox (ProtectSystem/ProtectHome), not a missing
+  // privilege: root cannot write a path the unit mounted read-only. The unit
+  // from an older install-service did not list what this backend writes.
+  if (/EROFS|read-only file system/i.test(raw)) {
+    const path = /open '([^']+)'/.exec(raw)?.[1];
+    return (
+      `threatcrushd cannot write ${path ?? 'its firewall config'} for ${backend}: the systemd unit ` +
+      'mounts it read-only. Reinstall the unit and restart: ' +
+      'sudo $(which threatcrush) install-service && sudo systemctl restart threatcrushd'
+    );
+  }
+
   const denied = /not permitted|EACCES|EPERM|permission denied|must be root/i.test(raw);
   if (!denied) return `${raw} (backend: ${backend})`;
 
