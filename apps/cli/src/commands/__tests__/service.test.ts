@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { nodeVersionDir, renderUnit, stableBinPath, systemdUnavailableReason } from "../service.js";
+import { nodeVersionDir, renderLogrotate, renderUnit, stableBinPath, systemdUnavailableReason } from "../service.js";
 
 const UNIT = readFileSync(
   join(__dirname, "..", "..", "systemd", "threatcrushd.service"),
@@ -134,5 +134,23 @@ describe("nodeVersionDir", () => {
     expect(nodeVersionDir("/usr/local/bin/threatcrush")).toBeNull();
     expect(nodeVersionDir("/usr/lib/node_modules/@profullstack/threatcrush/dist/index.js")).toBeNull();
     expect(nodeVersionDir("/usr/bin/node")).toBeNull();
+  });
+});
+
+describe("renderLogrotate", () => {
+  // dev2's threatcrushd.log reached 21 GB because nothing rotated it.
+  const conf = renderLogrotate();
+
+  it("rotates every threatcrush log by day and by size, keeping a week", () => {
+    expect(conf).toMatch(/^\/var\/log\/threatcrush\/\*\.log \{$/m);
+    expect(conf).toMatch(/^\s+daily$/m);
+    expect(conf).toMatch(/^\s+maxsize \d+M$/m);
+    expect(conf).toMatch(/^\s+rotate 7$/m);
+    expect(conf).toMatch(/^\s+compress$/m);
+  });
+
+  it("renames rather than copytruncate: the daemon reopens the file on every append", () => {
+    expect(conf).not.toContain("copytruncate");
+    expect(conf).toMatch(/^\s+create 0644 root root$/m);
   });
 });

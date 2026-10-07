@@ -1,6 +1,6 @@
 import { execSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
@@ -305,6 +305,7 @@ export async function installServiceCommand(): Promise<void> {
   }
 
   ensureSystemDirs(configDir);
+  installLogrotate();
 
   // The daemon this service replaces has to go first, or two daemons run at
   // once and the client prefers the wrong one.
@@ -334,6 +335,43 @@ export async function installServiceCommand(): Promise<void> {
     process.exitCode = 1;
   }
   console.log();
+}
+
+export const LOGROTATE_PATH = '/etc/logrotate.d/threatcrush';
+
+/**
+ * Nothing rotated /var/log/threatcrush, so dev2's threatcrushd.log reached
+ * 21 GB (2026-10-07). The daemon opens the file for every line it appends
+ * (appendFileSync), so a plain rename rotates cleanly: no copytruncate, which
+ * would have to copy the whole file first. maxsize rotates a busy box before
+ * the daily run would.
+ */
+export function renderLogrotate(logDir = '/var/log/threatcrush'): string {
+  return [
+    '# Installed by `threatcrush install-service`.',
+    `${logDir}/*.log {`,
+    '    daily',
+    '    maxsize 200M',
+    '    rotate 7',
+    '    compress',
+    '    delaycompress',
+    '    missingok',
+    '    notifempty',
+    '    create 0644 root root',
+    '    su root root',
+    '}',
+    '',
+  ].join('\n');
+}
+
+function installLogrotate(): void {
+  if (!existsSync(dirname(LOGROTATE_PATH))) return; // no logrotate on this box
+  try {
+    writeFileSync(LOGROTATE_PATH, renderLogrotate(), { mode: 0o644 });
+    console.log(chalk.green(`  ✓ Log rotation: ${LOGROTATE_PATH} (daily or 200M, keeps 7)`));
+  } catch (err) {
+    console.log(chalk.yellow(`  ! Could not install log rotation: ${(err as Error).message}`));
+  }
 }
 
 // systemd `ReadWritePaths=` requires these to exist before the unit starts,
