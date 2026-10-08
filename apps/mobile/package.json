@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush-mobile",
-  "version": "0.7.26",
+  "version": "0.7.27",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
