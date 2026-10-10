@@ -15,6 +15,9 @@ const TITLE = "ThreatCrush — Security Agent for Linux Servers";
 const DESCRIPTION =
   "Open-source agent that detects attacks in your server logs and inbound connections, bans attackers at the firewall, checks hardening, scans code and spot-checks your URLs — with alerts and a cloud dashboard.";
 
+// Re-render hourly so @profullstack/footer picks up its @latest template.
+export const revalidate = 3600;
+
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: TITLE,

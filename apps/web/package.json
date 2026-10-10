@@ -11,6 +11,7 @@
   "dependencies": {
     "@iarna/toml": "^2.2.5",
     "@profullstack/autoblog": "github:profullstack/autoblog#v0.4.0",
+    "@profullstack/footer": "latest",
     "@profullstack/pluginstore": "^0.1.1",
     "@profullstack/stack": "^0.2.0",
     "@profullstack/x402-gateway": "^0.7.0",
