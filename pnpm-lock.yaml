@@ -330,7 +330,7 @@ importers:
         version: https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e
       '@profullstack/footer':
         specifier: latest
-        version: 0.2.1(react@19.2.4)
+        version: 0.2.4(react@19.2.4)
       '@profullstack/pluginstore':
         specifier: ^0.1.1
         version: 0.1.1
@@ -2872,8 +2872,8 @@ packages:
   '@profullstack/emailer@1.0.1':
     resolution: {integrity: sha512-/uhHJJGH+1xSSz3mJn6X+m6aruYjMD3JOaRp/d4R/YWlzpy07H9z0/JUleIyRyBPNmaANSIwjTZ7aVjaukOEpg==}
 
-  '@profullstack/footer@0.2.1':
-    resolution: {integrity: sha512-KHmKVwrlzCBrSAAJ4zobNFCxTg8VF0gvNMeAut00dX3+gbWCtk6eOwIR2AaqEC7smj6Aio6cIexzt/dUnv1McA==}
+  '@profullstack/footer@0.2.4':
+    resolution: {integrity: sha512-2ErIzHJCDA2baP8aK6f7rCHohW4EX+wnp7D1mrVMQTUxRcyZwKzmho96hhEFJndXRBGgxT3H/78BHOeBfLxTzg==}
     engines: {node: '>=18'}
     hasBin: true
     peerDependencies:
@@ -11463,7 +11463,7 @@ snapshots:
 
   '@profullstack/emailer@1.0.1': {}
 
-  '@profullstack/footer@0.2.1(react@19.2.4)':
+  '@profullstack/footer@0.2.4(react@19.2.4)':
     optionalDependencies:
       react: 19.2.4
 
