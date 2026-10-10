@@ -55,6 +55,36 @@ describe('CRS engine', () => {
     const a = engine.assess({ uri: '/download?file=../../../../etc/passwd' });
     expect(a.score).toBe(a.matches.length * 5);
   });
+
+  describe('PostgREST select (942100 exclusion)', () => {
+    // smshub's own poll, as dev2 logged it every two seconds on 2026-10-09.
+    const poll =
+      '/rest/v1/messages?select=id%2Cconversation_id%2Cbody%2Ccreated_at%2Cconversations%21inner%28user_id%29' +
+      '&conversations.user_id=eq.06226df4-ccb5-49d6-b182-11b5a5d59c7a&created_at=gt.2026-10-09T23%3A44%3A05.408Z&order=created_at.asc&limit=200';
+    const embed = 'select=id%2Cconversations%21inner%28user_id%29';
+
+    it('does not score an embedded resource in a Supabase select', () => {
+      expect(engine.assess({ uri: poll }).score).toBe(0);
+      expect(ids(engine, '/rest/v1/participants?select=user_id%2Cusers%21participants_user_id_fkey%28id%2Cname%29')).toEqual([]);
+      expect(ids(engine, '/rest/v1/t?select=%2A%2Cb%3Aalias')).toEqual([]);
+    });
+
+    it('still scores the same value anywhere but /rest/v1/ select', () => {
+      expect(ids(engine, `/api/messages?${embed}`)).toContain(942100);
+      expect(ids(engine, `/rest/v1/messages?q=conversations%21inner%28user_id%29`)).toContain(942100);
+    });
+
+    it('still scores a select that is not PostgREST grammar', () => {
+      expect(ids(engine, '/rest/v1/messages?select=id%2C%28select%20password%20from%20users%29')).toContain(942100);
+      expect(ids(engine, "/rest/v1/messages?select=id%27%20or%201%3D1--")).toContain(942100);
+    });
+
+    it('still scores an injection in another argument of the same request', () => {
+      const a = engine.assess({ uri: `/rest/v1/messages?${embed}&id=eq.1%27%20UNION%20SELECT%20password%20FROM%20users--` });
+      expect(a.matches.map((m) => m.id)).toContain(942100);
+      expect(a.score).toBeGreaterThanOrEqual(a.threshold);
+    });
+  });
 });
 
 describe('the generated rule table', () => {
