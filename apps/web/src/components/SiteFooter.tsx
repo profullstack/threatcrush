@@ -1,3 +1,5 @@
+import { Footer } from "@profullstack/footer/react";
+
 const linkClass = "text-sm text-tc-text-dim hover:text-tc-green transition-colors";
 const headingClass = "text-xs font-mono uppercase tracking-wider text-tc-text mb-3";
 
@@ -73,23 +75,9 @@ export default function SiteFooter() {
           </div>
         </div>
 
-        <div className="mt-10 pt-6 border-t border-tc-border flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="text-xs text-tc-text-dim">
-            © {new Date().getFullYear()}{" "}
-            <a href="https://profullstack.com" className="hover:text-tc-green transition-colors">
-              Profullstack, Inc.
-            </a>
-            . All rights reserved.
-          </p>
-          <nav className="webring text-xs text-tc-text-dim font-mono flex gap-3" aria-label="Profullstack webring">
-            <a href="https://rssamplifier.com/ring/profullstack/previous?from=https%3A%2F%2Fthreatcrush.com%2F" rel="prev" className="hover:text-tc-green transition-colors">{"<<"}</a>
-            <a href="https://rssamplifier.com/ring/profullstack" className="hover:text-tc-green transition-colors">Profullstack</a>
-            <a href="https://rssamplifier.com/ring/profullstack/next?from=https%3A%2F%2Fthreatcrush.com%2F" rel="next" className="hover:text-tc-green transition-colors">{">>"}</a>
-            <a href="https://rssamplifier.com/ring/profullstack/random?from=https%3A%2F%2Fthreatcrush.com%2F" title="Random site" aria-label="Random site" className="hover:text-tc-green transition-colors">{"⚄"}</a>
-          </nav>
-          <p className="text-xs text-tc-text-dim font-mono">
-            Built with ⚡ in the open
-          </p>
+        {/* Copyright + Profullstack webring: @profullstack/footer (server-rendered) */}
+        <div className="mt-10 font-mono">
+          <Footer site="https://threatcrush.com/" tagline="Built with ⚡ in the open" />
         </div>
       </div>
     </footer>
