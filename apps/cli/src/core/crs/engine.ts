@@ -30,6 +30,31 @@ export const DEFAULT_ANOMALY_THRESHOLD = 5;
  */
 export const DEFAULT_EXCLUDED_RULE_IDS: readonly number[] = [941130];
 
+/**
+ * Rules removed from one argument of one kind of request, as CRS's application
+ * exclusion plugins do with `ctl:ruleRemoveTargetById`. Each applies only when
+ * the path, the argument name and the whole value all match, so the same rule
+ * still sees every other argument, and this one when it carries anything else.
+ *
+ * - 942100 on PostgREST's `select` (Supabase serves PostgREST at `/rest/v1/`):
+ *   an embedded resource, `conversations!inner(user_id)`, is a function call to
+ *   libinjection, and that one CRITICAL rule alone reaches the threshold, so a
+ *   Supabase app polling its own tables scored as SQL injection every request.
+ *   PostgREST quotes every identifier it reads from `select`; a value made of
+ *   identifiers and its grammar's punctuation (no spaces, quotes or `;`) has no
+ *   way to reach SQL. A value with anything else is scored as before.
+ */
+export interface ArgumentExclusion {
+  ruleIds: readonly number[];
+  path: RegExp;
+  arg: string;
+  value: RegExp;
+}
+
+export const ARGUMENT_EXCLUSIONS: readonly ArgumentExclusion[] = [
+  { ruleIds: [942100], path: /^\/rest\/v1\//, arg: 'select', value: /^[A-Za-z0-9_*,.:!()>-]+$/ },
+];
+
 /** What callers see as the attack type, from a rule's first recognised `attack-*` tag. */
 const ATTACK_TYPES: Record<string, string> = {
   'attack-sqli': 'sqli',
@@ -176,6 +201,8 @@ function compileOperator(op: CrsOperator): (value: string) => boolean {
 interface Slot {
   value: string;
   cache: Map<string, string>;
+  /** Rule ids that do not count for this variable (ARGUMENT_EXCLUSIONS). */
+  excluded?: ReadonlySet<number>;
 }
 
 /** Port of ModSecurity's parse_arguments + urldecode_nonstrict for a query string. */
@@ -209,20 +236,34 @@ class RequestContext {
   values(target: CrsTarget): Slot[] {
     let slots = this.slots.get(target);
     if (!slots) {
-      slots = this.derive(target).map((value) => ({ value, cache: new Map() }));
+      slots = target === 'ARGS' ? this.args() : this.derive(target).map((value) => ({ value, cache: new Map() }));
       this.slots.set(target, slots);
     }
     return slots;
   }
 
-  private derive(target: CrsTarget): string[] {
-    const { uri } = this.req;
-    // apr_uri_parse: path up to ? or #, query up to #, authority dropped.
-    const relative = uri.replace(ABSOLUTE_FORM, '');
+  /** apr_uri_parse: path up to ? or #, query up to #, authority dropped. */
+  private split(): { path: string; query: string | undefined } {
+    const relative = this.req.uri.replace(ABSOLUTE_FORM, '');
     const q = relative.search(/[?#]/);
     const path = q === -1 ? relative : relative.slice(0, q);
     const hasQuery = q !== -1 && relative[q] === '?';
-    const query = hasQuery ? relative.slice(q + 1).split('#')[0] : undefined;
+    return { path, query: hasQuery ? relative.slice(q + 1).split('#')[0] : undefined };
+  }
+
+  private args(): Slot[] {
+    const { path, query } = this.split();
+    if (query === undefined) return [];
+    const exclusions = ARGUMENT_EXCLUSIONS.filter((e) => e.path.test(path));
+    return parseArguments(query).map(({ name, value }) => {
+      const ids = exclusions.filter((e) => e.arg === name && e.value.test(value)).flatMap((e) => e.ruleIds);
+      return { value, cache: new Map(), ...(ids.length ? { excluded: new Set(ids) } : {}) };
+    });
+  }
+
+  private derive(target: CrsTarget): string[] {
+    const { uri } = this.req;
+    const { path, query } = this.split();
     switch (target) {
       case 'REQUEST_LINE':
         return this.req.method && this.req.protocol ? [`${this.req.method} ${uri} ${this.req.protocol}`] : [];
@@ -415,7 +456,9 @@ export class CrsEngine {
     const hit = new Uint8Array(this.rules.length);
     for (const [target, rules] of this.byTarget) {
       for (const slot of ctx.values(target)) {
-        for (const index of this.slotMatches(target, rules, slot)) hit[index] = 1;
+        for (const index of this.slotMatches(target, rules, slot)) {
+          if (!slot.excluded?.has(this.rules[index].rule.id)) hit[index] = 1;
+        }
       }
     }
     for (const compiled of this.chained) {
