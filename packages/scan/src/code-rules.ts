@@ -146,6 +146,12 @@ export interface CodeRule {
    */
   displayedHeredocGuard?: boolean;
   /**
+   * Re-test the pattern with display-only strings blanked: the quoted argument of an
+   * `echo`/`printf`/`say`… that is not piped onward and holds no command
+   * substitution. The match only stands if it survives outside those strings.
+   */
+  displayStringGuard?: boolean;
+  /**
    * Exonerate a template literal whose every `${…}` names a file-local `const`
    * bound to a string literal.
    *
@@ -1067,8 +1073,11 @@ export const CODE_RULES: readonly CodeRule[] = [
     // escalates when nearby evidence shows that input can choose the download.
     guard: false,
     // Installer instructions printed by the script do not execute.  Matching
-    // them made a script report its own documentation as a network pipeline.
-    lineGuard: /^\s*(?:echo|printf|say|info|warn|error)\s+["'][^"'\n]*\b(?:curl|wget)\b/,
+    // them made a script report its own documentation as a network pipeline,
+    // including the usual `-h | --help) echo "Usage: curl … | sh"; exit ;;` case
+    // branch, which a start-of-line guard missed. Only the quoted text is
+    // discounted, so `echo "see docs"; curl … | sh` still reports.
+    displayStringGuard: true,
     // The same instructions written as a `cat <<USAGE` help block.
     displayedHeredocGuard: true,
   },
@@ -2137,6 +2146,20 @@ export function insideDisplayedHeredoc(lines: readonly string[], index: number):
   return /^\s*cat\b/.test(opener) && !/>/.test(opener) && !/\|/.test(opener);
 }
 
+// The quoted argument of a print command, when the statement ends there (end of
+// line, `;`, `&&`, `||`, a stderr/tty redirect, a closing `)` or a comment). A
+// string piped onward (`echo "…" | sh`) is not display, and neither is a
+// double-quoted string with `$(…)` or backticks, which run when printed.
+const DISPLAY_STRING =
+  /(\b(?:echo|printf|say|info|warn|error)\s+(?:-[A-Za-z]+\s+)*)((?:"(?:[^"\\\n]|\\.)*"|'[^'\n]*')(?:\s+(?:"(?:[^"\\\n]|\\.)*"|'[^'\n]*'))*)(?=\s*(?:$|;|&&|\|\||[12]?>&2|>\s*\/dev\/(?:stderr|tty)\b|\)|#))/g;
+
+export function stripDisplayedStrings(line: string): string {
+  // Any double-quoted argument with `$(…)` or backticks runs when printed.
+  return line.replace(DISPLAY_STRING, (whole, head: string, quoted: string) =>
+    /"(?:[^"\\\n]|\\.)*(?:\$\(|`)(?:[^"\\\n]|\\.)*"/.test(quoted) ? whole : `${head}""`,
+  );
+}
+
 export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | null {
   if (rule.languages && !rule.languages.includes(ctx.language)) return null;
 
@@ -2157,6 +2180,8 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
   if (rule.lineGuard?.test(line)) return null;
 
   if (rule.displayedHeredocGuard && insideDisplayedHeredoc(ctx.lines, ctx.index)) return null;
+
+  if (rule.displayStringGuard && !rule.pattern.test(stripDisplayedStrings(line))) return null;
 
   if (rule.enclosingCallGuard) {
     const callees = enclosingCallees(ctx.lines, ctx.index, back);
