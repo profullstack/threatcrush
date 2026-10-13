@@ -1020,7 +1020,9 @@ export const CODE_RULES: readonly CodeRule[] = [
     cwe: 'CWE-532',
     severity: 'critical',
     languages: ['javascript', 'typescript'],
-    pattern: /\bJSON\.stringify\s*\(\s*\{?[^)]*\bprocess\.env\b(?!\s*\.)/,
+    // One variable (`process.env.X`, `process.env?.X`, `process.env['X']`) is not
+    // the environment.
+    pattern: /\bJSON\.stringify\s*\(\s*\{?[^)]*\bprocess\.env\b(?!\s*(?:\.|\?\.|\[))/,
     guard: false,
   },
   {
@@ -2160,6 +2162,20 @@ export function stripDisplayedStrings(line: string): string {
   );
 }
 
+// A minified bundle puts a whole program on one line, so a line-based window holds
+// tens of kilobytes and some unrelated `constructor` or `Function` always satisfies
+// a `requires` sink. On such a line the context is the code around the match.
+const MINIFIED_LINE = 1000;
+const MINIFIED_REACH = 200;
+function minifiedWindow(line: string, pattern: RegExp): string {
+  const match = new RegExp(pattern.source, pattern.flags.replace('g', '')).exec(line);
+  if (!match) return line;
+  return line.slice(
+    Math.max(0, match.index - MINIFIED_REACH),
+    match.index + match[0].length + MINIFIED_REACH,
+  );
+}
+
 export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | null {
   if (rule.languages && !rule.languages.includes(ctx.language)) return null;
 
@@ -2173,7 +2189,9 @@ export function evaluateRule(rule: CodeRule, ctx: MatchContext): RuleMatch | nul
 
   const back = rule.guardBack ?? 8;
   const forward = rule.guardForward ?? 0;
-  const context = windowText(ctx.lines, ctx.index, back, forward, ctx.prose);
+  const context = line.length > MINIFIED_LINE
+    ? minifiedWindow(line, rule.pattern)
+    : windowText(ctx.lines, ctx.index, back, forward, ctx.prose);
 
   if (rule.requires && !rule.requires.test(context)) return null;
 
