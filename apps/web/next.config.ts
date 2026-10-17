@@ -49,7 +49,7 @@ const nextConfig: NextConfig = {
   // — which builds the CLI alone — cannot publish a CLI referencing an
   // unbuilt dependency. Next.js does not transpile workspace sources by
   // default, so it is named here.
-  transpilePackages: ["@threatcrush/scan"],
+  transpilePackages: ["@threatcrush/scan", "@threatcrush/attack-map"],
   // Tell Next.js where the monorepo root is so standalone-mode tracing picks up
   // only the files that apps/web actually imports.
   outputFileTracingRoot: join(__dirname, "..", ".."),

@@ -39,6 +39,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@threatcrush/attack-map": "workspace:*",
     "@babel/core": "^7.25.0",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",

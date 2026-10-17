@@ -26,6 +26,8 @@ export type Connection = 'searching' | 'live' | 'lost';
  */
 export type Focus = 'feed' | 'modules' | 'threats' | 'bans';
 
+export type View = 'dashboard' | 'map';
+
 export const FOCUS_ORDER: Focus[] = ['feed', 'modules', 'threats', 'bans'];
 
 /** A transient line in the status bar: the result of a ban or unban. */
@@ -74,6 +76,8 @@ export interface State {
   protectedList: string[];
   firewall: FirewallInfo | null;
   focus: Focus;
+  /** The panel grid, or the full-screen attack map (`m`). */
+  view: View;
   /** Selected row in TOP THREATS and in BANNED respectively. */
   threatIndex: number;
   banIndex: number;
@@ -150,6 +154,7 @@ export type Action =
   | { type: 'blocklist'; reply: BlocklistReply }
   | { type: 'focus'; focus: Focus }
   | { type: 'focus_next' }
+  | { type: 'toggle_view' }
   | { type: 'select'; delta: number }
   | { type: 'select_at'; index: number }
   | { type: 'notice'; text: string; tone: 'ok' | 'error'; now?: number }
@@ -191,6 +196,7 @@ export function initialState(now: number = Date.now()): State {
     protectedList: [],
     firewall: null,
     focus: 'feed',
+    view: 'dashboard',
     threatIndex: 0,
     banIndex: 0,
     notice: null,
@@ -378,6 +384,9 @@ export function reducer(state: State, action: Action): State {
     case 'focus':
       return { ...state, focus: action.focus };
 
+    case 'toggle_view':
+      return { ...state, view: state.view === 'map' ? 'dashboard' : 'map' };
+
     case 'focus_next': {
       const next = FOCUS_ORDER[(FOCUS_ORDER.indexOf(state.focus) + 1) % FOCUS_ORDER.length];
       return { ...state, focus: next };
@@ -486,6 +495,7 @@ export function reducer(state: State, action: Action): State {
         connection: state.connection,
         connectionLabel: state.connectionLabel,
         daemon: state.daemon,
+        view: state.view,
         modules: state.modules,
         counters: { ...state.counters, events: 0, threats: 0 },
         // Reset clears the *view*, never the firewall. Bans are the daemon's

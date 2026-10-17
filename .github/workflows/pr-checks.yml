@@ -59,6 +59,9 @@ jobs:
       - name: Test scan package
         run: pnpm --filter @threatcrush/scan test
 
+      - name: Test attack-map package
+        run: pnpm --filter @threatcrush/attack-map test
+
       - name: Test modules
         run: pnpm --filter './modules/*' test
 

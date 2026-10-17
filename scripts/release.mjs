@@ -181,6 +181,8 @@ function main() {
     // engine silently kept its old version while the CLI that contains it
     // moved on.
     'packages/scan/package.json',
+    // Also bundled into the CLI (the TUI attack map).
+    'packages/attack-map/package.json',
     'apps/desktop/package.json',
     'apps/mobile/package.json',
     'apps/extension/package.json',

@@ -1,5 +1,6 @@
 "use client";
 
+import AttackMap from "@/components/AttackMap";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
@@ -118,6 +119,10 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
               New Org
             </button>
           </div>
+        </div>
+
+        <div className="mb-8">
+          <AttackMap source="account" orgId={org.id} title={`Attacks on ${org.name}`} />
         </div>
 
         {/* Stats */}
