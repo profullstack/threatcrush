@@ -284,13 +284,33 @@ export function createAttackMap(canvas: HTMLCanvasElement, opts: AttackMapOption
       c.fillStyle = "#ffffff";
       c.fillRect(-1.5, -1.5, 3, 3);
       c.restore();
-      const label = s.name;
-      const tw = c.measureText(label).width;
-      const lx = x + 12 + tw > w ? x - 12 - tw : x + 12;
+    }
+
+    // Labels last, each where it overlaps no label already drawn: right of the
+    // marker, then left, then below and above. Servers in nearby cities (dev2
+    // in Buffalo, seed1 in Montreal) used to print over each other.
+    const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
+    const clash = (r: { x: number; y: number; w: number; h: number }) =>
+      r.x < 0 || r.y < 0 || r.x + r.w > w || r.y + r.h > h ||
+      placed.some((o) => r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h);
+    for (const s of data.servers) {
+      const p = project(s.lat, s.lon);
+      const x = p.x * w;
+      const y = p.y * h;
+      const tw = c.measureText(s.name).width;
+      const spots = [
+        { x: x + 8, y: y - 8 },
+        { x: x - 16 - tw, y: y - 8 },
+        { x: x - tw / 2 - 4, y: y + 10 },
+        { x: x - tw / 2 - 4, y: y - 26 },
+      ];
+      const spot = spots.map((o) => ({ ...o, w: tw + 8, h: 16 })).find((r) => !clash(r));
+      if (!spot) continue;
+      placed.push(spot);
       c.fillStyle = rgba(MAP_COLORS.ocean, 0.75);
-      c.fillRect(lx - 4, y - 8, tw + 8, 16);
-      c.fillStyle = color;
-      c.fillText(label, lx, y);
+      c.fillRect(spot.x, spot.y, spot.w, spot.h);
+      c.fillStyle = s.online === false ? MAP_COLORS.textDim : MAP_COLORS.server;
+      c.fillText(s.name, spot.x + 4, spot.y + 8);
     }
   }
 
