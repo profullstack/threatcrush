@@ -1,3 +1,8 @@
+# An ed25519 PUBLIC key (a test fixture for authorized_keys fingerprints, PR #316),
+# which generic-api-key mistakes for a secret. The test now assembles it at
+# runtime; only this commit still carries the literal.
+5bf48087e39486f3cd1a945796909392f51dfc46:apps/cli/src/core/__tests__/privileges.test.ts:generic-api-key:20
+
 # The HMAC secret the GitHub webhook tests sign with. It was never issued by
 # anything — the same test stubs it into GITHUB_APP_WEBHOOK_SECRET a line later,
 # so both halves of the check are the fixture. Unlike the entries below this one

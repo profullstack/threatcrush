@@ -16,7 +16,7 @@ export interface Account { name: string; uid: number; home: string; shell: strin
 /** Groups whose members can run anything as root on common distributions. */
 export const ADMIN_GROUPS = ['sudo', 'wheel', 'admin'];
 
-export function parsePasswd(text: string): Account[] {
+export function parseAccounts(text: string): Account[] {
   const out: Account[] = [];
   for (const line of text.split('\n')) {
     const f = line.split(':');
@@ -123,7 +123,7 @@ export function takeSnapshot(io: SnapshotIO, now = new Date()): PrivilegeSnapsho
     return text;
   };
 
-  const accounts = parsePasswd(read('/etc/passwd') ?? '');
+  const accounts = parseAccounts(read('/etc/passwd') ?? '');
   const snapshot: PrivilegeSnapshot = {
     taken_at: now.toISOString(),
     uid0: accounts.filter((a) => a.uid === 0).map((a) => a.name).sort(),

@@ -34,9 +34,20 @@ export function privilegeSettings(section: PrivilegedSection | undefined): Privi
   return { enabled: section?.enabled !== false, geo: section?.geo !== false, pollMs: 60_000 };
 }
 
-interface LoginHistory { [user: string]: { [country: string]: { first: string; last: string; city?: string } } }
+interface LoginHistory { [user: string]: { [country: string]: { first: string; last: string } } }
 
-export interface GeoPoint { country?: string; countryCode?: string; city?: string }
+/**
+ * Only an ISO country code crosses over from the geo service, and only after
+ * it is checked: anything this worker emits ends up in the daemon log, so no
+ * free text from a remote answer (city names, error strings) may reach it.
+ */
+export interface GeoPoint { countryCode: string }
+
+const COUNTRY_NAMES = new Intl.DisplayNames(['en'], { type: 'region' });
+
+export function countryName(code: string): string {
+  try { return COUNTRY_NAMES.of(code) ?? code; } catch { return code; }
+}
 
 export interface PrivilegeWatchOptions {
   settings: PrivilegeWatchSettings;
@@ -83,8 +94,9 @@ export async function geolocateViaThreatcrush(ip: string, fetchImpl: typeof fetc
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) return null;
-  const body = (await res.json()) as { results?: Record<string, GeoPoint> };
-  return body.results?.[ip] ?? null;
+  const body = (await res.json()) as { results?: Record<string, { countryCode?: unknown }> };
+  const code = body.results?.[ip]?.countryCode;
+  return typeof code === 'string' && /^[A-Z]{2}$/.test(code) ? { countryCode: code } : null;
 }
 
 export class PrivilegeWatch {
@@ -191,19 +203,19 @@ export class PrivilegeWatch {
     } catch (err) {
       this.opts.log(`[privileged] geolocation failed for ${event.source_ip}: ${(err as Error).message}`);
     }
-    const country = geo?.countryCode ?? geo?.country;
-    if (!country) return;
+    const country = geo?.countryCode;
+    if (!country || !/^[A-Z]{2}$/.test(country)) return;
 
     const history = readJson<LoginHistory>(this.opts.loginsPath) ?? {};
     const seen = history[user] ?? {};
     const at = this.now().toISOString();
     const known = Object.keys(seen);
     if (known.length > 0 && !seen[country]) {
-      this.emit('high', `SSH login for ${user} from a new country: ${geo?.country ?? country}${geo?.city ? ` (${geo.city})` : ''}, ${event.source_ip}; seen before from ${known.join(', ')}`, {
-        rule_id: 'priv-login-new-country', account: user, login_ip: event.source_ip, country, city: geo?.city, known_countries: known,
+      this.emit('high', `SSH login for ${user} from a new country: ${countryName(country)}, ${event.source_ip}; seen before from ${known.join(', ')}`, {
+        rule_id: 'priv-login-new-country', account: user, login_ip: event.source_ip, country, known_countries: known,
       });
     }
-    seen[country] = { first: seen[country]?.first ?? at, last: at, city: geo?.city };
+    seen[country] = { first: seen[country]?.first ?? at, last: at };
     history[user] = seen;
     try { writeJson(this.opts.loginsPath, history); } catch { /* next login retries */ }
   }
