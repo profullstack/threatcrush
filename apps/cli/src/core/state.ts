@@ -102,6 +102,16 @@ export function getRecentEvents(limit: number = 50): ThreatEvent[] {
   return rows.map(rowToEvent);
 }
 
+/** The newest events from one module; idx_events_module keeps this a range read. */
+export function getModuleEvents(module: string, limit: number = 50): ThreatEvent[] {
+  const database = tryDb();
+  if (!database) return [];
+  const rows = database.prepare(`
+    SELECT * FROM events WHERE module = ? ORDER BY id DESC LIMIT ?
+  `).all(module, limit) as any[];
+  return rows.map(rowToEvent);
+}
+
 // Every query the daemon answers over IPC must cost the same on a 50 MB
 // database as on an 85 GB one: better-sqlite3 is synchronous, so a scan of the
 // whole events table freezes the daemon, and a ban sent from the dashboard

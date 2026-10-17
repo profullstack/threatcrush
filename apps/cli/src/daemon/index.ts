@@ -14,6 +14,7 @@ import { RemediationConsumer } from './workers/remediation-consumer.js';
 import { AllowlistSync } from './workers/allowlist-sync.js';
 import { AutoUpdate, updateSettings } from './workers/auto-update.js';
 import { ThreatFeeds, threatFeedSettings } from './workers/threat-feeds.js';
+import { PrivilegeWatch, privilegeSettings } from './workers/privilege-watch.js';
 import { RuleEngine } from './rules/engine.js';
 import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
@@ -215,6 +216,17 @@ export async function runDaemon(): Promise<void> {
   });
   threatFeeds.start();
 
+  // Who can become root, the sudo ledger, new-country logins (`[privileged]`).
+  const privilegeWatch = new PrivilegeWatch({
+    settings: privilegeSettings(config.privileged),
+    bus,
+    snapshotPath: join(PATHS.stateDir, 'privileges.json'),
+    loginsPath: join(PATHS.stateDir, 'login-countries.json'),
+    cursorPath: join(PATHS.stateDir, 'sudo-cursor.json'),
+    log: logLine,
+  });
+  privilegeWatch.start();
+
   new AlertDispatcher(bus, config);
 
   const runsWorker = new RunsWorker(bus);
@@ -283,6 +295,7 @@ export async function runDaemon(): Promise<void> {
     try { watchdog.stop(); } catch {}
     try { autoUpdate.stop(); } catch {}
     try { threatFeeds.stop(); } catch {}
+    try { privilegeWatch.stop(); } catch {}
     try { await ipc.stop(); } catch {}
     try { closeDB(); } catch {}
     try { await flushTelemetry(); } catch {}
