@@ -1,0 +1,12 @@
+[modules.link-watch]
+enabled = true
+# Every site to crawl; each is walked from its root and its /sitemap.xml.
+sites = ["https://example.com", "https://docs.example.com"]
+interval_hours = 24
+max_pages = 200
+check_external = true
+# Paths on your own sites never crawled or checked.
+ignore_paths = ["/api/", "/admin/"]
+# A tc_agent_ key for the entitlement check. Leave unset to use the session
+# `threatcrush login` saved for the user the daemon runs as.
+# api_key = "tc_agent_..."

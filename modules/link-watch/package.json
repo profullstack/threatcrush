@@ -1,0 +1,33 @@
+{
+  "name": "threatcrush-module-link-watch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Crawls your sites and reports broken links and assets as ThreatCrush events (paid module)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Profullstack, Inc.",
+  "homepage": "https://threatcrush.com/link-watch",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profullstack/threatcrush.git",
+    "directory": "modules/link-watch"
+  },
+  "keywords": ["threatcrush", "threatcrush-module", "broken-links", "404", "link-checker", "monitoring"],
+  "files": ["dist", "mod.toml", "config", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@threatcrush/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  }
+}
