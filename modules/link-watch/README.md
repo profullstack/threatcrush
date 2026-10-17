@@ -11,6 +11,7 @@ any other detection.
   media URL on them is checked once.
 - **Severity:** a broken URL on your own site is `medium` (`high` when it is a
   5xx or the site is unreachable); a broken external link is `low`.
+- **Images on other sites** are skipped unless `check_external_media = true`: on sites showing publishers' or users' content they are other people's files.
 - **Not reported:** 401, 402, 403, 405, 429 and 999 (bot walls and paywalls, not breakage), and
   third-party URLs that only time out.
 

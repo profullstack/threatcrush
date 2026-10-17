@@ -104,6 +104,26 @@ describe('crawlSite', () => {
     expect(r.broken.map((b) => b.url)).toEqual([]);
   });
 
+  it('skips images on other sites unless asked, still checks own images and external links', async () => {
+    const { fetchImpl } = web({
+      'https://site.example/': html('<img src="https://cdn.other.example/gone.jpg"><img src="/own-gone.png"><a href="https://other.example/dead">d</a>'),
+    });
+    const quiet = await crawlSite('https://site.example', { fetchImpl });
+    expect(quiet.broken.map((b) => b.url).sort()).toEqual(['https://other.example/dead', 'https://site.example/own-gone.png']);
+    const loud = await crawlSite('https://site.example', { fetchImpl, checkExternalMedia: true });
+    expect(loud.broken.map((b) => b.url)).toContain('https://cdn.other.example/gone.jpg');
+  });
+
+  it('sends a real accept-language (Captivate 404s on fetch\'s default "*")', async () => {
+    const seen: string[] = [];
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      seen.push(String((init?.headers as Record<string, string>)['accept-language']));
+      return new Response('', { status: 200, headers: { 'content-type': 'text/html' } });
+    };
+    await crawlSite('https://site.example', { fetchImpl });
+    expect(seen.every((h) => h.startsWith('en'))).toBe(true);
+  });
+
   it('honours ignore_paths, max_pages and the sitemap', async () => {
     const { fetchImpl } = web({
       'https://site.example/': html('<a href="/api/x">api</a><a href="/a">a</a>'),

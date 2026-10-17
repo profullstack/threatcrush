@@ -144,6 +144,7 @@ export default class LinkWatchModule implements ThreatCrushModule {
           maxPages: num(c.max_pages, 200),
           maxLinks: num(c.max_links, 2000),
           checkExternal: c.check_external !== false,
+          checkExternalMedia: c.check_external_media === true,
           timeoutMs: num(c.timeout_ms, 10_000),
           concurrency: num(c.concurrency, 6),
           ignorePaths: strs(c.ignore_paths),

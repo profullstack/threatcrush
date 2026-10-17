@@ -22,6 +22,7 @@ interval_hours = 24
 max_pages = 200
 max_links = 2000
 check_external = true
+check_external_media = false
 timeout_ms = 10000
 concurrency = 6
 ignore_paths = []

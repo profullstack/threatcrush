@@ -23,6 +23,14 @@ export interface CrawlOptions {
   /** Unique URLs to check in all, pages included. */
   maxLinks?: number;
   checkExternal?: boolean;
+  /**
+   * Also check images and media hosted on other sites. Off by default: on a
+   * site that shows publishers' or users' content (feeds, listings, posts)
+   * those are other people's files, already hidden when they fail to load,
+   * and reporting each one is noise. Links, scripts, styles and frames on
+   * other sites are always checked.
+   */
+  checkExternalMedia?: boolean;
   timeoutMs?: number;
   concurrency?: number;
   userAgent?: string;
@@ -53,6 +61,7 @@ const MAX_HTML_BYTES = 2_000_000;
 const FOUND_ON_LIMIT = 5;
 
 const LINK_TAGS = new Set(['a', 'link', 'img', 'script', 'iframe', 'source', 'video', 'audio', 'base']);
+const MEDIA_TAGS = new Set(['img', 'source', 'video', 'audio']);
 
 /**
  * The attributes of one tag's inner text (`a href="/x" class=y`), lowercased
@@ -97,6 +106,11 @@ export function parseAttributes(inner: string): Map<string, string> {
  * insides of <script>/<style> are skipped by finding where they end.
  */
 export function extractLinks(html: string, pageUrl: string): string[] {
+  return [...extractLinkTags(html, pageUrl).keys()];
+}
+
+/** Each URL a page references, with whether every reference to it is an image or media tag. */
+export function extractLinkTags(html: string, pageUrl: string): Map<string, { media: boolean }> {
   const lower = html.toLowerCase();
   const raw: Array<{ tag: string; attrs: Map<string, string> }> = [];
   let i = 0;
@@ -130,7 +144,7 @@ export function extractLinks(html: string, pageUrl: string): string[] {
       // keep the page URL
     }
   }
-  const out = new Set<string>();
+  const out = new Map<string, { media: boolean }>();
   for (const { tag, attrs } of raw) {
     if (tag === 'base') continue;
     // <link rel=preconnect|dns-prefetch> names an origin, not a resource.
@@ -141,12 +155,13 @@ export function extractLinks(html: string, pageUrl: string): string[] {
       const u = new URL(value.split('&amp;').join('&'), base);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
       u.hash = '';
-      out.add(u.href);
+      const media = MEDIA_TAGS.has(tag);
+      out.set(u.href, { media: (out.get(u.href)?.media ?? true) && media });
     } catch {
       // not a URL
     }
   }
-  return [...out];
+  return out;
 }
 
 /** The <loc> entries of a sitemap (or sitemap index). */
@@ -191,7 +206,13 @@ async function fetchOnce(
       method,
       redirect: 'follow',
       signal: AbortSignal.timeout(o.timeoutMs),
-      headers: { 'user-agent': o.userAgent, accept: wantHtml ? 'text/html,*/*;q=0.8' : '*/*' },
+      // fetch's default accept-language is '*', which some hosts (Captivate's
+      // episode URLs) answer with a 404 instead of their redirect.
+      headers: {
+        'user-agent': o.userAgent,
+        accept: wantHtml ? 'text/html,*/*;q=0.8' : '*/*',
+        'accept-language': 'en-US,en;q=0.9',
+      },
     });
     let html: string | null = null;
     const type = res.headers.get('content-type') ?? '';
@@ -227,6 +248,7 @@ export async function crawlSite(site: string, opts: CrawlOptions = {}): Promise<
     maxPages: opts.maxPages ?? 200,
     maxLinks: opts.maxLinks ?? 2000,
     checkExternal: opts.checkExternal ?? true,
+    checkExternalMedia: opts.checkExternalMedia ?? false,
     timeoutMs: opts.timeoutMs ?? 10_000,
     concurrency: opts.concurrency ?? 6,
     userAgent: opts.userAgent ?? 'ThreatCrush-LinkWatch/0.1 (+https://threatcrush.com/link-watch)',
@@ -262,7 +284,7 @@ export async function crawlSite(site: string, opts: CrawlOptions = {}): Promise<
   try {
     const res = await o.fetchImpl(new URL('/sitemap.xml', root).href, {
       signal: AbortSignal.timeout(o.timeoutMs),
-      headers: { 'user-agent': o.userAgent },
+      headers: { 'user-agent': o.userAgent, 'accept-language': 'en-US,en;q=0.9' },
     });
     if (res.ok) {
       for (const loc of sitemapLocs((await res.text()).slice(0, MAX_HTML_BYTES)).slice(0, o.maxPages)) {
@@ -292,8 +314,9 @@ export async function crawlSite(site: string, opts: CrawlOptions = {}): Promise<
       pages++;
       // A redirect off-site is not ours to walk.
       if (!isInternal(a.finalUrl)) return;
-      for (const link of extractLinks(a.html, a.finalUrl)) {
+      for (const [link, { media }] of extractLinkTags(a.html, a.finalUrl)) {
         if (ignored(link)) continue;
+        if (media && !o.checkExternalMedia && !isInternal(link)) continue;
         const known = foundOn.has(link);
         if (!known && foundOn.size >= o.maxLinks) {
           truncated = true;
