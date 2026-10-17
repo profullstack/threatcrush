@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { renderLogrotate } from "../../../cli/src/commands/service";
 
 const repoRoot = join(__dirname, "..", "..");
 const installScriptPath = join(repoRoot, "public", "install.sh");
@@ -144,6 +145,8 @@ function runInstaller(sb: Sandbox, env: Record<string, string> = {}) {
       HOME: sb.home,
       TMPDIR: sb.root,
       THREATCRUSH_INSTALL_MODE: "server",
+      // Never the host's /etc/logrotate.d: a scenario that wants one passes its own.
+      THREATCRUSH_LOGROTATE_DIR: join(sb.root, "no-logrotate"),
       ...env,
     } as unknown as NodeJS.ProcessEnv,
     encoding: "utf8",
@@ -368,5 +371,56 @@ describe.skipIf(process.platform === "win32")("install.sh", () => {
     expect(installScript).toContain("releases/latest");
     expect(installScript).toContain("announce_desktop_bundle");
     expect(installScript).toContain("desktop-client");
+  });
+
+  describe("log rotation", () => {
+    const linuxOnly = process.platform === "linux" ? it : it.skip;
+
+    linuxOnly("installs the system rule install-service writes, plus one for a user-mode daemon", () => {
+      const sb = makeSandbox();
+      withSystemNode(sb, "v22.12.0");
+      const dir = join(sb.root, "logrotate.d");
+      mkdirSync(dir);
+
+      const { status, output } = runInstaller(sb, { THREATCRUSH_LOGROTATE_DIR: dir });
+
+      expect(status).toBe(0);
+      expect(output).toContain("Log rotation:");
+      // Byte for byte what `threatcrush install-service` writes, so either can run last.
+      expect(readFileSync(join(dir, "threatcrush"), "utf8")).toBe(renderLogrotate());
+
+      const me = execFileSync("id", ["-un"], { encoding: "utf8" }).trim();
+      const group = execFileSync("id", ["-gn"], { encoding: "utf8" }).trim();
+      const user = readFileSync(join(dir, `threatcrush-${me}`), "utf8");
+      expect(user).toContain(`${sb.home}/.threatcrush/logs/*.log {`);
+      expect(user).toContain(`    su ${me} ${group}`);
+      expect(user).toContain("    maxsize 200M");
+    });
+
+    linuxOnly("says what to run instead of prompting when it cannot write the rule", () => {
+      const sb = makeSandbox();
+      withSystemNode(sb, "v22.12.0");
+      const dir = join(sb.root, "logrotate.d");
+      mkdirSync(dir);
+      chmodSync(dir, 0o555);
+
+      const { status, output } = runInstaller(sb, { THREATCRUSH_LOGROTATE_DIR: dir });
+      chmodSync(dir, 0o755);
+
+      expect(status).toBe(0);
+      expect(output).toContain("Log rotation not installed (needs root)");
+      expect(output).toContain("sudo threatcrush install-service");
+      expect(existsSync(join(dir, "threatcrush"))).toBe(false);
+    });
+
+    it("does nothing on a box without logrotate", () => {
+      const sb = makeSandbox();
+      withSystemNode(sb, "v22.12.0");
+
+      const { status, output } = runInstaller(sb);
+
+      expect(status).toBe(0);
+      expect(output).not.toContain("Log rotation");
+    });
   });
 });
