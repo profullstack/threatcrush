@@ -1,4 +1,5 @@
 import "server-only";
+import { BlockList, isIP } from "node:net";
 import { isPublicIp } from "./geoip";
 import { getSupabaseAdmin } from "./supabase";
 
@@ -228,57 +229,98 @@ function isMissing(err: { code?: string } | null): boolean {
   return err?.code === "42P01" || err?.code === "42703";
 }
 
+/** Rules that mean a person got in: the source is somebody's admin, not an attacker to publish. */
+export const LOGIN_SUCCESS_RULES = new Set(["ssh-success-after-failures"]);
+
+export interface ProtectedSet {
+  has(ip: string): boolean;
+}
+
 /**
- * Drop what must never be published as an attacker: private, loopback and
- * CGNAT space (container and LAN traffic a daemon sees), and the addresses
- * of servers registered with ThreatCrush. A box sees its own public address
- * on hairpin requests and SSH to itself, so without this the busiest
- * "attacker" on the feed is our own server (dev2 was, 2026-10-17). The
- * ban_candidates function applies the same rule for nichedb's /traffic.
+ * Drop what must never be published as an attacker:
+ * - private, loopback and CGNAT space (container and LAN traffic a daemon sees);
+ * - registered servers' own addresses: a box sees its public address on
+ *   hairpin requests and SSH to itself, so without this the busiest
+ *   "attacker" was our own server (dev2, 2026-10-17);
+ * - org allowlists (ip and cidr), as ban_candidates does for nichedb's /traffic;
+ * - any address that logged in over SSH: that is an operator (Anthony's home
+ *   address was the second-busiest "attacker"), and if it is a break-in it
+ *   needs a person, not an automatic public listing.
  */
-export function withoutProtected(rows: DetectionRow[], serverIps: Set<string>): DetectionRow[] {
+export function withoutProtected(rows: DetectionRow[], protectedSet: ProtectedSet): DetectionRow[] {
+  const norm = (r: DetectionRow) => (r.source_ip ?? "").trim().toLowerCase();
+  const loggedIn = new Set(rows.filter((r) => r.rule_id && LOGIN_SUCCESS_RULES.has(r.rule_id)).map(norm));
   return rows.filter((r) => {
-    const ip = (r.source_ip ?? "").trim().toLowerCase();
-    return ip !== "" && isPublicIp(ip) && !serverIps.has(ip);
+    const ip = norm(r);
+    return ip !== "" && isPublicIp(ip) && !protectedSet.has(ip) && !loggedIn.has(ip);
   });
 }
 
-const SERVER_IPS_CACHE_MS = 5 * 60_000;
-let serverIpsCache: { at: number; value: Set<string> } | null = null;
-
-/** Every registered server's own and public address, across all orgs. */
-export async function loadServerIps(now: number = Date.now()): Promise<Set<string>> {
-  if (serverIpsCache && now - serverIpsCache.at < SERVER_IPS_CACHE_MS) return serverIpsCache.value;
-  const admin = getSupabaseAdmin();
-  let res = await admin.from("servers").select("ip_address, public_ip");
-  // public_ip arrived in a later migration; a box without it still has ip_address.
-  if (res.error && isMissing(res.error)) res = await admin.from("servers").select("ip_address");
-  if (res.error) throw new Error(`server addresses: ${res.error.message}`);
-  const value = new Set<string>();
-  for (const s of (res.data ?? []) as Array<{ ip_address?: string | null; public_ip?: string | null }>) {
-    for (const ip of [s.ip_address, s.public_ip]) if (ip) value.add(ip.trim().toLowerCase());
+/** A set of addresses and networks, matched by containment. */
+export function protectedSetOf(entries: Array<string | null | undefined>): ProtectedSet {
+  const list = new BlockList();
+  for (const raw of entries) {
+    const value = (raw ?? "").trim().toLowerCase();
+    if (!value) continue;
+    const [addr, bits] = value.split("/");
+    const kind = isIP(addr);
+    if (!kind) continue;
+    const type = kind === 6 ? "ipv6" : "ipv4";
+    try {
+      if (bits === undefined) list.addAddress(addr, type);
+      else list.addSubnet(addr, Number(bits), type);
+    } catch {
+      // A malformed allowlist entry protects nothing; it must not break the feed.
+    }
   }
-  serverIpsCache = { at: now, value };
+  return {
+    has(ip: string) {
+      const kind = isIP(ip);
+      return kind ? list.check(ip, kind === 6 ? "ipv6" : "ipv4") : false;
+    },
+  };
+}
+
+const PROTECTED_CACHE_MS = 5 * 60_000;
+let protectedCache: { at: number; value: ProtectedSet } | null = null;
+
+/** Every registered server's addresses and every ip/cidr allowlist entry, across all orgs. */
+export async function loadProtected(now: number = Date.now()): Promise<ProtectedSet> {
+  if (protectedCache && now - protectedCache.at < PROTECTED_CACHE_MS) return protectedCache.value;
+  const admin = getSupabaseAdmin();
+  let servers = await admin.from("servers").select("ip_address, public_ip");
+  // public_ip arrived in a later migration; a box without it still has ip_address.
+  if (servers.error && isMissing(servers.error)) servers = await admin.from("servers").select("ip_address");
+  if (servers.error) throw new Error(`server addresses: ${servers.error.message}`);
+  const allow = await admin.from("allowlists").select("value").in("type", ["ip", "cidr"]);
+  if (allow.error && !isMissing(allow.error)) throw new Error(`allowlists: ${allow.error.message}`);
+  const entries: Array<string | null | undefined> = [];
+  for (const s of (servers.data ?? []) as Array<{ ip_address?: string | null; public_ip?: string | null }>) {
+    entries.push(s.ip_address, s.public_ip);
+  }
+  for (const a of (allow.data ?? []) as Array<{ value?: string | null }>) entries.push(a.value);
+  const value = protectedSetOf(entries);
+  protectedCache = { at: now, value };
   return value;
 }
 
 async function fetchRows(now: number): Promise<DetectionRow[]> {
   const admin = getSupabaseAdmin();
   const since = new Date(now - WINDOW_MS).toISOString();
-  const [{ data, error }, serverIps] = await Promise.all([
+  const [{ data, error }, protectedSet] = await Promise.all([
     admin
       .from("detections")
       .select("*")
       .gte("detected_at", since)
       .order("detected_at", { ascending: false })
       .limit(ROW_CAP),
-    loadServerIps(now),
+    loadProtected(now),
   ]);
   if (error) {
     if (isMissing(error)) return [];
     throw new Error(error.message);
   }
-  return withoutProtected((data ?? []) as DetectionRow[], serverIps);
+  return withoutProtected((data ?? []) as DetectionRow[], protectedSet);
 }
 
 async function fetchActiveBans(): Promise<number> {
@@ -298,7 +340,7 @@ let blocklistCache: { at: number; value: BlocklistEntry[] } | null = null;
 export function resetCommunityCache(): void {
   summaryCache = null;
   blocklistCache = null;
-  serverIpsCache = null;
+  protectedCache = null;
 }
 
 export async function loadCommunitySummary(now: number = Date.now()): Promise<CommunitySummary> {

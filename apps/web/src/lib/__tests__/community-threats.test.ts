@@ -4,6 +4,7 @@ import {
   aggregateSummary,
   isPublishable,
   maskIp,
+  protectedSetOf,
   withoutProtected,
   type DetectionRow,
 } from "@/lib/community-threats";
@@ -124,6 +125,28 @@ describe("withoutProtected — our own servers and private space are never attac
       row("45.148.10.7", "b"),
     ];
     const ips = aggregateBlocklist(withoutProtected(rows, new Set(["23.95.228.174"]))).map((e) => e.ip);
+    expect(ips).toEqual(["45.148.10.7"]);
+  });
+
+  it("honours allowlisted addresses and networks, v4 and v6, and ignores junk entries", () => {
+    const set = protectedSetOf(["172.12.140.170", "203.0.112.0/24", "2a01:4f8::/32", "not-an-ip", "1.2.3.4/99", null]);
+    expect(set.has("172.12.140.170")).toBe(true);
+    expect(set.has("203.0.112.77")).toBe(true);
+    expect(set.has("203.0.113.1")).toBe(false);
+    expect(set.has("2a01:4f8:c0c::1")).toBe(true);
+    expect(set.has("2a02::1")).toBe(false);
+    expect(set.has("junk")).toBe(false);
+  });
+
+  it("an address that logged in over SSH is an operator, never published, whatever else it tripped", () => {
+    const rows = [
+      row("172.12.140.170", "dev2", "high", 1, "ssh-success-after-failures"),
+      row("172.12.140.170", "dev3", "critical", 40, "web-scanner-detection"),
+      row("172.12.140.170", "bbs", "critical", 30, "exploit-probe-pattern"),
+      row("45.148.10.7", "a", "high", 1, "ssh-brute-force"),
+      row("45.148.10.7", "b", "high", 1, "ssh-brute-force"),
+    ];
+    const ips = aggregateBlocklist(withoutProtected(rows, new Set())).map((e) => e.ip);
     expect(ips).toEqual(["45.148.10.7"]);
   });
 });
