@@ -12,6 +12,7 @@ import { RunsWorker } from './workers/runs-worker.js';
 import { CloudSync } from './workers/cloud-sync.js';
 import { RemediationConsumer } from './workers/remediation-consumer.js';
 import { AllowlistSync } from './workers/allowlist-sync.js';
+import { AutoUpdate, updateSettings } from './workers/auto-update.js';
 import { RuleEngine } from './rules/engine.js';
 import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
@@ -227,6 +228,18 @@ export async function runDaemon(): Promise<void> {
   // Every attack to disk for triage (`threatcrush watchdog`), dashboard or not.
   const watchdog = startWatchdog({ bus, config: config.watchdog, stateDir: PATHS.stateDir, log: logLine });
 
+  // Keep this box on the latest release (`[update]`, on by default).
+  const autoUpdate = new AutoUpdate({
+    version,
+    settings: updateSettings(config.update),
+    pkgRoot: join(__dirname, '..'),
+    statePath: join(PATHS.stateDir, 'auto-update.json'),
+    bus,
+    log: logLine,
+    restartDaemon,
+  });
+  autoUpdate.start();
+
   const ipc = new IpcServer(version, moduleHost, remediation, () => watchdog.status());
   await ipc.start();
   logLine(`[daemon] ipc listening on ${PATHS.socket}`);
@@ -240,6 +253,7 @@ export async function runDaemon(): Promise<void> {
     try { await cloudSync?.stop(); } catch {}
     try { await moduleHost.stop(); } catch {}
     try { watchdog.stop(); } catch {}
+    try { autoUpdate.stop(); } catch {}
     try { await ipc.stop(); } catch {}
     try { closeDB(); } catch {}
     try { await flushTelemetry(); } catch {}

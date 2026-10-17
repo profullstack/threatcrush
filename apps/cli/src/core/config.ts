@@ -45,6 +45,7 @@ export function loadConfig(configPath?: string): ThreatCrushConfig {
       detection: parsed.detection,
       cloud: parsed.cloud,
       watchdog: parsed.watchdog,
+      update: parsed.update,
       storage: parsed.storage,
       license: parsed.license,
     };
@@ -85,6 +86,7 @@ export function generateDefaultConfig(detectedServices: string[]): string {
     // Written out so the opt-out is discoverable; these are also the defaults
     // when the section is absent.
     cloud: { enabled: true, min_severity: 'medium' },
+    update: { auto: true, interval: '6h', min_age: '2h' },
   };
 
   return TOML.stringify(config as any);

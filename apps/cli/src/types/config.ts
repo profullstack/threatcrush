@@ -93,6 +93,21 @@ export interface WatchdogSection {
   dir?: string;
 }
 
+/**
+ * `[update]` — the daemon keeps itself on the latest release (see
+ * daemon/workers/auto-update.ts). On by default.
+ */
+export interface UpdateSection {
+  /** Default true. `false` (or THREATCRUSH_AUTO_UPDATE=0) leaves upgrades to you. */
+  auto?: boolean;
+  /** How often to check, e.g. "6h" (default; at least 15m). Each check adds up to 1h of jitter. */
+  interval?: string;
+  /** How long a release must have been published before it is taken. Default "2h". */
+  min_age?: string;
+  /** Default false: stay on the current major version. */
+  allow_major?: boolean;
+}
+
 export interface ThreatCrushConfig {
   daemon: DaemonConfig;
   api: ApiConfig;
@@ -102,6 +117,7 @@ export interface ThreatCrushConfig {
   detection?: DetectionSection;
   cloud?: CloudSection;
   watchdog?: WatchdogSection;
+  update?: UpdateSection;
   /** How long the events table keeps history; see core/state.ts pruneEvents. */
   storage?: {
     /** e.g. "14d" (default). Older events are deleted. */
