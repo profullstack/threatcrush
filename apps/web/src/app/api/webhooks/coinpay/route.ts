@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyCoinpayWebhook, type CoinpayWebhookPayload } from '@/lib/coinpay-client';
 import { isSettledStatus, SETTLED_STATUS_LIST } from '@/lib/payment-status';
+import { nextPeriodEnd } from '@/lib/paid-modules';
 import { currentPeriodEnd, periodEnd } from '@/lib/reputation';
 
 /**
@@ -132,6 +133,20 @@ export async function POST(request: NextRequest) {
     return handleReputationWebhook(supabase, reputationRow, eventType, paymentId);
   }
 
+  // Paid module subscriptions (Link Watch, ...).
+  const { data: moduleRow } = await supabase
+    .from('module_subscriptions')
+    .select('id, org_id, module, months')
+    .eq('coinpay_payment_id', paymentId)
+    .maybeSingle();
+
+  if (moduleRow) {
+    if (!signatureValid) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
+    return handleModuleWebhook(supabase, moduleRow, eventType, paymentId);
+  }
+
   // TC-09: the waitlist branch used to accept unsigned callbacks, so anyone who
   // could guess or observe a payment id could mark a waitlist row paid. Every
   // branch now requires a valid signature.
@@ -149,7 +164,7 @@ export async function POST(request: NextRequest) {
  */
 async function updatePaymentStatus(
   supabase: ReturnType<typeof getSupabase>,
-  table: 'funding_payments' | 'credit_deposits' | 'license_purchases' | 'reputation_subscriptions',
+  table: 'funding_payments' | 'credit_deposits' | 'license_purchases' | 'reputation_subscriptions' | 'module_subscriptions',
   paymentId: string,
   nextStatus: string,
   patch: Record<string, unknown>,
@@ -398,6 +413,53 @@ async function handleReputationWebhook(
 
   return NextResponse.json({ received: true, status });
 }
+
+async function handleModuleWebhook(
+  supabase: ReturnType<typeof getSupabase>,
+  row: { id: string; org_id: string; module: string; months: number },
+  eventType: string,
+  paymentId: string,
+) {
+  const status = WEBHOOK_STATUS[eventType];
+  if (!status) return NextResponse.json({ received: true, ignored: eventType });
+
+  const now = new Date();
+  const { applied, error } = await updatePaymentStatus(
+    supabase,
+    'module_subscriptions',
+    paymentId,
+    status,
+    { updated_at: now.toISOString() },
+  );
+  if (error) {
+    console.error('[coinpay webhook] module subscription update failed:', error);
+    return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+  }
+  if (!applied) return NextResponse.json(STALE_EVENT);
+
+  if (isSettledStatus(status)) {
+    const end = await nextPeriodEnd(supabase, row.org_id, row.module, row.months, now);
+    const { error: periodErr } = await supabase
+      .from('module_subscriptions')
+      .update({ period_start: now.toISOString(), period_end: end.toISOString() })
+      .eq('coinpay_payment_id', paymentId)
+      .is('period_end', null);
+    if (periodErr) {
+      console.error('[coinpay webhook] module period failed:', periodErr);
+      return NextResponse.json({ error: 'Activation failed' }, { status: 500 });
+    }
+    console.log(`[coinpay webhook] ${logSafe(row.module)} active for org ${logSafe(row.org_id)} until ${end.toISOString()}`);
+  }
+
+  return NextResponse.json({ received: true, status });
+}
+
+const WEBHOOK_STATUS: Record<string, string> = {
+  'payment.confirmed': 'confirmed',
+  'payment.forwarded': 'forwarded',
+  'payment.expired': 'expired',
+  'payment.failed': 'failed',
+};
 
 async function handleWaitlistWebhook(
   supabase: ReturnType<typeof getSupabase>,

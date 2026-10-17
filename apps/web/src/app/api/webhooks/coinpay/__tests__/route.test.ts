@@ -18,7 +18,8 @@ const mockCreditMaybeSingle = vi.fn();
 const mockWaitlistMaybeSingle = vi.fn();
 const mockWaitlistSingle = vi.fn();
 const mockReputationMaybeSingle = vi.fn();
-// The org's latest paid period end, as currentPeriodEnd reads it.
+const mockModuleMaybeSingle = vi.fn();
+// The org's latest paid period end, as currentPeriodEnd / nextPeriodEnd read it.
 let reputationRunningEnd: string | null = null;
 // Records every .update(patch) as (table, patch) so tests can assert on writes.
 const mockUpdate = vi.fn();
@@ -63,17 +64,19 @@ function paymentUpdateChain(table: string, patch: { status?: string }) {
 
 // Build a chainable mock for a specific table
 function buildTableMock(table: string) {
-  if (table === "reputation_subscriptions") {
-    const lookupChain = () => ({
+  if (table === "reputation_subscriptions" || table === "module_subscriptions") {
+    const running = () => ({
+      data: reputationRunningEnd ? [{ status: "confirmed", period_end: reputationRunningEnd }] : [],
+      error: null,
+    });
+    const lookupChain = (): Record<string, unknown> => ({
       eq: vi.fn().mockImplementation(() => lookupChain()),
       in: vi.fn().mockImplementation(() => lookupChain()),
       not: vi.fn().mockImplementation(() => lookupChain()),
       order: vi.fn().mockImplementation(() => lookupChain()),
-      limit: vi.fn().mockResolvedValue({
-        data: reputationRunningEnd ? [{ status: "confirmed", period_end: reputationRunningEnd }] : [],
-        error: null,
-      }),
-      maybeSingle: mockReputationMaybeSingle,
+      limit: vi.fn().mockImplementation(async () => running()),
+      then: (resolve: (v: unknown) => void) => resolve(running()),
+      maybeSingle: table === "module_subscriptions" ? mockModuleMaybeSingle : mockReputationMaybeSingle,
     });
     return {
       select: vi.fn().mockImplementation(() => lookupChain()),
@@ -133,6 +136,7 @@ function resetMocks(overrides: {
   mockLicenseMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockCreditMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockReputationMaybeSingle.mockResolvedValue({ data: null, error: null });
+  mockModuleMaybeSingle.mockResolvedValue({ data: null, error: null });
   reputationRunningEnd = null;
   mockWaitlistMaybeSingle.mockResolvedValue(findEntryResult);
   mockWaitlistSingle.mockResolvedValue(referralResult);
@@ -463,6 +467,47 @@ describe("POST /api/webhooks/coinpay — Reputation Pro", () => {
     const res = await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "rep-pay" } }, { signed: false }));
     expect(res.status).toBe(401);
     expect(storedStatus.reputation_subscriptions).toBe("pending");
+  });
+});
+
+describe("POST /api/webhooks/coinpay — paid modules", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.COINPAY_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    resetMocks();
+    mockModuleMaybeSingle.mockResolvedValue({
+      data: { id: "mod-1", org_id: "org-1", module: "link-watch", months: 12 },
+      error: null,
+    });
+    storedStatus.module_subscriptions = "pending";
+  });
+
+  function periodPatch() {
+    const call = mockUpdate.mock.calls.find(
+      ([table, patch]) => table === "module_subscriptions" && (patch as { period_end?: string }).period_end,
+    );
+    return call?.[1] as { period_start: string; period_end: string } | undefined;
+  }
+
+  it("confirms a Link Watch payment and stamps its period", async () => {
+    const res = await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "mod-pay" } }));
+    expect(res.status).toBe(200);
+    expect(storedStatus.module_subscriptions).toBe("confirmed");
+    const p = periodPatch();
+    expect(Math.round((Date.parse(p!.period_end) - Date.parse(p!.period_start)) / 86_400_000)).toBe(360);
+    expect(mockWaitlistMaybeSingle).not.toHaveBeenCalled();
+  });
+
+  it("stacks a renewal on the running period", async () => {
+    reputationRunningEnd = new Date(Date.now() + 10 * 86_400_000).toISOString();
+    await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "mod-pay" } }));
+    expect(Math.round((Date.parse(periodPatch()!.period_end) - Date.now()) / 86_400_000)).toBe(370);
+  });
+
+  it("rejects an unsigned module callback", async () => {
+    const res = await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "mod-pay" } }, { signed: false }));
+    expect(res.status).toBe(401);
+    expect(storedStatus.module_subscriptions).toBe("pending");
   });
 });
 
