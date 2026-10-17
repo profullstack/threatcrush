@@ -56,8 +56,15 @@ export interface RegistryDoc {
 }
 
 /**
- * The version to move to, or null with the reason not to. Only `latest` is
- * considered: a box never jumps to a tag nobody promoted.
+ * The version to move to, or null with the reason not to: the newest stable
+ * release that is newer than this one, no newer than `latest` (a box never
+ * jumps past what was promoted), on the same major unless allowed, and at
+ * least `min_age` old.
+ *
+ * Looking only at `latest` stranded the fleet on a busy release day: on
+ * 2026-10-17 five releases shipped inside two hours of each other, `latest`
+ * was always younger than min_age, and every box stayed on 0.13.32 while
+ * 0.13.33–0.13.36 were old enough to take.
  */
 export function pickUpdate(
   doc: RegistryDoc,
@@ -68,15 +75,23 @@ export function pickUpdate(
   if (!latest) return { version: null, reason: 'registry has no latest tag' };
   if (!isNewer(latest, current)) return { version: null, reason: `up to date (${current})` };
   const major = (v: string) => Number.parseInt(v.replace(/^v/, ''), 10);
+
+  let best: string | null = null;
+  for (const [v, when] of Object.entries(doc.time ?? {})) {
+    if (!/^\d+\.\d+\.\d+$/.test(v)) continue; // `created`, `modified`, prereleases
+    if (!isNewer(v, current) || isNewer(v, latest)) continue;
+    if (!opts.allowMajor && major(v) !== major(current)) continue;
+    const published = Date.parse(when);
+    if (!Number.isFinite(published) || opts.now - published < opts.minAgeMs) continue;
+    if (!best || isNewer(v, best)) best = v;
+  }
+  if (best) return { version: best };
+
   if (!opts.allowMajor && major(latest) !== major(current)) {
     return { version: null, reason: `${latest} is a new major; set [update] allow_major = true to take it` };
   }
-  const published = Date.parse(doc.time?.[latest] ?? '');
-  if (!Number.isFinite(published)) return { version: null, reason: `no publish time for ${latest}` };
-  if (opts.now - published < opts.minAgeMs) {
-    return { version: null, reason: `${latest} is younger than min_age; waiting` };
-  }
-  return { version: latest };
+  if (!Number.isFinite(Date.parse(doc.time?.[latest] ?? ''))) return { version: null, reason: `no publish time for ${latest}` };
+  return { version: null, reason: `${latest} is younger than min_age, and nothing older is newer than ${current}; waiting` };
 }
 
 export type InstallPlan =
@@ -269,7 +284,9 @@ export class AutoUpdate {
         minAgeMs: this.opts.settings.minAgeMs,
         now: this.now(),
       });
-      if (pick.version === null) return this.note(pick.reason, false);
+      // Silent only when there is nothing newer: a deferral is logged, so an
+      // updater that keeps waiting is visible instead of looking like it never ran.
+      if (pick.version === null) return this.note(pick.reason, !pick.reason.startsWith('up to date'));
       const target = pick.version;
 
       const last = this.lastAttempt();

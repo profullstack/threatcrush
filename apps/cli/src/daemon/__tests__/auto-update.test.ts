@@ -52,6 +52,26 @@ describe('pickUpdate', () => {
     expect(pickUpdate(doc('0.13.30', 9 * HOUR), '0.13.31', opts).version).toBeNull();
   });
 
+  it('on a busy release day takes the newest release old enough, not nothing', () => {
+    // 2026-10-17: latest kept being younger than min_age while older releases were eligible.
+    const busy: RegistryDoc = {
+      'dist-tags': { latest: '0.13.37' },
+      time: {
+        created: '2026-01-01T00:00:00Z',
+        modified: new Date(NOW).toISOString(),
+        '0.13.32': new Date(NOW - 9 * HOUR).toISOString(),
+        '0.13.35': new Date(NOW - 3 * HOUR).toISOString(),
+        '0.13.36': new Date(NOW - 2.5 * HOUR).toISOString(),
+        '0.13.37': new Date(NOW - 20 * 60_000).toISOString(),
+        '0.13.38-rc.1': new Date(NOW - 9 * HOUR).toISOString(),
+        '0.14.0': new Date(NOW - 9 * HOUR).toISOString(), // published but never promoted to latest
+      },
+    };
+    expect(pickUpdate(busy, '0.13.32', opts)).toEqual({ version: '0.13.36' });
+    expect(pickUpdate(busy, '0.13.36', opts).version).toBeNull();
+    expect((pickUpdate(busy, '0.13.36', opts) as { reason: string }).reason).toMatch(/0\.13\.37 is younger than min_age/);
+  });
+
   it('does not cross a major unless allowed', () => {
     expect(pickUpdate(doc('1.0.0', 9 * HOUR), '0.13.31', opts).version).toBeNull();
     expect(pickUpdate(doc('1.0.0', 9 * HOUR), '0.13.31', { ...opts, allowMajor: true })).toEqual({ version: '1.0.0' });
