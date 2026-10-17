@@ -1,9 +1,9 @@
 name: Mobile Release
 
+# Manual only. Every v* tag used to queue an EAS cloud build (56 in one
+# billing period, burning the Expo plan's build credit). Run it from the
+# Actions tab when a store build is actually wanted.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       profile:
