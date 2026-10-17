@@ -169,7 +169,12 @@ export interface AbuseReporterSection {
    */
   mode?: 'live' | 'dry_run';
   dry_run?: boolean;
-  /** Where to report. Default `["abuseipdb"]`. */
+  /**
+   * Where to report. Default `["abuseipdb"]`. `stopforumspam` only receives
+   * sources whose evidence includes a form/signup spam event carrying
+   * `details.form_spam = { username, email }` (SFS requires both); every other
+   * source is skipped for SFS.
+   */
   destinations?: Array<'abuseipdb' | 'stopforumspam'>;
   /** AbuseIPDB key. Prefer the `ABUSEIPDB_API_KEY` env/secret over writing it here. */
   abuseipdb_api_key?: string;
