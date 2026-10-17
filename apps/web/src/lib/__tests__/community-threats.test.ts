@@ -4,6 +4,7 @@ import {
   aggregateSummary,
   isPublishable,
   maskIp,
+  withoutProtected,
   type DetectionRow,
 } from "@/lib/community-threats";
 
@@ -97,5 +98,32 @@ describe("aggregateSummary", () => {
     const json = JSON.stringify(summary);
     expect(json).not.toMatch(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
     expect(json).toContain("9.9.9.x"); // masked form present
+  });
+});
+
+describe("withoutProtected — our own servers and private space are never attackers", () => {
+  it("drops registered server addresses, private, loopback and CGNAT space", () => {
+    const rows = [
+      row("23.95.228.174", "dev2"),
+      row("45.148.10.7", "dev2"),
+      row("172.18.0.5", "dev2"),
+      row("10.0.0.9", "dev2"),
+      row("127.0.0.1", "dev2"),
+      row("100.64.3.2", "dev2"),
+      row("2A01:4F8::1", "dev2"),
+      { ...row("", "dev2"), source_ip: null },
+    ];
+    const kept = withoutProtected(rows, new Set(["23.95.228.174"]));
+    expect(kept.map((r) => r.source_ip)).toEqual(["45.148.10.7", "2A01:4F8::1"]);
+  });
+
+  it("so the busiest self-hit never reaches the blocklist", () => {
+    const rows = [
+      ...Array.from({ length: 50 }, (_, i) => row("23.95.228.174", `s${i % 3}`, "critical")),
+      row("45.148.10.7", "a"),
+      row("45.148.10.7", "b"),
+    ];
+    const ips = aggregateBlocklist(withoutProtected(rows, new Set(["23.95.228.174"]))).map((e) => e.ip);
+    expect(ips).toEqual(["45.148.10.7"]);
   });
 });

@@ -1,4 +1,5 @@
 import "server-only";
+import { isPublicIp } from "./geoip";
 import { getSupabaseAdmin } from "./supabase";
 
 /**
@@ -227,20 +228,57 @@ function isMissing(err: { code?: string } | null): boolean {
   return err?.code === "42P01" || err?.code === "42703";
 }
 
+/**
+ * Drop what must never be published as an attacker: private, loopback and
+ * CGNAT space (container and LAN traffic a daemon sees), and the addresses
+ * of servers registered with ThreatCrush. A box sees its own public address
+ * on hairpin requests and SSH to itself, so without this the busiest
+ * "attacker" on the feed is our own server (dev2 was, 2026-10-17). The
+ * ban_candidates function applies the same rule for nichedb's /traffic.
+ */
+export function withoutProtected(rows: DetectionRow[], serverIps: Set<string>): DetectionRow[] {
+  return rows.filter((r) => {
+    const ip = (r.source_ip ?? "").trim().toLowerCase();
+    return ip !== "" && isPublicIp(ip) && !serverIps.has(ip);
+  });
+}
+
+const SERVER_IPS_CACHE_MS = 5 * 60_000;
+let serverIpsCache: { at: number; value: Set<string> } | null = null;
+
+/** Every registered server's own and public address, across all orgs. */
+export async function loadServerIps(now: number = Date.now()): Promise<Set<string>> {
+  if (serverIpsCache && now - serverIpsCache.at < SERVER_IPS_CACHE_MS) return serverIpsCache.value;
+  const admin = getSupabaseAdmin();
+  let res = await admin.from("servers").select("ip_address, public_ip");
+  // public_ip arrived in a later migration; a box without it still has ip_address.
+  if (res.error && isMissing(res.error)) res = await admin.from("servers").select("ip_address");
+  if (res.error) throw new Error(`server addresses: ${res.error.message}`);
+  const value = new Set<string>();
+  for (const s of (res.data ?? []) as Array<{ ip_address?: string | null; public_ip?: string | null }>) {
+    for (const ip of [s.ip_address, s.public_ip]) if (ip) value.add(ip.trim().toLowerCase());
+  }
+  serverIpsCache = { at: now, value };
+  return value;
+}
+
 async function fetchRows(now: number): Promise<DetectionRow[]> {
   const admin = getSupabaseAdmin();
   const since = new Date(now - WINDOW_MS).toISOString();
-  const { data, error } = await admin
-    .from("detections")
-    .select("*")
-    .gte("detected_at", since)
-    .order("detected_at", { ascending: false })
-    .limit(ROW_CAP);
+  const [{ data, error }, serverIps] = await Promise.all([
+    admin
+      .from("detections")
+      .select("*")
+      .gte("detected_at", since)
+      .order("detected_at", { ascending: false })
+      .limit(ROW_CAP),
+    loadServerIps(now),
+  ]);
   if (error) {
     if (isMissing(error)) return [];
     throw new Error(error.message);
   }
-  return (data ?? []) as DetectionRow[];
+  return withoutProtected((data ?? []) as DetectionRow[], serverIps);
 }
 
 async function fetchActiveBans(): Promise<number> {
@@ -260,6 +298,7 @@ let blocklistCache: { at: number; value: BlocklistEntry[] } | null = null;
 export function resetCommunityCache(): void {
   summaryCache = null;
   blocklistCache = null;
+  serverIpsCache = null;
 }
 
 export async function loadCommunitySummary(now: number = Date.now()): Promise<CommunitySummary> {
