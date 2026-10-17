@@ -132,6 +132,7 @@ function watch(over: { files?: Record<string, string>; journal?: (args: string[]
     io: { readFile: (p) => fakeFs(files).readFile(p), readDir: (p) => fakeFs(files).readDir(p), exists: (p) => fakeFs(files).exists(p) },
     run: (_cmd, args) => over.journal?.(args) ?? null,
     geolocate: async (ip) => over.geo?.[ip] ?? null,
+    geolocateMany: async (ips) => new Map(ips.flatMap((ip): [string, string][] => (over.geo?.[ip] ? [[ip, over.geo[ip].countryCode]] : []))),
   });
   return { w, events, setFiles: (f: Record<string, string>) => { files = f; } };
 }
@@ -193,5 +194,31 @@ describe('PrivilegeWatch', () => {
     expect(t.events[0].source_ip).toBeUndefined();
     await t.w.checkLogin(login('198.51.100.7', 'deploy')); // deploy's first login: baseline only
     expect(t.events).toHaveLength(1);
+  });
+
+  it('seeds the baseline from 30 days of sshd logins, so regular automation abroad stays quiet', async () => {
+    const logins = (ip: string, user = 'root'): ThreatEvent => ({
+      timestamp: new Date(), module: 'ssh-guard', category: 'auth', severity: 'info', message: `SSH login accepted for ${user}`, source_ip: ip,
+    });
+    const t = watch({
+      geo: {
+        '203.0.113.1': { countryCode: 'US' },
+        '104.152.209.195': { countryCode: 'CA' },
+        '192.0.2.200': { countryCode: 'DE' },
+      },
+      journal: (args) => args.includes('_COMM=sshd')
+        ? [
+          'Accepted publickey for root from 203.0.113.1 port 48554 ssh2: ED25519 SHA256:aaa',
+          'Accepted publickey for root from 104.152.209.195 port 59510 ssh2: ED25519 SHA256:bbb',
+          'Accepted publickey for root from 10.0.0.4 port 1 ssh2: ED25519 SHA256:ccc',
+          'Failed password for root from 192.0.2.200 port 2 ssh2',
+        ].join('\n')
+        : null,
+    });
+    await t.w.backfillLogins();
+    await t.w.checkLogin(logins('104.152.209.195')); // the backup box: known
+    expect(t.events).toEqual([]);
+    await t.w.checkLogin(logins('192.0.2.200')); // a failed login is not history
+    expect(t.events.map((e) => e.message)).toEqual(['SSH login for root from a new country: Germany, 192.0.2.200; seen before from US, CA']);
   });
 });
