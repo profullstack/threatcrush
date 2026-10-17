@@ -1,3 +1,4 @@
+import { clientIp } from "@/lib/client-ip";
 import { gate } from "@/lib/crawl-gateway";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -47,6 +48,10 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/api/scan", limit: 20, windowMs: 60_000 },
   { prefix: "/api/modules/fetch-meta", limit: 20, windowMs: 60_000 },
   { prefix: "/api/funding/", limit: 30, windowMs: 60_000 },
+  // Public and unauthenticated: IP geolocation for the TUI and desktop maps,
+  // and the homepage live map (polled every 5s while visible).
+  { prefix: "/api/geo", limit: 30, windowMs: 60_000 },
+  { prefix: "/api/attack-map/public", limit: 60, windowMs: 60_000 },
   { prefix: "/api/", limit: 300, windowMs: 60_000 },
 ];
 
@@ -54,31 +59,6 @@ const hits = new Map<string, { count: number; resetAt: number }>();
 
 /** Bounded so a flood of unique keys cannot grow the map without limit. */
 const MAX_TRACKED_KEYS = 10_000;
-
-/**
- * The address to key limits on.
- *
- * Everything a client sends in X-Forwarded-For arrives before our proxies
- * append to it, so only the right end of the list can be trusted: each trusted
- * proxy appends the address of the peer it accepted the connection from
- * (nginx `proxy_add_x_forwarded_for`). With N trusted hops the client is the
- * Nth entry from the right. Keying on the leftmost entry let a caller pick a
- * fresh identity per request and never hit a limit. A list shorter than the
- * hop count did not come through the proxies we expect, so none of it is used.
- */
-function clientIp(req: NextRequest): string {
-  // Non-literal key: a runtime setting, not one Next inlines at build time.
-  const hopsKey = "TRUSTED_PROXY_HOPS";
-  const configuredHops = Number(process.env[hopsKey] || 1);
-  const hops = Number.isInteger(configuredHops) && configuredHops >= 1 ? configuredHops : 1;
-
-  const chain = (req.headers.get("x-forwarded-for") ?? "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  if (chain.length >= hops) return chain[chain.length - hops];
-  return req.headers.get("x-real-ip")?.trim() || "unknown";
-}
 
 function rateLimit(req: NextRequest): NextResponse | undefined {
   const path = req.nextUrl.pathname;

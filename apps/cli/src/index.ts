@@ -318,6 +318,7 @@ program
 ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush monitor          ${chalk.dim("# Real-time monitoring")}
   ${chalk.green("$")} threatcrush tui              ${chalk.dim("# Interactive dashboard")}
+  ${chalk.green("$")} threatcrush map              ${chalk.dim("# Live map of where attacks come from")}
   ${chalk.green("$")} threatcrush watchdog         ${chalk.dim("# Triage logged attacks: hole or not?")}
   ${chalk.green("$")} threatcrush scan ./src       ${chalk.dim("# Scan code for vulns")}
   ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
@@ -365,6 +366,21 @@ program
   .option("--demo", "Run on canned events instead of connecting to the daemon")
   .action(async (opts) => {
     await monitorCommand({ tui: true, demo: opts.demo });
+  });
+
+program
+  .command("map")
+  .description("Live world map of where attacks on this server come from")
+  .option("--demo", "Show canned attacks instead of connecting to the daemon")
+  .addHelpText("after", `
+Addresses from the daemon's live feed are placed with threatcrush.com/api/geo
+(DB-IP City Lite); this server is placed by the address it reaches us from.
+Drawn in braille everywhere, and as an HD image in hqterm, iTerm2, WezTerm,
+Kitty and Ghostty (over SSH or tmux set HQTUI_IMAGES=iterm or =1; turn it off
+with THREATCRUSH_MAP_IMAGES=0). Press m to switch to the dashboard panels.`)
+  .action(async (opts) => {
+    const { startDashboard } = await import("./tui/dashboard.js");
+    await startDashboard({ demo: opts.demo, view: "map" });
   });
 
 // ─── Watchdog: triage the attacks the dashboard logged ───

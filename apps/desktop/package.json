@@ -36,6 +36,7 @@
     "tailwind-merge": "^2.6.0"
   },
   "devDependencies": {
+    "@threatcrush/attack-map": "workspace:*",
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^3.0.0",
     "@types/react": "^19.0.0",

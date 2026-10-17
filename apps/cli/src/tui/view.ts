@@ -1,4 +1,5 @@
 import type { Container, Theme } from '@profullstack/hqtui';
+import { mapBody, mapFooter, type MapViewOptions } from './map.js';
 import type { EventSeverity, ThreatEvent } from '../types/events.js';
 import { levelColors, severityColors } from './theme.js';
 import {
@@ -27,6 +28,8 @@ export interface ViewOptions {
   /** Click a status-bar message (an error, a ban result) to copy its text. */
   onCopy?: (text: string) => void;
   demo?: boolean;
+  /** Data for the attack map view; without it `m` shows the panels. */
+  map?: MapViewOptions;
 }
 
 function clock(d: Date): string {
@@ -508,6 +511,7 @@ function footer(ui: Container, state: State, theme: Theme, options: ViewOptions 
     size: 1,
     items: [
       { key: 'q', label: 'quit' },
+      { key: 'm', label: 'map' },
       { key: 'tab', label: state.focus },
       { key: '↑↓', label: onFeed ? 'scroll' : 'select' },
       ...(state.focus === 'modules'
@@ -563,6 +567,16 @@ export function renderDashboard(
   options: ViewOptions = {},
 ): void {
   const demo = options.demo ?? false;
+
+  if (state.view === 'map' && options.map) {
+    ui.column({ gap: 0, padding: 0 }, (col) => {
+      header(col, state, theme, demo);
+      mapBody(col, state, theme, options.map!);
+      mapFooter(col, theme);
+    });
+    return;
+  }
+  options.map?.overlay?.place(null);
 
   ui.column({ gap: 0, padding: 0 }, (col) => {
     header(col, state, theme, demo);

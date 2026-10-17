@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { serializeJsonForHtml } from "@/lib/safe-json";
+import AttackMap from "@/components/AttackMap";
 import ScrollReveal from "@/components/ScrollReveal";
 import WaitlistModal from "@/components/WaitlistModal";
 
@@ -257,6 +258,25 @@ export default function Home() {
                   alt="ThreatCrush CLI"
                   className="w-full shadow-2xl shadow-tc-green/5"
                 />
+              </div>
+            </ScrollReveal>
+          </div>
+        </section>
+
+        {/* ─── LIVE ATTACK MAP ─── */}
+        <section id="live-map" className="py-16 sm:py-20 border-t border-tc-border">
+          <div className="mx-auto max-w-6xl px-6">
+            <ScrollReveal>
+              <p className="font-mono text-xs text-tc-green tracking-wider">// LIVE</p>
+              <h2 className="mt-2 text-3xl font-bold text-white sm:text-4xl">
+                Who is attacking us <span className="text-tc-green glow-green">right now</span>
+              </h2>
+              <p className="mt-3 max-w-2xl text-tc-text-dim">
+                Every arc is a real attack on ThreatCrush&apos;s own servers, caught and banned by the same daemon you
+                install. Sources are shown to their /24.
+              </p>
+              <div className="mt-8">
+                <AttackMap source="public" title="Attacks on threatcrush.com" />
               </div>
             </ScrollReveal>
           </div>

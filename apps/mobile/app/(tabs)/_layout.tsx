@@ -6,7 +6,7 @@ import { useAuthStore } from '../../src/stores/auth';
 import { usePushStore } from '../../src/stores/push';
 import { useWorkspaceStore } from '../../src/stores/workspace';
 
-const ICONS: Record<string, string> = { index: '◉', servers: '▤', scans: '◈', settings: '⚙' };
+const ICONS: Record<string, string> = { index: '◉', map: '◎', servers: '▤', scans: '◈', settings: '⚙' };
 
 export default function TabsLayout() {
   const status = useAuthStore((s) => s.status);
@@ -41,6 +41,7 @@ export default function TabsLayout() {
       })}
     >
       <Tabs.Screen name="index" options={{ title: 'Threats' }} />
+      <Tabs.Screen name="map" options={{ title: 'Map' }} />
       <Tabs.Screen name="servers" options={{ title: 'Servers' }} />
       <Tabs.Screen name="scans" options={{ title: 'Scans' }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings' }} />

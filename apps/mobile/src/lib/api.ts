@@ -1,3 +1,4 @@
+import type { AttackMapData } from '@threatcrush/attack-map';
 import { config } from '../config';
 
 /**
@@ -200,6 +201,11 @@ export const api = {
       { token },
     );
     return { remediations: res.remediations ?? [], total: res.total ?? 0 };
+  },
+
+  /** Where attacks on the org's servers come from, and where the servers are. */
+  async attackMap(token: string, orgId: string, windowMinutes = 60): Promise<AttackMapData> {
+    return request<AttackMapData>(`/api/attack-map?org=${encodeURIComponent(orgId)}&window=${windowMinutes}`, { token });
   },
 
   async listRuns(token: string, orgId: string, limit: number) {

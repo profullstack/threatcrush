@@ -6,6 +6,7 @@ import QuickActions from './components/QuickActions';
 import EventFeed from './components/EventFeed';
 import LoginForm from './components/LoginForm';
 import PageChecks from './components/PageChecks';
+import AttackMapView from './components/AttackMapView';
 
 function Account() {
   const { user, loading: authLoading } = useAuthStore();
@@ -71,6 +72,7 @@ function Account() {
 
 const VIEWS = [
   ['page', 'This page'],
+  ['map', 'Map'],
   ['account', 'Account'],
 ];
 
@@ -107,7 +109,7 @@ export default function App() {
         </div>
       </div>
 
-      {view === 'page' ? <PageChecks /> : <Account />}
+      {view === 'page' ? <PageChecks /> : view === 'map' ? <AttackMapView /> : <Account />}
     </div>
   );
 }

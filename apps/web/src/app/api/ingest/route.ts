@@ -14,6 +14,8 @@ import {
   type RemediationEvent,
   type Severity,
 } from "@/lib/ingest-events";
+import { clientIp } from "@/lib/client-ip";
+import { isPublicIp } from "@/lib/geoip";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 type Rejection = { index: number; error: string };
@@ -135,12 +137,21 @@ export async function POST(req: NextRequest) {
     // Order matters for retries after a 5xx: heartbeats, detections (deduped)
     // and findings (upserted) are idempotent; remediations are only idempotent
     // when the daemon sends event_id, so they are written last.
+    // The address the heartbeat came from places the server on the attack map.
+    const fromIp = clientIp(req);
+    const publicIp = isPublicIp(fromIp) ? fromIp : null;
     await Promise.all(
       [...heartbeats.values()].map(async (hb) => {
         const updates: Record<string, unknown> = { last_seen: now, status: "online" };
         if (hb.version) updates.threatcrushd_version = hb.version;
         if (hb.hostname) updates.hostname = hb.hostname;
-        const { error } = await admin.from("servers").update(updates).eq("id", hb.server_id);
+        if (publicIp) updates.public_ip = publicIp;
+        let { error } = await admin.from("servers").update(updates).eq("id", hb.server_id);
+        // Before the public_ip migration is applied, heartbeat without it.
+        if (error && publicIp && /public_ip/.test(error.message)) {
+          delete updates.public_ip;
+          ({ error } = await admin.from("servers").update(updates).eq("id", hb.server_id));
+        }
         if (error) throw new Error(`heartbeat: ${error.message}`);
       }),
     );

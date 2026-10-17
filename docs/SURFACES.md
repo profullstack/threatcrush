@@ -40,6 +40,30 @@ Status values:
 
 ---
 
+## Live attack map
+
+Every interface draws the same world map of where attacks come from, from
+`packages/attack-map` (`@threatcrush/attack-map`: one Natural Earth land mask,
+projection, types, a canvas renderer, a braille renderer and a PNG renderer).
+
+| Interface | Where | Data | Realtime |
+|---|---|---|---|
+| Web | threatcrush.com homepage (`#live-map`, our own fleet, sources cut to /24), `/dashboard` (all your orgs), `/org/<slug>` | `GET /api/attack-map/public`, `GET /api/attack-map?org=` | 3s poll; daemons flush every 10s |
+| TUI / CLI | `threatcrush map`, or `m` in `threatcrush tui` | daemon IPC push + `POST /api/geo` | live push; HD PNG in hqterm/iTerm2/WezTerm/Kitty/Ghostty, braille elsewhere |
+| Desktop | Dashboard, above the event stream | local daemon socket + `/api/geo`; demo map without a daemon | live push |
+| Extension | popup **Map** tab (yours signed in, the public map signed out) | `/api/attack-map[/public]` | 5s poll while open |
+| Mobile | **Map** tab | `/api/attack-map?org=` | 5s poll while focused |
+
+Places come from DB-IP City Lite (CC BY 4.0, credited on every map), which the
+web server downloads on first use into `GEOIP_DIR` (default `$TMPDIR/threatcrush-geoip`)
+and refreshes monthly; `GEOIP_DB_PATH` points at any MaxMind-format City file
+instead. Servers are placed by the public address their heartbeat arrives from
+(`servers.public_ip`, migration `20261017100000`), falling back to `ip_address`.
+`PUBLIC_ATTACK_MAP_ORG` picks whose servers the homepage shows (default
+`profullstack`; `off` shows the labelled demo).
+
+---
+
 ## Distribution channels
 
 Columns read: **which interfaces ship through this channel**.
