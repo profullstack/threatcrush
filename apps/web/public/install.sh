@@ -526,6 +526,72 @@ installed_version() {
 # PATH - not that it is the copy we just installed. Without this check the
 # installer prints "installed successfully" next to the old version number and
 # the user has no idea why the upgrade did nothing.
+# Log rotation for the daemon's log, so it never grows without bound (seed1's
+# threatcrushd.log reached 60 GB, dev2's 21 GB). `threatcrush install-service`
+# writes the same system rule, but a box installed with `curl | sh` that never
+# runs install-service had nothing rotating it.
+#
+#   /etc/logrotate.d/threatcrush         the root daemon, /var/log/threatcrush.
+#                                        Same rules as renderLogrotate() in
+#                                        apps/cli/src/commands/service.ts (a test
+#                                        keeps them identical).
+#   /etc/logrotate.d/threatcrush-<user>  a user-mode daemon, ~/.threatcrush/logs,
+#                                        rotated as that user. Its own file, so
+#                                        install-service never overwrites it.
+#
+# The daemon opens the file for every line it appends, so a plain rename rotates
+# it while it runs: no copytruncate, no restart. Linux with logrotate only.
+# Never prompts: root writes, passwordless sudo writes, anyone else is told
+# the one command to run.
+logrotate_rule() {
+  # $1 log dir, $2 owner, $3 group, $4 header line
+  printf '%s\n' "$4" \
+    "$1/*.log {" \
+    "    daily" \
+    "    maxsize 200M" \
+    "    rotate 7" \
+    "    compress" \
+    "    delaycompress" \
+    "    missingok" \
+    "    notifempty" \
+    "    create 0644 $2 $3" \
+    "    su $2 $3" \
+    "}"
+}
+
+install_logrotate() {
+  [ "$(detect_os)" = "Linux" ] || return 0
+  DIR="${THREATCRUSH_LOGROTATE_DIR:-/etc/logrotate.d}"
+  [ -d "$DIR" ] || return 0
+
+  ME=$(id -un)
+  MY_GROUP=$(id -gn)
+  TMP_RULES=$(mktemp)
+  logrotate_rule /var/log/threatcrush root root '# Installed by `threatcrush install-service`.' >"$TMP_RULES.system"
+  if [ "$(id -u)" -ne 0 ]; then
+    logrotate_rule "$HOME/.threatcrush/logs" "$ME" "$MY_GROUP" "# Installed by install.sh for $ME's user-mode daemon." >"$TMP_RULES.user"
+  fi
+
+  if [ -w "$DIR" ]; then
+    AS=""
+  elif command_exists sudo && sudo -n true 2>/dev/null; then
+    AS="sudo"
+  else
+    say ""
+    say "${YELLOW}! Log rotation not installed (needs root).${RESET} Run once:"
+    say "    ${GREEN}sudo threatcrush install-service${RESET}   ${DIM}# or: sudo sh -c 'curl -fsSL https://threatcrush.com/install.sh | sh'${RESET}"
+    rm -f "$TMP_RULES" "$TMP_RULES.system" "$TMP_RULES.user"
+    return 0
+  fi
+
+  $AS cp "$TMP_RULES.system" "$DIR/threatcrush" && $AS chmod 0644 "$DIR/threatcrush"
+  if [ -f "$TMP_RULES.user" ]; then
+    $AS cp "$TMP_RULES.user" "$DIR/threatcrush-$ME" && $AS chmod 0644 "$DIR/threatcrush-$ME"
+  fi
+  rm -f "$TMP_RULES" "$TMP_RULES.system" "$TMP_RULES.user"
+  say "${GREEN}✓ Log rotation:${RESET} ${DIR}/threatcrush ${DIM}(daily or 200M, keeps 7)${RESET}"
+}
+
 # Installing a new CLI replaces files on disk and nothing else. A daemon that is
 # already running keeps executing the bundle it was spawned from — even after
 # that version's directory is gone — so the new build never takes effect until
@@ -689,6 +755,7 @@ if command_exists threatcrush; then
   if [ "$NODE_FROM_MISE" = 1 ]; then
     persist_mise_shims_path
   fi
+  install_logrotate
   refresh_daemon
   say ""
   say "  ${BOLD}Detected install mode:${RESET} ${INSTALL_MODE}"
