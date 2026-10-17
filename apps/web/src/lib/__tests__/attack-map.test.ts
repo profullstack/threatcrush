@@ -53,6 +53,15 @@ describe("aggregateOrigins", () => {
     expect(ams.countryCode).toBe("NL");
   });
 
+  it("leaves out our own servers' addresses", () => {
+    const out = aggregateOrigins(
+      [row("45.155.205.233", "critical", "2026-10-17T10:00:00Z"), row("218.92.0.112", "high", "2026-10-17T10:01:00Z")],
+      geo,
+      { exclude: new Set(["45.155.205.233"]) },
+    );
+    expect(out.map((o) => o.ip)).toEqual(["218.92.0.112"]);
+  });
+
   it("merges a /24 into one masked origin for the public map", () => {
     const out = aggregateOrigins(
       [row("45.155.205.233", "low", "2026-10-17T10:00:00Z"), row("45.155.205.9", "high", "2026-10-17T10:01:00Z")],
