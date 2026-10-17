@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { getPostBySlug, sanitizeHtml, formatDate, SITE_URL } from "@/lib/blog";
+import { notFound, permanentRedirect } from "next/navigation";
+import { allSlugs, closestSlug, fixBlogLinks, getPostBySlug, sanitizeHtml, formatDate, SITE_URL } from "@/lib/blog";
 import { serializeJsonForHtml } from "@/lib/safe-json";
 import { AdUnit } from "@/components/AdUnit";
 
@@ -42,9 +42,15 @@ export async function generateMetadata({ params }: RouteParams): Promise<Metadat
 export default async function BlogPostPage({ params }: RouteParams) {
   const { slug } = await params;
   const post = await getPostBySlug(slug);
-  if (!post) notFound();
+  const slugs = await allSlugs();
+  if (!post) {
+    // A mistyped or renamed slug goes to the post it meant instead of a 404.
+    const meant = closestSlug(slug, slugs);
+    if (meant && meant !== slug) permanentRedirect(`/blog/${meant}`);
+    notFound();
+  }
 
-  const html = post.content_html ? sanitizeHtml(post.content_html) : null;
+  const html = post.content_html ? fixBlogLinks(sanitizeHtml(post.content_html), slugs) : null;
 
   const ldJson = {
     "@context": "https://schema.org",

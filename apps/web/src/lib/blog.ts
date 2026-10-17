@@ -69,6 +69,76 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
   return (data as BlogPost) ?? null;
 }
 
+let slugCache: { at: number; slugs: Set<string> } | null = null;
+const SLUG_TTL_MS = 10 * 60_000;
+
+/** Every published slug, held ten minutes: what a /blog/ link may point at. */
+export async function allSlugs(): Promise<Set<string>> {
+  if (slugCache && Date.now() - slugCache.at < SLUG_TTL_MS) return slugCache.slugs;
+  const supabase = tryGetAdmin();
+  if (!supabase) return new Set();
+  const { data, error } = await supabase.from("blog_posts").select("slug");
+  if (error) {
+    console.error("[blog] slug list error:", error);
+    return slugCache?.slugs ?? new Set();
+  }
+  slugCache = { at: Date.now(), slugs: new Set((data ?? []).map((r: { slug: string }) => r.slug)) };
+  return slugCache.slugs;
+}
+
+/** Levenshtein distance, stopping early once it exceeds `max`. */
+export function editDistance(a: string, b: string, max = Infinity): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      best = Math.min(best, cur[j]);
+    }
+    if (best > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/**
+ * The real slug a mistyped one meant: the closest by edit distance within a
+ * quarter of its length (at least 3), or null. Autoblog posts link to slugs
+ * that were never published ("automation-in-cy-security" for
+ * "automation-in-cyber-security"); this finds the one they meant.
+ */
+export function closestSlug(slug: string, slugs: Set<string>): string | null {
+  if (slugs.has(slug)) return slug;
+  const max = Math.max(3, Math.floor(slug.length / 4));
+  let best: string | null = null;
+  let bestD = max + 1;
+  for (const s of slugs) {
+    const d = editDistance(slug, s, bestD - 1);
+    if (d < bestD) {
+      best = s;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+const BLOG_HREF = /href="((?:https?:\/\/(?:www\.)?threatcrush\.com)?\/blog\/)([a-z0-9-]+)\/?((?:[?#][^"]*)?)"/g;
+
+/**
+ * Point every /blog/<slug> link in a post at a post that exists: the slug it
+ * meant when one is close, else the blog index. Never leaves a link that 404s.
+ */
+export function fixBlogLinks(html: string, slugs: Set<string>): string {
+  if (slugs.size === 0) return html;
+  return html.replace(BLOG_HREF, (whole, prefix: string, slug: string, rest: string) => {
+    if (slugs.has(slug)) return whole;
+    const meant = closestSlug(slug, slugs);
+    return meant ? `href="${prefix}${meant}${rest}"` : `href="${prefix.replace(/\/blog\/$/, "/blog")}"`;
+  });
+}
+
 export function sanitizeHtml(html: string): string {
   return sanitizeBlogHtml(html);
 }
