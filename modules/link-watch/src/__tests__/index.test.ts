@@ -54,7 +54,7 @@ describe('extractLinks', () => {
 describe('isBrokenStatus', () => {
   it('reports 404/410/5xx, not bot walls', () => {
     expect([404, 410, 500, 502].every(isBrokenStatus)).toBe(true);
-    expect([200, 301, 401, 403, 405, 429, 999].some(isBrokenStatus)).toBe(false);
+    expect([200, 301, 401, 402, 403, 405, 429, 999].some(isBrokenStatus)).toBe(false);
   });
 });
 
@@ -91,6 +91,17 @@ describe('crawlSite', () => {
     expect(r.broken.map((b) => b.url)).toEqual(['https://gone.example/a']);
     expect(r.broken[0].internal).toBe(false);
     expect(asked.filter((a) => a === 'HEAD https://ok.example/' || a === 'GET https://ok.example/')).toEqual(['HEAD https://ok.example/']);
+  });
+
+  it('retries an own-site timeout once before calling it broken', async () => {
+    let tries = 0;
+    const base = web({ 'https://site.example/': html('<img src="/slow.png">') });
+    const fetchImpl = async (url: string, init?: RequestInit) => {
+      if (url === 'https://site.example/slow.png' && tries++ < 1) throw Object.assign(new Error('t'), { name: 'TimeoutError' });
+      return url === 'https://site.example/slow.png' ? new Response('', { status: 200 }) : base.fetchImpl(url, init);
+    };
+    const r = await crawlSite('https://site.example', { fetchImpl });
+    expect(r.broken.map((b) => b.url)).toEqual([]);
   });
 
   it('honours ignore_paths, max_pages and the sitemap', async () => {
