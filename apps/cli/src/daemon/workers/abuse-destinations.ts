@@ -97,28 +97,37 @@ export async function reportToAbuseIPDB(payload: ReportPayload, apiKey: string):
 }
 
 /**
- * Report to StopForumSpam (PRD 0015 R7). Their /add takes an api_key, the ip
- * and a short evidence string. IP-only reports are accepted; SFS leans on
- * email/username it does not have here, so a refusal is logged, not retried.
+ * Report to StopForumSpam (PRD 0015 R7). SFS is a forum/signup-spam database:
+ * add.php requires `username`, `email` and `ip_addr` together (plus our
+ * `api_key`; `evidence` is optional). Those must be what the spammer actually
+ * submitted, so only a source whose evidence carries a form-spam identity is
+ * sent here — an SSH scanner has no username or email and is skipped, never
+ * padded with made-up ones. SFS answers 200 with an empty body on success and
+ * 403 with the reason in a <p> on refusal.
  */
 export async function reportToStopForumSpam(payload: ReportPayload, apiKey: string): Promise<DestinationResult> {
+  const identity = payload.evidence.formSpam;
+  if (!identity) {
+    return { destination: 'stopforumspam', ok: false, detail: 'skipped: no form-spam username/email in evidence' };
+  }
   const body = new URLSearchParams({
-    api_key: apiKey,
-    ip: payload.ip,
+    username: identity.username,
+    email: identity.email,
+    ip_addr: payload.ip,
     evidence: payload.comment.slice(0, 1000),
+    api_key: apiKey,
   });
   try {
-    const res = await fetch('https://www.stopforumspam.org/add.php', {
+    const res = await fetch('https://www.stopforumspam.com/add.php', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const text = await res.text().catch(() => '');
-    if (!res.ok) return { destination: 'stopforumspam', ok: false, detail: `HTTP ${res.status} ${text.slice(0, 120)}` };
-    // SFS answers plain text ("success") or JSON depending on the Accept header.
-    const ok = /success|"success"\s*:\s*true/i.test(text);
-    return { destination: 'stopforumspam', ok, detail: ok ? 'reported' : text.slice(0, 120) || 'refused' };
+    if (res.status === 200) return { destination: 'stopforumspam', ok: true, detail: 'reported' };
+    const reason = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(text)?.[1]?.replace(/<[^>]+>/g, '').trim();
+    return { destination: 'stopforumspam', ok: false, detail: `HTTP ${res.status} ${(reason || text).slice(0, 160)}`.trim() };
   } catch (err) {
     return { destination: 'stopforumspam', ok: false, detail: (err as Error).message };
   }
@@ -133,7 +142,8 @@ export async function dispatch(
   const jobs: Array<Promise<DestinationResult>> = [];
   for (const dest of destinations) {
     if (dest === 'abuseipdb' && keys.abuseipdb) jobs.push(reportToAbuseIPDB(payload, keys.abuseipdb));
-    else if (dest === 'stopforumspam' && keys.stopforumspam) jobs.push(reportToStopForumSpam(payload, keys.stopforumspam));
+    // SFS only takes forum/signup spam with a real username + email; skip silently otherwise.
+    else if (dest === 'stopforumspam' && keys.stopforumspam && payload.evidence.formSpam) jobs.push(reportToStopForumSpam(payload, keys.stopforumspam));
   }
   return Promise.all(jobs);
 }

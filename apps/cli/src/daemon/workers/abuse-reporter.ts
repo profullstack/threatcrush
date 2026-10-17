@@ -71,7 +71,7 @@ export class AbuseReporter {
     if (!this.active) {
       this.opts.log(
         '[abuse] reporter on but inert: no destination API key set ' +
-        '(ABUSEIPDB_API_KEY or [abuse-reporter] abuseipdb_api_key). Nothing will be reported.',
+        '(ABUSEIPDB_API_KEY / STOPFORUMSPAM_API_KEY or [abuse-reporter] *_api_key). Nothing will be reported.',
       );
       return;
     }

@@ -67,6 +67,32 @@ export interface AbuseEvidence {
   categories: string[];
   /** Rule ids that matched, de-duplicated. */
   ruleIds: string[];
+  /**
+   * The identity a form/signup spam submission used, taken verbatim from the
+   * event (`details.form_spam = { username, email }`). Present only when a
+   * detector actually saw both; StopForumSpam requires the pair, so without it
+   * that destination is skipped rather than fed invented values.
+   */
+  formSpam?: FormSpamIdentity;
+}
+
+export interface FormSpamIdentity {
+  username: string;
+  email: string;
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Read a usable `{ username, email }` off an event, or nothing. */
+export function formSpamIdentity(event: ThreatEvent): FormSpamIdentity | undefined {
+  const raw = event.details?.form_spam;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const { username, email } = raw as Record<string, unknown>;
+  if (typeof username !== 'string' || typeof email !== 'string') return undefined;
+  const u = username.trim();
+  const e = email.trim();
+  if (!u || u.length > 255 || !EMAIL_RE.test(e) || e.length > 254) return undefined;
+  return { username: u, email: e };
 }
 
 /**
@@ -82,10 +108,14 @@ export function summarizeEvidence(events: ThreatEvent[]): AbuseEvidence {
   let firstSeen = Infinity;
   let lastSeen = 0;
   let total = 0;
+  let formSpam: FormSpamIdentity | undefined;
 
   for (const event of events) {
     if (event.module === 'firewall-rules') continue;
     total++;
+    // The most recent submission wins: it is the identity the spammer is using now.
+    const identity = formSpamIdentity(event);
+    if (identity && event.timestamp.getTime() >= lastSeen) formSpam = identity;
     modules.add(event.module);
     categories.add(event.category);
     const ruleId = event.details?.rule_id;
@@ -109,6 +139,7 @@ export function summarizeEvidence(events: ThreatEvent[]): AbuseEvidence {
     total,
     categories: [...categories],
     ruleIds: [...ruleIds],
+    ...(formSpam ? { formSpam } : {}),
   };
 }
 
