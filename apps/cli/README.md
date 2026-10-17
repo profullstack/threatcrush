@@ -198,6 +198,20 @@ enabled = true            # false: the daemon neither reports to nor takes actio
 min_severity = "medium"   # info | low | medium | high | critical
 ```
 
+## Automatic updates
+
+The daemon keeps itself on the latest release. About every 6 hours (plus up to an hour of jitter, so a fleet does not restart in step) it asks the npm registry for `latest`. When a newer version has been published for at least 2 hours, and is on the same major version, it installs it and restarts onto it. The update shows in the live feed as an info event (`auto-update`).
+
+Under systemd the unit's sandbox keeps the daemon from writing its own install, so it hands `npm i -g` to a transient unit (`systemd-run`) run as whoever owns the install, then restarts the service. A user-mode daemon runs npm itself. Only the npm global layout the installer produces is updated in place. A daemon running from a pnpm store or a source checkout logs that `threatcrush update` is needed instead. A version that was tried and did not take is not retried for a day.
+
+```toml
+[update]
+auto = true          # false (or THREATCRUSH_AUTO_UPDATE=0): upgrade by hand with `threatcrush update`
+interval = "6h"      # how often to check (at least 15m)
+min_age = "2h"       # how long a release must be public before it is taken
+allow_major = false  # true: also move to a new major version
+```
+
 ## Pricing
 
 The CLI is MIT-licensed (see [License](#license)). For pricing, [contact us for a quote](https://threatcrush.com/hire).
