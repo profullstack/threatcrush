@@ -23,6 +23,19 @@ function web(routes: Record<string, Route>) {
 const html = (body: string) => ({ status: 200, type: 'text/html; charset=utf-8', body });
 
 describe('extractLinks', () => {
+  it('skips script bodies, honours <base>, survives unclosed junk', () => {
+    expect(
+      extractLinks(
+        '<base href="https://cdn.example/x/"><script>var s = "<a href=/not-a-link>"</script><a href=page>p</a><a href="/never-closed',
+        'https://site.example/',
+      ),
+    ).toEqual(['https://cdn.example/x/page']);
+    // A pathological page finishes promptly (no backtracking).
+    const t = Date.now();
+    extractLinks('<a '.repeat(50_000) + '<!--'.repeat(20_000), 'https://site.example/');
+    expect(Date.now() - t).toBeLessThan(2000);
+  });
+
   it('resolves hrefs and srcs, drops fragments and non-http schemes', () => {
     const links = extractLinks(
       `<a href="/register">x</a><a href='#top'>t</a><a href="mailto:a@b.c">m</a>
@@ -77,7 +90,7 @@ describe('crawlSite', () => {
     const r = await crawlSite('https://site.example', { fetchImpl });
     expect(r.broken.map((b) => b.url)).toEqual(['https://gone.example/a']);
     expect(r.broken[0].internal).toBe(false);
-    expect(asked.filter((a) => a.endsWith('https://ok.example/')).length).toBe(1);
+    expect(asked.filter((a) => a === 'HEAD https://ok.example/' || a === 'GET https://ok.example/')).toEqual(['HEAD https://ok.example/']);
   });
 
   it('honours ignore_paths, max_pages and the sitemap', async () => {

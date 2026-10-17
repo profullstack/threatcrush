@@ -51,32 +51,93 @@ const NOT_BROKEN = new Set([401, 403, 405, 429, 999]);
 const MAX_HTML_BYTES = 2_000_000;
 const FOUND_ON_LIMIT = 5;
 
-/** Every href/src in an HTML document, resolved against its URL, fragments dropped. */
+const LINK_TAGS = new Set(['a', 'link', 'img', 'script', 'iframe', 'source', 'video', 'audio', 'base']);
+
+/**
+ * The attributes of one tag's inner text (`a href="/x" class=y`), lowercased
+ * names, one pass, no regular expressions: this runs on any page on the web.
+ */
+export function parseAttributes(inner: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let i = 0;
+  const n = inner.length;
+  const space = (c: string) => c === ' ' || c === '\n' || c === '\t' || c === '\r' || c === '\f' || c === '/';
+  while (i < n) {
+    while (i < n && space(inner[i])) i++;
+    const nameStart = i;
+    while (i < n && !space(inner[i]) && inner[i] !== '=') i++;
+    const name = inner.slice(nameStart, i).toLowerCase();
+    while (i < n && space(inner[i]) && inner[i] !== '/') i++;
+    let value = '';
+    if (inner[i] === '=') {
+      i++;
+      while (i < n && space(inner[i]) && inner[i] !== '/') i++;
+      const q = inner[i];
+      if (q === '"' || q === "'") {
+        const close = inner.indexOf(q, i + 1);
+        const stop = close === -1 ? n : close;
+        value = inner.slice(i + 1, stop);
+        i = stop + 1;
+      } else {
+        const vs = i;
+        while (i < n && !space(inner[i])) i++;
+        value = inner.slice(vs, i);
+      }
+    }
+    if (name && !out.has(name)) out.set(name, value);
+    if (i === nameStart) i++;
+  }
+  return out;
+}
+
+/**
+ * Every href/src in an HTML document, resolved against its URL (or its
+ * <base>), fragments dropped. A linear scan over tags: comments and the
+ * insides of <script>/<style> are skipped by finding where they end.
+ */
 export function extractLinks(html: string, pageUrl: string): string[] {
-  const out = new Set<string>();
+  const lower = html.toLowerCase();
+  const raw: Array<{ tag: string; attrs: Map<string, string> }> = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt === -1) break;
+    if (html.startsWith('<!--', lt)) {
+      const end = html.indexOf('-->', lt + 4);
+      i = end === -1 ? html.length : end + 3;
+      continue;
+    }
+    const gt = html.indexOf('>', lt + 1);
+    if (gt === -1) break;
+    let nameEnd = lt + 1;
+    while (nameEnd < gt && /[a-z0-9]/i.test(html[nameEnd])) nameEnd++;
+    const tag = lower.slice(lt + 1, nameEnd);
+    if (LINK_TAGS.has(tag)) raw.push({ tag, attrs: parseAttributes(html.slice(nameEnd, gt)) });
+    i = gt + 1;
+    if (tag === 'script' || tag === 'style') {
+      const close = lower.indexOf(`</${tag}`, i);
+      i = close === -1 ? html.length : close;
+    }
+  }
+
   let base = pageUrl;
-  const baseTag = html.match(/<base\s[^>]*href\s*=\s*["']([^"']+)["']/i);
-  if (baseTag) {
+  const baseHref = raw.find((t) => t.tag === 'base' && t.attrs.get('href'))?.attrs.get('href');
+  if (baseHref) {
     try {
-      base = new URL(baseTag[1], pageUrl).href;
+      base = new URL(baseHref, pageUrl).href;
     } catch {
       // keep the page URL
     }
   }
-  // Comments and scripts hold URL-looking text that is not a link.
-  const clean = html.replace(/<!--[\s\S]*?-->/g, '').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, (tag) =>
-    tag.replace(/>[\s\S]*<\/script>$/i, '></script>'),
-  );
-  const attr = /<(a|link|img|script|iframe|source|video|audio)\b[^>]*?\s(href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
-  for (const m of clean.matchAll(attr)) {
-    const tag = m[1].toLowerCase();
-    const raw = (m[3] ?? m[4] ?? m[5] ?? '').trim();
-    if (!raw || raw.startsWith('#')) continue;
-    if (/^(mailto|tel|javascript|data|blob|sms|about):/i.test(raw)) continue;
+  const out = new Set<string>();
+  for (const { tag, attrs } of raw) {
+    if (tag === 'base') continue;
     // <link rel=preconnect|dns-prefetch> names an origin, not a resource.
-    if (tag === 'link' && /\brel\s*=\s*["']?(preconnect|dns-prefetch)/i.test(m[0])) continue;
+    if (tag === 'link' && /^(preconnect|dns-prefetch)$/i.test((attrs.get('rel') ?? '').trim())) continue;
+    const value = (attrs.get('href') ?? attrs.get('src') ?? '').trim();
+    if (!value || value.startsWith('#')) continue;
     try {
-      const u = new URL(raw.replace(/&amp;/g, '&'), base);
+      const u = new URL(value.split('&amp;').join('&'), base);
       if (u.protocol !== 'http:' && u.protocol !== 'https:') continue;
       u.hash = '';
       out.add(u.href);
@@ -89,7 +150,19 @@ export function extractLinks(html: string, pageUrl: string): string[] {
 
 /** The <loc> entries of a sitemap (or sitemap index). */
 export function sitemapLocs(xml: string): string[] {
-  return [...xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)].map((m) => m[1].replace(/&amp;/g, '&'));
+  const out: string[] = [];
+  const lower = xml.toLowerCase();
+  let i = 0;
+  for (;;) {
+    const open = lower.indexOf('<loc>', i);
+    if (open === -1) break;
+    const close = lower.indexOf('</loc>', open + 5);
+    if (close === -1) break;
+    const loc = xml.slice(open + 5, close).trim();
+    if (loc) out.push(loc.split('&amp;').join('&'));
+    i = close + 6;
+  }
+  return out;
 }
 
 /** A 'www.' prefix is the same site. */
