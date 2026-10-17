@@ -64,7 +64,14 @@ const nextConfig: NextConfig = {
   // /pricing was the quote-request page; /hire replaced it. Permanent so the
   // indexed URL and any links already in the wild follow through.
   async redirects() {
-    return [{ source: "/pricing", destination: "/hire", permanent: true }];
+    return [
+      { source: "/pricing", destination: "/hire", permanent: true },
+      // Guessed and old auth URLs: sign-up and sign-in live under /auth.
+      { source: "/register", destination: "/auth/signup", permanent: true },
+      { source: "/signup", destination: "/auth/signup", permanent: true },
+      { source: "/sign-up", destination: "/auth/signup", permanent: true },
+      { source: "/login", destination: "/auth/login", permanent: true },
+    ];
   },
 };
 

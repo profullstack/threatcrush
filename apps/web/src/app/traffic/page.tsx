@@ -79,7 +79,7 @@ threatcrush servers link`}
               </Link>
             </p>
             <Link
-              href="/register"
+              href="/auth/signup"
               className="mt-4 inline-block rounded-lg bg-tc-green px-5 py-3 font-bold text-black hover:bg-tc-green-dim"
             >
               Get an API key
