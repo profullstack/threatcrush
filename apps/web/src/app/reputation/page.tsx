@@ -72,9 +72,10 @@ export default function ReputationPage() {
 threatcrush reputation 45.148.10.7
 threatcrush reputation subscribe --plan pro-monthly --currency usdc_pol
 
-# API
-curl -H "Authorization: Bearer tc_agent_..." https://threatcrush.com/api/v1/reputation/45.148.10.7
-curl -X POST -H "Authorization: Bearer tc_agent_..." -H "content-type: application/json" \\
+# API (THREATCRUSH_API_KEY is your tc_agent_ key)
+auth="Authorization: Bearer $THREATCRUSH_API_KEY"
+curl -H "$auth" https://threatcrush.com/api/v1/reputation/45.148.10.7
+curl -X POST -H "$auth" -H "content-type: application/json" \\
   -d '{"plan":"pro-monthly","currency":"usdc_pol"}' https://threatcrush.com/api/v1/reputation/subscribe`}
           </pre>
           <p className="mt-4 text-tc-text-dim">
