@@ -42,6 +42,29 @@ describe('dns-monitor', () => {
     const alert = events.find((e) => e.severity === 'high' && /tunnel/i.test(e.message));
     expect(alert, 'TXT flood should still alert').toBeTruthy();
   });
+
+  it('flags a lookup of a threat-feed domain, critical only from this box or a container', async () => {
+    const { setActiveFeeds } = await import('../../core/threat-feeds/index.js');
+    setActiveFeeds({
+      fetched_at: '2026-10-17T00:00:00Z', sources: [], skipped_shared: 0, ips: {},
+      domains: { 'evil-c2.example': { malware: 'Remcos', threat: 'botnet_cc', feed: 'threatfox' } },
+    });
+    try {
+      const { events, bus } = capturingBus();
+      const mon = new DnsMonitor(bus) as any;
+      mon.parseDnsLine('[dns] udp 172.18.0.4 cdn.evil-c2.example 1 forwarded 9ms');
+      mon.parseDnsLine('[dns] udp 172.18.0.4 cdn.evil-c2.example 1 forwarded 9ms'); // deduped
+      mon.parseDnsLine('[dns] udp 203.0.113.50 evil-c2.example 1 forwarded 9ms'); // outside client of a public resolver
+      mon.parseDnsLine('[dns] udp 172.18.0.4 fine.example 1 forwarded 9ms');
+      const hits = events.filter((e) => (e.details as any)?.rule_id === 'threat-feed-dns');
+      expect(hits.map((e) => e.severity)).toEqual(['critical', 'low']);
+      expect(hits[0].message).toBe('DNS lookup of known Remcos C2 cdn.evil-c2.example by 172.18.0.4');
+      // The asking client is never a ban target.
+      expect(hits.every((e) => e.source_ip === undefined)).toBe(true);
+    } finally {
+      setActiveFeeds(null);
+    }
+  });
 });
 
 describe('network-monitor', () => {

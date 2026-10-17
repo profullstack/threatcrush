@@ -13,6 +13,7 @@ import { CloudSync } from './workers/cloud-sync.js';
 import { RemediationConsumer } from './workers/remediation-consumer.js';
 import { AllowlistSync } from './workers/allowlist-sync.js';
 import { AutoUpdate, updateSettings } from './workers/auto-update.js';
+import { ThreatFeeds, threatFeedSettings } from './workers/threat-feeds.js';
 import { RuleEngine } from './rules/engine.js';
 import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
@@ -203,6 +204,17 @@ export async function runDaemon(): Promise<void> {
     logLine('[daemon] no manageable firewall found (need fail2ban, nftables or iptables) — bans are simulated');
   }
 
+  // Known C2 and malware hosts from abuse.ch (`[threat_feeds]`): detect always, block opt-in.
+  const feedSettings = threatFeedSettings(config.threat_feeds);
+  const threatFeeds = new ThreatFeeds({
+    settings: { ...feedSettings, allow: [...feedSettings.allow, ...remediation.getAllowlist()] },
+    enforcing: !remediationStatus.dry_run && firewallAdapter.enforces !== false,
+    cachePath: join(PATHS.stateDir, 'threat-feeds.json'),
+    bus,
+    log: logLine,
+  });
+  threatFeeds.start();
+
   new AlertDispatcher(bus, config);
 
   const runsWorker = new RunsWorker(bus);
@@ -270,6 +282,7 @@ export async function runDaemon(): Promise<void> {
     try { await moduleHost.stop(); } catch {}
     try { watchdog.stop(); } catch {}
     try { autoUpdate.stop(); } catch {}
+    try { threatFeeds.stop(); } catch {}
     try { await ipc.stop(); } catch {}
     try { closeDB(); } catch {}
     try { await flushTelemetry(); } catch {}

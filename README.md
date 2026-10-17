@@ -103,6 +103,7 @@ threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush pentest URL  # Quick web security checks against a URL
 threatcrush harden       # Check the host's SSH, firewall, updates and exposed ports
 threatcrush patches      # OS packages with a security update waiting, and the CVEs it fixes
+threatcrush feeds        # The abuse.ch C2/malware list; `feeds check <ip|domain>` looks one up
 threatcrush init         # Auto-detect services, generate config
 threatcrush status       # Show daemon status & loaded modules
 threatcrush block IP     # Ban an IP at the firewall (unblock, blocklist, allowlist too)
@@ -156,6 +157,7 @@ dir = "/srv/threatcrush/watchdog"  # then pass --dir to `threatcrush watchdog`
 | 💥 **Pentest Checks** | `threatcrush pentest URL` spot-checks security headers, CSP, CORS, cookie flags, server banners, directory listings and error leaks, then probes for SQL errors, path traversal and unsafe HTTP methods. |
 | 🔀 **Network Monitor** | Polls conntrack/`ss` every 5 s for inbound TCP connections to your listening ports. Flags port scans (10+ ports in 30 s) and SYN floods (50+ half-open from one source). No packet capture. |
 | 🚫 **Automatic IP Bans** | Bans attacking IPs via nftables, iptables or fail2ban, with longer bans for repeat offenders. Allowlisted ranges and verified Google/Bing crawlers are never auto-banned. |
+| ☣️ **Threat Feeds** | The daemon pulls abuse.ch ThreatFox, URLhaus and Feodo hourly (~2,500 C2/payload IPs, ~30,000 malware domains), flags any outbound connection from this box to a listed IP (with the process) and any logged DNS lookup of a listed domain. `[threat_feeds] block = true` also drops egress to those IPs in its own nftables table (needs `[remediation]` in enforce mode). Cloudflare, public resolvers, private ranges and your allowlist are never listed. |
 | 🩹 **Patch Status** | `threatcrush patches` lists Debian/Ubuntu packages with a security update waiting (from `apt-get -s`, nothing is changed) and the CVEs each update fixes (OSV.dev). The daemon reports it daily; the fleet dashboard totals pending fixes across servers. |
 | 🧱 **Hardening Checks** | `threatcrush harden` checks SSH password/root login, sshd weaknesses, automatic security updates, an active firewall, risky exposed ports and fail2ban. |
 | 🔔 **Alerts** | Email, Slack, Discord, PagerDuty and webhook notifications when a threat is detected. |

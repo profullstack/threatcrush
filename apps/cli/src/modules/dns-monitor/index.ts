@@ -11,6 +11,8 @@ import { createInterface } from 'node:readline';
 import { LogTail } from '../../core/log-tail.js';
 import type { EventBus } from '../../daemon/event-bus.js';
 import { insertEvent } from '../../core/state.js';
+import { matchDomain } from '../../core/threat-feeds/index.js';
+import { DEFAULT_PROTECTED, isProtected } from '../../daemon/firewall/protected.js';
 import type { ThreatEvent, EventSeverity } from '../../types/events.js';
 
 interface DnsQuery {
@@ -60,6 +62,8 @@ export class DnsMonitor {
   // Tracking windows
   private txtQueryCounts = new Map<string, { count: number; firstSeen: number }>();
   private domainBuffer: DnsQuery[] = [];
+  /** Last threat-feed alert per domain and client. */
+  private feedAlerts = new Map<string, number>();
 
   // Config
   private txtRateThreshold = 20;      // TXT queries per source per window
@@ -337,6 +341,31 @@ export class DnsMonitor {
   private record(q: DnsQuery): void {
     this.domainBuffer.push(q);
     this.observed++;
+    this.checkFeeds(q);
+  }
+
+  /**
+   * A lookup of a domain on the abuse.ch lists (`threat-feeds`). The client
+   * goes in details, never `source_ip`: it is whoever asked, and on a public
+   * resolver that is an outside user auto-defence must not ban. Only a lookup
+   * from this box or a private-range client (a container) is about us.
+   */
+  private checkFeeds(q: DnsQuery): void {
+    const hit = matchDomain(q.domain);
+    if (!hit) return;
+    const now = Date.now();
+    const key = `${hit.domain}|${q.source_ip ?? ''}`;
+    if (now - (this.feedAlerts.get(key) ?? 0) < 3_600_000) return;
+    this.feedAlerts.set(key, now);
+    if (this.feedAlerts.size > 10_000) this.feedAlerts.clear();
+    const local = !q.source_ip || isProtected(q.source_ip, DEFAULT_PROTECTED);
+    const { malware, threat, feed } = hit.indicator;
+    this.emitEvent(
+      local ? 'critical' : 'low',
+      `DNS lookup of known ${malware === 'unknown' ? 'malware' : malware} ${threat === 'botnet_cc' ? 'C2' : 'host'} ${q.domain}${q.source_ip ? ` by ${q.source_ip}` : ''}`,
+      undefined,
+      { rule_id: 'threat-feed-dns', domain: q.domain, listed: hit.domain, client_ip: q.source_ip, qtype: q.type, malware, threat, feed },
+    );
   }
 
   private emitEvent(severity: EventSeverity, message: string, sourceIp?: string, details?: Record<string, unknown>): void {

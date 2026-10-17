@@ -40,6 +40,7 @@ import {
 import { rulesCommand } from "./commands/rules.js";
 import { hardenCommand } from "./commands/harden.js";
 import { patchesCommand } from "./commands/patches.js";
+import { feedsCommand } from "./commands/feeds.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import { PATHS } from "./daemon/paths.js";
 import {
@@ -609,6 +610,14 @@ program
   .option("--no-upload", "Do not upload the result to the dashboard (uploaded when this machine is linked)")
   .action(async (opts: { json?: boolean; upload?: boolean }) => {
     await patchesCommand(opts);
+  });
+
+program
+  .command("feeds [action] [value]")
+  .description("Show the abuse.ch C2/malware list the daemon matches; `feeds check <ip|domain>` looks one up (exit 1 when listed)")
+  .option("--json", "Output as JSON")
+  .action(async (action: string | undefined, value: string | undefined, opts: { json?: boolean }) => {
+    await feedsCommand(action, value, opts);
   });
 
 // ─── Firewall Commands (PRD 02) ───
