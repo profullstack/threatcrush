@@ -5,7 +5,7 @@
  * A link is BROKEN when it answers 404/410 or 5xx, or when one of the site's
  * own URLs cannot be fetched at all (DNS, refused, timeout). Answers that
  * usually mean "not for robots" rather than "gone" (401, 403, 405, 429, and
- * LinkedIn's 999) are never reported, and a third-party URL that merely times
+ * LinkedIn's 999) and 402 (a paywall metering crawlers) are never reported, and a third-party URL that merely times
  * out is not either: a flaky stranger's server is not your 404.
  *
  * Every body is either read (HTML pages, capped) or cancelled, and every fetch
@@ -47,7 +47,8 @@ export interface CrawlResult {
   truncated: boolean;
 }
 
-const NOT_BROKEN = new Set([401, 403, 405, 429, 999]);
+// 402 is a paywall (x402 metering of crawlers), not a missing page.
+const NOT_BROKEN = new Set([401, 402, 403, 405, 429, 999]);
 const MAX_HTML_BYTES = 2_000_000;
 const FOUND_ON_LIMIT = 5;
 
@@ -315,6 +316,13 @@ export async function crawlSite(site: string, opts: CrawlOptions = {}): Promise<
     if (a.status === null || a.status >= 400) a = await fetchOnce(url, 'GET', false, o);
     answers.set(url, a);
   });
+
+  // A timeout on the site's own URL is often just this crawl's load: ask once
+  // more, alone and with twice the time, before calling it broken.
+  for (const [url, a] of answers) {
+    if (a.error === 'TIMEOUT' && isInternal(url))
+      answers.set(url, await fetchOnce(url, 'GET', false, { ...o, timeoutMs: o.timeoutMs * 2 }));
+  }
 
   const broken: BrokenLink[] = [];
   for (const [url, a] of answers) {
