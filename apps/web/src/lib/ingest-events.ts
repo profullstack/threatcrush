@@ -41,6 +41,8 @@ export type HardeningFindingEvent = {
   title: string;
   recommendation: string | null;
   observed_at: string;
+  /** Structured data for the dashboard (the os-patches package list); null when none. */
+  details: Record<string, unknown> | null;
 };
 
 export type RemediationEvent = {
@@ -119,12 +121,12 @@ function optionalUuid(obj: Record<string, unknown>, key: string): string | null 
   return value.toLowerCase();
 }
 
-function rawMetadata(obj: Record<string, unknown>): Record<string, unknown> {
-  const value = obj.raw_metadata;
+function rawMetadata(obj: Record<string, unknown>, field = "raw_metadata"): Record<string, unknown> {
+  const value = obj[field];
   if (value === undefined || value === null) return {};
-  if (!isPlainObject(value)) throw new InvalidField("raw_metadata must be an object");
+  if (!isPlainObject(value)) throw new InvalidField(`${field} must be an object`);
   if (Buffer.byteLength(JSON.stringify(value), "utf8") > INGEST_MAX_RAW_METADATA_BYTES) {
-    throw new InvalidField(`raw_metadata exceeds ${INGEST_MAX_RAW_METADATA_BYTES} bytes`);
+    throw new InvalidField(`${field} exceeds ${INGEST_MAX_RAW_METADATA_BYTES} bytes`);
   }
   return value;
 }
@@ -172,6 +174,7 @@ export function parseIngestEvent(raw: unknown, now: string): ParsedEvent {
             title: requiredString(raw, "title", INGEST_MAX_TITLE_LENGTH),
             recommendation: optionalString(raw, "recommendation", 10_000),
             observed_at: timestamp(raw, "observed_at", now),
+            details: raw.details === undefined || raw.details === null ? null : rawMetadata(raw, "details"),
           },
         };
       case "remediation": {

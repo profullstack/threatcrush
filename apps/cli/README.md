@@ -186,7 +186,7 @@ A running daemon picks up `link` and `unlink` within a minute; no restart. It th
 
 - uploads detections at or above `[cloud] min_severity` (rule detections, plus events from modules no rule reads, such as dns-monitor), batched (100 events or every 10 s), and every ban and unban the daemon makes;
 - sends a heartbeat every 60 s with its version and hostname;
-- runs the `threatcrush harden` checks a minute after it starts and every 24 h, and uploads the findings (`threatcrush harden` uploads too; `--no-upload` skips it);
+- runs the `threatcrush harden` checks and `threatcrush patches` a minute after it starts and every 24 h, and uploads the findings (both commands upload too; `--no-upload` skips it);
 - every 15 s, picks up blocks and unblocks queued on the dashboard and applies them through auto-defence, so protected and allowlisted addresses and dry-run apply as they do locally;
 - every 5 min, adds the organization's IP/CIDR allowlist to the never-block set.
 

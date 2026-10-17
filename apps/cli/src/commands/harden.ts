@@ -13,6 +13,8 @@ interface HardeningResult {
   title: string;
   explanation: string;
   recommendation?: string;
+  /** Structured data the dashboard reads (the os-patches package list). */
+  details?: Record<string, unknown>;
 }
 
 function tryExec(cmd: string): string | null {
@@ -328,7 +330,7 @@ function computeScore(results: HardeningResult[]): number {
  * Send the findings to the dashboard as `hardening_finding` events. Output goes
  * to stderr in JSON mode so `--json` stays machine-readable.
  */
-async function uploadFindings(results: HardeningResult[], json: boolean): Promise<void> {
+export async function uploadFindings(results: HardeningResult[], json: boolean): Promise<void> {
   const say = (line: string) => (json ? console.error(line) : console.log(line));
   const link = currentLink();
   if (!link) {
