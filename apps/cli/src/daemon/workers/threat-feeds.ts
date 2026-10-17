@@ -1,11 +1,17 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { isIP } from 'node:net';
 import type { ThreatEvent } from '../../types/events.js';
 import type { ThreatFeedsSection } from '../../types/config.js';
 import { parseDuration } from '../firewall/backoff.js';
 import {
+  RESOLVER_FILES,
+  RESOLVER_HOOKS,
   fetchFeeds,
+  hostsBlocklist,
   matchIp,
+  unboundBlocklist,
   readFeedCache,
   setActiveFeeds,
   writeFeedCache,
@@ -37,6 +43,7 @@ export function threatFeedSettings(section: ThreatFeedsSection | undefined): Thr
   return {
     enabled: section?.enabled !== false,
     block: section?.block === true,
+    blockDomains: section?.block_domains === true,
     // abuse.ch asks for no more than one fetch per 5 minutes; hourly is plenty.
     refreshMs: refresh ? Math.max(900, refresh) * 1000 : DEFAULT_REFRESH_MS,
     minConfidence: typeof section?.min_confidence === 'number' ? section.min_confidence : 75,
@@ -129,6 +136,10 @@ export interface ThreatFeedsOptions {
   /** Remediation is enforcing (not dry_run, and a real firewall exists). */
   enforcing: boolean;
   cachePath: string;
+  /** Where the resolver blocklists go (default: beside the cache). */
+  resolverDir?: string;
+  /** Drop-in paths whose presence means a resolver reads those files (tests override). */
+  resolverHooks?: { dnsmasq: string; unbound: string };
   bus: { publish(event: ThreatEvent): void; announceModule(name: string, status: string, detail?: string): void };
   log: (line: string) => void;
   fetchImpl?: FetchLike;
@@ -218,9 +229,58 @@ export class ThreatFeeds {
       this.blocking = ok;
       mode = ok ? 'blocking egress' : 'detecting (nft load failed)';
     }
-    const detail = `${ips.length} IPs, ${domains} domains, ${mode}`;
+    const detail = `${ips.length} IPs, ${domains} domains, ${mode}${this.writeResolverFiles(set)}`;
     this.opts.log(`[threat-feeds] ${from === 'cache' ? 'loaded cached' : 'refreshed'} list: ${detail} (${set.skipped_shared} shared/protected entries skipped)`);
     this.opts.bus.announceModule('threat-feeds', 'running', detail);
+  }
+
+  /** Whether listed domains are refused at the resolver: opted in and enforcing. */
+  get wantsDomainBlock(): boolean {
+    return this.opts.settings.blockDomains && this.opts.enforcing;
+  }
+
+  /**
+   * Rewrite the resolver blocklists in the state dir and reload any resolver
+   * whose hook is installed — only when the content changed, so an hourly
+   * refresh with nothing new costs no reload. With domain blocking off the
+   * files are emptied, so an installed hook blocks nothing and the config
+   * stays the one switch. Returns a status suffix for the log line.
+   */
+  writeResolverFiles(set: FeedSet): string {
+    const domains = this.wantsDomainBlock ? Object.keys(set.domains).sort() : [];
+    const dir = this.opts.resolverDir ?? dirname(this.opts.cachePath);
+    const hooks = this.opts.resolverHooks ?? RESOLVER_HOOKS;
+    const write = (name: string, content: string): boolean => {
+      const path = join(dir, name);
+      try {
+        if (existsSync(path) && readFileSync(path, 'utf-8') === content) return false;
+        writeFileSync(path, content);
+        return true;
+      } catch (err) {
+        this.opts.log(`[threat-feeds] could not write ${path}: ${(err as Error).message}`);
+        return false;
+      }
+    };
+    const hostsChanged = write(RESOLVER_FILES.hosts, hostsBlocklist(domains));
+    const unboundChanged = write(RESOLVER_FILES.unbound, unboundBlocklist(domains));
+
+    const via: string[] = [];
+    if (existsSync(hooks.dnsmasq)) {
+      via.push('dnsmasq');
+      // SIGHUP makes dnsmasq re-read its addn-hosts files without a restart.
+      if (hostsChanged) this.run('systemctl', ['kill', '-s', 'HUP', 'dnsmasq.service']);
+    }
+    if (existsSync(hooks.unbound)) {
+      via.push('unbound');
+      if (unboundChanged && this.run('unbound-control', ['reload']) === null) {
+        this.run('systemctl', ['reload', 'unbound.service']);
+      }
+    }
+    if (!this.opts.settings.blockDomains) return '';
+    if (!this.opts.enforcing) return '; domain blocking set but remediation is dry_run';
+    return via.length
+      ? `; ${domains.length} domains refused via ${via.join(' + ')}`
+      : '; domain blocking set but no resolver hook (run `threatcrush feeds resolver install`)';
   }
 
   private removeBlocking(): void {

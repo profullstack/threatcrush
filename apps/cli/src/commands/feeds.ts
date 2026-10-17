@@ -5,6 +5,7 @@ import { loadConfig } from '../core/config.js';
 import { fetchFeeds, matchDomain, matchIp, readFeedCache, type FeedSet } from '../core/threat-feeds/index.js';
 import { SYSTEM_PATHS, USER_PATHS } from '../daemon/paths.js';
 import { threatFeedSettings } from '../daemon/workers/threat-feeds.js';
+import { resolverCommand } from './feeds-resolver.js';
 
 /** The daemon's cached list, or a fresh fetch when there is none this user can read. */
 async function loadSet(): Promise<{ set: FeedSet; from: string }> {
@@ -22,6 +23,10 @@ async function loadSet(): Promise<{ set: FeedSet; from: string }> {
  * against; `threatcrush feeds check <ip|domain>` looks one value up.
  */
 export async function feedsCommand(action: string | undefined, value: string | undefined, opts: { json?: boolean }): Promise<void> {
+  if (action === 'resolver') {
+    process.exitCode = resolverCommand(value, SYSTEM_PATHS.stateDir);
+    return;
+  }
   const { set, from } = await loadSet();
 
   if (action === 'check') {
