@@ -8,7 +8,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { createGunzip } from "node:zlib";
-import { Reader, type CityResponse } from "mmdb-lib";
+import { Reader, type AsnResponse, type CityResponse } from "mmdb-lib";
 
 /**
  * IP geolocation for the attack map, from DB-IP's free "IP to City Lite"
@@ -76,10 +76,10 @@ function monthStamp(offset: number): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-async function download(dest: string): Promise<void> {
+async function download(dest: string, product = "city-lite"): Promise<void> {
   // DB-IP publishes on the 1st; early in the month the new file may not exist yet.
   for (const offset of [0, 1]) {
-    const url = `https://download.db-ip.com/free/dbip-city-lite-${monthStamp(offset)}.mmdb.gz`;
+    const url = `https://download.db-ip.com/free/dbip-${product}-${monthStamp(offset)}.mmdb.gz`;
     const res = await fetch(url);
     if (!res.ok || !res.body) continue;
     const tmp = `${dest}.${process.pid}.part`;
@@ -92,7 +92,7 @@ async function download(dest: string): Promise<void> {
       throw err;
     }
   }
-  throw new Error("no DB-IP city lite file for this month or last");
+  throw new Error(`no DB-IP ${product} file for this month or last`);
 }
 
 async function load(): Promise<void> {
@@ -185,3 +185,95 @@ export async function lookupIps(ips: string[], waitMs = 8000): Promise<Map<strin
 }
 
 export const GEOIP_ATTRIBUTION = { text: "IP Geolocation by DB-IP", url: "https://db-ip.com" } as const;
+
+// ─── Network owner (ASN) ───
+//
+// DB-IP's free "IP to ASN Lite" (CC BY 4.0, ~5 MB gzipped), loaded the same
+// way as the city database: downloaded on first use into GEOIP_DIR, refreshed
+// monthly, GEOIP_ASN_DB_PATH for an existing file. Used by the reputation
+// lookup to say who runs an address and how much of that network is listed.
+
+export interface AsnHit {
+  asn: number;
+  org: string | null;
+  network: string | null;
+}
+
+let asnReader: Reader<AsnResponse> | null = null;
+let asnLoading: Promise<void> | null = null;
+let asnFailure = 0;
+let asnLoadedAt = 0;
+const asnCache = new Map<string, AsnHit | null>();
+
+async function loadAsn(): Promise<void> {
+  let file = process.env["GEOIP_ASN_DB_PATH"];
+  if (!file) {
+    const dir = dbDir();
+    await mkdir(dir, { recursive: true });
+    file = path.join(dir, "dbip-asn-lite.mmdb");
+    const age = await stat(file).then((s) => Date.now() - s.mtimeMs, () => Infinity);
+    if (age > REFRESH_MS) {
+      try {
+        await download(file, "asn-lite");
+      } catch (err) {
+        if (age === Infinity) throw err;
+        console.error("geoip: ASN refresh failed, keeping the old database:", err);
+      }
+    }
+  }
+  asnReader = new Reader<AsnResponse>(await readFile(file));
+  asnLoadedAt = Date.now();
+  asnCache.clear();
+}
+
+/** Start loading the ASN database if needed. Never throws. */
+export function ensureAsn(): Promise<void> {
+  const stale = asnReader && !process.env["GEOIP_ASN_DB_PATH"] && Date.now() - asnLoadedAt > REFRESH_MS;
+  if ((asnReader && !stale) || asnLoading) return asnLoading ?? Promise.resolve();
+  if (!asnReader && Date.now() - asnFailure < RETRY_MS) return Promise.resolve();
+  asnLoading = loadAsn()
+    .catch((err) => {
+      asnFailure = Date.now();
+      console.error("geoip: ASN database unavailable:", err);
+    })
+    .finally(() => {
+      asnLoading = null;
+    });
+  return asnLoading;
+}
+
+/** The network owner of one public address, waiting up to `waitMs` on a cold start. */
+export async function lookupAsn(ip: string, waitMs = 3000): Promise<AsnHit | null> {
+  if (!asnReader) await Promise.race([ensureAsn(), new Promise((r) => setTimeout(r, waitMs))]);
+  else void ensureAsn();
+  if (!asnReader || !isPublicIp(ip)) return null;
+  const cached = asnCache.get(ip);
+  if (cached !== undefined) return cached;
+  let out: AsnHit | null = null;
+  try {
+    const [r, prefix] = asnReader.getWithPrefixLength(ip);
+    if (r?.autonomous_system_number) {
+      out = {
+        asn: r.autonomous_system_number,
+        org: r.autonomous_system_organization ?? null,
+        network: prefix ? `${networkBase(ip, prefix)}/${prefix}` : null,
+      };
+    }
+  } catch {
+    out = null;
+  }
+  if (asnCache.size >= CACHE_MAX) asnCache.clear();
+  asnCache.set(ip, out);
+  return out;
+}
+
+/** The first address of `ip`'s /prefix for v4; a v6 network is shown by its address. */
+export function networkBase(ip: string, prefix: number): string {
+  if (isIP(ip) !== 4) return ip;
+  const n = ip.split(".").reduce((a, o) => a * 256 + Number(o), 0);
+  const size = 2 ** (32 - prefix);
+  const base = Math.floor(n / size) * size;
+  return [24, 16, 8, 0].map((s) => Math.floor(base / 2 ** s) % 256).join(".");
+}
+
+export const ASN_ATTRIBUTION = { text: "IP to ASN by DB-IP", url: "https://db-ip.com" } as const;

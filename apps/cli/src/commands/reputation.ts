@@ -53,6 +53,7 @@ interface Report {
     city: string | null;
     network: string;
     neighbours: { count: number; addresses: Array<{ ip: string; reports: number }> };
+    owner?: { asn: number; org: string | null; network: string | null; listed_addresses: number } | null;
     history: Array<{ day: string; reports: number; rules: string[] }>;
   };
   upgrade?: { url: string };
@@ -70,6 +71,8 @@ export function formatReport(r: Report): string[] {
   }
   if (r.pro) {
     for (const reason of r.pro.reasons) lines.push(`  · ${reason}`);
+    if (r.pro.owner)
+      lines.push(`  AS${r.pro.owner.asn} ${r.pro.owner.org ?? ""}${r.pro.owner.network ? ` (${r.pro.owner.network})` : ""}: ${r.pro.owner.listed_addresses} other listed`);
     lines.push(`  ${r.pro.network}: ${r.pro.neighbours.count} other listed`);
     for (const d of r.pro.history.slice(0, 14)) lines.push(`  ${d.day}  ${String(d.reports).padStart(5)}  ${d.rules.join(", ")}`);
   } else if (r.upgrade) {
@@ -79,25 +82,140 @@ export function formatReport(r: Report): string[] {
   return lines;
 }
 
-export async function reputationLookupCommand(ip: string, opts: { json?: boolean; org?: string }): Promise<void> {
+interface DomainReport {
+  domain: string;
+  type: "domain";
+  tier: string;
+  listed: boolean;
+  score: number;
+  reasons: string[];
+  addresses: Report[];
+  public_record: string;
+}
+
+type AnyReport = (Report & { type?: "ip" }) | DomainReport;
+
+export function formatAny(r: AnyReport): string[] {
+  if (r.type !== "domain") return formatReport(r as Report);
+  const head = r.listed ? chalk.red(`LISTED  score ${r.score}/100`) : chalk.green("not listed");
+  const lines = [`  ${chalk.bold(r.domain)}  ${head}  ${chalk.dim(`(${r.tier})`)}`];
+  for (const reason of r.reasons) lines.push(`  · ${reason}`);
+  for (const a of r.addresses) lines.push(`  ${a.ip}: ${a.listed ? chalk.red(`listed, ${a.score}/100`) : "not listed"}`);
+  lines.push(chalk.dim(`  public record: ${r.public_record}`));
+  return lines;
+}
+
+function needAuth() {
   const auth = authFor();
   if (!auth) {
     console.log(chalk.red("  Set THREATCRUSH_API_KEY or run `threatcrush login` first. Keyless: https://nichedb.dev/reputation\n"));
     process.exitCode = 2;
-    return;
   }
+  return auth;
+}
+
+/** One indicator, or several (sent as one bulk request). Exit 1 when any is listed. */
+export async function reputationLookupCommand(indicators: string[], opts: { json?: boolean; org?: string }): Promise<void> {
+  const auth = needAuth();
+  if (!auth) return;
   const org = opts.org ?? auth.orgId;
-  const url = `${API_URL}/api/v1/reputation/${encodeURIComponent(ip)}${org ? `?org=${encodeURIComponent(org)}` : ""}`;
-  const res = await fetch(url, { headers: auth.headers });
-  const body = (await res.json().catch(() => ({}))) as Report & { error?: string };
-  if (!res.ok) {
-    console.log(chalk.red(`  ${body.error ?? `HTTP ${res.status}`}\n`));
+  let reports: AnyReport[];
+  if (indicators.length === 1) {
+    const url = `${API_URL}/api/v1/reputation/${encodeURIComponent(indicators[0])}${org ? `?org=${encodeURIComponent(org)}` : ""}`;
+    const res = await fetch(url, { headers: auth.headers });
+    const body = (await res.json().catch(() => ({}))) as AnyReport & { error?: string };
+    if (!res.ok) {
+      console.log(chalk.red(`  ${body.error ?? `HTTP ${res.status}`}\n`));
+      process.exitCode = 2;
+      return;
+    }
+    reports = [body];
+  } else {
+    const res = await fetch(`${API_URL}/api/v1/reputation/bulk`, {
+      method: "POST",
+      headers: { ...auth.headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ indicators, org: org ?? undefined }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { results?: AnyReport[]; error?: string };
+    if (!res.ok || !body.results) {
+      console.log(chalk.red(`  ${body.error ?? `HTTP ${res.status}`}\n`));
+      process.exitCode = 2;
+      return;
+    }
+    reports = body.results;
+  }
+  if (opts.json) console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));
+  else {
+    for (const r of reports) {
+      if ("error" in r && (r as { error?: string }).error) console.log(chalk.red(`  ${(r as { query?: string }).query}: ${(r as { error: string }).error}`));
+      else console.log(`\n${formatAny(r).join("\n")}`);
+    }
+    console.log("");
+  }
+  if (reports.some((r) => r.listed)) process.exitCode = 1;
+}
+
+/** `reputation watch list|add|rm` — Reputation Pro watch lists that alert. */
+export async function reputationWatchCommand(
+  action: string | undefined,
+  indicator: string | undefined,
+  opts: { org?: string; note?: string; destination?: string; json?: boolean },
+): Promise<void> {
+  const auth = needAuth();
+  if (!auth) return;
+  const org = opts.org ?? auth.orgId;
+  if (!org && auth.orgId === null && !process.env.THREATCRUSH_API_KEY) {
+    console.log(chalk.red("  Pick an org first: `threatcrush orgs use <slug>` or --org <id>.\n"));
     process.exitCode = 2;
     return;
   }
-  if (opts.json) console.log(JSON.stringify(body, null, 2));
-  else console.log(`\n${formatReport(body).join("\n")}\n`);
-  if (body.listed) process.exitCode = 1;
+  const qs = org ? `org=${encodeURIComponent(org)}` : "";
+  let res: Response;
+  if (action === "add") {
+    if (!indicator) {
+      console.log(chalk.red("  Usage: threatcrush reputation watch add <ip-or-domain> [--note …]\n"));
+      process.exitCode = 2;
+      return;
+    }
+    res = await fetch(`${API_URL}/api/v1/reputation/watches`, {
+      method: "POST",
+      headers: { ...auth.headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ indicator, note: opts.note, destination_id: opts.destination, org: org ?? undefined }),
+    });
+  } else if (action === "rm" || action === "remove") {
+    if (!indicator) {
+      console.log(chalk.red("  Usage: threatcrush reputation watch rm <ip-or-domain>\n"));
+      process.exitCode = 2;
+      return;
+    }
+    res = await fetch(`${API_URL}/api/v1/reputation/watches?indicator=${encodeURIComponent(indicator)}${qs ? `&${qs}` : ""}`, {
+      method: "DELETE",
+      headers: auth.headers,
+    });
+  } else {
+    res = await fetch(`${API_URL}/api/v1/reputation/watches${qs ? `?${qs}` : ""}`, { headers: auth.headers });
+  }
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    console.log(chalk.red(`  ${String(body.error ?? `HTTP ${res.status}`)}\n`));
+    process.exitCode = 2;
+    return;
+  }
+  if (opts.json) {
+    console.log(JSON.stringify(body, null, 2));
+    return;
+  }
+  if (action === "add") console.log(chalk.green(`  watching ${indicator}\n`));
+  else if (action === "rm" || action === "remove") console.log(`  removed ${body.removed ?? 0}\n`);
+  else {
+    const watches = (body.watches ?? []) as Array<{ indicator: string; last_listed: boolean | null; last_score: number | null; last_checked_at: string | null; note: string | null }>;
+    if (!watches.length) console.log(chalk.dim("  no watches yet: threatcrush reputation watch add <ip-or-domain>\n"));
+    for (const w of watches) {
+      const state = w.last_listed == null ? chalk.dim("not checked yet") : w.last_listed ? chalk.red(`LISTED ${w.last_score}/100`) : chalk.green("clear");
+      console.log(`  ${w.indicator.padEnd(40)} ${state}${w.note ? chalk.dim(`  ${w.note}`) : ""}`);
+    }
+    console.log("");
+  }
 }
 
 export async function reputationSubscribeCommand(opts: { plan?: string; currency?: string; org?: string; json?: boolean }): Promise<void> {

@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Principal } from "./access";
 import { orgRoleOf } from "./access";
 import { isPublishable, type BlocklistEntry, type DetectionRow } from "./community-threats";
-import type { GeoHit } from "./geoip";
+import type { AsnHit, GeoHit } from "./geoip";
 import { isSettledStatus } from "./payment-status";
 
 /**
@@ -99,18 +99,48 @@ export interface ScoreInput {
   reporters: number;
   last_seen: string | null;
   neighbours?: number;
+  rule_ids?: string[];
+  /** Other listed addresses in the same network owner's range (Pro). */
+  asn_listed?: number;
+  /** A person approved it on nichedb.dev/traffic after reading the evidence. */
+  reviewed?: boolean;
+}
+
+/** What a rule says about intent, strongest first: an exploit attempt outranks a scan. */
+const RULE_CLASSES: Array<{ name: string; bonus: number; test: (rule: string) => boolean }> = [
+  {
+    name: "exploit attempts",
+    bonus: 15,
+    test: (r) =>
+      ["web-sqli-attack", "web-xss-attack", "exploit-probe-pattern", "web-path-traversal"].includes(r) ||
+      r.startsWith("attack-"),
+  },
+  { name: "brute force", bonus: 10, test: (r) => ["ssh-brute-force", "ssh-root-login", "ssh-user-enumeration"].includes(r) },
+  { name: "scanning", bonus: 5, test: (r) => r.includes("scanner") || r === "quoted-user-agent" },
+];
+
+export function ruleClassOf(rules: string[] = []): { name: string; bonus: number } | null {
+  for (const c of RULE_CLASSES) if (rules.some(c.test)) return { name: c.name, bonus: c.bonus };
+  return null;
 }
 
 /**
- * 0-100 from severity, corroboration, volume and recency (and, for Pro, the
- * neighbourhood). A sorting aid with its reasons attached, never a verdict on
- * its own: the verdict is `listed`, which is the corroboration bar.
+ * 0-100 from severity, what the rules say about intent, corroboration, volume
+ * and recency (and, for Pro, the /24 and the network owner's range). Quiet
+ * addresses decay: nothing in 30 days halves the score. A sorting aid with its
+ * reasons attached, never a verdict on its own: the verdict is `listed`, which
+ * is the corroboration bar.
  */
 export function scoreOf(s: ScoreInput, now: number = Date.now()): { score: number; reasons: string[] } {
   const reasons: string[] = [];
   const sev = SEVERITY_RANK[s.severity] ?? 0;
   let score = sev * 12;
   if (sev >= 3) reasons.push(`${s.severity} severity detections`);
+  const cls = ruleClassOf(s.rule_ids);
+  if (cls) {
+    score += cls.bonus;
+    reasons.push(cls.name);
+  }
   const reporters = Math.min(s.reporters, 5);
   score += reporters * 7;
   if (s.reporters > 1) reasons.push(`${s.reporters} independent reporters`);
@@ -127,6 +157,18 @@ export function scoreOf(s: ScoreInput, now: number = Date.now()): { score: numbe
   if (s.neighbours && s.neighbours > 0) {
     score += Math.min(10, s.neighbours * 2);
     reasons.push(`${s.neighbours} other listed address${s.neighbours === 1 ? "" : "es"} in the same /24`);
+  }
+  if (s.asn_listed && s.asn_listed >= 5) {
+    score += Math.min(8, Math.floor(s.asn_listed / 5));
+    reasons.push(`${s.asn_listed} other listed addresses on the same network owner`);
+  }
+  if (s.reviewed) {
+    score += 10;
+    reasons.push("approved by a reviewer on nichedb.dev/traffic");
+  }
+  if (s.last_seen && now - Date.parse(s.last_seen) > 30 * DAY_MS) {
+    score = Math.round(score / 2);
+    reasons.push("quiet for over 30 days");
   }
   return { score: Math.max(0, Math.min(100, score)), reasons };
 }
@@ -201,6 +243,7 @@ export interface ReputationReport {
     city: string | null;
     network: string;
     neighbours: { count: number; addresses: Array<Pick<BlocklistEntry, "ip" | "reports" | "reporters" | "severity" | "last_seen">> };
+    owner: { asn: number; org: string | null; network: string | null; listed_addresses: number } | null;
     history: HistoryDay[];
   };
   upgrade?: { url: string; adds: string[] };
@@ -211,7 +254,9 @@ export const UPGRADE = {
   adds: [
     "90 days of sighting history by day and rule",
     "the /24 neighbourhood: other listed addresses nearby",
-    "city and network context",
+    "the network owner (ASN) and how much of it is listed",
+    "city",
+    "bulk lookups and watch lists that alert",
     "the reasons behind the score",
     `${DAILY_LIMIT.pro.toLocaleString("en-US")} lookups a day`,
   ],
@@ -228,6 +273,7 @@ export function buildReport(
   geo: GeoHit | null,
   tier: ReputationTier,
   now: number = Date.now(),
+  owner: { asn: AsnHit | null; listed: number; reviewed?: boolean } = { asn: null, listed: 0 },
 ): ReputationReport {
   const reporters = new Set<string>();
   const rules = new Set<string>();
@@ -246,10 +292,20 @@ export function buildReport(
     if (t && (!last || t > last)) last = t;
     if (f && (!first || f < first)) first = f;
   }
-  const listed = rows.length > 0 && isPublishable({ reporters, reports, severity });
+  // A reviewer's approval is corroboration enough on its own.
+  const listed = rows.length > 0 && (Boolean(owner.reviewed) || isPublishable({ reporters, reports, severity }));
   const neighbours = tier === "pro" ? neighboursOf(ip, blocklist) : [];
   const { score, reasons } = scoreOf(
-    { severity, reports, reporters: reporters.size, last_seen: last, neighbours: tier === "pro" ? neighbours.length : 0 },
+    {
+      severity,
+      reports,
+      reporters: reporters.size,
+      last_seen: last,
+      rule_ids: [...rules],
+      neighbours: tier === "pro" ? neighbours.length : 0,
+      asn_listed: tier === "pro" ? owner.listed : 0,
+      reviewed: owner.reviewed,
+    },
     now,
   );
   const report: ReputationReport = {
@@ -281,6 +337,9 @@ export function buildReport(
           last_seen: n.last_seen,
         })),
       },
+      owner: owner.asn
+        ? { asn: owner.asn.asn, org: owner.asn.org, network: owner.asn.network, listed_addresses: owner.listed }
+        : null,
       history: historyOf(rows),
     };
   } else {
@@ -293,18 +352,43 @@ export function buildReport(
 
 const usage = new Map<string, { day: string; n: number }>();
 
+export interface Allowance {
+  ok: boolean;
+  remaining: number;
+  limit: number;
+}
+
+const allowanceOf = (n: number, limit: number): Allowance => ({ ok: n <= limit, remaining: Math.max(0, limit - n), limit });
+
 /**
- * Count one lookup against a caller's daily allowance. In memory per web
- * process: good enough for a stub behind one box; the plan moves it to the
- * database before the API is sold at volume.
+ * Count `count` lookups against a caller's daily allowance in this process
+ * only. The fallback when the database counter is unreachable, and what the
+ * tests exercise.
  */
-export function takeLookup(caller: string, tier: ReputationTier, now: number = Date.now()): { ok: boolean; remaining: number; limit: number } {
+export function takeLookup(caller: string, tier: ReputationTier, now: number = Date.now(), count = 1): Allowance {
   const day = new Date(now).toISOString().slice(0, 10);
-  const limit = DAILY_LIMIT[tier];
   const u = usage.get(caller);
-  const n = u && u.day === day ? u.n + 1 : 1;
+  const n = (u && u.day === day ? u.n : 0) + count;
   usage.set(caller, { day, n });
-  return { ok: n <= limit, remaining: Math.max(0, limit - n), limit };
+  return allowanceOf(n, DAILY_LIMIT[tier]);
+}
+
+/**
+ * Count lookups in the shared counter (reputation_take, one atomic upsert),
+ * so the allowance survives restarts and holds across processes. Falls back
+ * to the in-process count when the database cannot answer.
+ */
+export async function takeLookupShared(
+  admin: SupabaseClient,
+  caller: string,
+  tier: ReputationTier,
+  count = 1,
+  now: number = Date.now(),
+): Promise<Allowance> {
+  const day = new Date(now).toISOString().slice(0, 10);
+  const { data, error } = await admin.rpc("reputation_take", { p_caller: caller, p_day: day, p_n: count });
+  if (error || typeof data !== "number") return takeLookup(caller, tier, now, count);
+  return allowanceOf(data, DAILY_LIMIT[tier]);
 }
 
 export function resetLookupUsage(): void {

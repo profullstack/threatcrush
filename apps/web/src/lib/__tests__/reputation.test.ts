@@ -70,7 +70,8 @@ describe("scoring, neighbourhood, history", () => {
     expect(strong.score).toBeLessThanOrEqual(100);
     expect(strong.reasons.join(" ")).toContain("4 independent reporters");
     expect(strong.reasons.join(" ")).toContain("same /24");
-    expect(weak.reasons).toEqual([]);
+    // Last seen 2026-09-01, over 30 days before NOW: decayed, and it says so.
+    expect(weak.reasons).toEqual(["quiet for over 30 days"]);
   });
 
   it("finds the /24 and the /48", () => {

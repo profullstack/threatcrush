@@ -281,6 +281,42 @@ export function protectedSetOf(entries: Array<string | null | undefined>): Prote
   };
 }
 
+export interface ReviewDecisions {
+  approved: string[];
+  rejected: string[];
+}
+
+const DECISIONS_CACHE_MS = 15 * 60_000;
+let decisionsCache: { at: number; value: ReviewDecisions } | null = null;
+
+/**
+ * The human review decisions from nichedb.dev/traffic (token-gated with the
+ * same TRAFFIC_FEED_TOKEN nichedb uses to read our ban candidates). Empty
+ * when the token is unset or nichedb cannot answer: a missing label never
+ * blocks the feed.
+ */
+export async function loadReviewDecisions(now: number = Date.now(), fetchImpl: typeof fetch = fetch): Promise<ReviewDecisions> {
+  if (decisionsCache && now - decisionsCache.at < DECISIONS_CACHE_MS) return decisionsCache.value;
+  const name = "TRAFFIC_FEED_TOKEN";
+  const token = process.env[name];
+  const empty: ReviewDecisions = { approved: [], rejected: [] };
+  if (!token) return empty;
+  try {
+    const res = await fetchImpl("https://nichedb.dev/api/v1/traffic/decisions", {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return decisionsCache?.value ?? empty;
+    const body = (await res.json()) as Partial<ReviewDecisions>;
+    const clean = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && isIP(x) > 0) : []);
+    const value = { approved: clean(body.approved), rejected: clean(body.rejected) };
+    decisionsCache = { at: now, value };
+    return value;
+  } catch {
+    return decisionsCache?.value ?? empty;
+  }
+}
+
 const PROTECTED_CACHE_MS = 5 * 60_000;
 let protectedCache: { at: number; value: ProtectedSet } | null = null;
 
@@ -299,6 +335,8 @@ export async function loadProtected(now: number = Date.now()): Promise<Protected
     entries.push(s.ip_address, s.public_ip);
   }
   for (const a of (allow.data ?? []) as Array<{ value?: string | null }>) entries.push(a.value);
+  // A person on nichedb.dev/traffic looked at the evidence and said no: never publish it here either.
+  entries.push(...(await loadReviewDecisions(now)).rejected);
   const value = protectedSetOf(entries);
   protectedCache = { at: now, value };
   return value;
@@ -341,6 +379,7 @@ export function resetCommunityCache(): void {
   summaryCache = null;
   blocklistCache = null;
   protectedCache = null;
+  decisionsCache = null;
 }
 
 export async function loadCommunitySummary(now: number = Date.now()): Promise<CommunitySummary> {
