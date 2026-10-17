@@ -110,7 +110,11 @@ describe("indicators and domains", () => {
     const byAddr = assembleDomain("x.example", "pro", [addr("45.148.10.7", true, 88), addr("1.1.1.2", false, 0)], null);
     expect(byAddr.listed).toBe(true);
     expect(byAddr.score).toBe(88);
-    expect(byAddr.reasons).toEqual(["resolves to 45.148.10.7, listed (score 88)"]);
+    expect(byAddr.reasons[0]).toBe("resolves to 45.148.10.7, listed (score 88)");
+    // nichedb did not answer: the verdict says so instead of reading as clean.
+    expect(byAddr.complete).toBe(false);
+    expect(byAddr.reasons[1]).toContain("did not answer");
+    expect(clean.complete).toBe(true);
   });
 
   it("reads nichedb's answer, and treats a slow or failed one as unknown", async () => {
@@ -151,9 +155,41 @@ describe("watch lists", () => {
     score: 75,
     reasons: ["resolves to 45.148.10.7, listed (score 75)"],
     addresses: [],
-    nichedb: null,
+    nichedb: { listed: false, score: 0, reasons: [] },
+    complete: true,
     public_record: "https://nichedb.dev/reputation/mail.example",
   } as unknown as AnyReport;
+
+  it("an incomplete domain answer never moves a watch", async () => {
+    const updates: unknown[] = [];
+    const admin = {
+      from(table: string) {
+        if (table === "reputation_subscriptions") {
+          const w: Record<string, unknown> = {
+            select: () => w,
+            eq: () => w,
+            gt: () => Promise.resolve({ data: [{ status: "confirmed", period_end: "2099-01-01T00:00:00Z" }], error: null }),
+          };
+          return w;
+        }
+        return {
+          select: () => ({
+            order: () => ({ limit: async () => ({ data: [{ ...watch, last_listed: true, last_score: 80 }], error: null }) }),
+          }),
+          update: (p: unknown) => {
+            updates.push(p);
+            return { eq: async () => ({ error: null }) };
+          },
+        };
+      },
+    };
+    const lookup = vi.fn().mockResolvedValue({ ...(listedReport as object), listed: false, score: 0, complete: false });
+    deliverAlert.mockClear();
+    const result = await runWatches(admin as never, { lookup: lookup as never });
+    expect(result).toEqual({ checked: 0, alerts: 0, skipped: 0, failed: 1 });
+    expect(updates).toEqual([]);
+    expect(deliverAlert).not.toHaveBeenCalled();
+  });
 
   it("writes a message a person can act on", () => {
     const m = watchMessage(watch, listedReport, "listed", "profullstack");

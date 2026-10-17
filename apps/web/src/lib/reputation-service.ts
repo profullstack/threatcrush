@@ -42,6 +42,8 @@ export interface DomainReport {
   reasons: string[];
   addresses: ReputationReport[];
   nichedb: { listed: boolean; score: number; reasons: string[] } | null;
+  /** False when nichedb did not answer: "not listed" then only covers the addresses. */
+  complete: boolean;
   public_record: string;
 }
 
@@ -124,6 +126,7 @@ export function assembleDomain(
   const reasons: string[] = [];
   if (nd?.listed) reasons.push(...nd.reasons.map((r) => `nichedb: ${r}`));
   for (const a of addresses) if (a.listed) reasons.push(`resolves to ${a.ip}, listed (score ${a.score})`);
+  if (!nd) reasons.push("nichedb.dev did not answer in time: the name's own listings (abuse.ch, DNSBLs) are unknown");
   const score = Math.max(nd?.score ?? 0, ...addresses.map((a) => (a.listed ? a.score : 0)), 0);
   return {
     domain,
@@ -134,6 +137,7 @@ export function assembleDomain(
     reasons,
     addresses,
     nichedb: nd,
+    complete: nd !== null,
     public_record: `https://nichedb.dev/reputation/${domain}`,
   };
 }
