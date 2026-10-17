@@ -108,6 +108,23 @@ export interface UpdateSection {
   allow_major?: boolean;
 }
 
+/**
+ * `[threat_feeds]` — abuse.ch C2 and malware indicators (see
+ * daemon/workers/threat-feeds.ts). Detection is on by default; blocking is not.
+ */
+export interface ThreatFeedsSection {
+  /** Default true. `false` stops fetching, matching and blocking. */
+  enabled?: boolean;
+  /** Default false. Drop egress to listed IPs (needs [remediation] in enforce mode and nftables). */
+  block?: boolean;
+  /** How often to re-fetch, e.g. "1h" (default; at least 15m). */
+  refresh?: string;
+  /** ThreatFox confidence floor, 0–100. Default 75. */
+  min_confidence?: number;
+  /** IPs, CIDRs or domains never matched or blocked. */
+  allow?: string[];
+}
+
 export interface ThreatCrushConfig {
   daemon: DaemonConfig;
   api: ApiConfig;
@@ -118,6 +135,7 @@ export interface ThreatCrushConfig {
   cloud?: CloudSection;
   watchdog?: WatchdogSection;
   update?: UpdateSection;
+  threat_feeds?: ThreatFeedsSection;
   /** How long the events table keeps history; see core/state.ts pruneEvents. */
   storage?: {
     /** e.g. "14d" (default). Older events are deleted. */
