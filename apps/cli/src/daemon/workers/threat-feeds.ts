@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isIP } from 'node:net';
 import type { ThreatEvent } from '../../types/events.js';
@@ -158,6 +158,8 @@ export class ThreatFeeds {
   private set: FeedSet | null = null;
   private alerted = new Map<string, number>();
   private blocking = false;
+  /** Resolver blocklist content last written, by file name (see writeResolverFiles). */
+  private resolverWritten = new Map<string, string>();
   private readonly run: NonNullable<ThreatFeedsOptions['run']>;
   private readonly now: () => number;
 
@@ -250,11 +252,16 @@ export class ThreatFeeds {
     const domains = this.wantsDomainBlock ? Object.keys(set.domains).sort() : [];
     const dir = this.opts.resolverDir ?? dirname(this.opts.cachePath);
     const hooks = this.opts.resolverHooks ?? RESOLVER_HOOKS;
+    // Compared with what this process last wrote, never read back, and swapped
+    // in by rename: a resolver reloading mid-write must see the old list or the
+    // new one, never half of one. The first write after a start always happens.
     const write = (name: string, content: string): boolean => {
       const path = join(dir, name);
+      if (this.resolverWritten.get(name) === content) return false;
       try {
-        if (existsSync(path) && readFileSync(path, 'utf-8') === content) return false;
-        writeFileSync(path, content);
+        writeFileSync(`${path}.tmp`, content);
+        renameSync(`${path}.tmp`, path);
+        this.resolverWritten.set(name, content);
         return true;
       } catch (err) {
         this.opts.log(`[threat-feeds] could not write ${path}: ${(err as Error).message}`);
