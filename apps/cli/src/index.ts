@@ -41,6 +41,7 @@ import { rulesCommand } from "./commands/rules.js";
 import { hardenCommand } from "./commands/harden.js";
 import { patchesCommand } from "./commands/patches.js";
 import { feedsCommand } from "./commands/feeds.js";
+import { privilegedCommand } from "./commands/privileged.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import { PATHS } from "./daemon/paths.js";
 import {
@@ -618,6 +619,15 @@ program
   .option("--json", "Output as JSON")
   .action(async (action: string | undefined, value: string | undefined, opts: { json?: boolean }) => {
     await feedsCommand(action, value, opts);
+  });
+
+program
+  .command("privileged")
+  .description("Who can become root here (uid 0, sudo groups, sudoers, SSH keys) and the daemon's record of changes and sudo commands")
+  .option("--json", "Output as JSON")
+  .option("--limit <n>", "How many recent events to show", "25")
+  .action(async (opts: { json?: boolean; limit?: string }) => {
+    await privilegedCommand(opts);
   });
 
 // ─── Firewall Commands (PRD 02) ───

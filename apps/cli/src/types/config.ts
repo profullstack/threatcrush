@@ -125,6 +125,17 @@ export interface ThreatFeedsSection {
   allow?: string[];
 }
 
+/**
+ * `[privileged]` — who can become root, the sudo ledger, and new-country SSH
+ * logins (see daemon/workers/privilege-watch.ts). On by default.
+ */
+export interface PrivilegedSection {
+  /** Default true. */
+  enabled?: boolean;
+  /** Default true. Geolocate accepted SSH logins via threatcrush.com/api/geo to spot a new country. */
+  geo?: boolean;
+}
+
 export interface ThreatCrushConfig {
   daemon: DaemonConfig;
   api: ApiConfig;
@@ -136,6 +147,7 @@ export interface ThreatCrushConfig {
   watchdog?: WatchdogSection;
   update?: UpdateSection;
   threat_feeds?: ThreatFeedsSection;
+  privileged?: PrivilegedSection;
   /** How long the events table keeps history; see core/state.ts pruneEvents. */
   storage?: {
     /** e.g. "14d" (default). Older events are deleted. */
