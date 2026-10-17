@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
 import { isIP } from 'node:net';
 
 /**
@@ -156,6 +157,64 @@ export function establishedSshPeers(): string[] {
     // No `ss`, or it refused. Nothing to add.
   }
   return [...peers];
+}
+
+/**
+ * The client address in an `SSH_CONNECTION` / `SSH_CLIENT` value inside a
+ * NUL-separated `/proc/<pid>/environ`, or null.
+ */
+export function sshClientFromEnviron(environ: string): string | null {
+  for (const entry of environ.split('\0')) {
+    const m = /^SSH_(?:CONNECTION|CLIENT)=(\S+)/.exec(entry);
+    if (m && isIP(m[1])) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Where live mosh sessions came from. mosh-server holds an unconnected UDP
+ * socket, so `ss` shows no peer for it; but sshd started it, and its
+ * environment still carries the SSH_CONNECTION of that login. Reading another
+ * process's environ needs root, which is when bans exist at all.
+ */
+export function moshClients(procDir = '/proc'): string[] {
+  const found = new Set<string>();
+  let pids: string[] = [];
+  try { pids = readdirSync(procDir).filter((p) => /^\d+$/.test(p)); } catch { return []; }
+  for (const pid of pids) {
+    try {
+      if (readFileSync(`${procDir}/${pid}/comm`, 'utf-8').trim() !== 'mosh-server') continue;
+      const ip = sshClientFromEnviron(readFileSync(`${procDir}/${pid}/environ`, 'latin1'));
+      if (ip) found.add(ip);
+    } catch {
+      // Gone, or not readable. Nothing to add.
+    }
+  }
+  return [...found];
+}
+
+/**
+ * Key-based SSH logins in `journalctl -o short-unix` output: each client IP
+ * with the newest time it logged in. Password logins are left out on purpose:
+ * a guessed password is exactly the login this must not reward. So are logins
+ * by a key `skip` names (by its SHA256 fingerprint): CI deploys log in with
+ * keys too, from shared cloud runner addresses nobody should allowlist.
+ */
+export function parseKeyLogins(text: string, skip: (fingerprint: string) => boolean = () => false): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const line of text.split('\n')) {
+    const m = /^(\d+(?:\.\d+)?)\s.*Accepted publickey for \S+ from (\S+) port \d+ [^\s:]+(?:: \S+ (SHA256:\S+))?/.exec(line);
+    if (!m || !isIP(m[2])) continue;
+    if (m[3] && skip(m[3])) continue;
+    const at = Math.round(Number(m[1]) * 1000);
+    if (at > (out.get(m[2]) ?? 0)) out.set(m[2], at);
+  }
+  return out;
+}
+
+/** An authorized_keys comment that marks a machine, not a person. */
+export function isAutomationKeyComment(comment: string): boolean {
+  return /github-actions|gitlab|jenkins|buildkite|circleci|drone|\bci\b|runner|deploy|backup|automation|\bbot\b/i.test(comment);
 }
 
 /** Default gateway(s), so a misread of upstream traffic cannot cut the route. */

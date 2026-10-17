@@ -46,6 +46,10 @@ export interface RemediationSection {
   /** Historical spelling of `protected`. */
   allowlist?: string[];
   protect_current_ssh_client?: boolean;
+  /** Default true: never ban an address an operator logged in from with a key, or holds a live SSH/mosh session from. */
+  protect_recent_operators?: boolean;
+  /** How long such an address stays protected after it was last seen, e.g. "30d" (default). */
+  operator_memory?: string;
   /** Never auto-ban a Googlebot/Bingbot verified by forward-confirmed reverse DNS. Default true. */
   spare_verified_crawlers?: boolean;
   /** Historical spelling, seconds. Superseded by the doubling ladder. */
