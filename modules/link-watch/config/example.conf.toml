@@ -5,6 +5,8 @@ sites = ["https://example.com", "https://docs.example.com"]
 interval_hours = 24
 max_pages = 200
 check_external = true
+# Images and media on other sites (publishers', users'): off by default.
+check_external_media = false
 # Paths on your own sites never crawled or checked.
 ignore_paths = ["/api/", "/admin/"]
 # A tc_agent_ key for the entitlement check. Leave unset to use the session
