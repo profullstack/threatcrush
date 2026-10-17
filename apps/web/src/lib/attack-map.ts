@@ -87,12 +87,12 @@ export function maskIp(ip: string): string {
 export function aggregateOrigins(
   rows: DetectionRow[],
   geo: Map<string, GeoHit>,
-  opts: { mask?: boolean } = {},
+  opts: { mask?: boolean; exclude?: Set<string> } = {},
 ): AttackOrigin[] {
   const by = new Map<string, AttackOrigin>();
   for (const r of rows) {
     const ip = r.source_ip?.trim();
-    if (!ip) continue;
+    if (!ip || opts.exclude?.has(ip)) continue;
     const hit = geo.get(ip);
     if (!hit) continue;
     const key = opts.mask ? maskIp(ip) : ip;
@@ -212,7 +212,12 @@ async function build(
     });
   });
 
-  const origins = aggregateOrigins(rows, geo, { mask: publicView })
+  // Our own boxes logging into each other (deploys, an operator's ssh) trip
+  // rules like ssh-success-after-failures; they are not attackers on our map.
+  const own = new Set<string>();
+  for (const s of servers) for (const a of [s.public_ip, s.ip_address]) if (a?.trim()) own.add(a.trim());
+
+  const origins = aggregateOrigins(rows, geo, { mask: publicView, exclude: own })
     .sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : -1))
     .slice(0, ORIGIN_LIMIT)
     .map((o) => ({ ...o, serverId: o.serverId ? pinId.get(o.serverId) : undefined }));
