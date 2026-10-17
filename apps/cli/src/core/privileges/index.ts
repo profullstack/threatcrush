@@ -11,13 +11,13 @@
 import { createHash } from 'node:crypto';
 import type { EventSeverity } from '../../types/events.js';
 
-export interface Account { name: string; uid: number; home: string; shell: string }
+export interface UnixUser { name: string; uid: number; home: string; shell: string }
 
 /** Groups whose members can run anything as root on common distributions. */
 export const ADMIN_GROUPS = ['sudo', 'wheel', 'admin'];
 
-export function parseAccounts(text: string): Account[] {
-  const out: Account[] = [];
+export function parseUsers(text: string): UnixUser[] {
+  const out: UnixUser[] = [];
   for (const line of text.split('\n')) {
     const f = line.split(':');
     if (f.length < 7 || line.startsWith('#')) continue;
@@ -39,9 +39,9 @@ export function parseAdminGroups(text: string): Record<string, string[]> {
   return out;
 }
 
-/** A shell someone can log in with; system accounts use nologin/false. */
-export function canLogIn(account: Account): boolean {
-  return !/(nologin|\/false|\/sync|\/shutdown|\/halt)$/.test(account.shell);
+/** A shell someone can log in with; system users use nologin/false. */
+export function canLogIn(user: UnixUser): boolean {
+  return !/(nologin|\/false|\/sync|\/shutdown|\/halt)$/.test(user.shell);
 }
 
 /**
@@ -123,10 +123,10 @@ export function takeSnapshot(io: SnapshotIO, now = new Date()): PrivilegeSnapsho
     return text;
   };
 
-  const accounts = parseAccounts(read('/etc/passwd') ?? '');
+  const users = parseUsers(read('/etc/passwd') ?? '');
   const snapshot: PrivilegeSnapshot = {
     taken_at: now.toISOString(),
-    uid0: accounts.filter((a) => a.uid === 0).map((a) => a.name).sort(),
+    uid0: users.filter((a) => a.uid === 0).map((a) => a.name).sort(),
     admin_groups: parseAdminGroups(read('/etc/group') ?? ''),
     sudoers: {},
     keys: {},
@@ -142,14 +142,14 @@ export function takeSnapshot(io: SnapshotIO, now = new Date()): PrivilegeSnapsho
     if (text !== null) snapshot.sudoers[path] = sudoersRules(text);
   }
 
-  for (const account of accounts) {
-    if (account.uid !== 0 && (!canLogIn(account) || !account.home || account.home === '/')) continue;
+  for (const user of users) {
+    if (user.uid !== 0 && (!canLogIn(user) || !user.home || user.home === '/')) continue;
     const keys: PrivilegeSnapshot['keys'][string] = {};
     for (const file of ['authorized_keys', 'authorized_keys2']) {
-      const text = read(`${account.home.replace(/\/$/, '')}/.ssh/${file}`);
+      const text = read(`${user.home.replace(/\/$/, '')}/.ssh/${file}`);
       for (const k of parseAuthorizedKeys(text ?? '')) keys[k.fingerprint] = { type: k.type, comment: k.comment };
     }
-    if (Object.keys(keys).length > 0) snapshot.keys[account.name] = keys;
+    if (Object.keys(keys).length > 0) snapshot.keys[user.name] = keys;
   }
   return snapshot;
 }

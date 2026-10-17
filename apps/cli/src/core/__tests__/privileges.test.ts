@@ -7,7 +7,7 @@ import {
   keyFingerprint,
   parseAdminGroups,
   parseAuthorizedKeys,
-  parseAccounts,
+  parseUsers,
   parseSudoMessage,
   sudoReadsIncluded,
   sudoersRules,
@@ -40,8 +40,8 @@ describe('parsers', () => {
     ]);
   });
 
-  it('reads uid 0 accounts and admin group members', () => {
-    expect(parseAccounts('root:x:0:0:root:/root:/bin/bash\ntoor:x:0:0::/root:/bin/sh\nanthony:x:1001:1001::/home/anthony:/usr/bin/zsh\n')
+  it('reads uid 0 users and admin group members', () => {
+    expect(parseUsers('root:x:0:0:root:/root:/bin/bash\ntoor:x:0:0::/root:/bin/sh\nanthony:x:1001:1001::/home/anthony:/usr/bin/zsh\n')
       .filter((a) => a.uid === 0).map((a) => a.name)).toEqual(['root', 'toor']);
     expect(parseAdminGroups('sudo:x:27:anthony,deploy\nwheel:x:10:\nusers:x:100:bob\n')).toEqual({ sudo: ['anthony', 'deploy'], wheel: [] });
   });
