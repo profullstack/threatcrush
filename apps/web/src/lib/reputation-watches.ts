@@ -94,6 +94,12 @@ export async function runWatches(
       out.failed++;
       continue;
     }
+    // A domain answer without nichedb's half is not a verdict: leave the watch as it was
+    // rather than send a "cleared" that is only a timeout.
+    if (report.type === "domain" && !report.complete) {
+      out.failed++;
+      continue;
+    }
     out.checked++;
     const now = new Date().toISOString();
     const change = watchChange(w, report);
