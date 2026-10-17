@@ -121,6 +121,12 @@ export interface ThreatFeedsSection {
   enabled?: boolean;
   /** Default false. Drop egress to listed IPs (needs [remediation] in enforce mode and nftables). */
   block?: boolean;
+  /**
+   * Default false. Refuse the listed DOMAINS at the local resolver too
+   * (dnsmasq or unbound, after `threatcrush feeds resolver install`; needs
+   * [remediation] in enforce mode). systemd-resolved cannot do this.
+   */
+  block_domains?: boolean;
   /** How often to re-fetch, e.g. "1h" (default; at least 15m). */
   refresh?: string;
   /** ThreatFox confidence floor, 0–100. Default 75. */

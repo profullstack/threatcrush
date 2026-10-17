@@ -77,6 +77,7 @@ const SHARED_DOMAINS = new Set([
 export interface ThreatFeedSettings {
   enabled: boolean;
   block: boolean;
+  blockDomains: boolean;
   refreshMs: number;
   minConfidence: number;
   /** IPs, CIDRs or domains never matched. */
@@ -217,6 +218,45 @@ export function writeFeedCache(path: string, set: FeedSet): void {
   const tmp = `${path}.tmp`;
   writeFileSync(tmp, JSON.stringify(set));
   renameSync(tmp, path);
+}
+
+// ─── Resolver blocklists (dnsmasq, unbound) ───
+
+/**
+ * Files the daemon rewrites in its state dir on every refresh, and the
+ * drop-ins `threatcrush feeds resolver install` puts in a resolver's config
+ * to read them. The daemon cannot write /etc (ProtectSystem); the drop-ins are
+ * written once, as root, and only point at these files.
+ */
+export const RESOLVER_FILES = {
+  hosts: 'blocked-domains.hosts',
+  unbound: 'blocked-domains.unbound.conf',
+} as const;
+
+export const RESOLVER_HOOKS = {
+  dnsmasq: '/etc/dnsmasq.d/threatcrush.conf',
+  unbound: '/etc/unbound/unbound.conf.d/threatcrush.conf',
+} as const;
+
+const GENERATED = '# Written by threatcrushd from abuse.ch feeds; rewritten every refresh. Do not edit.';
+
+/**
+ * A hosts file for dnsmasq's `addn-hosts`: both families, so an AAAA lookup is
+ * answered here instead of forwarded upstream. dnsmasq matches these names
+ * exactly; subdomains of a listed name still resolve.
+ */
+export function hostsBlocklist(domains: string[]): string {
+  const lines = [GENERATED];
+  for (const d of domains) lines.push(`0.0.0.0 ${d}`, `:: ${d}`);
+  return `${lines.join('\n')}\n`;
+}
+
+/** An unbound include: every listed name and everything under it is NXDOMAIN. */
+export function unboundBlocklist(domains: string[]): string {
+  const lines = [GENERATED, 'server:'];
+  // normalizeDomain allows only [a-z0-9_.-], so nothing here can break out of the quotes.
+  for (const d of domains) lines.push(`  local-zone: "${d}." always_nxdomain`);
+  return `${lines.join('\n')}\n`;
 }
 
 // ─── The active set, shared in-process with dns-monitor ───

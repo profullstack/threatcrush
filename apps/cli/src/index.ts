@@ -615,7 +615,7 @@ program
 
 program
   .command("feeds [action] [value]")
-  .description("Show the abuse.ch C2/malware list the daemon matches; `feeds check <ip|domain>` looks one up (exit 1 when listed)")
+  .description("Show the abuse.ch C2/malware list the daemon matches; `feeds check <ip|domain>` looks one up (exit 1 when listed); `feeds resolver install|remove|status` lets dnsmasq/unbound refuse the listed domains")
   .option("--json", "Output as JSON")
   .action(async (action: string | undefined, value: string | undefined, opts: { json?: boolean }) => {
     await feedsCommand(action, value, opts);
