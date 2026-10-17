@@ -15,7 +15,7 @@ export type IngestEvent =
   | {
       type: 'hardening_finding'; server_id: string; finding_key: string;
       status: 'pass' | 'warn' | 'fail'; severity: EventSeverity; title: string;
-      recommendation?: string; observed_at?: string;
+      recommendation?: string; observed_at?: string; details?: Record<string, unknown>;
     }
   | {
       type: 'remediation'; server_id: string; action_type: 'block' | 'unblock';
@@ -158,5 +158,6 @@ export function findingEvents(serverId: string, results: HardeningResult[], obse
     title: r.title.slice(0, MAX_TITLE_CHARS),
     recommendation: r.recommendation,
     observed_at: observedAt.toISOString(),
+    ...(r.details ? { details: trimMetadata(r.details) } : {}),
   }));
 }

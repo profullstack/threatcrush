@@ -39,6 +39,7 @@ import {
 } from "./commands/properties.js";
 import { rulesCommand } from "./commands/rules.js";
 import { hardenCommand } from "./commands/harden.js";
+import { patchesCommand } from "./commands/patches.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import { PATHS } from "./daemon/paths.js";
 import {
@@ -599,6 +600,15 @@ program
   .option("--no-upload", "Do not upload findings to the dashboard (uploaded when this machine is linked)")
   .action(async (opts: { json?: boolean; upload?: boolean }) => {
     await hardenCommand(opts);
+  });
+
+program
+  .command("patches")
+  .description("List OS packages with a security update waiting, and the CVEs it fixes (Debian/Ubuntu)")
+  .option("--json", "Output the report as JSON")
+  .option("--no-upload", "Do not upload the result to the dashboard (uploaded when this machine is linked)")
+  .action(async (opts: { json?: boolean; upload?: boolean }) => {
+    await patchesCommand(opts);
   });
 
 // ─── Firewall Commands (PRD 02) ───

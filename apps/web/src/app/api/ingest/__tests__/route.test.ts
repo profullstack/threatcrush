@@ -347,8 +347,22 @@ describe("POST /api/ingest", () => {
     expect(body.accepted.findings).toBe(1);
     expect(body.rejected).toEqual([{ index: 1, error: expect.stringContaining("status") }]);
     expect(rpcArgs("ingest_hardening_findings")).toEqual([
-      expect.objectContaining({ organization_id: "org-a", finding_key: "ssh.root_login", status: "fail" }),
+      expect.objectContaining({ organization_id: "org-a", finding_key: "ssh.root_login", status: "fail", details: null }),
     ]);
+  });
+
+  it("carries a finding's details object and rejects a non-object one", async () => {
+    const details = { kind: "os-patches", counts: { cves: 2, packages: 1 } };
+    const res = await post({
+      events: [
+        { type: "hardening_finding", server_id: OWN_SERVER, finding_key: "os-patches", status: "fail", severity: "critical", title: "1 package", details },
+        { type: "hardening_finding", server_id: OWN_SERVER, finding_key: "os-patches", status: "fail", severity: "critical", title: "1 package", details: "lots" },
+      ],
+    });
+    const body = await res.json();
+    expect(body.accepted.findings).toBe(1);
+    expect(body.rejected).toEqual([{ index: 1, error: expect.stringContaining("details must be an object") }]);
+    expect(rpcArgs("ingest_hardening_findings")).toEqual([expect.objectContaining({ finding_key: "os-patches", details })]);
   });
 
   it("returns 500 so the daemon spools the batch when the database fails", async () => {

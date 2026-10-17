@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { unauthorized } from "@/lib/api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getPrincipal, serverScopeIn, visibleIn } from "@/lib/access";
-import { buildFleet } from "@/lib/fleet";
+import { buildFleet, type PatchFindingRow } from "@/lib/fleet";
 
 // GET /api/fleet — every ThreatCrush install the caller can see, across every
 // organization they belong to (an agent key: its team's fleets), with a
@@ -52,8 +52,21 @@ export async function GET(req: NextRequest) {
       visible.push(...visibleIn(scope, (rows ?? []).filter((r) => r.org_id === orgId)));
     }
 
+    // Patch status rides on each server's `os-patches` finding. A failure here
+    // (say the details column is not migrated yet) costs the column, not the page.
+    let patchRows: PatchFindingRow[] = [];
+    if (visible.length > 0) {
+      const { data, error: patchError } = await admin
+        .from("hardening_findings")
+        .select("server_id, status, observed_at, details")
+        .eq("finding_key", "os-patches")
+        .in("server_id", visible.map((s) => s.id));
+      if (patchError) console.error("Fleet: failed to load patch status:", patchError);
+      else patchRows = (data ?? []) as PatchFindingRow[];
+    }
+
     const fleetNames = new Map((fleets ?? []).map((f) => [f.id as string, f.name as string]));
-    return NextResponse.json(buildFleet(visible, orgs, Date.now(), fleetNames));
+    return NextResponse.json(buildFleet(visible, orgs, Date.now(), fleetNames, patchRows));
   } catch (err) {
     console.error("Fleet error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

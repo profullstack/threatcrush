@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { authHeaders } from "@/lib/auth-client";
-import type { FleetServer, FleetSummary } from "@/lib/fleet";
+import type { FleetPatches, FleetServer, FleetSummary } from "@/lib/fleet";
 
 interface FleetResponse {
   servers: FleetServer[];
@@ -123,7 +123,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
       )}
 
       {summary && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-4">
           <Tile label="Installs" value={summary.total} hint={`${summary.organizations} org${summary.organizations === 1 ? "" : "s"}`} />
           <Tile label="Online" value={summary.online} hint="seen in the last 3 min" tone={summary.online > 0 ? "good" : undefined} />
           <Tile label="Offline" value={summary.offline} hint="no recent heartbeat" tone={summary.offline > 0 ? "bad" : undefined} />
@@ -132,6 +132,14 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
             value={summary.outdated}
             hint={summary.latest_version ? `latest in fleet: v${summary.latest_version}` : "no versions reported"}
             tone={summary.outdated > 0 ? "warn" : undefined}
+          />
+          <Tile
+            label="Pending security fixes"
+            value={summary.patch_hosts_with_fixes}
+            hint={summary.patch_reported === 0
+              ? "no server has reported yet"
+              : `${summary.patch_cves} CVE${summary.patch_cves === 1 ? "" : "s"} · ${summary.patch_critical_high} high/critical`}
+            tone={summary.patch_critical_high > 0 ? "bad" : summary.patch_hosts_with_fixes > 0 ? "warn" : summary.patch_reported > 0 ? "good" : undefined}
           />
         </div>
       )}
@@ -151,7 +159,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
           <table className="min-w-full divide-y divide-zinc-800">
             <thead className="bg-zinc-900">
               <tr>
-                {["Server", "Organization", "Status", "Version", "Bans", "Last seen"].map((h) => (
+                {["Server", "Organization", "Status", "Version", "Patches", "Bans", "Last seen"].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -175,6 +183,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
                     </span>
                     {s.outdated && <div className="text-xs text-yellow-500/80">behind</div>}
                   </td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm"><PatchCell patches={s.patches} /></td>
                   <td className="px-4 py-3 whitespace-nowrap text-xs text-zinc-400">
                     {s.remediation
                       ? <>max {String(s.remediation.max_ban ?? "default")} · memory {String(s.remediation.strike_memory ?? "default")}</>
@@ -202,6 +211,29 @@ function Tile({ label, value, hint, tone }: { label: string; value: number; hint
       <div className={`mt-1 text-2xl font-semibold ${color}`}>{value}</div>
       <div className="mt-1 text-xs text-zinc-500">{hint}</div>
     </div>
+  );
+}
+
+/** `threatcrush patches` as the daemon last reported it (daily). */
+function PatchCell({ patches }: { patches: FleetPatches | null }) {
+  if (!patches) return <span className="text-xs text-zinc-600">not reported</span>;
+  if (patches.unsupported) return <span className="text-xs text-zinc-600">unsupported OS</span>;
+  const urgent = patches.critical + patches.high;
+  return (
+    <>
+      {patches.packages === 0
+        ? <span className="text-green-400">up to date</span>
+        : (
+          <span className={urgent > 0 ? "text-red-400" : "text-yellow-400"}>
+            {patches.packages} pkg · {patches.cves} CVE{patches.cves === 1 ? "" : "s"}
+          </span>
+        )}
+      <div className="text-xs text-zinc-600">
+        {urgent > 0 && <span className="text-red-500/80">{urgent} high/critical · </span>}
+        {patches.lists_stale ? <span className="text-yellow-500/80">apt lists stale · </span> : null}
+        checked {timeAgo(patches.observed_at)}
+      </div>
+    </>
   );
 }
 

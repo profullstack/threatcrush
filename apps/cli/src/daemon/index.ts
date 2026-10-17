@@ -52,7 +52,23 @@ async function runHardeningChecks(): Promise<HardeningResult[]> {
     { timeout: 120_000, maxBuffer: 4 * 1024 * 1024 },
   );
   const parsed = JSON.parse(stdout.slice(stdout.indexOf('{'))) as { findings?: HardeningResult[] };
-  return Array.isArray(parsed.findings) ? parsed.findings : [];
+  const findings = Array.isArray(parsed.findings) ? parsed.findings : [];
+  const patches = await runPatchCheck().catch((err: Error) => {
+    logLine(`[cloud] patch check failed: ${err.message.split('\n')[0]}`);
+    return null;
+  });
+  return patches ? [...findings, patches] : findings;
+}
+
+/** `threatcrush patches --json`, same reasoning: apt and OSV can take a while. */
+async function runPatchCheck(): Promise<HardeningResult | null> {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [join(__dirname, 'index.js'), 'patches', '--json', '--no-upload'],
+    { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 },
+  );
+  const parsed = JSON.parse(stdout.slice(stdout.indexOf('{'))) as { finding?: HardeningResult };
+  return parsed.finding ?? null;
 }
 
 function logLine(line: string): void {
