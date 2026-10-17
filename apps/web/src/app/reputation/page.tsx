@@ -69,12 +69,17 @@ export default function ReputationPage() {
           <h2 className="text-xl font-semibold">Use it</h2>
           <pre className="mt-4 overflow-x-auto rounded-lg border border-tc-border bg-tc-darker p-4 font-mono text-sm text-tc-green">
             {`# CLI
-threatcrush reputation 45.148.10.7
+threatcrush reputation 45.148.10.7 evil.example     # one, or many in one bulk call
+threatcrush reputation watch add mail.example.com --note "our MX"   # Pro: alerts on change
 threatcrush reputation subscribe --plan pro-monthly --currency usdc_pol
+
+# MCP (agents): https://threatcrush.com/api/mcp  tools reputation_lookup, reputation_bulk
 
 # API (THREATCRUSH_API_KEY is your tc_agent_ key)
 auth="Authorization: Bearer $THREATCRUSH_API_KEY"
 curl -H "$auth" https://threatcrush.com/api/v1/reputation/45.148.10.7
+curl -X POST -H "$auth" -H "content-type: application/json" \\
+  -d '{"indicators":["45.148.10.7","evil.example"]}' https://threatcrush.com/api/v1/reputation/bulk
 curl -X POST -H "$auth" -H "content-type: application/json" \\
   -d '{"plan":"pro-monthly","currency":"usdc_pol"}' https://threatcrush.com/api/v1/reputation/subscribe`}
           </pre>

@@ -41,7 +41,7 @@ import { rulesCommand } from "./commands/rules.js";
 import { hardenCommand } from "./commands/harden.js";
 import { patchesCommand } from "./commands/patches.js";
 import { feedsCommand } from "./commands/feeds.js";
-import { reputationLookupCommand, reputationSubscribeCommand } from "./commands/reputation.js";
+import { reputationLookupCommand, reputationSubscribeCommand, reputationWatchCommand } from "./commands/reputation.js";
 import { privilegedCommand } from "./commands/privileged.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import {
@@ -671,16 +671,27 @@ program
 
 const reputationCmd = program
   .command("reputation")
-  .description("Look an IP up against the ThreatCrush community database (exit 1 when listed); `reputation subscribe` starts a Reputation Pro payment through CoinPay")
-  .argument("[ip]", "IP address to look up")
+  .description("Look IPs or domains up against the ThreatCrush community database (exit 1 when any is listed; several at once go as one bulk request); `reputation watch` alerts on changes, `reputation subscribe` starts a Reputation Pro payment through CoinPay")
+  .argument("[indicators...]", "IP addresses or domains to look up")
   .option("--json", "Output as JSON")
   .option("--org <id>", "Org to look up as (defaults to `orgs use`)")
-  .action(async (ip: string | undefined, opts: { json?: boolean; org?: string }) => {
-    if (!ip) {
+  .action(async (indicators: string[], opts: { json?: boolean; org?: string }) => {
+    if (!indicators?.length) {
       reputationCmd.help();
       return;
     }
-    await reputationLookupCommand(ip, opts);
+    await reputationLookupCommand(indicators, opts);
+  });
+
+reputationCmd
+  .command("watch [action] [indicator]")
+  .description("Reputation Pro watch lists: `watch list`, `watch add <ip-or-domain> [--note]`, `watch rm <ip-or-domain>`; alerts go to the org's alert destinations")
+  .option("--org <id>", "Org (defaults to `orgs use`)")
+  .option("--note <text>", "Why you watch it, shown in the alert")
+  .option("--destination <id>", "Alert destination id (default: every enabled destination)")
+  .option("--json", "Output as JSON")
+  .action(async (action: string | undefined, indicator: string | undefined, opts: { org?: string; note?: string; destination?: string; json?: boolean }) => {
+    await reputationWatchCommand(action, indicator, opts);
   });
 
 reputationCmd

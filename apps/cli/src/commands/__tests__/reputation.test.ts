@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authFor, formatReport } from "../reputation.js";
+import { authFor, formatAny, formatReport } from "../reputation.js";
 
 const strip = (s: string) => s.replace(/\u001b\[[0-9;]*m/g, "");
 
@@ -34,6 +34,21 @@ describe("reputation CLI", () => {
     expect(lines[0]).toContain("LISTED  score 71/100");
     expect(lines.join("\n")).toContain("2 reporters");
     expect(lines.join("\n")).toContain("threatcrush.com/reputation");
+  });
+
+  it("prints a domain verdict with its addresses", () => {
+    const lines = formatAny({
+      domain: "mail.example",
+      type: "domain",
+      tier: "pro",
+      listed: true,
+      score: 75,
+      reasons: ["resolves to 45.148.10.7, listed (score 75)"],
+      addresses: [{ ip: "45.148.10.7", listed: true, score: 75 } as never],
+      public_record: "https://nichedb.dev/reputation/mail.example",
+    }).map(strip);
+    expect(lines[0]).toContain("mail.example  LISTED  score 75/100");
+    expect(lines.join("\n")).toContain("45.148.10.7: listed, 75/100");
   });
 
   it("prints Pro history and neighbours", () => {

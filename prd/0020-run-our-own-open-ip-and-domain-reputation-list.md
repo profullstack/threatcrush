@@ -2,7 +2,7 @@
 openprd: "0.2"
 id: "0020"
 title: "Run our own open IP and domain reputation list"
-status: Phase 1 shipped
+status: Phases 1-2 shipped, phase 3 in progress
 authors:
   - anthony@profullstack.com
 created: 2026-10-17
@@ -54,7 +54,9 @@ what it blocks (`/api/ingest`), the fleet's bans feed nichedb's human-reviewed
 - **Sales are off** until `REPUTATION_PRO_ENABLED=true`. Prices
   ($29/month, $290/year) are placeholders for Anthony to set.
 
-## Phase 2: deeper analysis (Pro)
+## Phase 2: deeper analysis (Pro) — shipped 2026-10-17
+
+Done: ASN owner + listed-on-same-owner (DB-IP ASN Lite), watch lists + alerts (`reputation_watches`, hourly `/api/v1/reputation/watches/run` from dev2 cron), domains (A/AAAA + nichedb), shared daily allowance (`reputation_take`), bulk (100 free / 1,000 Pro), score v2 (rule class + 30-day decay), ThreatCrush MCP at `/api/mcp`. Human labels: nichedb `/api/v1/traffic/decisions` (TRAFFIC_FEED_TOKEN): a rejection is never published here, an approval lists the source and adds to its score.
 
 1. **ASN and owner**: DB-IP ASN Lite (CC BY 4.0, same monthly loader as
    `geoip.ts`) → AS number, org, prefix; "how much of this ASN is listed"
