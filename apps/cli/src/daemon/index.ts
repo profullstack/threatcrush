@@ -10,6 +10,7 @@ import { ModuleHost } from './module-host.js';
 import { AlertDispatcher } from './alerts/index.js';
 import { RunsWorker } from './workers/runs-worker.js';
 import { CloudSync } from './workers/cloud-sync.js';
+import { AbuseReporter } from './workers/abuse-reporter.js';
 import { RemediationConsumer } from './workers/remediation-consumer.js';
 import { AllowlistSync } from './workers/allowlist-sync.js';
 import { AutoUpdate, updateSettings } from './workers/auto-update.js';
@@ -265,6 +266,12 @@ export async function runDaemon(): Promise<void> {
       : '[cloud] not linked; run `threatcrush login` and `threatcrush servers link` to report to the dashboard');
   }
 
+  // Report confirmed attack sources to shared reputation feeds (PRD 0015).
+  // Independent of the cloud link; self-gates on an API key and the evidence
+  // bar, so it is safe to start unconditionally.
+  const abuseReporter = new AbuseReporter({ bus, section: config.abuse_reporter, log: logLine });
+  abuseReporter.start();
+
   // Every attack to disk for triage (`threatcrush watchdog`), dashboard or not.
   const watchdog = startWatchdog({ bus, config: config.watchdog, stateDir: PATHS.stateDir, log: logLine });
 
@@ -291,6 +298,7 @@ export async function runDaemon(): Promise<void> {
     try { remediationConsumer?.stop(); } catch {}
     try { allowlistSync?.stop(); } catch {}
     try { await cloudSync?.stop(); } catch {}
+    try { abuseReporter.stop(); } catch {}
     try { await moduleHost.stop(); } catch {}
     try { watchdog.stop(); } catch {}
     try { autoUpdate.stop(); } catch {}

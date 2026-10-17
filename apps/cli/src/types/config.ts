@@ -146,6 +146,55 @@ export interface PrivilegedSection {
   geo?: boolean;
 }
 
+/**
+ * `[abuse-reporter]` (PRD 0015) — report confirmed attack sources to shared
+ * reputation feeds (AbuseIPDB, StopForumSpam) so compromised hosts get cleaned
+ * up, not merely blocked here.
+ *
+ * This is the one section that makes an **outbound public statement in the
+ * operator's name** about someone else's infrastructure, so every default here
+ * is conservative and the evidence bar below is not optional. Nothing is ever
+ * sent *at* a source — reporting is not retaliation (PRD 0015 Non-Goals).
+ *
+ * On by default in spirit, but inert until an API key is present: with no
+ * `abuseipdb_api_key` (or `ABUSEIPDB_API_KEY`) the reporter loads, logs once and
+ * reports nothing — exactly as cloud sync does nothing until the box is linked.
+ */
+export interface AbuseReporterSection {
+  /** Default true. The reporter still sends nothing until a destination key is set. */
+  enabled?: boolean;
+  /**
+   * `live` submits reports; `dry_run` writes the same audit entry marked
+   * `would_report` and sends nothing. `dry_run` also accepted as a boolean.
+   */
+  mode?: 'live' | 'dry_run';
+  dry_run?: boolean;
+  /** Where to report. Default `["abuseipdb"]`. */
+  destinations?: Array<'abuseipdb' | 'stopforumspam'>;
+  /** AbuseIPDB key. Prefer the `ABUSEIPDB_API_KEY` env/secret over writing it here. */
+  abuseipdb_api_key?: string;
+  /** StopForumSpam key. Prefer `STOPFORUMSPAM_API_KEY`. */
+  stopforumspam_api_key?: string;
+  /**
+   * R1: how many distinct corroborating signals a source needs before it is
+   * reportable. A single ambiguous hit is never enough. Default 2.
+   */
+  min_corroborating_signals?: number;
+  /**
+   * R5: how long a newly-seen source is held before its first report, e.g.
+   * "1h", so a single burst does not immediately become a public record.
+   */
+  cooling_off?: string;
+  /** R3: extra never-report addresses/CIDRs, on top of the built-in unsafe set. */
+  never_report?: string[];
+  /** R8: strip hostnames, paths and credentials from report evidence. Default true; forced true. */
+  redact_evidence?: boolean;
+  /** R4: global ceiling on reports per hour, so a misconfiguration cannot flood. Default 50. */
+  max_reports_per_hour?: number;
+  /** R4: a single source is reported at most this often per day. Default 1. */
+  max_reports_per_source_per_day?: number;
+}
+
 export interface ThreatCrushConfig {
   daemon: DaemonConfig;
   api: ApiConfig;
@@ -165,6 +214,7 @@ export interface ThreatCrushConfig {
     /** Hard cap on stored events (default 2,000,000); the oldest go first. */
     max_events?: number;
   };
+  abuse_reporter?: AbuseReporterSection;
   license?: {
     key_file?: string;
     key?: string;

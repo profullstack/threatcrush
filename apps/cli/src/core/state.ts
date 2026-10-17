@@ -200,6 +200,23 @@ export function pruneEvents(
   return deleted;
 }
 
+/**
+ * Every event recorded against `ip` since `sinceMs` (epoch ms), newest first.
+ * This is the evidence ledger the abuse-reporter reads to decide whether a
+ * source clears PRD 0015's bar: how many distinct detectors saw it, and whether
+ * any of them was a connection-verified (L7) signal rather than spoofable noise.
+ */
+export function getEventsForIp(ip: string, sinceMs: number, limit: number = 500): ThreatEvent[] {
+  const database = tryDb();
+  if (!database) return [];
+  const rows = database.prepare(`
+    SELECT * FROM events
+    WHERE source_ip = ? AND timestamp >= ?
+    ORDER BY timestamp DESC LIMIT ?
+  `).all(ip, new Date(sinceMs).toISOString(), limit) as any[];
+  return rows.map(rowToEvent);
+}
+
 export function getModuleState(module: string, key: string): unknown {
   const database = db || initStateDB();
   const row = database.prepare(`SELECT value FROM module_state WHERE module = ? AND key = ?`)

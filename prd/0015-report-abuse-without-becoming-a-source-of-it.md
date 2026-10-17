@@ -2,7 +2,7 @@
 openprd: "0.2"
 id: "0015"
 title: "Report abuse without becoming a source of it"
-status: Draft
+status: In Progress
 authors:
   - anthony@profullstack.com
 created: 2026-07-28
@@ -150,3 +150,33 @@ threatcrush abuse retract <id>
   unattended?
 - **Open:** is RDAP-resolved provider email worth implementing, given abuse
   mailboxes are frequently unmonitored and auto-mailing them borders on noise?
+
+## Implementation (2026-10-17)
+
+The reporting engine has landed in `apps/cli`:
+
+- `daemon/workers/abuse-reporter.ts` — a bus worker (mirror of `CloudSync`) that
+  queues blocked sources and reports the ones that clear the bar, off the ban
+  path.
+- `daemon/workers/abuse-evidence.ts` — the bar as pure, tested functions:
+  never-report ranges (private, CGNAT 100.64/10, reserved, operator), the
+  connection-verified (R2) requirement, corroboration count (R1), cooling-off
+  (R5), and AbuseIPDB category mapping.
+- `daemon/workers/abuse-destinations.ts` — AbuseIPDB (R6) and StopForumSpam (R7)
+  clients, with the comment generated from the evidence shape so no hostname,
+  path or credential can leak (R8).
+- `core/abuse-report-log.ts` + `commands/abuse.ts` — the local audit trail (R9),
+  `threatcrush abuse status|history|pending|retract` (R11/R12).
+
+**Owner decision overriding R10/R11.** Shipped **enabled and `mode = "live"` by
+default**, not off/dry-run, at the owner's direction (2026-10-17). The
+third-party-safety mitigations are kept non-negotiable regardless: the evidence
+bar (R1–R3), rate limits (R4) and cooling-off (R5) always apply, and the worker
+is **inert until an API key is present** — with no `ABUSEIPDB_API_KEY` it loads,
+logs once and reports nothing. So "on by default" means it activates the moment
+a key is provisioned to a box, not that a stock install makes accusations.
+
+**Still open / follow-up:** RDAP provider-abuse email (R7); a public,
+key-gated blocklist feed and the `threatcrush.com/traffic` wall that consumes
+these reports; provisioning AbuseIPDB + StopForumSpam accounts and keys into the
+fleet vault.
