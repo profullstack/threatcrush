@@ -17,6 +17,9 @@ const mockLicenseMaybeSingle = vi.fn();
 const mockCreditMaybeSingle = vi.fn();
 const mockWaitlistMaybeSingle = vi.fn();
 const mockWaitlistSingle = vi.fn();
+const mockReputationMaybeSingle = vi.fn();
+// The org's latest paid period end, as currentPeriodEnd reads it.
+let reputationRunningEnd: string | null = null;
 // Records every .update(patch) as (table, patch) so tests can assert on writes.
 const mockUpdate = vi.fn();
 
@@ -60,6 +63,32 @@ function paymentUpdateChain(table: string, patch: { status?: string }) {
 
 // Build a chainable mock for a specific table
 function buildTableMock(table: string) {
+  if (table === "reputation_subscriptions") {
+    const lookupChain = () => ({
+      eq: vi.fn().mockImplementation(() => lookupChain()),
+      in: vi.fn().mockImplementation(() => lookupChain()),
+      not: vi.fn().mockImplementation(() => lookupChain()),
+      order: vi.fn().mockImplementation(() => lookupChain()),
+      limit: vi.fn().mockResolvedValue({
+        data: reputationRunningEnd ? [{ status: "confirmed", period_end: reputationRunningEnd }] : [],
+        error: null,
+      }),
+      maybeSingle: mockReputationMaybeSingle,
+    });
+    return {
+      select: vi.fn().mockImplementation(() => lookupChain()),
+      update: vi.fn().mockImplementation((patch: { status?: string }) => {
+        if (patch.status) return paymentUpdateChain(table, patch);
+        // The one-time period stamp: .eq(...).is("period_end", null), awaited.
+        const chain = {
+          eq: vi.fn().mockImplementation(() => chain),
+          is: vi.fn().mockImplementation(() => chain),
+          then: (resolve: (v: unknown) => void) => resolve({ error: null }),
+        };
+        return chain;
+      }),
+    };
+  }
   if (PAYMENT_TABLES.includes(table)) {
     const lookup =
       table === "funding_payments" ? mockFundingMaybeSingle
@@ -103,6 +132,8 @@ function resetMocks(overrides: {
   mockFundingMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockLicenseMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockCreditMaybeSingle.mockResolvedValue({ data: null, error: null });
+  mockReputationMaybeSingle.mockResolvedValue({ data: null, error: null });
+  reputationRunningEnd = null;
   mockWaitlistMaybeSingle.mockResolvedValue(findEntryResult);
   mockWaitlistSingle.mockResolvedValue(referralResult);
   storedStatus = {};
@@ -382,6 +413,56 @@ describe("POST /api/webhooks/coinpay", () => {
     expect(res.status).toBe(200);
     expect(body).toEqual({ received: true });
     expect(storedStatus.credit_deposits).toBe("expired");
+  });
+});
+
+describe("POST /api/webhooks/coinpay — Reputation Pro", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.COINPAY_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    resetMocks();
+    mockReputationMaybeSingle.mockResolvedValue({
+      data: { id: "rep-1", org_id: "org-1", months: 1 },
+      error: null,
+    });
+    storedStatus.reputation_subscriptions = "pending";
+  });
+
+  function periodPatch() {
+    const call = mockUpdate.mock.calls.find(
+      ([table, patch]) => table === "reputation_subscriptions" && (patch as { period_end?: string }).period_end,
+    );
+    return call?.[1] as { period_start: string; period_end: string } | undefined;
+  }
+
+  it("confirms the payment and stamps a 30-day period", async () => {
+    const res = await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "rep-pay" } }));
+    expect(res.status).toBe(200);
+    expect(storedStatus.reputation_subscriptions).toBe("confirmed");
+    const p = periodPatch();
+    expect(p).toBeDefined();
+    const days = (Date.parse(p!.period_end) - Date.parse(p!.period_start)) / 86_400_000;
+    expect(Math.round(days)).toBe(30);
+    expect(mockWaitlistMaybeSingle).not.toHaveBeenCalled();
+  });
+
+  it("stacks on a period that is still running", async () => {
+    reputationRunningEnd = new Date(Date.now() + 10 * 86_400_000).toISOString();
+    await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "rep-pay" } }));
+    const p = periodPatch();
+    expect(Math.round((Date.parse(p!.period_end) - Date.now()) / 86_400_000)).toBe(40);
+  });
+
+  it("an expiry stamps no period", async () => {
+    await POST(makeRequest({ type: "payment.expired", data: { payment_id: "rep-pay" } }));
+    expect(storedStatus.reputation_subscriptions).toBe("expired");
+    expect(periodPatch()).toBeUndefined();
+  });
+
+  it("rejects an unsigned reputation callback", async () => {
+    const res = await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "rep-pay" } }, { signed: false }));
+    expect(res.status).toBe(401);
+    expect(storedStatus.reputation_subscriptions).toBe("pending");
   });
 });
 

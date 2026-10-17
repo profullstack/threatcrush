@@ -41,6 +41,7 @@ import { rulesCommand } from "./commands/rules.js";
 import { hardenCommand } from "./commands/harden.js";
 import { patchesCommand } from "./commands/patches.js";
 import { feedsCommand } from "./commands/feeds.js";
+import { reputationLookupCommand, reputationSubscribeCommand } from "./commands/reputation.js";
 import { privilegedCommand } from "./commands/privileged.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import {
@@ -666,6 +667,31 @@ program
   .option("--json", "Output as JSON")
   .action(async (action: string | undefined, value: string | undefined, opts: { json?: boolean }) => {
     await feedsCommand(action, value, opts);
+  });
+
+const reputationCmd = program
+  .command("reputation")
+  .description("Look an IP up against the ThreatCrush community database (exit 1 when listed); `reputation subscribe` starts a Reputation Pro payment through CoinPay")
+  .argument("[ip]", "IP address to look up")
+  .option("--json", "Output as JSON")
+  .option("--org <id>", "Org to look up as (defaults to `orgs use`)")
+  .action(async (ip: string | undefined, opts: { json?: boolean; org?: string }) => {
+    if (!ip) {
+      reputationCmd.help();
+      return;
+    }
+    await reputationLookupCommand(ip, opts);
+  });
+
+reputationCmd
+  .command("subscribe")
+  .description("Pay for Reputation Pro in crypto (history, /24 neighbours, score reasons, more lookups)")
+  .option("--plan <id>", "pro-monthly or pro-yearly", "pro-monthly")
+  .option("--currency <c>", "usdc_pol, usdc_sol, usdc_eth, usdt, pol, sol, btc or eth", "usdc_pol")
+  .option("--org <id>", "Org to pay for (defaults to `orgs use`)")
+  .option("--json", "Output as JSON")
+  .action(async (opts: { plan?: string; currency?: string; org?: string; json?: boolean }) => {
+    await reputationSubscribeCommand(opts);
   });
 
 program
