@@ -1,7 +1,7 @@
 import { isIP } from "node:net";
 import { NextResponse, type NextRequest } from "next/server";
 import { unauthorized } from "@/lib/api-auth";
-import { loadBlocklist, loadServerIps, withoutProtected } from "@/lib/community-threats";
+import { loadBlocklist, loadProtected, withoutProtected } from "@/lib/community-threats";
 import { feedPrincipal } from "@/lib/feed-auth";
 import { isPublicIp, lookupIps } from "@/lib/geoip";
 import {
@@ -58,14 +58,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ ip: 
   }
 
   try {
-    const [rows, blocklist, geo, serverIps] = await Promise.all([
+    const [rows, blocklist, geo, protectedSet] = await Promise.all([
       loadDetectionsFor(admin, ip, tier === "pro" ? HISTORY_DAYS : 7),
       tier === "pro" ? loadBlocklist() : Promise.resolve([]),
       lookupIps([ip], 3000),
-      loadServerIps(),
+      loadProtected(),
     ]);
-    // A server registered with ThreatCrush is never reported as an attacker.
-    const evidence = withoutProtected(rows, serverIps);
+    // Registered servers, allowlisted addresses and anyone who logged in are never reported as attackers.
+    const evidence = withoutProtected(rows, protectedSet);
     return NextResponse.json(buildReport(ip, evidence, blocklist, geo.get(ip) ?? null, tier), { headers });
   } catch (err) {
     console.error("[reputation] lookup failed", (err as Error).message);
