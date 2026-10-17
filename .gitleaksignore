@@ -1,3 +1,9 @@
+# The /reputation page's curl example with a literal "tc_agent_..." placeholder
+# (PR #325). The page now reads the key from $THREATCRUSH_API_KEY; only this
+# commit still carries the placeholder.
+b6d0248d9265961a03bad61dbc272d0e19554913:apps/web/src/app/reputation/page.tsx:curl-auth-header:76
+b6d0248d9265961a03bad61dbc272d0e19554913:apps/web/src/app/reputation/page.tsx:curl-auth-header:77
+
 # An ed25519 PUBLIC key (a test fixture for authorized_keys fingerprints, PR #316),
 # which generic-api-key mistakes for a secret. The test now assembles it at
 # runtime; only this commit still carries the literal.

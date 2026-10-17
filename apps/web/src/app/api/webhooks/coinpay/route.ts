@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { verifyCoinpayWebhook, type CoinpayWebhookPayload } from '@/lib/coinpay-client';
 import { isSettledStatus, SETTLED_STATUS_LIST } from '@/lib/payment-status';
+import { currentPeriodEnd, periodEnd } from '@/lib/reputation';
 
 /**
  * Webhook fields land in log lines, and a value containing CRLF can forge a
@@ -117,6 +118,20 @@ export async function POST(request: NextRequest) {
     return handleLicenseWebhook(supabase, licenseRow, data, eventType, paymentId);
   }
 
+  // Reputation Pro subscriptions.
+  const { data: reputationRow } = await supabase
+    .from('reputation_subscriptions')
+    .select('id, org_id, months')
+    .eq('coinpay_payment_id', paymentId)
+    .maybeSingle();
+
+  if (reputationRow) {
+    if (!signatureValid) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
+    return handleReputationWebhook(supabase, reputationRow, eventType, paymentId);
+  }
+
   // TC-09: the waitlist branch used to accept unsigned callbacks, so anyone who
   // could guess or observe a payment id could mark a waitlist row paid. Every
   // branch now requires a valid signature.
@@ -134,7 +149,7 @@ export async function POST(request: NextRequest) {
  */
 async function updatePaymentStatus(
   supabase: ReturnType<typeof getSupabase>,
-  table: 'funding_payments' | 'credit_deposits' | 'license_purchases',
+  table: 'funding_payments' | 'credit_deposits' | 'license_purchases' | 'reputation_subscriptions',
   paymentId: string,
   nextStatus: string,
   patch: Record<string, unknown>,
@@ -319,6 +334,66 @@ async function handleLicenseWebhook(
     }
 
     console.log(`[coinpay webhook] License activated for purchase ${logSafe(licenseRow.id)}`);
+  }
+
+  return NextResponse.json({ received: true, status });
+}
+
+/**
+ * A Reputation Pro payment. The paid period is stamped once, on the first
+ * settled event (confirmed, then forwarded, must not stack two periods), and
+ * starts where the org's running period ends so an early renewal loses nothing.
+ */
+async function handleReputationWebhook(
+  supabase: ReturnType<typeof getSupabase>,
+  row: { id: string; org_id: string; months: number },
+  eventType: string,
+  paymentId: string,
+) {
+  let status: string;
+  switch (eventType) {
+    case 'payment.confirmed':
+      status = 'confirmed';
+      break;
+    case 'payment.forwarded':
+      status = 'forwarded';
+      break;
+    case 'payment.expired':
+      status = 'expired';
+      break;
+    case 'payment.failed':
+      status = 'failed';
+      break;
+    default:
+      return NextResponse.json({ received: true, ignored: eventType });
+  }
+
+  const now = new Date();
+  const { applied, error } = await updatePaymentStatus(
+    supabase,
+    'reputation_subscriptions',
+    paymentId,
+    status,
+    { updated_at: now.toISOString() },
+  );
+  if (error) {
+    console.error('[coinpay webhook] reputation update failed:', error);
+    return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+  }
+  if (!applied) return NextResponse.json(STALE_EVENT);
+
+  if (isSettledStatus(status)) {
+    const end = periodEnd(now, row.months, await currentPeriodEnd(supabase, row.org_id));
+    const { error: periodErr } = await supabase
+      .from('reputation_subscriptions')
+      .update({ period_start: now.toISOString(), period_end: end.toISOString() })
+      .eq('coinpay_payment_id', paymentId)
+      .is('period_end', null);
+    if (periodErr) {
+      console.error('[coinpay webhook] reputation period failed:', periodErr);
+      return NextResponse.json({ error: 'Activation failed' }, { status: 500 });
+    }
+    console.log(`[coinpay webhook] Reputation Pro active for org ${logSafe(row.org_id)} until ${end.toISOString()}`);
   }
 
   return NextResponse.json({ received: true, status });
