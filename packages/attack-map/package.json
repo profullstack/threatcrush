@@ -1,6 +1,6 @@
 {
   "name": "@threatcrush/attack-map",
-  "version": "0.13.30",
+  "version": "0.13.31",
   "description": "ThreatCrush attack map: land mask, projection, types and renderers shared by the web, desktop, mobile, extension and TUI.",
   "license": "MIT",
   "type": "module",
