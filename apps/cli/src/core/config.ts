@@ -45,6 +45,11 @@ export function loadConfig(configPath?: string): ThreatCrushConfig {
       detection: parsed.detection,
       cloud: parsed.cloud,
       watchdog: parsed.watchdog,
+      // TOML's `[abuse-reporter]` parses to a hyphenated key; expose it under
+      // the JS-friendly name the rest of the daemon reads.
+      abuse_reporter:
+        (parsed as Record<string, unknown>)['abuse-reporter'] as ThreatCrushConfig['abuse_reporter'] ??
+        parsed.abuse_reporter,
       license: parsed.license,
     };
   } catch {
@@ -84,6 +89,15 @@ export function generateDefaultConfig(detectedServices: string[]): string {
     // Written out so the opt-out is discoverable; these are also the defaults
     // when the section is absent.
     cloud: { enabled: true, min_severity: 'medium' },
+    // Reporting to shared reputation feeds (PRD 0015). On by default but inert
+    // until a key is set: nothing is reported without ABUSEIPDB_API_KEY or the
+    // key below, and only corroborated, handshake-verified sources ever are.
+    'abuse-reporter': {
+      enabled: true,
+      mode: 'live',
+      destinations: ['abuseipdb'],
+      // abuseipdb_api_key = "..."   # prefer the ABUSEIPDB_API_KEY env/secret
+    },
   };
 
   return TOML.stringify(config as any);

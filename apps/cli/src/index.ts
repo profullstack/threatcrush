@@ -40,6 +40,12 @@ import {
 import { rulesCommand } from "./commands/rules.js";
 import { hardenCommand } from "./commands/harden.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
+import {
+  abuseHistoryCommand,
+  abusePendingCommand,
+  abuseRetractCommand,
+  abuseStatusCommand,
+} from "./commands/abuse.js";
 import { PATHS } from "./daemon/paths.js";
 import {
   DAEMON_UNIT,
@@ -419,6 +425,47 @@ watchdogCmd
   .description("Print the watchdog log directory")
   .action((_opts, cmd) => {
     watchdogPathCommand(cmd.optsWithGlobals());
+  });
+
+const abuseCmd = program
+  .command("abuse")
+  .description("Report confirmed attack sources to shared feeds (AbuseIPDB), and see what was reported")
+  .option("--dir <dir>", "Abuse-report audit directory")
+  .action((_opts, cmd) => {
+    abuseStatusCommand(cmd.optsWithGlobals());
+  });
+
+abuseCmd
+  .command("status")
+  .description("Whether reporting is active, the evidence bar, and the counts")
+  .action((_opts, cmd) => {
+    abuseStatusCommand(cmd.optsWithGlobals());
+  });
+
+abuseCmd
+  .command("history")
+  .alias("list")
+  .alias("ls")
+  .description("Everything reported (or would-be, in dry-run), newest first")
+  .option("--json", "Output as JSON")
+  .action((_opts, cmd) => {
+    abuseHistoryCommand(cmd.optsWithGlobals());
+  });
+
+abuseCmd
+  .command("pending")
+  .description("Sources judged reportable but not sent (dry-run), with their evidence")
+  .option("--json", "Output as JSON")
+  .action((_opts, cmd) => {
+    abusePendingCommand(cmd.optsWithGlobals());
+  });
+
+abuseCmd
+  .command("retract <id>")
+  .description("Withdraw a report from our feed and record it for the upstream")
+  .option("--note <text>", "Why it was wrong")
+  .action((id: string, _opts, cmd) => {
+    abuseRetractCommand(id, cmd.optsWithGlobals());
   });
 
 program
