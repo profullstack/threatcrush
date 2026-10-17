@@ -26,6 +26,7 @@ create index if not exists idx_reputation_subscriptions_org_period
 
 -- Service role only: the API reads and writes it on the caller's behalf.
 alter table public.reputation_subscriptions enable row level security;
+revoke all on table public.reputation_subscriptions from anon, authenticated;
 
 -- The deep lookup reads one address's detections through the existing
 -- idx_detections_source_ip; no new index on detections here (building one on
