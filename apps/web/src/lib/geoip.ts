@@ -152,7 +152,8 @@ export function lookupIp(ip: string): GeoHit | null {
       out = {
         lat: loc.latitude,
         lon: loc.longitude,
-        city: r?.city?.names?.en,
+        // DB-IP appends the district: "Montreal (Ahuntsic-Cartierville)".
+        city: r?.city?.names?.en?.replace(/\s*\([^)]*\)\s*$/, "") || undefined,
         country: r?.country?.names?.en,
         countryCode: r?.country?.iso_code,
       };
