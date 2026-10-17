@@ -46,6 +46,10 @@ export interface RemediationSection {
   /** Historical spelling of `protected`. */
   allowlist?: string[];
   protect_current_ssh_client?: boolean;
+  /** Default true: never ban an address an operator logged in from with a key, or holds a live SSH/mosh session from. */
+  protect_recent_operators?: boolean;
+  /** How long such an address stays protected after it was last seen, e.g. "30d" (default). */
+  operator_memory?: string;
   /** Never auto-ban a Googlebot/Bingbot verified by forward-confirmed reverse DNS. Default true. */
   spare_verified_crawlers?: boolean;
   /** Historical spelling, seconds. Superseded by the doubling ladder. */
@@ -91,6 +95,55 @@ export interface WatchdogSection {
   enabled?: boolean;
   /** Default `<state dir>/watchdog` (/var/lib/threatcrush/watchdog as root). */
   dir?: string;
+}
+
+/**
+ * `[update]` — the daemon keeps itself on the latest release (see
+ * daemon/workers/auto-update.ts). On by default.
+ */
+export interface UpdateSection {
+  /** Default true. `false` (or THREATCRUSH_AUTO_UPDATE=0) leaves upgrades to you. */
+  auto?: boolean;
+  /** How often to check, e.g. "6h" (default; at least 15m). Each check adds up to 1h of jitter. */
+  interval?: string;
+  /** How long a release must have been published before it is taken. Default "2h". */
+  min_age?: string;
+  /** Default false: stay on the current major version. */
+  allow_major?: boolean;
+}
+
+/**
+ * `[threat_feeds]` — abuse.ch C2 and malware indicators (see
+ * daemon/workers/threat-feeds.ts). Detection is on by default; blocking is not.
+ */
+export interface ThreatFeedsSection {
+  /** Default true. `false` stops fetching, matching and blocking. */
+  enabled?: boolean;
+  /** Default false. Drop egress to listed IPs (needs [remediation] in enforce mode and nftables). */
+  block?: boolean;
+  /**
+   * Default false. Refuse the listed DOMAINS at the local resolver too
+   * (dnsmasq or unbound, after `threatcrush feeds resolver install`; needs
+   * [remediation] in enforce mode). systemd-resolved cannot do this.
+   */
+  block_domains?: boolean;
+  /** How often to re-fetch, e.g. "1h" (default; at least 15m). */
+  refresh?: string;
+  /** ThreatFox confidence floor, 0–100. Default 75. */
+  min_confidence?: number;
+  /** IPs, CIDRs or domains never matched or blocked. */
+  allow?: string[];
+}
+
+/**
+ * `[privileged]` — who can become root, the sudo ledger, and new-country SSH
+ * logins (see daemon/workers/privilege-watch.ts). On by default.
+ */
+export interface PrivilegedSection {
+  /** Default true. */
+  enabled?: boolean;
+  /** Default true. Geolocate accepted SSH logins via threatcrush.com/api/geo to spot a new country. */
+  geo?: boolean;
 }
 
 /**
@@ -151,6 +204,16 @@ export interface ThreatCrushConfig {
   detection?: DetectionSection;
   cloud?: CloudSection;
   watchdog?: WatchdogSection;
+  update?: UpdateSection;
+  threat_feeds?: ThreatFeedsSection;
+  privileged?: PrivilegedSection;
+  /** How long the events table keeps history; see core/state.ts pruneEvents. */
+  storage?: {
+    /** e.g. "14d" (default). Older events are deleted. */
+    event_retention?: string;
+    /** Hard cap on stored events (default 2,000,000); the oldest go first. */
+    max_events?: number;
+  };
   abuse_reporter?: AbuseReporterSection;
   license?: {
     key_file?: string;

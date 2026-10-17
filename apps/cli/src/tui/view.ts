@@ -1,4 +1,5 @@
 import type { Container, Theme } from '@profullstack/hqtui';
+import { mapBody, mapFooter, type MapViewOptions } from './map.js';
 import type { EventSeverity, ThreatEvent } from '../types/events.js';
 import { levelColors, severityColors } from './theme.js';
 import {
@@ -24,7 +25,11 @@ export interface ViewOptions {
   onBanSelect?: (visibleRow: number) => void;
   /** Click a module row to show only its events. */
   onModuleSelect?: (visibleRow: number) => void;
+  /** Click a status-bar message (an error, a ban result) to copy its text. */
+  onCopy?: (text: string) => void;
   demo?: boolean;
+  /** Data for the attack map view; without it `m` shows the panels. */
+  map?: MapViewOptions;
 }
 
 function clock(d: Date): string {
@@ -498,12 +503,15 @@ function throughputPanel(parent: Container, state: State, theme: Theme): void {
   );
 }
 
-function footer(ui: Container, state: State, theme: Theme): void {
+function footer(ui: Container, state: State, theme: Theme, options: ViewOptions = {}): void {
   const onFeed = state.focus === 'feed';
+  const notice = state.notice;
+  const copyNotice = notice && options.onCopy ? () => options.onCopy?.(notice.text) : undefined;
   ui.statusBar({
     size: 1,
     items: [
       { key: 'q', label: 'quit' },
+      { key: 'm', label: 'map' },
       { key: 'tab', label: state.focus },
       { key: '↑↓', label: onFeed ? 'scroll' : 'select' },
       ...(state.focus === 'modules'
@@ -519,11 +527,17 @@ function footer(ui: Container, state: State, theme: Theme): void {
       ...(state.muteCron || state.events.some(isCronLine)
         ? [{ key: 'c', label: state.muteCron ? 'show cron' : 'mute cron' }]
         : []),
+      ...(state.lastError ? [{ key: 'y', label: 'copy error' }] : []),
     ],
     right: [
       // The notice is the answer to "did my keypress do anything", so it takes
       // the slot for as long as it lives.
-      { label: state.notice?.text ?? '', color: state.notice?.tone === 'error' ? severityColors.high : theme.success },
+      // Click it to copy the text: an error is something to paste somewhere.
+      {
+        label: notice ? (notice.tone === 'error' && copyNotice ? `${notice.text}  ⧉` : notice.text) : '',
+        color: notice?.tone === 'error' ? severityColors.high : theme.success,
+        onPress: copyNotice,
+      },
       {
         label: state.paused && state.parked.length > 0 ? `${state.parked.length} held` : '',
         color: severityColors.medium,
@@ -554,6 +568,16 @@ export function renderDashboard(
 ): void {
   const demo = options.demo ?? false;
 
+  if (state.view === 'map' && options.map) {
+    ui.column({ gap: 0, padding: 0 }, (col) => {
+      header(col, state, theme, demo);
+      mapBody(col, state, theme, options.map!);
+      mapFooter(col, theme);
+    });
+    return;
+  }
+  options.map?.overlay?.place(null);
+
   ui.column({ gap: 0, padding: 0 }, (col) => {
     header(col, state, theme, demo);
     tiles(col, state, theme);
@@ -573,6 +597,6 @@ export function renderDashboard(
       });
     });
 
-    footer(col, state, theme);
+    footer(col, state, theme, options);
   });
 }

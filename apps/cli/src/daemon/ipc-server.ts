@@ -1,5 +1,5 @@
 import { createServer, Server, Socket } from 'node:net';
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import type { ThreatEvent } from '../types/events.js';
 import { PATHS } from './paths.js';
 import { issueControlToken, tokensMatch } from './control-token.js';
@@ -76,11 +76,9 @@ export class IpcServer {
           && typeof process.getuid === 'function'
           && process.getuid() === 0;
         if (isRoot) {
-          try {
-            const { gid } = nodeFs.statSync('/var/log/auth.log');
-            nodeFs.chownSync(PATHS.socket, 0, gid);
-          } catch {
-            // adm group not present, or /var/log/auth.log missing — leave as root:root
+          const gid = admGid();
+          if (gid !== null) {
+            try { nodeFs.chownSync(PATHS.socket, 0, gid); } catch { /* leave root:root */ }
           }
         }
         resolve();
@@ -316,4 +314,26 @@ export class IpcServer {
       this.send(client, msg);
     }
   }
+}
+
+/**
+ * The `adm` group's gid, or null when there is none.
+ *
+ * Read from /etc/group first. This used to take the group of
+ * /var/log/auth.log, which a journald-only box (bbs, no rsyslog) does not
+ * have, so its socket stayed root:root and nobody but root could reach the
+ * daemon. auth.log stays as the fallback for systems without a readable
+ * /etc/group entry.
+ */
+export function admGid(
+  readGroup: () => string = () => readFileSync('/etc/group', 'utf-8'),
+  statAuthLog: () => { gid: number } = () => statSync('/var/log/auth.log'),
+): number | null {
+  try {
+    for (const line of readGroup().split('\n')) {
+      const [name, , gid] = line.split(':');
+      if (name === 'adm' && gid !== undefined && /^\d+$/.test(gid)) return Number(gid);
+    }
+  } catch { /* fall through */ }
+  try { return statAuthLog().gid; } catch { return null; }
 }

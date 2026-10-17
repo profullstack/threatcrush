@@ -5,11 +5,14 @@
  * Sources: resolver logs, systemd-resolved, dnsmasq logs, passive :53 observation.
  */
 
-import { existsSync, statSync, createReadStream, accessSync, constants } from 'node:fs';
+import { existsSync, accessSync, constants } from 'node:fs';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { LogTail } from '../../core/log-tail.js';
 import type { EventBus } from '../../daemon/event-bus.js';
 import { insertEvent } from '../../core/state.js';
+import { matchDomain } from '../../core/threat-feeds/index.js';
+import { DEFAULT_PROTECTED, isProtected } from '../../daemon/firewall/protected.js';
 import type { ThreatEvent, EventSeverity } from '../../types/events.js';
 
 interface DnsQuery {
@@ -54,11 +57,13 @@ export function qtypeName(qtype: number): string {
 export class DnsMonitor {
   private active = false;
   private timers = new Map<string, NodeJS.Timeout>();
-  private positions = new Map<string, number>();
+  private tails = new Map<string, LogTail>();
 
   // Tracking windows
   private txtQueryCounts = new Map<string, { count: number; firstSeen: number }>();
   private domainBuffer: DnsQuery[] = [];
+  /** Last threat-feed alert per domain and client. */
+  private feedAlerts = new Map<string, number>();
 
   // Config
   private txtRateThreshold = 20;      // TXT queries per source per window
@@ -177,29 +182,10 @@ export class DnsMonitor {
   isActive(): boolean { return this.active; }
 
   private tailLog(path: string): void {
-    try {
-      this.positions.set(path, statSync(path).size);
-    } catch {
-      this.positions.set(path, 0);
-    }
-
-    const timer = setInterval(() => this.pollLog(path), 2000);
+    const tail = new LogTail(path);
+    this.tails.set(path, tail);
+    const timer = setInterval(() => tail.poll((line) => this.parseDnsLine(line)), 2000);
     this.timers.set(path, timer);
-  }
-
-  private pollLog(path: string): void {
-    let stat;
-    try { stat = statSync(path); } catch { return; }
-    const prev = this.positions.get(path) ?? 0;
-
-    if (stat.size < prev) { this.positions.set(path, 0); return; }
-    if (stat.size === prev) return;
-
-    const stream = createReadStream(path, { start: prev, encoding: 'utf-8' });
-    stream.on('error', () => this.positions.set(path, stat.size));
-    const rl = createInterface({ input: stream });
-    rl.on('line', (line) => this.parseDnsLine(line));
-    rl.on('close', () => this.positions.set(path, stat.size));
   }
 
   private parseDnsLine(line: string): void {
@@ -355,6 +341,31 @@ export class DnsMonitor {
   private record(q: DnsQuery): void {
     this.domainBuffer.push(q);
     this.observed++;
+    this.checkFeeds(q);
+  }
+
+  /**
+   * A lookup of a domain on the abuse.ch lists (`threat-feeds`). The client
+   * goes in details, never `source_ip`: it is whoever asked, and on a public
+   * resolver that is an outside user auto-defence must not ban. Only a lookup
+   * from this box or a private-range client (a container) is about us.
+   */
+  private checkFeeds(q: DnsQuery): void {
+    const hit = matchDomain(q.domain);
+    if (!hit) return;
+    const now = Date.now();
+    const key = `${hit.domain}|${q.source_ip ?? ''}`;
+    if (now - (this.feedAlerts.get(key) ?? 0) < 3_600_000) return;
+    this.feedAlerts.set(key, now);
+    if (this.feedAlerts.size > 10_000) this.feedAlerts.clear();
+    const local = !q.source_ip || isProtected(q.source_ip, DEFAULT_PROTECTED);
+    const { malware, threat, feed } = hit.indicator;
+    this.emitEvent(
+      local ? 'critical' : 'low',
+      `DNS lookup of known ${malware === 'unknown' ? 'malware' : malware} ${threat === 'botnet_cc' ? 'C2' : 'host'} ${q.domain}${q.source_ip ? ` by ${q.source_ip}` : ''}`,
+      undefined,
+      { rule_id: 'threat-feed-dns', domain: q.domain, listed: hit.domain, client_ip: q.source_ip, qtype: q.type, malware, threat, feed },
+    );
   }
 
   private emitEvent(severity: EventSeverity, message: string, sourceIp?: string, details?: Record<string, unknown>): void {

@@ -40,6 +40,13 @@ export function remediationSettings(section?: RemediationSection): Partial<Remed
     settings.protect_current_ssh_client = section.protect_current_ssh_client;
   }
 
+  if (typeof section.protect_recent_operators === 'boolean') {
+    settings.protect_recent_operators = section.protect_recent_operators;
+  }
+
+  const operatorMemory = parseDuration(section.operator_memory);
+  if (operatorMemory) settings.operator_memory_seconds = operatorMemory;
+
   if (typeof section.spare_verified_crawlers === 'boolean') {
     settings.spare_verified_crawlers = section.spare_verified_crawlers;
   }

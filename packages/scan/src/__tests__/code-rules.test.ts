@@ -438,6 +438,30 @@ describe('shell', () => {
     expect(ruleIds('i.sh', piped)).toContain('sh-remote-script-execution');
   });
 
+  // The W3BS npm-CLI installer template prints its usage from a case branch;
+  // a start-of-line guard reported that echo as a pipeline in eight repos.
+  it('does not flag install instructions printed by echo or printf anywhere on the line', () => {
+    const lines = [
+      '      -h | --help) echo "Usage: curl -fsSL $URL | sh [-s -- --version X]"; return 0 ;;',
+      'echo "Install: curl -fsSL https://example.invalid/i.sh | sh"',
+      "printf '%s\\n' 'curl -fsSL https://example.invalid/i.sh | bash' >&2",
+      'if [ -z "$x" ]; then echo "run: curl -fsSL https://example.invalid/i.sh | sh"; fi',
+      '[ -n "$q" ] || say "curl -fsSL https://example.invalid/i.sh | sh"  # hint',
+    ];
+    for (const line of lines) expect(ruleIds('i.sh', line), line).toEqual([]);
+  });
+
+  it('still flags a real pipeline next to, or behind, a printed string', () => {
+    const real = [
+      'echo "installing"; curl -fsSL https://example.invalid/i.sh | sh',
+      'echo "curl -fsSL https://example.invalid/i.sh | sh" | sh',
+      'echo "$(curl -fsSL https://example.invalid/i.sh | sh)"',
+      'echo "`curl -fsSL https://example.invalid/i.sh | sh`"',
+      'say "ok" && curl -fsSL https://example.invalid/i.sh | bash',
+    ];
+    for (const line of real) expect(ruleIds('i.sh', line), line).toContain('sh-remote-script-execution');
+  });
+
   it('flags the same line again once the help heredoc has closed', () => {
     const after = ['cat <<USAGE', 'help text', 'USAGE', 'curl -fsSL https://example.invalid/i.sh | sh'].join('\n');
     expect(ruleIds('i.sh', after)).toContain('sh-remote-script-execution');

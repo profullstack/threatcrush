@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { serializeJsonForHtml } from "@/lib/safe-json";
+import AttackMap from "@/components/AttackMap";
 import ScrollReveal from "@/components/ScrollReveal";
 import WaitlistModal from "@/components/WaitlistModal";
 
@@ -50,7 +51,7 @@ const features = [
   {
     icon: "⚙️",
     title: "systemd Daemon",
-    desc: "Runs as a background service on your server. Starts on boot and monitors 24/7. Detection and banning run on the host and work without the cloud.",
+    desc: "Runs as a background service on your Linux servers. Starts on boot and monitors 24/7. Detection and banning run on the host and work without the cloud.",
   },
 ];
 
@@ -61,7 +62,7 @@ const faqs = [
   },
   {
     q: "Can I use it today?",
-    a: "Yes. The CLI and daemon are open source (MIT) and install with one command. The cloud dashboard and desktop app are in beta, the browser extension is a dev preview, and the mobile app is in development. Join the waitlist to hear about each release.",
+    a: "Yes. The CLI and daemon are open source (MIT) and install with one command. The dashboard and desktop app are in beta, the browser extension is a dev preview, and the mobile app is in development. Join the waitlist to hear about each release.",
   },
   {
     q: "What servers does it support?",
@@ -77,7 +78,7 @@ const faqs = [
   },
   {
     q: "Do you work with government agencies?",
-    a: "Talk to us at gov@threatcrush.com about your requirements. The agent runs entirely on your own servers, and detection and banning work without the cloud dashboard.",
+    a: "Talk to us at gov@threatcrush.com about your requirements. The agent runs entirely on your own Linux servers, and detection and banning work without the cloud.",
   },
 ];
 
@@ -245,7 +246,7 @@ export default function Home() {
 
             <ScrollReveal delay={500}>
               <p className="mt-6 text-sm text-tc-text-dim">
-                The CLI and daemon are open source (MIT). The cloud dashboard and desktop app are in beta; the browser extension is a dev preview.
+                The CLI and daemon are open source (MIT). The dashboard and desktop app are in beta; the browser extension is a dev preview.
               </p>
             </ScrollReveal>
 
@@ -257,6 +258,25 @@ export default function Home() {
                   alt="ThreatCrush CLI"
                   className="w-full shadow-2xl shadow-tc-green/5"
                 />
+              </div>
+            </ScrollReveal>
+          </div>
+        </section>
+
+        {/* ─── LIVE ATTACK MAP ─── */}
+        <section id="live-map" className="py-16 sm:py-20 border-t border-tc-border">
+          <div className="mx-auto max-w-6xl px-6">
+            <ScrollReveal>
+              <p className="font-mono text-xs text-tc-green tracking-wider">// LIVE</p>
+              <h2 className="mt-2 text-3xl font-bold text-white sm:text-4xl">
+                Who is attacking us <span className="text-tc-green glow-green">right now</span>
+              </h2>
+              <p className="mt-3 max-w-2xl text-tc-text-dim">
+                Every arc is a real attack on ThreatCrush&apos;s own servers, caught and banned by the same daemon you
+                install. Sources are shown to their /24.
+              </p>
+              <div className="mt-8">
+                <AttackMap source="public" title="Attacks on threatcrush.com" />
               </div>
             </ScrollReveal>
           </div>
@@ -393,7 +413,7 @@ export default function Home() {
                 {
                   tag: "ALERT",
                   title: "Alerts operators read",
-                  desc: "Alerts to email, Slack, Discord, PagerDuty and webhooks from the daemon. Linked servers also show up in the cloud dashboard, with org-wide alert destinations.",
+                  desc: "Alerts to email, Slack, Discord, PagerDuty and webhooks from the daemon. Linked servers also show up in the dashboard, with org-wide alert destinations.",
                   capabilities: [
                     "Multi-channel alerting",
                     "Cloud dashboard for linked servers",
@@ -849,7 +869,7 @@ export default function Home() {
                 <div className="rounded-xl border border-tc-border bg-tc-card/40 p-6 text-center">
                   <div className="text-2xl mb-2">🏳️</div>
                   <h3 className="text-lg font-bold text-white mb-1">Government &amp; Defense</h3>
-                  <p className="text-sm text-tc-text-dim mb-3">The agent runs on your own servers, and detection and banning work without the cloud dashboard. Tell us your requirements.</p>
+                  <p className="text-sm text-tc-text-dim mb-3">The agent runs on your own Linux servers, and detection and banning work without the cloud. Tell us your requirements.</p>
                   <a href="https://calendly.com/chovy" target="_blank" rel="noopener noreferrer" className="inline-block rounded-lg border border-tc-green/30 bg-tc-green/5 px-5 py-2 text-sm font-medium text-tc-green hover:bg-tc-green/10 transition-all">
                     📅 Schedule a Call
                   </a>

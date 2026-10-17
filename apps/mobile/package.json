@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush-mobile",
-  "version": "0.7.21",
+  "version": "0.7.38",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -39,6 +39,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@threatcrush/attack-map": "workspace:*",
     "@babel/core": "^7.25.0",
     "@testing-library/jest-dom": "^6.6.0",
     "@testing-library/react": "^16.1.0",

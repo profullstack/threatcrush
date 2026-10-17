@@ -108,6 +108,17 @@ export async function listDetections(orgId, params = {}) {
   return request(`/api/orgs/${encodeURIComponent(orgId)}/detections${query ? `?${query}` : ''}`);
 }
 
+/**
+ * The attack map: the signed-in user's servers across their orgs, or, signed
+ * out, the public map of attacks on threatcrush.com itself.
+ */
+export async function getAttackMap({ signedIn, window = 60 } = {}) {
+  if (signedIn) return request(`/api/attack-map?window=${window}`);
+  const res = await fetch(`${API_URL}/api/attack-map/public?window=${window}`);
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
 // ─── Scanning ───
 
 export async function scanUrl(url) {

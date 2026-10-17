@@ -7,10 +7,16 @@ import { formatDuration } from '../daemon/firewall/backoff.js';
 import { threatcrushTheme } from './theme.js';
 import { renderDashboard } from './view.js';
 import { demoEvent } from './demo.js';
+import { copyToClipboard, describeCopy } from './clipboard.js';
+import { hostname } from 'node:os';
+import { demoMapData, type AttackMapData } from '@threatcrush/attack-map';
+import { GeoResolver, MapImageOverlay, localMapData, sourceAddresses } from './map.js';
 
 export interface DashboardOptions {
   /** Replay canned events instead of connecting. Never entered by accident. */
   demo?: boolean;
+  /** Open on the attack map instead of the panels (`threatcrush map`). */
+  view?: 'dashboard' | 'map';
 }
 
 const RECONNECT_MS = 2000;
@@ -26,10 +32,37 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
     quitKeys: [],
   });
 
-  let state: State = initialState();
+  let state: State = { ...initialState(), view: options.view ?? 'dashboard' };
   const dispatch = (action: Action): void => {
     state = reducer(state, action);
     app.invalidate();
+  };
+
+  // The attack map: addresses from the feed, placed by threatcrush.com/api/geo,
+  // drawn in braille or, where the terminal draws pixels, as an HD image.
+  const geo = new GeoResolver(() => app.invalidate());
+  const overlay = new MapImageOverlay((s) => app.terminal.write(s));
+  const host = hostname();
+  let mapData: AttackMapData | null = null;
+  const refreshMap = (): void => {
+    if (options.demo) {
+      mapData = demoMapData();
+      return;
+    }
+    geo.want(sourceAddresses(state));
+    mapData = localMapData(state, geo, host);
+  };
+  app.on('frame', (stats) => {
+    if (state.view === 'map') overlay.paint(mapData, stats.repainted);
+  });
+
+  // Click a status-bar message, or press y, to put it on the clipboard. OSC 52
+  // alone was silently refused by iTerm2 and by tmux without allow-passthrough,
+  // so this tries every route and says which one took; see clipboard.ts.
+  const copyText = (text: string): void => {
+    if (!text) return;
+    const result = copyToClipboard(text);
+    dispatch({ type: 'notice', text: describeCopy(result), tone: result.via.length > 0 || result.file ? 'ok' : 'error' });
   };
 
   let client: IpcClient | null = null;
@@ -46,6 +79,8 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
 
   const teardown = (): void => {
     stopped = true;
+    geo.stop();
+    overlay.hide();
     for (const t of timers) clearInterval(t);
     timers.length = 0;
     try { client?.close(); } catch { /* already gone */ }
@@ -149,6 +184,8 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
 
   // Drives the events/sec graph. One slot per second, always.
   every(1000, () => dispatch({ type: 'tick' }));
+  // The map's comets move between data updates.
+  every(100, () => { if (state.view === 'map') app.invalidate(); });
 
   // --------------------------------------------------------------- input
 
@@ -228,6 +265,14 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
       case 'ctrl+c':
         quit();
         break;
+      case 'm':
+        dispatch({ type: 'toggle_view' });
+        // Leaving the map: a full repaint clears an inline image's cells.
+        if (state.view !== 'map') {
+          overlay.hide();
+          app.redraw();
+        }
+        break;
       case 'enter':
       case 'return':
         // Filter by whatever the focused panel points at: a module, or a source
@@ -247,6 +292,9 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
         break;
       case 'c':
         dispatch({ type: 'toggle_cron' });
+        break;
+      case 'y':
+        copyText(state.notice?.tone === 'error' ? state.notice.text : state.lastError ?? state.notice?.text ?? '');
         break;
       case 'tab':
         dispatch({ type: 'focus_next' });
@@ -285,8 +333,11 @@ export async function startDashboard(options: DashboardOptions = {}): Promise<vo
   });
 
   app.render(({ ui, theme }) => {
+    if (state.view === 'map') refreshMap();
     renderDashboard(ui, state, theme, {
       demo: options.demo,
+      map: mapData ? { data: mapData, geo, overlay } : undefined,
+      onCopy: copyText,
       onFeedScroll: (delta) => dispatch({ type: 'scroll', delta: -delta }),
       // One click focuses the panel, picks the row, and filters the feed to that
       // source — "what has this one IP done" in a single click. Clicking the

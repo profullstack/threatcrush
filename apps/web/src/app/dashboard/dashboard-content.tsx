@@ -7,6 +7,7 @@ import OrgOnboarding from "@/components/OrgOnboarding";
 import CreateOrgModal from "@/components/CreateOrgModal";
 import Link from "next/link";
 import FleetPanel from "./fleet-panel";
+import AttackMap from "@/components/AttackMap";
 
 interface Organization {
   id: string;
@@ -108,6 +109,10 @@ export default function DashboardContent() {
             <p className="text-sm text-red-400">{error}</p>
           </div>
         )}
+
+        <div className="mb-8">
+          <AttackMap source="account" title="Attacks across your fleet" />
+        </div>
 
         {/* Organizations */}
         <div className="mb-8">

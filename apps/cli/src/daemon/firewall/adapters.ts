@@ -72,7 +72,7 @@ export class Fail2banAdapter implements FirewallAdapter {
     return result.status === 0;
   }
 
-  private client(args: string[]): string {
+  protected client(args: string[]): string {
     return execFileSync('fail2ban-client', args, {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -123,7 +123,16 @@ export class Fail2banAdapter implements FirewallAdapter {
       ].join('\n'),
     );
 
-    this.client(['reload', this.jail]);
+    // `reload <jail>` only reloads a jail the server already runs; for one
+    // that has just been written it answers `NOK: ('threatcrush',)`, which is
+    // how every first ban failed once the files could finally be written
+    // (vienna, 2026-10-07). A full reload starts new jails and keeps the
+    // existing jails' bans.
+    try {
+      this.client(['reload', this.jail]);
+    } catch {
+      this.client(['reload']);
+    }
     this.jailReady = true;
   }
 

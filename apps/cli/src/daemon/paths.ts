@@ -12,7 +12,7 @@ function isRoot(): boolean {
 
 const userBase = join(homedir(), '.threatcrush');
 
-const SYSTEM_PATHS = {
+export const SYSTEM_PATHS = {
   mode: 'system' as const,
   configDir: '/etc/threatcrush',
   configFile: '/etc/threatcrush/threatcrushd.conf',
@@ -27,7 +27,7 @@ const SYSTEM_PATHS = {
   socket: '/var/run/threatcrush/threatcrushd.sock',
 };
 
-const USER_PATHS = {
+export const USER_PATHS = {
   mode: 'user' as const,
   configDir: userBase,
   configFile: join(userBase, 'threatcrushd.conf'),

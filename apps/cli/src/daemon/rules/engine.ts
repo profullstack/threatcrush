@@ -41,9 +41,41 @@ export interface RuleMatch {
   or?: RuleMatch[];
 }
 
+/**
+ * What a window keeps per event: when, and from where. Never the event itself:
+ * a window used to hold every matching ThreatEvent (URL, user agent, details),
+ * and a window whose address never came back kept its events forever, because
+ * old ones were only dropped when a new one arrived for the same key and
+ * cleanup() only removed windows that were already empty. On dev2 (hundreds of
+ * thousands of addresses a day) that was ~280 MB an hour of heap.
+ */
 interface EventWindow {
-  events: Array<{ timestamp: number; event: ThreatEvent }>;
+  times: number[];
+  ips: Array<string | undefined>;
+  /** Index of the oldest entry still inside the rule's window. */
+  head: number;
   lastAlert: number;
+  /** The rule's window and cooldown, so cleanup() can expire it alone. */
+  windowMs: number;
+  cooldownMs: number;
+}
+
+/** Per-window ceiling. A threshold is the most any rule needs to see. */
+export const MAX_WINDOW_ENTRIES = 1000;
+
+function live(window: EventWindow): number {
+  return window.times.length - window.head;
+}
+
+/** Drop entries older than the window; compact now and then. */
+function expire(window: EventWindow, now: number): void {
+  const cutoff = now - window.windowMs;
+  while (window.head < window.times.length && window.times[window.head] < cutoff) window.head++;
+  if (window.head > 64 && window.head * 2 > window.times.length) {
+    window.times = window.times.slice(window.head);
+    window.ips = window.ips.slice(window.head);
+    window.head = 0;
+  }
 }
 
 export class RuleEngine {
@@ -96,30 +128,46 @@ export class RuleEngine {
       const windowKey = `${rule.id}:${groupBy}:${groupValue}`;
       let window = this.windows.get(windowKey);
       if (!window) {
-        window = { events: [], lastAlert: 0 };
+        window = {
+          times: [],
+          ips: [],
+          head: 0,
+          lastAlert: 0,
+          windowMs: rule.window_seconds * 1000,
+          cooldownMs: rule.cooldown_seconds * 1000,
+        };
         this.windows.set(windowKey, window);
       }
 
-      // Add event to window
-      window.events.push({ timestamp: now, event });
-
-      // Prune old events outside window
-      const cutoff = now - (rule.window_seconds * 1000);
-      window.events = window.events.filter(e => e.timestamp >= cutoff);
+      // Add the event, drop what fell out of the window, and keep at most
+      // MAX_WINDOW_ENTRIES (the newest): past that, more entries change nothing
+      // but the reported count, which then reads "1000+".
+      window.times.push(now);
+      window.ips.push(event.source_ip);
+      expire(window, now);
+      const cap = Math.max(rule.threshold, MAX_WINDOW_ENTRIES);
+      let capped = false;
+      if (live(window) > cap) {
+        window.head = window.times.length - cap;
+        capped = true;
+        expire(window, now);
+      }
 
       // Check threshold
-      if (window.events.length < rule.threshold) continue;
+      if (live(window) < rule.threshold) continue;
 
       // Check cooldown
-      if (window.lastAlert > 0 && (now - window.lastAlert) < (rule.cooldown_seconds * 1000)) continue;
+      if (window.lastAlert > 0 && (now - window.lastAlert) < window.cooldownMs) continue;
 
       // Fire detection.
-      const hits = window.events.length;
-      const distinctIps = new Set(
-        window.events.map((e) => e.event.source_ip).filter(Boolean),
-      ).size;
+      const hits = live(window);
+      const distinctIps = new Set(window.ips.slice(window.head).filter(Boolean)).size;
       window.lastAlert = now;
-      window.events = []; // Reset window after detection
+      // Reset window after detection
+      window.times = [];
+      window.ips = [];
+      window.head = 0;
+      const hitsLabel = capped ? `${hits}+` : String(hits);
 
       // An aggregate detection has no single culprit — attributing it to the
       // last event's IP would ban one arbitrary member of the crowd (often the
@@ -134,7 +182,7 @@ export class RuleEngine {
         rule_id: rule.id,
         severity: rule.severity,
         title: rule.title,
-        description: `${rule.description} (${hits} events in ${rule.window_seconds}s${spread})`,
+        description: `${rule.description} (${hitsLabel} events in ${rule.window_seconds}s${spread})`,
         source_ip: aggregate ? undefined : event.source_ip,
         username: event.details?.user as string || undefined,
         raw_metadata: {
@@ -200,13 +248,26 @@ export class RuleEngine {
     }
   }
 
-  // Periodic cleanup of stale windows
-  cleanup(): void {
-    const now = Date.now();
-    for (const [key, window] of this.windows.entries()) {
-      if (window.events.length === 0 && (now - window.lastAlert) > 3600_000) {
+  /**
+   * Expire every window by its own rule's length, and forget windows with
+   * nothing left in them once their cooldown is over (a cooldown must outlive
+   * an empty window, or a source could re-trigger the moment it was forgotten).
+   * Without the expiry, a window whose address never came back was kept forever.
+   */
+  cleanup(now: number = Date.now()): number {
+    let removed = 0;
+    for (const [key, window] of this.windows) {
+      expire(window, now);
+      if (live(window) === 0 && (window.lastAlert === 0 || now - window.lastAlert >= window.cooldownMs)) {
         this.windows.delete(key);
+        removed++;
       }
     }
+    return removed;
+  }
+
+  /** How many windows are open, for tests and the status report. */
+  windowCount(): number {
+    return this.windows.size;
   }
 }

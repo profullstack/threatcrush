@@ -1,5 +1,5 @@
-import { existsSync, statSync, createReadStream, accessSync, constants } from 'node:fs';
-import { createInterface } from 'node:readline';
+import { existsSync, accessSync, constants } from 'node:fs';
+import { LogTail } from '../../core/log-tail.js';
 import type { EventBus } from '../event-bus.js';
 import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, parseAuthLog, parseNginxLog } from '../../core/log-parser.js';
 import { insertEvent } from '../../core/state.js';
@@ -20,7 +20,7 @@ export const DEFAULT_SOURCES: LogSource[] = [
 
 export class LogWatcher {
   private timers = new Map<string, NodeJS.Timeout>();
-  private positions = new Map<string, number>();
+  private tails = new Map<string, LogTail>();
   private active = new Set<string>();
 
   constructor(private bus: EventBus, private sources: LogSource[] = DEFAULT_SOURCES) {}
@@ -40,7 +40,7 @@ export class LogWatcher {
   stop(): void {
     for (const t of this.timers.values()) clearInterval(t);
     this.timers.clear();
-    this.positions.clear();
+    this.tails.clear();
     this.active.clear();
   }
 
@@ -58,37 +58,24 @@ export class LogWatcher {
   }
 
   private tail(src: LogSource): void {
-    try {
-      this.positions.set(src.path, statSync(src.path).size);
-    } catch {
-      this.positions.set(src.path, 0);
-    }
-
+    const tail = new LogTail(src.path);
+    this.tails.set(src.path, tail);
     const timer = setInterval(() => this.poll(src), 1000);
     this.timers.set(src.path, timer);
     this.active.add(src.module);
   }
 
-  private poll(src: LogSource): void {
-    let stat;
-    try { stat = statSync(src.path); } catch { return; }
-    const prev = this.positions.get(src.path) ?? 0;
-
-    if (stat.size < prev) {
-      this.positions.set(src.path, 0); // rotated
-      return;
-    }
-    if (stat.size === prev) return;
-
-    const stream = createReadStream(src.path, { start: prev, encoding: 'utf-8' });
-    stream.on('error', () => this.positions.set(src.path, stat.size));
-    const rl = createInterface({ input: stream });
-    rl.on('error', () => {});
-    rl.on('line', (line) => {
-      if (!line.trim()) return;
-      this.process(line, src);
+  /** Each new line exactly once; see LogTail for why this is synchronous. */
+  poll(src: LogSource): number {
+    const tail = this.tails.get(src.path);
+    if (!tail) return 0;
+    return tail.poll((line) => {
+      try {
+        this.process(line, src);
+      } catch {
+        // one bad line must not stop the rest
+      }
     });
-    rl.on('close', () => this.positions.set(src.path, stat.size));
   }
 
   private process(line: string, src: LogSource): void {

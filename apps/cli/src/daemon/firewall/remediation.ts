@@ -1,4 +1,5 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import { isIP } from 'node:net';
 import type { FirewallAdapter } from './adapters.js';
 import type { EventBus } from '../event-bus.js';
@@ -11,9 +12,13 @@ import {
   currentSshClient,
   defaultGateways,
   establishedSshPeers,
+  isAutomationKeyComment,
+  moshClients,
+  parseKeyLogins,
   isProtected,
 } from './protected.js';
 import { crawlerVerifier } from './crawlers.js';
+import { takeSnapshot } from '../../core/privileges/index.js';
 
 export interface BlockEntry {
   ip: string;
@@ -48,6 +53,15 @@ export interface RemediationConfig {
   allowlist: string[];
   protect_current_ssh_client: boolean;
   /**
+   * Remember every address an operator has really come from — a live SSH or
+   * mosh session, or a key-based SSH login in the journal — and never ban it
+   * for `operator_memory_seconds`. Live-session protection alone forgets on
+   * restart and cannot help an operator whose address was banned before they
+   * connected.
+   */
+  protect_recent_operators: boolean;
+  operator_memory_seconds: number;
+  /**
    * Never auto-ban a search crawler verified by forward-confirmed reverse DNS
    * (Googlebot, Bingbot). The event is still recorded; only the ban is skipped.
    * A manual `threatcrush block` still works.
@@ -66,7 +80,44 @@ const DEFAULT_CONFIG: RemediationConfig = {
   strike_memory_seconds: 30 * 86400,
   allowlist: [],
   protect_current_ssh_client: true,
+  protect_recent_operators: true,
+  operator_memory_seconds: 30 * 86400,
   spare_verified_crawlers: true,
+};
+
+/** Where operator addresses are discovered; replaced in tests. */
+export interface OperatorDiscovery {
+  sshPeers: () => string[];
+  moshClients: () => string[];
+  /** `journalctl -o short-unix` output covering the memory window. */
+  keyLoginJournal: (sinceSeconds: number) => Promise<string>;
+  /** Fingerprints of keys whose authorized_keys comment marks automation. */
+  automationKeys: () => Set<string>;
+}
+
+const defaultDiscovery: OperatorDiscovery = {
+  sshPeers: () => [currentSshClient(), ...establishedSshPeers()].filter((ip): ip is string => Boolean(ip)),
+  moshClients: () => moshClients(),
+  automationKeys: () => {
+    const snapshot = takeSnapshot({
+      readFile: (p) => { try { return readFileSync(p, 'utf-8'); } catch { return null; } },
+      readDir: (p) => { try { return readdirSync(p); } catch { return null; } },
+      exists: (p) => existsSync(p),
+    });
+    const out = new Set<string>();
+    for (const keys of Object.values(snapshot.keys)) {
+      for (const [fp, k] of Object.entries(keys)) if (isAutomationKeyComment(k.comment)) out.add(fp);
+    }
+    return out;
+  },
+  keyLoginJournal: (sinceSeconds) => new Promise((resolve) => {
+    execFile(
+      'journalctl',
+      ['_COMM=sshd', '_COMM=sshd-session', `--since=-${Math.ceil(sinceSeconds / 86400)}d`, '-o', 'short-unix', '--no-pager', '--grep', 'Accepted publickey'],
+      { maxBuffer: 32 * 1024 * 1024, timeout: 60_000 },
+      (_err, stdout) => resolve(stdout ?? ''),
+    );
+  }),
 };
 
 const SEVERITY_RANK: Record<string, number> = {
@@ -95,6 +146,19 @@ export function isSuccessfulAuth(message: string): boolean {
 
 export function explainBlockFailure(err: Error, backend: string): string {
   const raw = err.message || String(err);
+
+  // EROFS is the systemd sandbox (ProtectSystem/ProtectHome), not a missing
+  // privilege: root cannot write a path the unit mounted read-only. The unit
+  // from an older install-service did not list what this backend writes.
+  if (/EROFS|read-only file system/i.test(raw)) {
+    const path = /open '([^']+)'/.exec(raw)?.[1];
+    return (
+      `threatcrushd cannot write ${path ?? 'its firewall config'} for ${backend}: the systemd unit ` +
+      'mounts it read-only. Reinstall the unit and restart: ' +
+      'sudo $(which threatcrush) install-service && sudo systemctl restart threatcrushd'
+    );
+  }
+
   const denied = /not permitted|EACCES|EPERM|permission denied|must be root/i.test(raw);
   if (!denied) return `${raw} (backend: ${backend})`;
 
@@ -114,13 +178,17 @@ export class RemediationManager {
   private blocklist: BlockEntry[] = [];
   private strikes: Record<string, Strike> = {};
   private protectedList: string[] = [];
+  /** Operator address → last time seen (ms), persisted. */
+  private operators: Record<string, number> = {};
   private expiryTimer: NodeJS.Timeout | null = null;
+  private operatorTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private adapter: FirewallAdapter,
     private bus: EventBus,
     config?: Partial<RemediationConfig>,
     private verifyCrawler: (ip: string) => Promise<string | null> = crawlerVerifier(),
+    private discovery: OperatorDiscovery = defaultDiscovery,
   ) {
     // A copy: addToAllowlist pushes into this array, and sharing it with
     // DEFAULT_CONFIG leaked one manager's runtime additions into the next.
@@ -132,14 +200,52 @@ export class RemediationManager {
     // the same list.
     this.protectedList = [...DEFAULT_PROTECTED, ...this.config.allowlist];
     for (const gateway of defaultGateways()) this.protectedList.push(gateway);
-    this.refreshSshProtection();
 
     // A dry-run adapter cannot enforce whatever the config says.
     if (this.adapter.enforces === false) this.config.dry_run = true;
 
     this.loadState();
+    this.refreshSshProtection();
     void this.reconcile();
     this.startExpiryWorker();
+    if (this.config.protect_recent_operators) void this.seedOperatorsFromJournal();
+  }
+
+  /** Remembered operator addresses and when each was last seen. */
+  getOperators(): Record<string, number> { return { ...this.operators }; }
+
+  /**
+   * An address an operator really came from: never ban it, remember it, and
+   * lift a ban that is already on it — the operator is the one who needs in.
+   */
+  private noteOperator(ip: string, at: number, remember = true): void {
+    // A login older than the memory is history, not an operator address.
+    if (Date.now() - at > this.config.operator_memory_seconds * 1000) return;
+    if (!this.protectedList.includes(ip)) this.protectedList.push(ip);
+    if (!remember || !this.config.protect_recent_operators || isProtected(ip, DEFAULT_PROTECTED)) return;
+    const known = this.operators[ip] ?? 0;
+    if (at > known) {
+      this.operators[ip] = at;
+      if (!known) this.logLine(`[firewall] operator address remembered: ${ip}`);
+      this.saveState();
+    }
+    if (this.blocklist.some((b) => b.ip === ip)) {
+      void this.unban(ip, { forget: true, reason: 'operator address (key login or live session)' });
+    }
+  }
+
+  /**
+   * Key-based SSH logins in the memory window, by keys that belong to people:
+   * a key whose comment marks automation (a CI deploy key) logs in from
+   * shared cloud runners, and remembering those would allowlist hundreds of
+   * strangers' addresses — dev2 saw 308 distinct key-login IPs in 30 days.
+   */
+  async seedOperatorsFromJournal(): Promise<void> {
+    try {
+      const automation = this.discovery.automationKeys();
+      const journal = await this.discovery.keyLoginJournal(this.config.operator_memory_seconds);
+      for (const [ip, at] of parseKeyLogins(journal, (fp) => automation.has(fp))) this.noteOperator(ip, at);
+    } catch { /* no journal: live sessions still count */ }
   }
 
   /** Every address that can never be blocked, built-ins included. */
@@ -155,10 +261,12 @@ export class RemediationManager {
    */
   private refreshSshProtection(): void {
     if (!this.config.protect_current_ssh_client) return;
-    const candidates = [currentSshClient(), ...establishedSshPeers()];
-    for (const ip of candidates) {
-      if (ip && !this.protectedList.includes(ip)) this.protectedList.push(ip);
-    }
+    const now = Date.now();
+    // A live SSH peer is protected while connected but not remembered: a CI
+    // deploy is a live session too. Its key login reaches the memory through
+    // the journal, where the key can be told apart. mosh is a person.
+    for (const ip of this.discovery.sshPeers()) this.noteOperator(ip, now, false);
+    for (const ip of this.discovery.moshClients()) this.noteOperator(ip, now);
   }
 
   isAllowlisted(ip: string): boolean {
@@ -426,7 +534,9 @@ export class RemediationManager {
 
   stop(): void {
     if (this.expiryTimer) clearInterval(this.expiryTimer);
+    if (this.operatorTimer) clearInterval(this.operatorTimer);
     this.expiryTimer = null;
+    this.operatorTimer = null;
   }
 
   /**
@@ -484,6 +594,11 @@ export class RemediationManager {
     // 30s sweep turns that into anywhere between one and one and a half.
     this.expiryTimer = setInterval(() => void this.processExpiries(), 10_000);
     this.expiryTimer.unref?.();
+    // A person's new key login is remembered within the hour, not at the next restart.
+    if (this.config.protect_recent_operators) {
+      this.operatorTimer = setInterval(() => void this.seedOperatorsFromJournal(), 3_600_000);
+      this.operatorTimer.unref?.();
+    }
   }
 
   private async processExpiries(): Promise<void> {
@@ -495,6 +610,14 @@ export class RemediationManager {
     const pruned = pruneStrikes(this.strikes, now, this.config.strike_memory_seconds);
     if (Object.keys(pruned).length !== Object.keys(this.strikes).length) {
       this.strikes = pruned;
+      this.saveState();
+    }
+    // An operator address not seen for the whole memory is forgotten on the
+    // next restart; it stays protected for the life of this process.
+    const cutoff = now - this.config.operator_memory_seconds * 1000;
+    const stale = Object.keys(this.operators).filter((ip) => this.operators[ip] < cutoff);
+    if (stale.length > 0) {
+      for (const ip of stale) delete this.operators[ip];
       this.saveState();
     }
   }
@@ -517,12 +640,26 @@ export class RemediationManager {
       const saved = getModuleState('firewall-rules', 'strikes') as Record<string, Strike> | undefined;
       if (saved && typeof saved === 'object') this.strikes = saved;
     } catch { /* State DB may not be available */ }
+
+    try {
+      const saved = getModuleState('firewall-rules', 'operators') as Record<string, number> | undefined;
+      if (saved && typeof saved === 'object' && this.config.protect_recent_operators) {
+        const cutoff = Date.now() - this.config.operator_memory_seconds * 1000;
+        for (const [ip, at] of Object.entries(saved)) {
+          if (typeof at !== 'number' || at < cutoff || !isIP(ip)) continue;
+          this.operators[ip] = at;
+          if (!this.protectedList.includes(ip)) this.protectedList.push(ip);
+        }
+      }
+    } catch { /* State DB may not be available */ }
   }
 
   private saveState(): void {
     try { setModuleState('firewall-rules', 'blocklist', this.blocklist); }
     catch { /* State DB may not be available */ }
     try { setModuleState('firewall-rules', 'strikes', this.strikes); }
+    catch { /* State DB may not be available */ }
+    try { setModuleState('firewall-rules', 'operators', this.operators); }
     catch { /* State DB may not be available */ }
   }
 

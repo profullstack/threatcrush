@@ -13,6 +13,9 @@ import { CloudSync } from './workers/cloud-sync.js';
 import { AbuseReporter } from './workers/abuse-reporter.js';
 import { RemediationConsumer } from './workers/remediation-consumer.js';
 import { AllowlistSync } from './workers/allowlist-sync.js';
+import { AutoUpdate, updateSettings } from './workers/auto-update.js';
+import { ThreatFeeds, threatFeedSettings } from './workers/threat-feeds.js';
+import { PrivilegeWatch, privilegeSettings } from './workers/privilege-watch.js';
 import { RuleEngine } from './rules/engine.js';
 import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
@@ -21,7 +24,8 @@ import { remediationSettings } from './firewall/settings.js';
 import { formatDuration } from './firewall/backoff.js';
 import { bus } from './event-bus.js';
 import { startWatchdog } from './watchdog-service.js';
-import { initStateDB, closeDB } from '../core/state.js';
+import { initStateDB, closeDB, pruneEvents, DEFAULT_EVENT_RETENTION_SECONDS, DEFAULT_MAX_EVENTS } from '../core/state.js';
+import { parseDuration } from './firewall/backoff.js';
 import { loadConfig } from '../core/config.js';
 import { configureAttackDetection } from '../core/log-parser.js';
 import { captureException, flushTelemetry, initTelemetry } from '../core/telemetry.js';
@@ -51,7 +55,23 @@ async function runHardeningChecks(): Promise<HardeningResult[]> {
     { timeout: 120_000, maxBuffer: 4 * 1024 * 1024 },
   );
   const parsed = JSON.parse(stdout.slice(stdout.indexOf('{'))) as { findings?: HardeningResult[] };
-  return Array.isArray(parsed.findings) ? parsed.findings : [];
+  const findings = Array.isArray(parsed.findings) ? parsed.findings : [];
+  const patches = await runPatchCheck().catch((err: Error) => {
+    logLine(`[cloud] patch check failed: ${err.message.split('\n')[0]}`);
+    return null;
+  });
+  return patches ? [...findings, patches] : findings;
+}
+
+/** `threatcrush patches --json`, same reasoning: apt and OSV can take a while. */
+async function runPatchCheck(): Promise<HardeningResult | null> {
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [join(__dirname, 'index.js'), 'patches', '--json', '--no-upload'],
+    { timeout: 300_000, maxBuffer: 16 * 1024 * 1024 },
+  );
+  const parsed = JSON.parse(stdout.slice(stdout.indexOf('{'))) as { finding?: HardeningResult };
+  return parsed.finding ?? null;
 }
 
 function logLine(line: string): void {
@@ -113,6 +133,22 @@ export async function runDaemon(): Promise<void> {
   const config = loadConfig(existsSync(PATHS.configFile) ? PATHS.configFile : undefined);
   configureAttackDetection(config.detection);
 
+  // Bounded history: without this the events table grew without limit (85 GB
+  // on dev2) and the daemon stopped answering. A few batches every minute
+  // catches up on a backlog without ever holding the daemon for long.
+  const retentionSeconds = parseDuration(config.storage?.event_retention) ?? DEFAULT_EVENT_RETENTION_SECONDS;
+  const maxEvents = config.storage?.max_events ?? DEFAULT_MAX_EVENTS;
+  const prune = () => {
+    try {
+      const n = pruneEvents({ retentionSeconds, maxEvents });
+      if (n) logLine(`[daemon] pruned ${n} events (keep ${config.storage?.event_retention ?? '14d'}, at most ${maxEvents})`);
+    } catch (err) {
+      logLine(`[daemon] event pruning failed: ${(err as Error).message}`);
+    }
+  };
+  setTimeout(prune, 5_000);
+  setInterval(prune, 60_000);
+
   bus.on('event', (event: ThreatEvent) => {
     logLine(`[event] ${event.severity} ${event.module} ${event.message}`);
   });
@@ -143,7 +179,9 @@ export async function runDaemon(): Promise<void> {
     if (event.module !== 'rule-engine') ruleEngine.evaluate(event);
   });
   logLine(`[daemon] rule engine loaded ${ruleEngine.getRules().length} rules`);
-  setInterval(() => ruleEngine.cleanup(), 300_000);
+  // Every minute: a window whose source never returns is dropped once it
+  // expires, instead of holding its events for the life of the daemon.
+  setInterval(() => ruleEngine.cleanup(), 60_000);
 
   // Firewall auto-remediation (PRD 02 / PRD 0010)
   const settings = remediationSettings(config.remediation);
@@ -167,6 +205,28 @@ export async function runDaemon(): Promise<void> {
   if (firewallAdapter.enforces === false) {
     logLine('[daemon] no manageable firewall found (need fail2ban, nftables or iptables) — bans are simulated');
   }
+
+  // Known C2 and malware hosts from abuse.ch (`[threat_feeds]`): detect always, block opt-in.
+  const feedSettings = threatFeedSettings(config.threat_feeds);
+  const threatFeeds = new ThreatFeeds({
+    settings: { ...feedSettings, allow: [...feedSettings.allow, ...remediation.getAllowlist()] },
+    enforcing: !remediationStatus.dry_run && firewallAdapter.enforces !== false,
+    cachePath: join(PATHS.stateDir, 'threat-feeds.json'),
+    bus,
+    log: logLine,
+  });
+  threatFeeds.start();
+
+  // Who can become root, the sudo ledger, new-country logins (`[privileged]`).
+  const privilegeWatch = new PrivilegeWatch({
+    settings: privilegeSettings(config.privileged),
+    bus,
+    snapshotPath: join(PATHS.stateDir, 'privileges.json'),
+    loginsPath: join(PATHS.stateDir, 'login-countries.json'),
+    cursorPath: join(PATHS.stateDir, 'sudo-cursor.json'),
+    log: logLine,
+  });
+  privilegeWatch.start();
 
   new AlertDispatcher(bus, config);
 
@@ -215,6 +275,18 @@ export async function runDaemon(): Promise<void> {
   // Every attack to disk for triage (`threatcrush watchdog`), dashboard or not.
   const watchdog = startWatchdog({ bus, config: config.watchdog, stateDir: PATHS.stateDir, log: logLine });
 
+  // Keep this box on the latest release (`[update]`, on by default).
+  const autoUpdate = new AutoUpdate({
+    version,
+    settings: updateSettings(config.update),
+    pkgRoot: join(__dirname, '..'),
+    statePath: join(PATHS.stateDir, 'auto-update.json'),
+    bus,
+    log: logLine,
+    restartDaemon,
+  });
+  autoUpdate.start();
+
   const ipc = new IpcServer(version, moduleHost, remediation, () => watchdog.status());
   await ipc.start();
   logLine(`[daemon] ipc listening on ${PATHS.socket}`);
@@ -229,6 +301,9 @@ export async function runDaemon(): Promise<void> {
     try { abuseReporter.stop(); } catch {}
     try { await moduleHost.stop(); } catch {}
     try { watchdog.stop(); } catch {}
+    try { autoUpdate.stop(); } catch {}
+    try { threatFeeds.stop(); } catch {}
+    try { privilegeWatch.stop(); } catch {}
     try { await ipc.stop(); } catch {}
     try { closeDB(); } catch {}
     try { await flushTelemetry(); } catch {}
