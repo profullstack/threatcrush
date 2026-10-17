@@ -80,7 +80,8 @@ const withTimeout = <T>(p: Promise<T>, ms: number, fallback: T): Promise<T> =>
 
 /** nichedb.dev's public answer for a domain (abuse.ch, SURBL). Null when it cannot answer in time. */
 export async function nichedbDomain(domain: string, fetchImpl: typeof fetch = fetch): Promise<DomainReport["nichedb"]> {
-  const key = process.env["NICHEDB_API_KEY"];
+  // The shared TRAFFIC_FEED_TOKEN is how nichedb knows the caller is ThreatCrush (no keyless metering).
+  const key = process.env["NICHEDB_API_KEY"] || process.env["TRAFFIC_FEED_TOKEN"];
   const res = await withTimeout(
     fetchImpl(`https://nichedb.dev/api/v1/reputation/${encodeURIComponent(domain)}`, {
       headers: key ? { authorization: `Bearer ${key}` } : {},
