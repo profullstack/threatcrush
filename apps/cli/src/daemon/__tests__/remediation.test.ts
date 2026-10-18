@@ -121,6 +121,17 @@ describe('RemediationManager', () => {
     expect(adapter.blocked.size).toBe(0);
   });
 
+  it('never bans a Cloudflare edge or a public resolver: one ban there blocks every visitor', async () => {
+    const manager = make();
+    for (const ip of ['172.71.183.86', '104.16.1.1', '2606:4700::6810:1', '1.1.1.1', '8.8.8.8']) {
+      await manager.handleDetection(detection(ip, 'critical'));
+    }
+    expect(manager.getBlocklist()).toHaveLength(0);
+    expect(adapter.blocked.size).toBe(0);
+    await manager.handleDetection(detection('45.148.10.7', 'critical'));
+    expect(adapter.blocked.size).toBe(1);
+  });
+
   it('refuses a manual ban on a protected address with a reason', async () => {
     const manager = make();
     const result = await manager.ban('127.0.0.1', 'operator');

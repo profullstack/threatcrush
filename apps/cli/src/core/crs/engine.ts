@@ -55,6 +55,24 @@ export const ARGUMENT_EXCLUSIONS: readonly ArgumentExclusion[] = [
   { ruleIds: [942100], path: /^\/rest\/v1\//, arg: 'select', value: /^[A-Za-z0-9_*,.:!()>-]+$/ },
 ];
 
+/**
+ * The command-word RCE rules (Unix 932260/932340, Windows 932370/932380)
+ * match a value that merely starts with, or "&"-joins, a command name. On a
+ * site whose filters are tool and language names that is every visitor:
+ * `?tag=docker-compose`, `?runtime=perl,node`, `?tags=prevention & control`
+ * (the 2026-10-18 nichedb review found 8,521 addresses banned for pages like
+ * these and nothing else). Words cannot execute anything without shell
+ * syntax, so these rules skip a value that is only words: letters, digits,
+ * spaces and `.,_+-/`, with `&` only as a spaced " & " between words, and
+ * none of ; | ` $ ( ) { } < > \ or a newline. Anything else is scored as before.
+ */
+export const COMMAND_WORD_RULE_IDS: ReadonlySet<number> = new Set([932260, 932340, 932370, 932380]);
+const PLAIN_WORDS = /^[\p{L}\p{N}][\p{L}\p{N} .,_+/-]*(?: & [\p{L}\p{N}][\p{L}\p{N} .,_+/-]*)*$/u;
+
+export function isPlainWords(value: string): boolean {
+  return value.length <= 200 && PLAIN_WORDS.test(value);
+}
+
 /** What callers see as the attack type, from a rule's first recognised `attack-*` tag. */
 const ATTACK_TYPES: Record<string, string> = {
   'attack-sqli': 'sqli',
@@ -257,6 +275,7 @@ class RequestContext {
     const exclusions = ARGUMENT_EXCLUSIONS.filter((e) => e.path.test(path));
     return parseArguments(query).map(({ name, value }) => {
       const ids = exclusions.filter((e) => e.arg === name && e.value.test(value)).flatMap((e) => e.ruleIds);
+      if (isPlainWords(value)) ids.push(...COMMAND_WORD_RULE_IDS);
       return { value, cache: new Map(), ...(ids.length ? { excluded: new Set(ids) } : {}) };
     });
   }
