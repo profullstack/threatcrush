@@ -547,8 +547,14 @@ export class RemediationManager {
    */
   private async reconcile(): Promise<void> {
     const now = Date.now();
-    const live = this.blocklist.filter((b) => b.expires_at > now);
-    const stale = this.blocklist.filter((b) => b.expires_at <= now);
+    // A ban recorded before an address became protected (a Cloudflare edge
+    // banned by an older release, an operator added to the allowlist later) is
+    // lifted at start rather than left to its backstop: seed1 still held 9
+    // Cloudflare edges in its fail2ban jail after the upgrade that protects them.
+    const lifted = this.blocklist.filter((b) => this.isAllowlisted(b.ip));
+    for (const entry of lifted) this.logLine(`[firewall] reconcile: lifting ban on protected ${entry.ip}`);
+    const live = this.blocklist.filter((b) => b.expires_at > now && !this.isAllowlisted(b.ip));
+    const stale = this.blocklist.filter((b) => b.expires_at <= now || this.isAllowlisted(b.ip));
 
     for (const entry of stale) {
       if (!entry.dry_run) {
