@@ -19,6 +19,26 @@ export const DEFAULT_PROTECTED: string[] = [
   'fe80::/10',
 ];
 
+/**
+ * Shared infrastructure that is never one attacker and must never be blocked:
+ * Cloudflare's published ranges (cloudflare.com/ips) and the big public
+ * resolvers. A site behind Cloudflare whose nginx does not restore the real
+ * client address sees every visitor as a Cloudflare edge, and one ban there
+ * blocks all of them: the 2026-10-18 nichedb review found 1,514 Cloudflare
+ * addresses banned by the fleet. Kept apart from DEFAULT_PROTECTED, which
+ * other modules read as "local or private".
+ */
+export const SHARED_INFRASTRUCTURE: string[] = [
+  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+  '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+  '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+  '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+  '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32',
+  '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+  '1.1.1.1/32', '1.0.0.1/32', '8.8.8.8/32', '8.8.4.4/32', '9.9.9.9/32',
+  '149.112.112.112/32', '208.67.222.222/32', '208.67.220.220/32',
+];
+
 /** Bytes of an IPv4 or IPv6 address, or null when it is neither. */
 export function ipToBytes(ip: string): Uint8Array | null {
   const version = isIP(ip);

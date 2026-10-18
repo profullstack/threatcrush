@@ -9,6 +9,7 @@ import type { ThreatEvent } from '../../types/events.js';
 import { DEFAULT_FIRST_BAN_SECONDS, banSeconds, formatDuration, pruneStrikes, recordStrike, type Strike } from './backoff.js';
 import {
   DEFAULT_PROTECTED,
+  SHARED_INFRASTRUCTURE,
   currentSshClient,
   defaultGateways,
   establishedSshPeers,
@@ -198,7 +199,7 @@ export class RemediationManager {
     // Built-ins first, then the operator's, then the two we discover at boot.
     // Assembled once, here, because R1 is only true if every write path shares
     // the same list.
-    this.protectedList = [...DEFAULT_PROTECTED, ...this.config.allowlist];
+    this.protectedList = [...DEFAULT_PROTECTED, ...SHARED_INFRASTRUCTURE, ...this.config.allowlist];
     for (const gateway of defaultGateways()) this.protectedList.push(gateway);
 
     // A dry-run adapter cannot enforce whatever the config says.
