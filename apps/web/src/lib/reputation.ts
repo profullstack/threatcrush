@@ -36,9 +36,8 @@ export interface ReputationPlan {
 }
 
 /**
- * Sales are off until REPUTATION_PRO_ENABLED=true: the prices below are
- * placeholders, and nobody pays a placeholder. The webhook and the tier check
- * work either way.
+ * Sales are on when REPUTATION_PRO_ENABLED=true (set in app.env since
+ * 2026-10-18). The webhook and the tier check work either way.
  */
 export function reputationProEnabled(): boolean {
   // Bracket access: read at runtime from app.env, never inlined at build.
@@ -46,10 +45,15 @@ export function reputationProEnabled(): boolean {
   return process.env[name] === "true";
 }
 
-/** Placeholder prices until Anthony sets them. */
+/**
+ * Anthony, 2026-10-18: "make it 4x our cost". Cost basis: dev2 is $149/mo and
+ * serves 111 sites; ThreatCrush, with its own Supabase stack, is given a
+ * generous 2.5% of it, $3.73/mo. 4x is $14.90, so $15/mo; the year is ten
+ * months' price.
+ */
 export const REPUTATION_PLANS: ReputationPlan[] = [
-  { id: "pro-monthly", name: "Reputation Pro, 1 month", months: 1, amount_usd: 29 },
-  { id: "pro-yearly", name: "Reputation Pro, 12 months", months: 12, amount_usd: 290 },
+  { id: "pro-monthly", name: "Reputation Pro, 1 month", months: 1, amount_usd: 15 },
+  { id: "pro-yearly", name: "Reputation Pro, 12 months", months: 12, amount_usd: 150 },
 ];
 
 /** Lookups a day per key or org. */
