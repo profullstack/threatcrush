@@ -27,7 +27,7 @@ const REPO_ROOT = join(__dirname, '..', '..', '..', '..');
 const CLAIM_FILES = [
   'README.md',
   'apps/cli/README.md',
-  'apps/web/src/app/page.tsx',
+  'apps/web/src/app/home-page.tsx',
   'apps/web/src/app/deck/page.tsx',
 ];
 

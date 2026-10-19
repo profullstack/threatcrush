@@ -46,7 +46,7 @@ describe("pricing page replacement", () => {
 
   it("leaves no link pointing at the removed route", () => {
     for (const file of [
-      "src/app/page.tsx",
+      "src/app/home-page.tsx",
       "src/app/about/page.tsx",
       "src/app/affiliates/page.tsx",
       "src/app/account/account-content.tsx",
