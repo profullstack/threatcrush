@@ -15,10 +15,13 @@ import { promises as dns } from 'node:dns';
  * resolve back to the same address. This is the check Google and Microsoft
  * document for verifying their crawlers.
  *
+ * Applebot is verified the same way (Apple documents `*.applebot.apple.com`)
+ * and is welcome: it feeds Siri and Spotlight, which send readers back.
+ *
  * `googleusercontent.com` is deliberately absent: that is Google Cloud
  * customers, i.e. anyone.
  */
-export const CRAWLER_DOMAINS = ['googlebot.com', 'google.com', 'search.msn.com'];
+export const CRAWLER_DOMAINS = ['googlebot.com', 'google.com', 'search.msn.com', 'applebot.apple.com'];
 
 export interface Resolver {
   reverse(ip: string): Promise<string[]>;
