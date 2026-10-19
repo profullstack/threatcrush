@@ -13,6 +13,15 @@ export default function SiteFooter() {
             <p className="mt-2 text-xs text-tc-text-dim max-w-[14rem]">
               Continuous threat exposure management for builders.
             </p>
+            <a href="https://built.indie.pit.world/p/threatcrush?ref=badge" className="mt-4 inline-block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="https://built.indie.pit.world/badge/threatcrush.svg"
+                alt="ThreatCrush on built.indie"
+                width="200"
+                height="44"
+              />
+            </a>
           </div>
 
           <div>
