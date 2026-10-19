@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireServer } from "@/lib/route-access";
+import { withConnectionState } from "@/lib/server-status";
 
 type Params = { params: Promise<{ id: string; server_id: string }> };
 
@@ -9,7 +10,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     const { id: orgId, server_id } = await params;
     const access = await requireServer(req, orgId, server_id, "read");
     if ("error" in access) return access.error;
-    return NextResponse.json({ server: { ...access.server, my_role: access.role } });
+    return NextResponse.json({ server: { ...withConnectionState(access.server), my_role: access.role } });
   } catch (err) {
     console.error("Get server error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

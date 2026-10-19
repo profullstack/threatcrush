@@ -9,6 +9,18 @@ import {
   updateCliConfig,
 } from "../core/cli-config.js";
 
+
+/**
+ * What to show for a server: older dashboards return the stored status, which a
+ * heartbeat sets to online and nothing ever sets back, so judge by last_seen
+ * (3 minutes, the same rule as the web app) and keep a stored "unreachable".
+ */
+export function connectionStatus(server: { status?: string | null; last_seen?: string | null }, now = Date.now()): string {
+  const seen = server.last_seen ? Date.parse(server.last_seen) : NaN;
+  const online = Number.isFinite(seen) && now - seen <= 3 * 60 * 1000;
+  if (!online) return "offline";
+  return server.status === "unreachable" ? "unreachable" : "online";
+}
 interface Server {
   id: string;
   name: string;
@@ -249,7 +261,8 @@ async function listServers(orgSlug?: string): Promise<void> {
       return;
     }
 
-    for (const server of servers) {
+    for (const raw of servers) {
+      const server = { ...raw, status: connectionStatus(raw) };
       const statusColor = server.status === "online" ? chalk.green : server.status === "unreachable" ? chalk.red : chalk.gray;
       const statusDot = server.status === "online" ? "●" : "○";
       const self = server.id === config.server_id ? chalk.cyan(" (this machine)") : "";

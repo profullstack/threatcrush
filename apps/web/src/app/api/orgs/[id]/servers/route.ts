@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { roleInScope, visibleIn } from "@/lib/access";
 import { requireOrgScope } from "@/lib/route-access";
+import { withConnectionState } from "@/lib/server-status";
 
 // GET /api/orgs/[org_id]/servers — the org's servers the caller can see (team
 // fleets, agent keys: see lib/access), with the caller's role on each.
@@ -25,7 +26,8 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch servers" }, { status: 500 });
     }
 
-    const visible = visibleIn(access.scope, servers || []).map((s) => ({ ...s, my_role: roleInScope(access.scope, s) }));
+    const now = Date.now();
+    const visible = visibleIn(access.scope, servers || []).map((s) => ({ ...withConnectionState(s, now), my_role: roleInScope(access.scope, s) }));
     return NextResponse.json({ servers: visible });
   } catch (err) {
     console.error("List servers error:", err);
