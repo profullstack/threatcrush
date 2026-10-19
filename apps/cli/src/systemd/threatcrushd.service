@@ -3,13 +3,21 @@ Description=ThreatCrush Security Agent Daemon
 Documentation=https://threatcrush.com
 After=network-online.target
 Wants=network-online.target
+# A daemon that cannot start (say, an ExecStart path a pnpm upgrade removed)
+# gives up after 10 tries in 5 minutes instead of looping forever.
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple
 # The path to the CLI binary is filled in by `threatcrush install-service`.
 ExecStart={{BIN_PATH}} daemon
-Restart=on-failure
-RestartSec=3
+# always, not on-failure: earlyoom and other memory-pressure killers stop the
+# daemon with SIGTERM, it shuts down cleanly and exits 0, and on-failure reads
+# that as a deliberate stop. Seen on bbs.profullstack.com: down 8 days after
+# one low-memory night. `systemctl stop` still stops it for good.
+Restart=always
+RestartSec=10
 KillSignal=SIGTERM
 TimeoutStopSec=10
 

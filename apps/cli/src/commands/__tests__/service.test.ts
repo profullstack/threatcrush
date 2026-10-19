@@ -62,6 +62,20 @@ describe("systemd unit template", () => {
   });
 });
 
+describe("restart policy", () => {
+  const UNIT = readFileSync(join(__dirname, "..", "..", "systemd", "threatcrushd.service"), "utf-8");
+
+  it("comes back after a clean SIGTERM exit, but not in an endless loop", () => {
+    // earlyoom's SIGTERM makes the daemon exit 0; on-failure left it down.
+    expect(UNIT).toMatch(/^Restart=always$/m);
+    expect(UNIT).not.toMatch(/^Restart=on-failure$/m);
+    expect(UNIT).toMatch(/^StartLimitBurst=\d+$/m);
+    // StartLimit* belong in [Unit]; systemd ignores them under [Service].
+    const unitSection = UNIT.split("[Service]")[0];
+    expect(unitSection).toMatch(/^StartLimitIntervalSec=\d+$/m);
+  });
+});
+
 describe("renderUnit", () => {
   const UNIT = readFileSync(join(__dirname, "..", "..", "systemd", "threatcrushd.service"), "utf-8");
   const rendered = renderUnit(UNIT, {
