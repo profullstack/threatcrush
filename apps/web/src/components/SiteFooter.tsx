@@ -1,94 +1,35 @@
-import { Footer } from "@profullstack/footer/react";
+const linkClass = "hover:text-tc-green transition-colors";
 
-const linkClass = "text-sm text-tc-text-dim hover:text-tc-green transition-colors";
-const headingClass = "text-xs font-mono uppercase tracking-wider text-tc-text mb-3";
+const links = [
+  { label: "Docs", href: "/docs" },
+  { label: "Module Store", href: "/store" },
+  { label: "Blog", href: "/blog" },
+  { label: "Hire Us", href: "/hire" },
+  { label: "About", href: "/about" },
+  { label: "Investors", href: "/investors" },
+  { label: "Security", href: "/security" },
+  { label: "Terms", href: "/terms" },
+  { label: "Privacy", href: "/privacy" },
+  { label: "GitHub", href: "https://github.com/profullstack/threatcrush" },
+];
 
 export default function SiteFooter() {
   return (
-    <footer className="border-t border-tc-border py-12 mt-12">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-5">
-          <div className="col-span-2 md:col-span-1">
-            <div className="font-mono text-tc-green font-bold text-lg">⚡ ThreatCrush</div>
-            <p className="mt-2 text-xs text-tc-text-dim max-w-[14rem]">
-              Continuous threat exposure management for builders.
-            </p>
-            <a href="https://built.indie.pit.world/p/threatcrush?ref=badge" className="mt-4 inline-block">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="https://built.indie.pit.world/badge/threatcrush.svg"
-                alt="ThreatCrush on built.indie"
-                width="200"
-                height="44"
-              />
-            </a>
-          </div>
-
-          <div>
-            <h3 className={headingClass}>Product</h3>
-            <ul className="space-y-2">
-              <li><a href="/#features" className={linkClass}>Features</a></li>
-              <li><a href="/store" className={linkClass}>Module Store</a></li>
-              <li><a href="/blog" className={linkClass}>Blog</a></li>
-              <li><a href="/docs" className={linkClass}>Docs</a></li>
-              <li><a href="/usage" className={linkClass}>Usage</a></li>
-              <li><a href="/hire" className={linkClass}>Hire Us</a></li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className={headingClass}>Company</h3>
-            <ul className="space-y-2">
-              <li><a href="/about" className={linkClass}>About</a></li>
-              <li><a href="/read/ctem-guide" className={linkClass}>CTEM Guide</a></li>
-              <li><a href="/read/ctem-guide#checklist" className={linkClass}>CTEM Readiness Check</a></li>
-              <li><a href="/investors" className={linkClass}>Investors</a></li>
-              <li><a href="/affiliates" className={linkClass}>Affiliates</a></li>
-              <li><a href="/#faq" className={linkClass}>FAQ</a></li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className={headingClass}>Connect</h3>
-            <ul className="space-y-2">
-              <li>
-                <a
-                  href="https://github.com/profullstack/threatcrush"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={linkClass}
-                >
-                  GitHub
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://www.npmjs.com/package/@profullstack/threatcrush"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={linkClass}
-                >
-                  npm
-                </a>
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className={headingClass}>Legal</h3>
-            <ul className="space-y-2">
-              <li><a href="/security" className={linkClass}>Security</a></li>
-              <li><a href="/terms" className={linkClass}>Terms</a></li>
-              <li><a href="/privacy" className={linkClass}>Privacy</a></li>
-            </ul>
-          </div>
-        </div>
-
-        {/* Copyright + Profullstack webring: @profullstack/footer (server-rendered) */}
-        <div className="mt-10 font-mono">
-          <Footer site="https://threatcrush.com/" tagline="Built with ⚡ in the open" />
-        </div>
-      </div>
+    <footer className="border-t border-tc-border py-6 mt-12">
+      <nav
+        aria-label="Footer"
+        className="mx-auto max-w-6xl px-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-tc-text-dim"
+      >
+        <span className="font-mono">
+          &copy; {new Date().getFullYear()}{" "}
+          <a href="https://profullstack.com/" className={linkClass}>Profullstack, Inc.</a>
+        </span>
+        {links.map((link) => (
+          <a key={link.href} href={link.href} className={linkClass}>
+            {link.label}
+          </a>
+        ))}
+      </nav>
     </footer>
   );
 }
