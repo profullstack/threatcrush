@@ -36,6 +36,8 @@ export default async function BlogIndexPage() {
           </div>
         </header>
 
+        <AdUnit className="mb-12" />
+
         {posts.length === 0 ? (
           <div className="rounded-lg border border-tc-border/50 bg-tc-dark p-8 text-center text-tc-text-dim">
             No posts yet. Check back soon.
@@ -94,8 +96,6 @@ export default async function BlogIndexPage() {
             ))}
           </ul>
         )}
-
-        <AdUnit className="mt-12" />
       </div>
     </div>
   );

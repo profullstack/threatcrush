@@ -126,6 +126,8 @@ export default async function BlogPostPage({ params }: RouteParams) {
           )}
         </header>
 
+        <AdUnit className="mb-8" />
+
         {html ? (
           <div
             className="blog-content"
@@ -152,8 +154,6 @@ export default async function BlogPostPage({ params }: RouteParams) {
           </Link>
         </div>
       </article>
-
-      <AdUnit className="mx-auto max-w-3xl px-4 pb-16 sm:px-6" />
 
       <script
         type="application/ld+json"
