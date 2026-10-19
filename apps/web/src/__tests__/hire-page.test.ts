@@ -19,7 +19,7 @@ describe("hire page", () => {
 
     expect(read("src/app/sitemap.ts")).toContain('"/hire"');
     expect(read("src/components/SiteHeader.tsx")).toContain('href="/hire"');
-    expect(read("src/components/SiteFooter.tsx")).toContain('href="/hire"');
+    expect(read("src/components/SiteFooter.tsx")).toContain('href: "/hire"');
   });
 
   it("submits inquiries to the shared contact route under the hire topic", () => {

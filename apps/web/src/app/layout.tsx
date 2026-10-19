@@ -4,6 +4,7 @@ import "./globals.css";
 import { serializeJsonForHtml } from "@/lib/safe-json";
 import SiteHeader from "@/components/SiteHeader";
 import SiteFooter from "@/components/SiteFooter";
+import PitFooter from "@/components/PitFooter";
 import PwaLifecycle from "@/components/PwaLifecycle";
 import { AuthProvider } from "@/lib/auth-context";
 
@@ -245,7 +246,8 @@ export default function RootLayout({
           data-domain="threatcrush.com"
           strategy="afterInteractive"
         />
-              <Script data-site="09d382f0-1b98-4d28-b360-78eaf4e030f2" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
+        <Script data-site="09d382f0-1b98-4d28-b360-78eaf4e030f2" src="https://crawlproof.com/stats.js" strategy="afterInteractive" />
+        <PitFooter />
       </body>
     </html>
   );
