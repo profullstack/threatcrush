@@ -273,6 +273,76 @@ export const DEFAULT_RULES: DetectionRule[] = [
     enabled: true,
   },
   {
+    // The slow twin of paywall-hammering. A caller that paces itself under 30 a
+    // minute never trips that rule, yet twenty 402s in ten minutes from one
+    // address is not a reader deciding whether to pay: it has been told the
+    // price twenty times and kept walking. DataForSeoBot took ~21k pages a day
+    // from ONE address on watchnews.now (2026-10-19), about 15 a minute.
+    //
+    // A podcast app polling a paid feed, or a person who hit the free limit and
+    // clicks a few more links, stays far under this. FCrDNS-verified search
+    // crawlers are spared by remediation whatever they trip, and every ban
+    // follows the ladder, so a first offence is minutes, not days.
+    id: 'paywall-ignored',
+    title: 'Paywall Ignored',
+    description: 'One source kept requesting after twenty 402 Payment Required answers in ten minutes',
+    version: '1.0.0',
+    category: 'web',
+    severity: 'high',
+    source_types: ['log-watcher', 'web'],
+    match: {
+      field: 'message',
+      operator: 'regex',
+      value: 'Client error 402:',
+    },
+    threshold: 20,
+    window_seconds: 600,
+    cooldown_seconds: 600,
+    tags: ['web', 'scraper', 'x402', 'paywall'],
+    remediation: {
+      action: 'block',
+      description: 'Block a caller that keeps requesting after being told the price',
+    },
+    enabled: true,
+  },
+  {
+    // A crawler that names itself as a scraper (a headless browser, an SEO
+    // reseller) and is refused with a 402 has its answer; a fifth one inside five
+    // minutes from the same address means it is ignoring it. The gateway charges
+    // these by name (x402-gateway 0.8: HEADLESS_AGENTS + SCRAPER_AGENTS) and the
+    // resellers are refused in robots.txt too, so nothing welcome matches here.
+    // Search crawlers (Googlebot, bingbot, Applebot) are deliberately absent.
+    id: 'paywall-declared-scraper',
+    title: 'Declared Scraper Ignoring the Paywall',
+    description: 'A self-declared scraper or headless browser keeps requesting after 402 answers',
+    version: '1.0.0',
+    category: 'web',
+    severity: 'high',
+    source_types: ['log-watcher', 'web'],
+    match: {
+      field: 'message',
+      operator: 'regex',
+      value: 'Client error 402:',
+      and: [
+        {
+          field: 'ua',
+          operator: 'regex',
+          value:
+            '(Lightpanda|HeadlessChrome|PhantomJS|AhrefsBot|SemrushBot|MJ12bot|DataForSeoBot|DotBot|BLEXBot|serpstatbot|Barkrowler)',
+        },
+      ],
+    },
+    threshold: 5,
+    window_seconds: 300,
+    cooldown_seconds: 600,
+    tags: ['web', 'scraper', 'x402', 'paywall', 'headless'],
+    remediation: {
+      action: 'block',
+      description: 'Block a declared scraper that keeps requesting after being told the price',
+    },
+    enabled: true,
+  },
+  {
     // The distributed twin of paywall-hammering. A proxy swarm asks once per
     // address — 189k 402s across 111k IPs, ~1.7 each, observed on dev2's
     // r4ck.dev/rssamplifier paywalls 2026-09-25 — so nothing per-IP ever trips,
