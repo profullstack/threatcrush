@@ -96,7 +96,15 @@ const included = [
   "All core modules + future updates",
 ];
 
-const stripHtml = (s: string) => s.replace(/<[^>]*>/g, "");
+// Repeat until nothing changes: one pass over "<scr<b>ipt>" leaves "<script>".
+const stripHtml = (s: string) => {
+  let prev: string;
+  do {
+    prev = s;
+    s = s.replace(/<[^>]*>/g, "");
+  } while (s !== prev);
+  return s;
+};
 
 const faqJsonLd = {
   "@context": "https://schema.org",
