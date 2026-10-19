@@ -349,9 +349,12 @@ importers:
       '@profullstack/stack':
         specifier: ^0.2.0
         version: 0.2.0(next@16.3.8(@opentelemetry/api@1.9.1)(@types/node@20.19.39)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
+      '@profullstack/throttle':
+        specifier: ^0.3.2
+        version: 0.3.2
       '@profullstack/x402-gateway':
-        specifier: ^0.7.0
-        version: 0.7.0
+        specifier: ^0.10.1
+        version: 0.10.1
       '@sentry/node':
         specifier: ^8.45.0
         version: 8.55.1
@@ -2968,8 +2971,12 @@ packages:
       react:
         optional: true
 
-  '@profullstack/x402-gateway@0.7.0':
-    resolution: {integrity: sha512-xsZRWHdOD9Y9EuRS4PsRmykVS2geOu/luY0jBlliOF3SEgxiLhgmx7ks+2jOUtGlq+cIfSonnk5eEObRGCOJ9w==}
+  '@profullstack/throttle@0.3.2':
+    resolution: {integrity: sha512-53bE30J/vjuuahKiBveB3oKL+L03ufNGwmmSk9yfQwInfmC3xr9I7DvDkPti/wwAuk6V6bcfUqeazgNGLfe8rQ==}
+    engines: {node: '>=20.11'}
+
+  '@profullstack/x402-gateway@0.10.1':
+    resolution: {integrity: sha512-YF/P3GRbb/8dAHIhDT2R7yHSAK+olrT4/zAWLzf5aF9Na8o1/rJCdP+k6UnGepyQ9RQ2qL9p5diRVwb18Zt4VA==}
     engines: {node: '>=20.11'}
 
   '@radix-ui/react-compose-refs@1.0.0':
@@ -11538,7 +11545,11 @@ snapshots:
       next: 16.3.8(@opentelemetry/api@1.9.1)(@types/node@20.19.39)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react: 19.2.4
 
-  '@profullstack/x402-gateway@0.7.0':
+  '@profullstack/throttle@0.3.2':
+    dependencies:
+      '@profullstack/x402-gateway': 0.10.1
+
+  '@profullstack/x402-gateway@0.10.1':
     dependencies:
       '@profullstack/keys': 0.1.0
 
