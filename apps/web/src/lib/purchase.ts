@@ -54,6 +54,14 @@ export async function billingOrgFor(
     .limit(1);
   if (mine && mine.length > 0) return (mine[0] as { org_id: string }).org_id;
 
+  // organizations.created_by references user_profiles, and a few accounts
+  // (admin-made, some OAuth sign-ins) never got a profile row.
+  if (p.email) {
+    await admin
+      .from("user_profiles")
+      .upsert({ id: p.userId, email: p.email }, { onConflict: "id", ignoreDuplicates: true });
+  }
+
   const slug = personalSlug(p.userId);
   const { data: existing } = await admin.from("organizations").select("id").eq("slug", slug).maybeSingle();
   if (existing) return (existing as { id: string }).id;
