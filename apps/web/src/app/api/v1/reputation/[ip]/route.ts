@@ -29,8 +29,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ ip: 
   if (!allowance.ok) {
     return NextResponse.json(
       {
-        error: `The ${allowance.limit} lookups a day included with ${who.tier === "pro" ? "Reputation Pro" : "a free key"} are used.`,
-        upgrade: who.tier === "free" ? "https://threatcrush.com/reputation" : undefined,
+        error:
+          who.tier === "free"
+            ? `The ${allowance.limit} free lookups a day are used. Reputation Pro ($15/mo) gives 10,000 a day: https://threatcrush.com/pricing`
+            : `The ${allowance.limit} lookups a day included with Reputation Pro are used.`,
+        upgrade: who.tier === "free" ? "https://threatcrush.com/pricing" : undefined,
       },
       { status: 429, headers },
     );

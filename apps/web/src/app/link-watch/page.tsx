@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CheckoutPanel } from "@/components/CheckoutPanel";
+import { PaymentNotice } from "@/components/PaymentNotice";
+import { availableMethods } from "@/lib/checkout";
 import { moduleSalesEnabled, PAID_MODULES } from "@/lib/paid-modules";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Link Watch — find broken links before your visitors do | ThreatCrush",
   description:
-    "A ThreatCrush module that crawls your sites on a schedule and alerts on every broken link and asset: 404s, 5xx and dead hosts, once per break, with the page that links to it. Paid in crypto.",
+    "A ThreatCrush module that crawls your sites on a schedule and alerts on every broken link and asset: 404s, 5xx and dead hosts, once per break, with the page that links to it. $9/mo, paid with crypto or PayPal.",
 };
 
 const MOD = PAID_MODULES["link-watch"];
@@ -20,12 +23,14 @@ const WHAT = [
   "events go through your existing ThreatCrush alert rules: email, Slack, Discord, SMS",
 ];
 
-export default function LinkWatchPage() {
+export default async function LinkWatchPage() {
   const onSale = moduleSalesEnabled(MOD);
+  const { methods } = await availableMethods();
   return (
     <main className="min-h-screen bg-tc-darker text-tc-text">
       <section className="border-b border-tc-border bg-gradient-to-b from-tc-dark to-tc-darker">
         <div className="mx-auto max-w-5xl px-4 py-14 sm:py-20">
+          <PaymentNotice success="Payment received. Link Watch turns on for your organization as soon as it confirms; the daemon picks it up on its next run." />
           <p className="font-mono text-sm text-tc-green">// module: link-watch</p>
           <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Your site links to pages that 404.</h1>
           <p className="mt-4 max-w-2xl text-tc-text-dim">
@@ -49,12 +54,19 @@ export default function LinkWatchPage() {
           <h2 className="text-xl font-semibold">{MOD.name}</h2>
           <p className="mt-1 text-sm text-tc-text-dim">
             {MOD.plans.map((p) => `$${p.amount_usd} / ${p.months === 1 ? "month" : `${p.months} months`}`).join(" · ")}
-            , per organization, every site and server included. Paid in USDC, USDT, BTC, ETH, SOL or POL through
+            , per organization, every site and server included. Paid with any of 15 coins or PayPal through
             CoinPay.
           </p>
-          <p className="mt-4 text-sm text-tc-text-dim">
-            {onSale ? "Subscribe with the API call below." : "Opening soon."}
-          </p>
+          <div className="mt-6">
+            <CheckoutPanel
+              product={MOD.slug}
+              plans={MOD.plans}
+              methods={methods}
+              enabled={onSale}
+              cta="Turn on Link Watch"
+              returnPath="/link-watch"
+            />
+          </div>
         </div>
       </section>
 

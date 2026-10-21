@@ -298,17 +298,17 @@ export function FundingClient() {
         </div>
 
         <div>
-          <p className="mb-2 text-sm text-tc-text-dim">Pay with credit / debit card:</p>
+          <p className="mb-2 text-sm text-tc-text-dim">Pay with PayPal:</p>
           <button
             type="button"
-            onClick={() => selectCurrency('card')}
+            onClick={() => selectCurrency('paypal')}
             disabled={loading}
             className={`w-full rounded-xl border border-tc-border bg-tc-darker p-4 text-center transition-colors hover:border-tc-green disabled:opacity-50 ${
-              loading && currency === 'card' ? 'border-tc-green' : ''
+              loading && currency === 'paypal' ? 'border-tc-green' : ''
             }`}
           >
-            <span className="block text-sm font-semibold text-tc-text">Credit / Debit Card</span>
-            <span className="block text-xs text-tc-text-dim">Visa, Mastercard, Amex</span>
+            <span className="block text-sm font-semibold text-tc-text">PayPal</span>
+            <span className="block text-xs text-tc-text-dim">PayPal balance, bank or card in PayPal</span>
           </button>
         </div>
 
@@ -319,7 +319,7 @@ export function FundingClient() {
               CoinpayCurrency,
               (typeof SUPPORTED_CURRENCIES)[CoinpayCurrency],
             ][])
-              .filter(([key]) => key !== 'card')
+              .filter(([key]) => key !== 'paypal' && key !== 'usdt')
               .map(([key, info]) => (
                 <button
                   key={key}

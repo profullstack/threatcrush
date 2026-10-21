@@ -106,27 +106,46 @@ describe('lib/coinpay-client', () => {
       const init = call[1] as RequestInit;
       const body = JSON.parse(init.body as string);
       expect(body.payment_method).toBe('crypto');
-      expect(body.currency).toBe('sol');
+      expect(body.blockchain).toBe('SOL');
+      expect(body.currency).toBe('USD');
+      expect(body.amount).toBe(5);
+      expect(body.metadata.property).toBe('threatcrush.com');
       expect(body.business_id).toBe('biz-uuid');
       expect(body.webhook_url).toBe('https://threatcrush.com/api/webhooks/coinpay');
       expect(body.success_url).toBe('https://threatcrush.com/investors?payment=success');
       expect(body.cancel_url).toBe('https://threatcrush.com/investors?payment=cancelled');
     });
 
-    it('card: sends payment_method=both with usdc_pol fallback', async () => {
-      fetchSpy.mockResolvedValueOnce(
-        mockCpResponse({ stripe_checkout_url: 'https://checkout.stripe.com/abc' })
-      );
+    it('paypal: opens an order on the CoinPay PayPal rail with the site in metadata', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ transaction_id: 'ppt_1' }),
+        text: async () => '',
+      } as unknown as Response);
       const { createCoinpayPayment } = await import('@/lib/coinpay-client');
-      await createCoinpayPayment({ amount_usd: 25, currency: 'card' });
+      const r = await createCoinpayPayment({
+        amount_usd: 25,
+        currency: 'paypal',
+        metadata: { email: 'a@b.co', user_id: 'u1' },
+      });
 
       const call = fetchSpy.mock.calls[0];
-      const init = call[1] as RequestInit;
-      const body = JSON.parse(init.body as string);
-      expect(body.payment_method).toBe('both');
-      expect(body.currency).toBe('usdc_pol');
-      expect(body.webhook_url).toBe('https://threatcrush.com/api/webhooks/coinpay');
-      expect(body.success_url).toBe('https://threatcrush.com/investors?payment=success');
+      expect(call[0]).toBe('https://coinpayportal.com/api/paypal/payments/create');
+      const body = JSON.parse((call[1] as RequestInit).body as string);
+      expect(body.amount).toBe(25);
+      expect(body.customer_email).toBe('a@b.co');
+      expect(body.metadata).toMatchObject({ property: 'threatcrush.com', account_id: 'u1', email: 'a@b.co' });
+      expect(r.payment_id).toBe('ppt_1');
+      expect(r.checkout_url).toBe('https://coinpayportal.com/pay/paypal/ppt_1');
+    });
+
+    it('takes every coin the business holds and no card', async () => {
+      const { SUPPORTED_CURRENCIES } = await import('@/lib/coinpay-client');
+      for (const c of ['doge', 'xrp', 'ada', 'bnb', 'bch', 'usdt_pol', 'usdt_sol', 'paypal']) {
+        expect(SUPPORTED_CURRENCIES).toHaveProperty(c);
+      }
+      expect(SUPPORTED_CURRENCIES).not.toHaveProperty('card');
     });
 
     it('throws on non-2xx response with body in error', async () => {
@@ -201,7 +220,7 @@ describe('contract: POST /api/funding/create-invoice', () => {
 
   it('returns 400 on unknown currency', async () => {
     const { POST } = await import('@/app/api/funding/create-invoice/route');
-    const res = await POST(jsonRequest({ amount_usd: 5, currency: 'doge' }) as never);
+    const res = await POST(jsonRequest({ amount_usd: 5, currency: 'card' }) as never);
     expect(res.status).toBe(400);
   });
 
@@ -216,15 +235,23 @@ describe('contract: POST /api/funding/create-invoice', () => {
     expect(json.amount_crypto).toBe(1.5);
   });
 
-  it('card: returns stripe_checkout_url so client redirects to Stripe', async () => {
-    fetchSpy.mockResolvedValueOnce(
-      mockCpOk({ stripe_checkout_url: 'https://checkout.stripe.com/abc' })
-    );
+  it('card is refused: there is no card rail', async () => {
     const { POST } = await import('@/app/api/funding/create-invoice/route');
     const res = await POST(jsonRequest({ amount_usd: 25, currency: 'card' }) as never);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
+  });
+
+  it('paypal: returns the CoinPay PayPal checkout url', async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ transaction_id: 'ppt_9' }),
+      text: async () => '',
+    } as unknown as Response);
+    const { POST } = await import('@/app/api/funding/create-invoice/route');
+    const res = await POST(jsonRequest({ amount_usd: 25, currency: 'paypal' }) as never);
     const json = await res.json();
-    expect(json.checkout_url).toBe('https://checkout.stripe.com/abc');
+    expect(json.checkout_url).toBe('https://coinpayportal.com/pay/paypal/ppt_9');
   });
 
   it('returns 502 if CoinPay omits payment id', async () => {

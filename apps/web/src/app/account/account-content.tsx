@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { authHeaders } from "@/lib/auth-client";
+import { PlanCard } from "@/components/PlanCard";
 import { decryptClientSecret, encryptClientSecret, isE2ESecret } from "@/lib/client-secret-crypto";
 import { parseWalletPaste, formatWalletCopyText } from "@/lib/wallet-import";
 
@@ -627,6 +628,8 @@ export default function AccountContent() {
               </div>
             )}
           </div>
+
+          <PlanCard />
 
           {/* Usage Link */}
           <div className="bg-tc-card border border-tc-border rounded-xl p-6">

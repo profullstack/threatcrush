@@ -44,7 +44,10 @@ export async function POST(req: NextRequest) {
   }
   if (who.tier !== "pro") {
     return NextResponse.json(
-      { error: "Watch lists are part of Reputation Pro.", upgrade: "https://threatcrush.com/reputation" },
+      {
+        error: "Watch lists are part of Reputation Pro ($15/mo). Upgrade: https://threatcrush.com/pricing",
+        upgrade: "https://threatcrush.com/pricing",
+      },
       { status: 402 },
     );
   }

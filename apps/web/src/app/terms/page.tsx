@@ -45,7 +45,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-xl font-semibold text-tc-green">4. Payments and Refunds</h2>
             <p className="mt-2 text-tc-text-dim">
-              Purchases are payable via credit card or cryptocurrency through our payment
+              Purchases are payable via cryptocurrency or PayPal through our payment
               processors. Refunds are available within 30 days of purchase if you are not
               satisfied. Investor contributions made via /investors are non-refundable except
               where required by law.

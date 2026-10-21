@@ -3,28 +3,62 @@ import crypto from 'crypto';
 const COINPAY_API_URL =
   (process.env.COINPAYPORTAL_API_URL || 'https://coinpayportal.com').replace(/\/$/, '') + '/api';
 
+/**
+ * Every way to pay the threatcrush.com CoinPay business takes: the 15 chains it
+ * holds wallets for (lowercase ids, the form this client has always used), plus
+ * `paypal` through CoinPay's PayPal rail. `usdt` is the old id for USDT on
+ * Ethereum. No card: the house has no card rail (Stripe is off).
+ */
 export type CoinpayCurrency =
-  | 'card'
   | 'usdc_pol'
   | 'usdc_sol'
+  | 'usdt_pol'
+  | 'usdt_sol'
   | 'usdc_eth'
+  | 'usdt_eth'
   | 'usdt'
   | 'pol'
   | 'sol'
+  | 'eth'
   | 'btc'
-  | 'eth';
+  | 'bch'
+  | 'doge'
+  | 'xrp'
+  | 'ada'
+  | 'bnb'
+  | 'paypal';
 
 export const SUPPORTED_CURRENCIES: Record<CoinpayCurrency, { name: string; symbol: string }> = {
-  card: { name: 'Credit / Debit Card', symbol: 'Card' },
   usdc_pol: { name: 'USDC (Polygon)', symbol: 'USDC' },
   usdc_sol: { name: 'USDC (Solana)', symbol: 'USDC' },
+  usdt_pol: { name: 'USDT (Polygon)', symbol: 'USDT' },
+  usdt_sol: { name: 'USDT (Solana)', symbol: 'USDT' },
   usdc_eth: { name: 'USDC (Ethereum)', symbol: 'USDC' },
-  usdt: { name: 'USDT', symbol: 'USDT' },
+  usdt_eth: { name: 'USDT (Ethereum)', symbol: 'USDT' },
+  usdt: { name: 'USDT (Ethereum)', symbol: 'USDT' },
   pol: { name: 'Polygon', symbol: 'POL' },
   sol: { name: 'Solana', symbol: 'SOL' },
-  btc: { name: 'Bitcoin', symbol: 'BTC' },
   eth: { name: 'Ethereum', symbol: 'ETH' },
+  btc: { name: 'Bitcoin', symbol: 'BTC' },
+  bch: { name: 'Bitcoin Cash', symbol: 'BCH' },
+  doge: { name: 'Dogecoin', symbol: 'DOGE' },
+  xrp: { name: 'XRP', symbol: 'XRP' },
+  ada: { name: 'Cardano', symbol: 'ADA' },
+  bnb: { name: 'BNB', symbol: 'BNB' },
+  paypal: { name: 'PayPal', symbol: 'PayPal' },
 };
+
+/** The ids a picker should show (the legacy `usdt` alias left out). */
+export const CURRENCY_CHOICES = (Object.keys(SUPPORTED_CURRENCIES) as CoinpayCurrency[]).filter((c) => c !== 'usdt');
+
+export function isCoinpayCurrency(value: unknown): value is CoinpayCurrency {
+  return typeof value === 'string' && Object.hasOwn(SUPPORTED_CURRENCIES, value);
+}
+
+/** CoinPay's blockchain id for a coin. */
+function blockchainOf(c: Exclude<CoinpayCurrency, 'paypal'>): string {
+  return c === 'usdt' ? 'USDT_ETH' : c.toUpperCase();
+}
 
 export interface CoinpayCreatePaymentResponse {
   success?: boolean;
@@ -118,11 +152,52 @@ export async function createCoinpayPayment(opts: {
   currency: CoinpayCurrency;
   description?: string;
   redirect_url?: string;
+  cancel_url?: string;
   metadata?: Record<string, unknown>;
 }): Promise<CoinpayCreatePaymentResponse> {
   const { apiKey, merchantId } = getCreds();
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://threatcrush.com';
+  const successUrl = opts.redirect_url ?? `${baseUrl}/investors?payment=success`;
+  const cancelUrl = opts.cancel_url ?? `${baseUrl}/investors?payment=cancelled`;
+  // Every payment names the site, so CoinPay's own records say where it came from.
+  const metadata: Record<string, string> = {};
+  for (const [k, v] of Object.entries({ type: 'funding', ...(opts.metadata ?? {}), property: 'threatcrush.com' })) {
+    if (v !== null && v !== undefined && v !== '') metadata[k] = String(v);
+  }
+  if (!metadata.account_id && metadata.user_id) metadata.account_id = metadata.user_id;
+
+  if (opts.currency === 'paypal') {
+    const res = await fetch(`${COINPAY_API_URL}/paypal/payments/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      cache: 'no-store',
+      body: JSON.stringify({
+        business_id: merchantId,
+        amount: opts.amount_usd,
+        currency: 'USD',
+        description: opts.description ?? 'threatcrush funding',
+        customer_email: metadata.email || metadata.contributor_email || undefined,
+        metadata,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { transaction_id?: string; error?: string };
+    if (!res.ok || !json.transaction_id) {
+      console.error(`[coinpay] PayPal create failed ${res.status}: ${json.error ?? ''}`);
+      throw new CoinpayError(`CoinPay PayPal create failed ${res.status}`, res.status);
+    }
+    const checkoutUrl = `${COINPAY_API_URL.replace(/\/api$/, '')}/pay/paypal/${encodeURIComponent(json.transaction_id)}`;
+    return {
+      success: true,
+      payment_id: json.transaction_id,
+      currency: 'paypal',
+      checkout_url: checkoutUrl,
+      payment: { id: json.transaction_id, currency: 'paypal', checkout_url: checkoutUrl },
+    };
+  }
+
   const res = await fetch(`${COINPAY_API_URL}/payments/create`, {
     method: 'POST',
     headers: {
@@ -132,27 +207,25 @@ export async function createCoinpayPayment(opts: {
     cache: 'no-store',
     body: JSON.stringify({
       business_id: merchantId,
-      amount_usd: opts.amount_usd,
-      // For card payments CoinPay still requires a currency. We use
-      // payment_method=both and redirect the user to stripe_checkout_url.
-      ...(opts.currency === 'card'
-        ? { payment_method: 'both', currency: 'usdc_pol' }
-        : { payment_method: 'crypto', currency: opts.currency }),
+      amount: opts.amount_usd,
+      currency: 'USD',
+      blockchain: blockchainOf(opts.currency),
+      payment_method: 'crypto',
       description: opts.description ?? 'threatcrush funding',
-      success_url: `${baseUrl}/investors?payment=success`,
-      cancel_url: `${baseUrl}/investors?payment=cancelled`,
-      redirect_url: opts.redirect_url ?? `${baseUrl}/investors?payment=success`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      redirect_url: successUrl,
       webhook_url: `${baseUrl}/api/webhooks/coinpay`,
-      metadata: { type: 'funding', ...(opts.metadata ?? {}) },
+      expires_in_minutes: 60,
+      metadata,
     }),
   });
   if (!res.ok) {
     const text = await res.text();
-    console.error(`[coinpay] create failed ${res.status}: ${text}`);
-    throw new Error(`CoinPay create failed ${res.status}: ${text.slice(0, 300)}`);
+    console.error(`[coinpay] create failed ${res.status}: ${text.slice(0, 300)}`);
+    throw new CoinpayError(`CoinPay create failed ${res.status}: ${text.slice(0, 300)}`, res.status);
   }
-  const json = await res.json();
-  console.log('[coinpay] create response:', JSON.stringify(json));
+  const json = (await res.json()) as CoinpayCreatePaymentResponse;
   return json;
 }
 

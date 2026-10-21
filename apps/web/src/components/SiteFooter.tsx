@@ -11,6 +11,7 @@ export default function SiteFooter() {
           { label: "Docs", href: "/docs" },
           { label: "Module Store", href: "/store" },
           { label: "Blog", href: "/blog" },
+          { label: "Pricing", href: "/pricing" },
           { label: "Hire Us", href: "/hire" },
           { label: "About", href: "/about" },
           { label: "Investors", href: "/investors" },

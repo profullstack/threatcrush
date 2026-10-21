@@ -191,11 +191,11 @@ const softwareApplicationJsonLd = {
   ],
   offers: {
     "@type": "Offer",
-    availability: "https://schema.org/PreOrder",
+    availability: "https://schema.org/InStock",
     priceCurrency: "USD",
     price: "0",
-    description: "Private beta — contact sales for pricing.",
-    url: `${SITE_URL}/hire`,
+    description: "Free and open source. Paid extras from $9/mo; human-reviewed scan $400.",
+    url: `${SITE_URL}/pricing`,
   },
 };
 

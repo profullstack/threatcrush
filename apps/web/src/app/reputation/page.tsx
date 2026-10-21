@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { CheckoutPanel } from "@/components/CheckoutPanel";
+import { PaymentNotice } from "@/components/PaymentNotice";
+import { availableMethods } from "@/lib/checkout";
 import { DAILY_LIMIT, REPUTATION_PLANS, reputationProEnabled, UPGRADE } from "@/lib/reputation";
 
 export const dynamic = "force-dynamic";
@@ -7,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "IP reputation API — ThreatCrush Reputation Pro",
   description:
-    "Look up any IP against the ThreatCrush community threat database. Free verdicts with an API key; Reputation Pro adds 90-day history, /24 neighbourhood, city and score reasons. Paid in crypto.",
+    "Look up any IP against the ThreatCrush community threat database. Free verdicts with an API key; Reputation Pro ($15/mo) adds 90-day history, /24 neighbourhood, ASN, watch lists and score reasons. Pay with crypto or PayPal.",
 };
 
 const FREE = [
@@ -17,12 +20,14 @@ const FREE = [
   `${DAILY_LIMIT.free} lookups a day with any free API key`,
 ];
 
-export default function ReputationPage() {
+export default async function ReputationPage() {
   const onSale = reputationProEnabled();
+  const { methods } = await availableMethods();
   return (
     <main className="min-h-screen bg-tc-darker text-tc-text">
       <section className="border-b border-tc-border bg-gradient-to-b from-tc-dark to-tc-darker">
         <div className="mx-auto max-w-5xl px-4 py-14 sm:py-20">
+          <PaymentNotice success="Payment received. Reputation Pro turns on for your organization as soon as it confirms, usually within minutes." />
           <p className="font-mono text-sm text-tc-green">// reputation api</p>
           <h1 className="mt-3 text-3xl font-bold sm:text-4xl">Is this address attacking anyone?</h1>
           <p className="mt-4 max-w-2xl text-tc-text-dim">
@@ -51,15 +56,25 @@ export default function ReputationPage() {
             {REPUTATION_PLANS.map((p) => `$${p.amount_usd} / ${p.months === 1 ? "month" : `${p.months} months`}`).join(
               " · ",
             )}
-            , paid in USDC, USDT, BTC, ETH, SOL or POL through CoinPay
+            , paid with any of 15 coins or PayPal through CoinPay
           </p>
           <ul className="mt-4 list-disc space-y-1 pl-5 text-tc-text-dim">
             {UPGRADE.adds.map((f) => (
               <li key={f}>{f}</li>
             ))}
           </ul>
-          <p className="mt-4 text-sm text-tc-text-dim">
-            {onSale ? "Subscribe from the CLI or the API below." : "Opening soon. The free lookup works today."}
+          <div className="mt-6">
+            <CheckoutPanel
+              product="reputation-pro"
+              plans={REPUTATION_PLANS}
+              methods={methods}
+              enabled={onSale}
+              cta="Upgrade to Pro"
+              returnPath="/reputation"
+            />
+          </div>
+          <p className="mt-3 text-xs text-tc-text-dim">
+            Or subscribe from the CLI or the API below. All plans: <Link className="text-tc-green underline" href="/pricing">pricing</Link>.
           </p>
         </div>
       </section>
@@ -71,7 +86,7 @@ export default function ReputationPage() {
             {`# CLI
 threatcrush reputation 45.148.10.7 evil.example     # one, or many in one bulk call
 threatcrush reputation watch add mail.example.com --note "our MX"   # Pro: alerts on change
-threatcrush reputation subscribe --plan pro-monthly --currency usdc_pol
+threatcrush reputation subscribe --plan pro-monthly --currency usdc_pol   # or paypal, btc, sol, doge ...
 
 # MCP (agents): https://threatcrush.com/api/mcp  tools reputation_lookup, reputation_bulk
 

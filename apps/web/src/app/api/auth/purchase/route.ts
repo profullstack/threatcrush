@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin, getSupabaseClient } from "@/lib/supabase";
-import { createCoinpayPayment, type CoinpayCurrency } from "@/lib/coinpay-client";
+import { createCoinpayPayment, CURRENCY_CHOICES, isCoinpayCurrency, type CoinpayCurrency } from "@/lib/coinpay-client";
 
 const LICENSE_PRICE_USD = 499;
 
@@ -37,10 +37,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const currency: CoinpayCurrency = body.currency || "usdc_sol";
-    const validCurrencies: CoinpayCurrency[] = ["usdc_sol", "usdc_eth", "usdc_pol", "usdt", "btc", "eth", "sol", "pol"];
-    if (!validCurrencies.includes(currency)) {
+    if (!isCoinpayCurrency(currency)) {
       return NextResponse.json(
-        { error: `Invalid currency. Supported: ${validCurrencies.join(", ")}` },
+        { error: `Invalid currency. Supported: ${CURRENCY_CHOICES.join(", ")}` },
         { status: 400 },
       );
     }

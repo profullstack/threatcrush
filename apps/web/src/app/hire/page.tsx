@@ -2,11 +2,15 @@ import type { Metadata } from "next";
 import { SITE_URL } from "@/lib/blog";
 import { HireForm } from "@/components/HireForm";
 import { contactGuard } from "@/lib/contact-guard";
+import { CheckoutPanel } from "@/components/CheckoutPanel";
+import { PaymentNotice } from "@/components/PaymentNotice";
+import { findProduct, SCAN_PRICE_USD } from "@/lib/catalog";
+import { availableMethods } from "@/lib/checkout";
 
 export const metadata: Metadata = {
   title: "Hire Us — human-led security assessments",
   description:
-    "Have our team run the scan for you and read the results by hand. Engagements start at $400 for a scan with human input and scale with the complexity of your application.",
+    "Have our team run the scan for you and read the results by hand. Book a $400 scan with human input now, paid in crypto or PayPal, or get a fixed quote for anything bigger.",
   alternates: { canonical: "/hire" },
   openGraph: {
     title: "Hire Us · ThreatCrush",
@@ -35,6 +39,7 @@ const serviceJsonLd = {
       priceCurrency: "USD",
       minPrice: 400,
     },
+    price: 400,
   },
 };
 
@@ -96,6 +101,8 @@ export const dynamic = "force-dynamic";
 export default async function HirePage() {
   const token = contactGuard ? await contactGuard.issue() : null;
   const guardFields = token ? contactGuard!.fields(token) : null;
+  const scan = findProduct("scan");
+  const { methods } = await availableMethods();
 
   return (
     <div className="min-h-screen bg-tc-darker pt-24 pb-20">
@@ -109,6 +116,7 @@ export default async function HirePage() {
       />
 
       <main className="mx-auto max-w-4xl px-6">
+        <PaymentNotice success="Payment received: your scan is booked. It is confirmed once the payment settles, and we write back within one business day to schedule it." />
         <p className="font-mono text-sm text-tc-green tracking-wider mb-3">// HIRE US</p>
         <h1 className="text-4xl sm:text-5xl font-bold text-white leading-tight">
           Let us run it,{" "}
@@ -121,27 +129,40 @@ export default async function HirePage() {
           what to do about it.
         </p>
 
-        {/* No public rate card, but the floor is stated plainly so nobody has to book a
-            call just to find out whether they can afford us. */}
+        {/* The $400 scan is bought outright; anything bigger is quoted. */}
         <section className="mt-10 relative bg-tc-card border border-tc-border rounded-2xl overflow-hidden">
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-tc-green to-transparent opacity-40" />
           <div className="p-8">
             <h2 className="text-2xl font-bold text-white">What it costs</h2>
-            <p className="mt-3 text-tc-text-dim leading-relaxed">
-              We don&apos;t quote prices up front, because no two applications are the
-              same amount of work. What we can tell you is where it starts:{" "}
-              <strong className="text-white">
-                engagements begin at $400 for a scan with human input
-              </strong>{" "}
-              — the engine runs, and an engineer reads and triages what it found.
-            </p>
-            <p className="mt-3 text-tc-text-dim leading-relaxed">
-              From there the price moves with the complexity of the app: how many
-              services and repositories are in scope, what it is written in, whether
-              there is infrastructure and cloud configuration to review, and how much
-              manual testing the thing warrants. Tell us about it below and we come back
-              with a fixed number and a timeline before any work begins.
-            </p>
+            <div className="mt-4 grid gap-6 md:grid-cols-2">
+              <div>
+                <p className="text-tc-text-dim leading-relaxed">
+                  <strong className="text-white">
+                    ${SCAN_PRICE_USD} for a scan with human input
+                  </strong>
+                  , one repository, domain or app: the engine runs, an engineer reads and triages what it found, and
+                  you get a written report and a re-scan after your fixes. Book it now; we write back within one
+                  business day to schedule it.
+                </p>
+                <p className="mt-3 text-tc-text-dim leading-relaxed">
+                  Bigger than that (several services, cloud configuration, manual testing)? Tell us about it below and
+                  we come back with a fixed number and a timeline before any work begins.
+                </p>
+              </div>
+              <div className="rounded-xl border border-tc-green/40 bg-tc-darker p-5">
+                {scan && (
+                  <CheckoutPanel
+                    product={scan.slug}
+                    plans={scan.plans}
+                    methods={methods}
+                    enabled={scan.enabled}
+                    askTarget
+                    cta={`Book the $${SCAN_PRICE_USD} scan`}
+                    returnPath="/hire"
+                  />
+                )}
+              </div>
+            </div>
             <p className="mt-3 text-sm text-tc-text-dim">
               Prefer to self-serve? The{" "}
               <a href="/docs" className="text-tc-green hover:underline">

@@ -254,7 +254,7 @@ export interface ReputationReport {
 }
 
 export const UPGRADE = {
-  url: "https://threatcrush.com/reputation",
+  url: "https://threatcrush.com/pricing",
   adds: [
     "90 days of sighting history by day and rule",
     "the /24 neighbourhood: other listed addresses nearby",
