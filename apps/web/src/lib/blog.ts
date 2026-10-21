@@ -143,6 +143,12 @@ export function sanitizeHtml(html: string): string {
   return sanitizeBlogHtml(html);
 }
 
+// Autoblog posts carry their own CrawlProof ad embeds (banner units). The page
+// renders exactly one low-profile <AdUnit />, so in-body units are dropped.
+export function stripAdUnits(html: string): string {
+  return html.replace(/<(div|aside|ins)\b[^>]*\bdata-cp-ad\b[^>]*>[\s\S]*?<\/\1>/gi, "");
+}
+
 export function formatDate(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });

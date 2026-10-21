@@ -36,7 +36,7 @@ export default async function BlogIndexPage() {
           </div>
         </header>
 
-        <AdUnit className="mb-12" />
+        <AdUnit className="mb-8" />
 
         {posts.length === 0 ? (
           <div className="rounded-lg border border-tc-border/50 bg-tc-dark p-8 text-center text-tc-text-dim">
