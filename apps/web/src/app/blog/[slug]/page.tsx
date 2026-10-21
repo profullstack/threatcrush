@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
-import { allSlugs, closestSlug, fixBlogLinks, getPostBySlug, sanitizeHtml, formatDate, SITE_URL } from "@/lib/blog";
+import { allSlugs, closestSlug, fixBlogLinks, getPostBySlug, sanitizeHtml, stripAdUnits, formatDate, SITE_URL } from "@/lib/blog";
 import { serializeJsonForHtml } from "@/lib/safe-json";
 import { AdUnit } from "@/components/AdUnit";
 
@@ -50,7 +50,7 @@ export default async function BlogPostPage({ params }: RouteParams) {
     notFound();
   }
 
-  const html = post.content_html ? fixBlogLinks(sanitizeHtml(post.content_html), slugs) : null;
+  const html = post.content_html ? fixBlogLinks(stripAdUnits(sanitizeHtml(post.content_html)), slugs) : null;
 
   const ldJson = {
     "@context": "https://schema.org",
@@ -126,7 +126,7 @@ export default async function BlogPostPage({ params }: RouteParams) {
           )}
         </header>
 
-        <AdUnit className="mb-8" />
+        <AdUnit className="mb-6" />
 
         {html ? (
           <div

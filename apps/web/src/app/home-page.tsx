@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { serializeJsonForHtml } from "@/lib/safe-json";
-import { AdNetworkUnit } from "@/components/AdNetworkUnit";
 import AttackMap from "@/components/AttackMap";
 import ScrollReveal from "@/components/ScrollReveal";
 import WaitlistModal from "@/components/WaitlistModal";
@@ -271,8 +270,6 @@ export default function Home() {
             </ScrollReveal>
           </div>
         </section>
-
-        <AdNetworkUnit className="py-8" />
 
         {/* ─── LIVE ATTACK MAP ─── */}
         <section id="live-map" className="py-16 sm:py-20 border-t border-tc-border">
