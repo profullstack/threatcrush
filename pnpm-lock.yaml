@@ -350,11 +350,11 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0(next@16.3.8(@opentelemetry/api@1.9.1)(@types/node@20.19.39)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react@19.2.4)
       '@profullstack/throttle':
-        specifier: ^0.3.2
-        version: 0.3.2
+        specifier: ^0.3.3
+        version: 0.3.3
       '@profullstack/x402-gateway':
-        specifier: ^0.10.1
-        version: 0.10.1
+        specifier: ^0.11.0
+        version: 0.11.0
       '@sentry/node':
         specifier: ^8.45.0
         version: 8.55.1
@@ -2971,12 +2971,12 @@ packages:
       react:
         optional: true
 
-  '@profullstack/throttle@0.3.2':
-    resolution: {integrity: sha512-53bE30J/vjuuahKiBveB3oKL+L03ufNGwmmSk9yfQwInfmC3xr9I7DvDkPti/wwAuk6V6bcfUqeazgNGLfe8rQ==}
+  '@profullstack/throttle@0.3.3':
+    resolution: {integrity: sha512-GigeMGXS/1T2UseW0gYvFbxgMuo89/bhW92xMPv/IKAR860mhCdo2G8U4Schciw27seDXVGNErWpTSUC2zGoiA==}
     engines: {node: '>=20.11'}
 
-  '@profullstack/x402-gateway@0.10.1':
-    resolution: {integrity: sha512-YF/P3GRbb/8dAHIhDT2R7yHSAK+olrT4/zAWLzf5aF9Na8o1/rJCdP+k6UnGepyQ9RQ2qL9p5diRVwb18Zt4VA==}
+  '@profullstack/x402-gateway@0.11.0':
+    resolution: {integrity: sha512-Lfrz+SRTwQZfcoCaVtaaMNPJx74Lp/5oyS7vJJAEuJmH1TjBzhE7dWquISkj1p42oc+VW5I9xH9p7YhEKqmr4Q==}
     engines: {node: '>=20.11'}
 
   '@radix-ui/react-compose-refs@1.0.0':
@@ -11545,11 +11545,11 @@ snapshots:
       next: 16.3.8(@opentelemetry/api@1.9.1)(@types/node@20.19.39)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react: 19.2.4
 
-  '@profullstack/throttle@0.3.2':
+  '@profullstack/throttle@0.3.3':
     dependencies:
-      '@profullstack/x402-gateway': 0.10.1
+      '@profullstack/x402-gateway': 0.11.0
 
-  '@profullstack/x402-gateway@0.10.1':
+  '@profullstack/x402-gateway@0.11.0':
     dependencies:
       '@profullstack/keys': 0.1.0
 
