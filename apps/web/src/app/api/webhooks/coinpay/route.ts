@@ -4,6 +4,8 @@ import { verifyCoinpayWebhook, type CoinpayWebhookPayload } from '@/lib/coinpay-
 import { isSettledStatus, SETTLED_STATUS_LIST } from '@/lib/payment-status';
 import { nextPeriodEnd } from '@/lib/paid-modules';
 import { currentPeriodEnd, periodEnd } from '@/lib/reputation';
+import { webhookOrderIds } from '@/lib/checkout';
+import { notifyScanBooked } from '@/lib/scan-orders';
 
 /**
  * Webhook fields land in log lines, and a value containing CRLF can forge a
@@ -38,7 +40,10 @@ function getSupabase() {
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get('x-coinpay-signature');
-  const secret = process.env.COINPAY_WEBHOOK_SECRET;
+  // app.env has always named it COINPAYPORTAL_WEBHOOK_SECRET; reading only
+  // COINPAY_WEBHOOK_SECRET rejected every signed callback as unsigned, so no
+  // payment could ever settle. Accept either.
+  const secret = process.env.COINPAY_WEBHOOK_SECRET || process.env.COINPAYPORTAL_WEBHOOK_SECRET;
   const signatureValid =
     !!signature && !!secret && verifyCoinpayWebhook(rawBody, signature, secret);
 
@@ -56,8 +61,13 @@ export async function POST(request: NextRequest) {
 
   const data = payload.data || ({} as CoinpayWebhookPayload['data']);
   const eventType = payload.type || (payload as { event?: string }).event || '';
-  const paymentId =
+  // A hosted checkout session's webhook names both the payment and the session;
+  // an order is stored under whichever id it was opened with.
+  const orderIds = webhookOrderIds(payload);
+  const fallbackId =
     data.payment_id || (data as { id?: string }).id || (payload as { id?: string }).id;
+  if (orderIds.length === 0 && fallbackId) orderIds.push(fallbackId);
+  let paymentId = orderIds[0];
 
   if (!paymentId) {
     return NextResponse.json({ error: 'Missing payment_id' }, { status: 400 });
@@ -74,11 +84,12 @@ export async function POST(request: NextRequest) {
   // Check funding payments first.
   const { data: fundingRow } = await supabase
     .from('funding_payments')
-    .select('id')
-    .eq('coinpay_payment_id', paymentId)
+    .select('id, coinpay_payment_id')
+    .in('coinpay_payment_id', orderIds)
     .maybeSingle();
 
   if (fundingRow) {
+    paymentId = fundingRow.coinpay_payment_id ?? paymentId;
     if (!signatureValid) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
@@ -88,11 +99,12 @@ export async function POST(request: NextRequest) {
   // Check credit deposits (usage top-ups).
   const { data: creditRow } = await supabase
     .from('credit_deposits')
-    .select('id, user_id, email, amount_usd')
-    .eq('coinpay_payment_id', paymentId)
+    .select('id, user_id, email, amount_usd, coinpay_payment_id')
+    .in('coinpay_payment_id', orderIds)
     .maybeSingle();
 
   if (creditRow) {
+    paymentId = creditRow.coinpay_payment_id ?? paymentId;
     if (!signatureValid) {
       console.warn('[coinpay webhook] credit deposit - invalid signature, skipping');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
@@ -108,11 +120,12 @@ export async function POST(request: NextRequest) {
   // Check license purchases.
   const { data: licenseRow } = await supabase
     .from('license_purchases')
-    .select('id, user_id, email')
-    .eq('coinpay_payment_id', paymentId)
+    .select('id, user_id, email, coinpay_payment_id')
+    .in('coinpay_payment_id', orderIds)
     .maybeSingle();
 
   if (licenseRow) {
+    paymentId = licenseRow.coinpay_payment_id ?? paymentId;
     if (!signatureValid) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
@@ -122,11 +135,12 @@ export async function POST(request: NextRequest) {
   // Reputation Pro subscriptions.
   const { data: reputationRow } = await supabase
     .from('reputation_subscriptions')
-    .select('id, org_id, months')
-    .eq('coinpay_payment_id', paymentId)
+    .select('id, org_id, months, coinpay_payment_id')
+    .in('coinpay_payment_id', orderIds)
     .maybeSingle();
 
   if (reputationRow) {
+    paymentId = reputationRow.coinpay_payment_id ?? paymentId;
     if (!signatureValid) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
@@ -136,15 +150,31 @@ export async function POST(request: NextRequest) {
   // Paid module subscriptions (Link Watch, ...).
   const { data: moduleRow } = await supabase
     .from('module_subscriptions')
-    .select('id, org_id, module, months')
-    .eq('coinpay_payment_id', paymentId)
+    .select('id, org_id, module, months, coinpay_payment_id')
+    .in('coinpay_payment_id', orderIds)
     .maybeSingle();
 
   if (moduleRow) {
+    paymentId = moduleRow.coinpay_payment_id ?? paymentId;
     if (!signatureValid) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
     return handleModuleWebhook(supabase, moduleRow, eventType, paymentId);
+  }
+
+  // The human-reviewed scan ($400), booked when the payment settles.
+  const { data: scanRow } = await supabase
+    .from('scan_orders')
+    .select('id, email, target, notes, amount_usd, coinpay_payment_id')
+    .in('coinpay_payment_id', orderIds)
+    .maybeSingle();
+
+  if (scanRow) {
+    paymentId = scanRow.coinpay_payment_id ?? paymentId;
+    if (!signatureValid) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
+    return handleScanWebhook(supabase, scanRow, eventType, data.status, paymentId);
   }
 
   // TC-09: the waitlist branch used to accept unsigned callbacks, so anyone who
@@ -164,7 +194,13 @@ export async function POST(request: NextRequest) {
  */
 async function updatePaymentStatus(
   supabase: ReturnType<typeof getSupabase>,
-  table: 'funding_payments' | 'credit_deposits' | 'license_purchases' | 'reputation_subscriptions' | 'module_subscriptions',
+  table:
+    | 'funding_payments'
+    | 'credit_deposits'
+    | 'license_purchases'
+    | 'reputation_subscriptions'
+    | 'module_subscriptions'
+    | 'scan_orders',
   paymentId: string,
   nextStatus: string,
   patch: Record<string, unknown>,
@@ -460,6 +496,48 @@ const WEBHOOK_STATUS: Record<string, string> = {
   'payment.expired': 'expired',
   'payment.failed': 'failed',
 };
+
+/**
+ * A scan order. Settling books it: the row is stamped paid and the team is
+ * told who bought it and what to scan, so a human picks it up.
+ */
+async function handleScanWebhook(
+  supabase: ReturnType<typeof getSupabase>,
+  row: { id: string; email: string | null; target: string | null; notes: string | null; amount_usd: unknown },
+  eventType: string,
+  dataStatus: unknown,
+  paymentId: string,
+) {
+  const fromData = typeof dataStatus === 'string' ? dataStatus.toLowerCase() : '';
+  const status =
+    WEBHOOK_STATUS[eventType] ?? (['confirmed', 'forwarded', 'expired', 'failed'].includes(fromData) ? fromData : null);
+  if (!status) return NextResponse.json({ received: true, ignored: eventType });
+
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { updated_at: now };
+  if (isSettledStatus(status)) patch.paid_at = now;
+  const { applied, error } = await updatePaymentStatus(supabase, 'scan_orders', paymentId, status, patch);
+  if (error) {
+    console.error('[coinpay webhook] scan order update failed:', error);
+    return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+  }
+  if (!applied) return NextResponse.json(STALE_EVENT);
+
+  if (isSettledStatus(status)) {
+    // Only the first settled event books it (confirmed then forwarded must not notify twice).
+    const { data: booked } = await supabase
+      .from('scan_orders')
+      .update({ booked_at: now })
+      .eq('id', row.id)
+      .is('booked_at', null)
+      .select('id');
+    if (booked && booked.length > 0) {
+      await notifyScanBooked(row).catch((e) => console.error('[coinpay webhook] scan notify failed', e));
+      console.log(`[coinpay webhook] scan order ${logSafe(row.id)} booked`);
+    }
+  }
+  return NextResponse.json({ received: true, status });
+}
 
 async function handleWaitlistWebhook(
   supabase: ReturnType<typeof getSupabase>,

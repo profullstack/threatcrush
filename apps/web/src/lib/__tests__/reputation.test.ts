@@ -105,7 +105,7 @@ describe("buildReport", () => {
     expect(r.reporters).toBe(2);
     expect(r.country).toBe("NL");
     expect(r.pro).toBeUndefined();
-    expect(r.upgrade?.url).toContain("/reputation");
+    expect(r.upgrade?.url).toContain("/pricing");
     expect(JSON.stringify(r)).not.toContain("Amsterdam");
     expect(r.public_record).toBe("https://nichedb.dev/reputation/45.148.10.7");
   });

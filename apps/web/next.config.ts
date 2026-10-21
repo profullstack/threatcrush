@@ -61,11 +61,10 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // /pricing was the quote-request page; /hire replaced it. Permanent so the
-  // indexed URL and any links already in the wild follow through.
+  // /pricing is the price list with checkout again (it redirected to /hire,
+  // the quote form, while nothing was on sale).
   async redirects() {
     return [
-      { source: "/pricing", destination: "/hire", permanent: true },
       // Guessed and old auth URLs: sign-up and sign-in live under /auth.
       { source: "/register", destination: "/auth/signup", permanent: true },
       { source: "/signup", destination: "/auth/signup", permanent: true },

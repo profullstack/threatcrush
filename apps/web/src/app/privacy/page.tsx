@@ -65,9 +65,9 @@ export default function PrivacyPage() {
                 findings (file path, line number, rule, and the matched line of code).
               </li>
               <li>
-                <span className="text-tc-text">Payments.</span> Payments go through CoinPayPortal;
-                card payments are processed by Stripe through CoinPayPortal. We store the payment
-                ID, amount, currency, status and your email address. We never see your card number.
+                <span className="text-tc-text">Payments.</span> Payments go through CoinPayPortal
+                (crypto) and PayPal through CoinPayPortal. We store the payment ID, amount, currency,
+                status and your email address. We never see your PayPal or bank details.
                 For contributions on /investors we store the name and email you enter (both
                 optional), the amount and the transaction hash.
               </li>
@@ -110,7 +110,7 @@ export default function PrivacyPage() {
               run the Service:
             </p>
             <ul className={ul}>
-              <li><span className="text-tc-text">CoinPayPortal and Stripe</span> — payments (amount, currency, your email, card details you enter on their checkout).</li>
+              <li><span className="text-tc-text">CoinPayPortal and PayPal</span> — payments (amount, currency, your email, and what you enter on their checkout).</li>
               <li><span className="text-tc-text">Telnyx</span> — sends phone verification codes (your phone number and the code).</li>
               <li><span className="text-tc-text">Resend</span> — delivers the email we send, such as contact-form notifications and guide downloads.</li>
               <li><span className="text-tc-text">GitHub</span> — sign-in with GitHub and the GitHub App.</li>

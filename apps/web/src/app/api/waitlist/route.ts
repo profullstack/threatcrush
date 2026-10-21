@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  createCoinpayPayment,
+  isCoinpayCurrency,
+  SUPPORTED_CURRENCIES,
+  type CoinpayCurrency,
+} from "@/lib/coinpay-client";
 
 let supabase: SupabaseClient | undefined;
 function getSupabase() {
@@ -15,7 +21,6 @@ function getSupabase() {
   return supabase;
 }
 
-const COINPAY_API = "https://coinpayportal.com/api";
 const PRICE_FULL = 499;
 const PRICE_REFERRAL = 399;
 
@@ -26,7 +31,7 @@ function generateReferralCode(): string {
 }
 
 export async function POST(request: NextRequest) {
-  let body: { email?: unknown; payment_method?: string; referral_code?: string };
+  let body: { email?: unknown; payment_method?: string; referral_code?: string; currency?: unknown };
   try {
     const parsed: unknown = await request.json();
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -38,7 +43,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { email, payment_method, referral_code } = body;
+    const { email, payment_method, referral_code, currency: rawCurrency } = body;
 
     if (!email || typeof email !== "string" || !email.includes("@")) {
       return NextResponse.json({ error: "Valid email is required" }, { status: 400 });
@@ -123,7 +128,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ─── Step 2: Payment initiation (with payment_method) ───
-    if (!["stripe", "crypto"].includes(payment_method)) {
+    if (!["stripe", "crypto", "paypal"].includes(payment_method)) {
       return NextResponse.json({ error: "Invalid payment method" }, { status: 400 });
     }
 
@@ -150,52 +155,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to join waitlist" }, { status: 500 });
     }
 
-    // Initiate payment
-    if (payment_method === "crypto") {
-      const apiKey = process.env.COINPAYPORTAL_API_KEY;
-      const businessId = process.env.COINPAYPORTAL_BUSINESS_ID;
-
-      if (!apiKey || !businessId) {
-        return NextResponse.json({
-          success: true,
-          message: "Joined waitlist. Crypto checkout is temporarily unavailable — we'll email you when it's back online.",
+    // Initiate payment: any coin the business takes, or PayPal. "stripe" is
+    // the old card option; there is no card rail any more, so it opens PayPal.
+    const site = process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com";
+    const currency: CoinpayCurrency =
+      payment_method === "crypto"
+        ? isCoinpayCurrency(rawCurrency) && rawCurrency !== "paypal"
+          ? rawCurrency
+          : "usdc_sol"
+        : "paypal";
+    try {
+      const cp = await createCoinpayPayment({
+        amount_usd: price,
+        currency,
+        description: `ThreatCrush Lifetime Access${referredBy ? " (Referral)" : ""}`,
+        redirect_url: `${site}?paid=true&ref=${newReferralCode}`,
+        cancel_url: `${site}?cancelled=true`,
+        metadata: {
+          type: "waitlist",
           waitlist_id: entry.id,
-          referral_code: newReferralCode,
-          price,
-        });
-      }
-
-      const res = await fetch(`${COINPAY_API}/payments/create`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
+          email: email.toLowerCase(),
+          account_id: entry.id,
+          product: "lifetime_access",
+          referral_code: referredBy,
         },
-        body: JSON.stringify({
-          business_id: businessId,
-          amount_usd: price,
-          currency: "usdc_sol",
-          description: `ThreatCrush Lifetime Access${referredBy ? " (Referral)" : ""}`,
-          redirect_url: `${process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com"}?paid=true&ref=${newReferralCode}`,
-          webhook_url: `${process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com"}/api/webhooks/coinpay`,
-          metadata: {
-            waitlist_id: entry.id,
-            email: email.toLowerCase(),
-            product: "lifetime_access",
-            referral_code: referredBy,
-          },
-        }),
       });
-
-      const paymentData = await res.json();
-      const payment = paymentData.payment || paymentData;
-      const paymentAddress = payment.payment_address || payment.address;
-
-      await supabase
-        .from("waitlist")
-        .update({ payment_id: payment.id || paymentData.payment_id })
-        .eq("id", entry.id);
-
+      const payment = (cp.payment ?? {}) as Record<string, unknown>;
+      const paymentId = (payment.id as string | undefined) ?? cp.payment_id;
+      await supabase.from("waitlist").update({ payment_id: paymentId }).eq("id", entry.id);
       return NextResponse.json({
         success: true,
         waitlist_id: entry.id,
@@ -203,77 +190,23 @@ export async function POST(request: NextRequest) {
         price,
         discount: referredBy ? true : false,
         payment: {
-          address: paymentAddress,
-          checkout_url: paymentData.checkout_url || payment.checkout_url,
+          address: (payment.payment_address as string | undefined) ?? cp.address ?? null,
+          checkout_url: cp.checkout_url ?? (payment.checkout_url as string | undefined) ?? null,
           amount_usd: price,
-          currency: "USDC (Solana)",
-          payment_id: payment.id || paymentData.payment_id,
+          currency: SUPPORTED_CURRENCIES[currency].name,
+          payment_id: paymentId,
         },
       });
-    }
-
-    // Stripe flow
-    if (payment_method === "stripe") {
-      const apiKey = process.env.COINPAYPORTAL_API_KEY;
-      const businessId = process.env.COINPAYPORTAL_BUSINESS_ID;
-
-      if (apiKey && businessId) {
-        const res = await fetch(`${COINPAY_API}/stripe/payments/create`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            business_id: businessId,
-            amount: price * 100,
-            currency: "usd",
-            description: `ThreatCrush Lifetime Access${referredBy ? " (Referral)" : ""}`,
-            success_url: `${process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com"}?paid=true&ref=${newReferralCode}`,
-            cancel_url: `${process.env.NEXT_PUBLIC_APP_URL || "https://threatcrush.com"}?cancelled=true`,
-            metadata: {
-              waitlist_id: entry.id,
-              email: email.toLowerCase(),
-              product: "lifetime_access",
-              referral_code: referredBy,
-            },
-          }),
-        });
-
-        const stripeData = await res.json();
-
-        if (stripeData.checkout_url) {
-          await supabase
-            .from("waitlist")
-            .update({ payment_id: stripeData.checkout_session_id })
-            .eq("id", entry.id);
-
-          return NextResponse.json({
-            success: true,
-            waitlist_id: entry.id,
-            referral_code: newReferralCode,
-            price,
-            discount: referredBy ? true : false,
-            payment: { checkout_url: stripeData.checkout_url, amount_usd: price },
-          });
-        }
-      }
-
+    } catch (err) {
+      console.error("[waitlist] payment create failed", (err as Error).message);
       return NextResponse.json({
         success: true,
-        message: "Joined waitlist. Card checkout is temporarily unavailable — we'll email you when it's back online.",
+        message: "Joined waitlist. Checkout is temporarily unavailable; we'll email you when it's back online.",
         waitlist_id: entry.id,
         referral_code: newReferralCode,
         price,
       });
     }
-
-    return NextResponse.json({
-      success: true,
-      waitlist_id: entry.id,
-      referral_code: newReferralCode,
-      price,
-    });
   } catch (err) {
     console.error("[waitlist] Error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -283,6 +216,6 @@ export async function POST(request: NextRequest) {
 export async function GET() {
   return NextResponse.json({
     message: "ThreatCrush Waitlist API",
-    pricing: "Contact sales for pricing",
+    pricing: "https://threatcrush.com/pricing",
   });
 }

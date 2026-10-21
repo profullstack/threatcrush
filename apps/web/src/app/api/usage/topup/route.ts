@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createCoinpayPayment, type CoinpayCurrency } from "@/lib/coinpay-client";
+import { createCoinpayPayment, CURRENCY_CHOICES, isCoinpayCurrency, type CoinpayCurrency } from "@/lib/coinpay-client";
 import { getSupabaseClient, getSupabaseAdmin } from "@/lib/supabase";
 import { usageTopupsEnabled, USAGE_TOPUPS_PAUSED_MESSAGE } from "@/lib/usage-topups";
 
@@ -38,10 +38,9 @@ export async function POST(request: NextRequest) {
     }
 
     const coinpayCurrency: CoinpayCurrency = currency || "usdc_sol";
-    const validCurrencies: CoinpayCurrency[] = ["usdc_sol", "usdc_eth", "usdc_pol", "usdt", "btc", "eth", "sol", "pol"];
-    if (!validCurrencies.includes(coinpayCurrency)) {
+    if (!isCoinpayCurrency(coinpayCurrency)) {
       return NextResponse.json(
-        { error: `Invalid currency. Supported: ${validCurrencies.join(", ")}` },
+        { error: `Invalid currency. Supported: ${CURRENCY_CHOICES.join(", ")}` },
         { status: 400 },
       );
     }

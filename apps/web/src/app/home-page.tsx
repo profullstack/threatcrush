@@ -70,7 +70,7 @@ const faqs = [
   },
   {
     q: "What payment methods do you accept?",
-    a: "Credit/debit cards (processed by Stripe through CoinPayPortal), and cryptocurrency (BTC, ETH, USDT, SOL, and more) via CoinPayPortal.",
+    a: "Crypto (USDC, USDT, BTC, ETH, SOL, POL, DOGE, XRP, ADA, BNB, BCH) or PayPal, through CoinPay. Prices are on the pricing page: threatcrush.com/pricing.",
   },
   {
     q: "Can I get a refund?",
@@ -826,7 +826,7 @@ export default function Home() {
               <div className="text-center mb-12">
                 <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// PRICING</p>
                 <h2 className="text-3xl sm:text-4xl font-bold text-white">
-                  One Price. <span className="text-tc-green glow-green">Forever.</span>
+                  Free to run. <span className="text-tc-green glow-green">Pay for the extras.</span>
                 </h2>
               </div>
             </ScrollReveal>
@@ -835,10 +835,10 @@ export default function Home() {
               <div className="rounded-2xl border border-tc-green/30 bg-tc-card p-8 sm:p-10 glow-box">
                 <div className="text-center mb-8">
                   <div className="inline-block rounded-full bg-tc-green/10 px-3 py-1 text-xs font-mono text-tc-green mb-4">
-                    CONTACT FOR PRICING
+                    FREE AND OPEN SOURCE
                   </div>
-                  <h3 className="text-3xl sm:text-4xl font-black text-white">Talk to Sales</h3>
-                  <p className="text-tc-text-dim mt-3">Full platform: CLI, daemon, scanner, pentest engine, API. Tell us about your environment and we&apos;ll send you a quote.</p>
+                  <h3 className="text-3xl sm:text-4xl font-black text-white">$0 to start</h3>
+                  <p className="text-tc-text-dim mt-3">Full platform: CLI, daemon, scanner, pentest engine, API. Add Reputation Pro ($15/mo), Link Watch ($9/mo) or a human-reviewed scan ($400) when you need them. Crypto or PayPal.</p>
                 </div>
 
                 <ul className="space-y-3 mb-8">
@@ -851,14 +851,14 @@ export default function Home() {
                 </ul>
 
                 <a
-                  href="/hire"
+                  href="/pricing"
                   className="block w-full text-center rounded-xl bg-tc-green py-4 text-lg font-bold text-black transition-all hover:bg-tc-green-dim pulse-glow"
                 >
-                  Get a Quote
+                  See Pricing
                 </a>
 
                 <p className="text-center text-xs text-tc-text-dim mt-4">
-                  Quotes typically returned within 1 business day.
+                  Bigger engagement? <a href="/hire" className="text-tc-green hover:underline">Get a fixed quote</a> within 1 business day.
                 </p>
               </div>
             </ScrollReveal>

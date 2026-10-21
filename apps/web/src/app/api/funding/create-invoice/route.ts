@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     amount_usd,
     currency,
     description: `threatcrush funding ($${amount_usd})`,
-    metadata: { contributor_name, contributor_email },
+    metadata: { contributor_name, contributor_email, email: contributor_email, account_id: contributor_email },
   });
 
   const payment = cp.payment ?? {};
@@ -74,10 +74,8 @@ export async function POST(req: NextRequest) {
       coinpay_payment_id: paymentId,
       amount_usd,
       amount_crypto: amountCrypto,
-      // Preserve the user's chosen rail. CoinPay returns usdc_pol for
-      // card payments (routed through Stripe), but we want the
-      // contributors list to show "Credit Card (via CoinPay)".
-      currency: currency === 'card' ? 'card' : respCurrency,
+      // Preserve the buyer's chosen rail (PayPal answers with no coin).
+      currency: currency === 'paypal' ? 'paypal' : respCurrency,
       status: 'pending',
       contributor_name,
       contributor_email,

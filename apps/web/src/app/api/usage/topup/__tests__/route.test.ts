@@ -20,7 +20,8 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }));
 
-vi.mock("@/lib/coinpay-client", () => ({
+vi.mock("@/lib/coinpay-client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/coinpay-client")>()),
   createCoinpayPayment: mockCreatePayment,
 }));
 

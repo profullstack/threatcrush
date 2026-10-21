@@ -19,6 +19,7 @@ const mockWaitlistMaybeSingle = vi.fn();
 const mockWaitlistSingle = vi.fn();
 const mockReputationMaybeSingle = vi.fn();
 const mockModuleMaybeSingle = vi.fn();
+const mockScanMaybeSingle = vi.fn();
 // The org's latest paid period end, as currentPeriodEnd / nextPeriodEnd read it.
 let reputationRunningEnd: string | null = null;
 // Records every .update(patch) as (table, patch) so tests can assert on writes.
@@ -97,13 +98,32 @@ function buildTableMock(table: string) {
       table === "funding_payments" ? mockFundingMaybeSingle
       : table === "credit_deposits" ? mockCreditMaybeSingle
       : mockLicenseMaybeSingle;
-    const chainableEq = () => ({
+    const chainableEq = (): Record<string, unknown> => ({
       eq: vi.fn().mockImplementation(() => chainableEq()),
+      in: vi.fn().mockImplementation(() => chainableEq()),
       maybeSingle: lookup,
     });
     return {
       select: vi.fn().mockImplementation(() => chainableEq()),
       update: vi.fn().mockImplementation((patch: { status?: string }) => paymentUpdateChain(table, patch)),
+    };
+  }
+  if (table === "scan_orders") {
+    const chain: Record<string, unknown> = {
+      eq: vi.fn().mockImplementation(() => chain),
+      in: vi.fn().mockImplementation(() => chain),
+      is: vi.fn().mockImplementation(() => chain),
+      maybeSingle: mockScanMaybeSingle,
+      select: vi.fn().mockImplementation(() => ({
+        then: (resolve: (v: unknown) => void) => resolve({ data: [{ id: "scan-row" }], error: null }),
+      })),
+    };
+    return {
+      select: vi.fn().mockImplementation(() => chain),
+      update: vi.fn().mockImplementation((patch: { status?: string; booked_at?: string }) => {
+        if (patch.status) return paymentUpdateChain(table, patch);
+        return chain;
+      }),
     };
   }
   // waitlist table
@@ -137,6 +157,7 @@ function resetMocks(overrides: {
   mockCreditMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockReputationMaybeSingle.mockResolvedValue({ data: null, error: null });
   mockModuleMaybeSingle.mockResolvedValue({ data: null, error: null });
+  mockScanMaybeSingle.mockResolvedValue({ data: null, error: null });
   reputationRunningEnd = null;
   mockWaitlistMaybeSingle.mockResolvedValue(findEntryResult);
   mockWaitlistSingle.mockResolvedValue(referralResult);
@@ -508,6 +529,59 @@ describe("POST /api/webhooks/coinpay — paid modules", () => {
     const res = await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "mod-pay" } }, { signed: false }));
     expect(res.status).toBe(401);
     expect(storedStatus.module_subscriptions).toBe("pending");
+  });
+});
+
+vi.mock("@/lib/scan-orders", () => ({ notifyScanBooked: vi.fn().mockResolvedValue(undefined) }));
+
+describe("POST /api/webhooks/coinpay — scan orders and hosted sessions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.COINPAY_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    resetMocks();
+    mockScanMaybeSingle.mockResolvedValue({
+      data: { id: "scan-1", email: "buyer@example.com", target: "github.com/x/y", notes: null, amount_usd: 400, coinpay_payment_id: "cs_1" },
+      error: null,
+    });
+    storedStatus.scan_orders = "pending";
+  });
+
+  it("books a scan when its payment confirms, found by the checkout session id", async () => {
+    const { notifyScanBooked } = await import("@/lib/scan-orders");
+    const res = await POST(
+      makeRequest({ type: "payment.confirmed", data: { payment_id: "pay_9", checkout_session_id: "cs_1", status: "confirmed" } }),
+    );
+    expect(res.status).toBe(200);
+    expect(storedStatus.scan_orders).toBe("confirmed");
+    const paid = mockUpdate.mock.calls.find(([t, p]) => t === "scan_orders" && (p as { paid_at?: string }).paid_at);
+    expect(paid).toBeTruthy();
+    expect(notifyScanBooked).toHaveBeenCalledTimes(1);
+    expect(mockWaitlistMaybeSingle).not.toHaveBeenCalled();
+  });
+
+  it("does not book a scan on expiry", async () => {
+    const { notifyScanBooked } = await import("@/lib/scan-orders");
+    await POST(makeRequest({ type: "payment.expired", data: { payment_id: "cs_1" } }));
+    expect(storedStatus.scan_orders).toBe("expired");
+    expect(notifyScanBooked).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsigned scan callback", async () => {
+    const res = await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "cs_1" } }, { signed: false }));
+    expect(res.status).toBe(401);
+    expect(storedStatus.scan_orders).toBe("pending");
+  });
+
+  it("verifies with COINPAYPORTAL_WEBHOOK_SECRET, the name app.env uses", async () => {
+    delete process.env.COINPAY_WEBHOOK_SECRET;
+    process.env.COINPAYPORTAL_WEBHOOK_SECRET = WEBHOOK_SECRET;
+    try {
+      const res = await POST(makeRequest({ type: "payment.confirmed", data: { payment_id: "cs_1" } }));
+      expect(res.status).toBe(200);
+      expect(storedStatus.scan_orders).toBe("confirmed");
+    } finally {
+      delete process.env.COINPAYPORTAL_WEBHOOK_SECRET;
+    }
   });
 });
 

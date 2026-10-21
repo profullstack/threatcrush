@@ -698,7 +698,7 @@ reputationCmd
   .command("subscribe")
   .description("Pay for Reputation Pro in crypto (history, /24 neighbours, score reasons, more lookups)")
   .option("--plan <id>", "pro-monthly or pro-yearly", "pro-monthly")
-  .option("--currency <c>", "usdc_pol, usdc_sol, usdc_eth, usdt, pol, sol, btc or eth", "usdc_pol")
+  .option("--currency <c>", "usdc_pol, usdc_sol, usdt_pol, usdt_sol, usdc_eth, usdt_eth, pol, sol, eth, btc, bch, doge, xrp, ada, bnb or paypal", "usdc_pol")
   .option("--org <id>", "Org to pay for (defaults to `orgs use`)")
   .option("--json", "Output as JSON")
   .action(async (opts: { plan?: string; currency?: string; org?: string; json?: boolean }) => {

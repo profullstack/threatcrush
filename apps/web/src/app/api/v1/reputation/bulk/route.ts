@@ -41,7 +41,12 @@ export async function POST(req: NextRequest) {
   const headers = allowanceHeaders(who.tier, allowance);
   if (!allowance.ok) {
     return NextResponse.json(
-      { error: `This request needs ${valid} lookups; the daily allowance of ${allowance.limit} would be exceeded.` },
+      {
+        error: `This request needs ${valid} lookups; the daily allowance of ${allowance.limit} would be exceeded.${
+          who.tier === "free" ? " Reputation Pro ($15/mo) gives 10,000 a day: https://threatcrush.com/pricing" : ""
+        }`,
+        upgrade: who.tier === "free" ? "https://threatcrush.com/pricing" : undefined,
+      },
       { status: 429, headers },
     );
   }

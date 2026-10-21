@@ -6,12 +6,12 @@ const appRoot = join(__dirname, "..", "..");
 const read = (p: string) => readFileSync(join(appRoot, p), "utf8");
 
 describe("hire page", () => {
-  it("states the $400 starting point without quoting a full price", () => {
+  it("sells the $400 scan outright and quotes anything bigger", () => {
     const page = read("src/app/hire/page.tsx");
 
-    expect(page).toContain("$400");
+    expect(page).toContain("SCAN_PRICE_USD");
     expect(page).toContain("scan with human input");
-    expect(page).toMatch(/don&apos;t quote prices/);
+    expect(page).toContain("CheckoutPanel");
   });
 
   it("is discoverable — canonical, sitemap, header and footer links", () => {
@@ -31,32 +31,25 @@ describe("hire page", () => {
   });
 });
 
-describe("pricing page replacement", () => {
-  it("no longer exists as a route", () => {
-    expect(existsSync(join(appRoot, "src/app/pricing"))).toBe(false);
+describe("pricing page", () => {
+  it("is a real route again, not a redirect to /hire", () => {
+    expect(existsSync(join(appRoot, "src/app/pricing/page.tsx"))).toBe(true);
+    expect(read("next.config.ts")).not.toContain('source: "/pricing"');
   });
 
-  it("redirects the old URL to /hire permanently", () => {
-    const config = read("next.config.ts");
-
-    expect(config).toContain('source: "/pricing"');
-    expect(config).toContain('destination: "/hire"');
-    expect(config).toContain("permanent: true");
+  it("sells every product through the shared checkout, the $400 scan included", () => {
+    const page = read("src/app/pricing/page.tsx");
+    expect(page).toContain("CheckoutPanel");
+    expect(page).toContain("reputation-pro");
+    expect(page).toContain("link-watch");
+    expect(page).toContain("SCAN_PRICE_USD");
+    expect(page).toContain('canonical: "/pricing"');
   });
 
-  it("leaves no link pointing at the removed route", () => {
-    for (const file of [
-      "src/app/home-page.tsx",
-      "src/app/about/page.tsx",
-      "src/app/affiliates/page.tsx",
-      "src/app/account/account-content.tsx",
-      "src/app/layout.tsx",
-      "src/components/SiteHeader.tsx",
-      "src/components/SiteFooter.tsx",
-      "src/app/sitemap.ts",
-    ]) {
-      expect(read(file)).not.toContain("/pricing");
-    }
+  it("is discoverable from the sitemap, header and footer", () => {
+    expect(read("src/app/sitemap.ts")).toContain('"/pricing"');
+    expect(read("src/components/SiteHeader.tsx")).toContain('href="/pricing"');
+    expect(read("src/components/SiteFooter.tsx")).toContain('href: "/pricing"');
   });
 });
 
