@@ -1,7 +1,7 @@
 {
   "name": "threatcrush",
   "packageManager": "pnpm@10.33.0",
-  "version": "0.7.49",
+  "version": "0.7.50",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @profullstack/threatcrush-web dev",
@@ -27,13 +27,15 @@
     "tcfeed": "npx tsx bin/tcfeed.ts"
   },
   "devDependencies": {
-    "tsup": "^8.5.1",
-    "typescript": "^5"
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3"
   },
   "pnpm": {
     "overrides": {
       "@types/react": "18.3.12",
-      "@types/react-dom": "18.3.7"
+      "@types/react-dom": "18.3.7",
+      "tar@<7.5.22": "^7.5.22",
+      "postcss@<8.5.31": "^8.5.31"
     },
     "onlyBuiltDependencies": [
       "electron",

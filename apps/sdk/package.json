@@ -1,6 +1,6 @@
 {
   "name": "@threatcrush/sdk",
-  "version": "0.7.49",
+  "version": "0.7.50",
   "description": "ThreatCrush Module SDK — build security modules for the ThreatCrush platform",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -47,6 +47,6 @@
     "access": "public"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@threatcrush/attack-map",
-  "version": "0.13.49",
+  "version": "0.13.50",
   "description": "ThreatCrush attack map: land mask, projection, types and renderers shared by the web, desktop, mobile, extension and TUI.",
   "license": "MIT",
   "type": "module",
@@ -21,9 +21,9 @@
     "build:land": "node scripts/build-land.mjs"
   },
   "devDependencies": {
-    "@types/node": "^22.10.1",
-    "typescript": "^5.6.3",
-    "vitest": "^3.2.4"
+    "@types/node": "^26.6.5",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.5"
   },
   "repository": {
     "type": "git",

@@ -27,8 +27,9 @@ linux:
   maintainer: profullstack
   category: Utility
   desktop:
-    Name: ThreatCrush
-    StartupWMClass: ThreatCrush
+    entry:
+      Name: ThreatCrush
+      StartupWMClass: ThreatCrush
 deb:
   # Both scripts *replace* electron-builder's stock templates rather than
   # extending them, so they re-implement the update-alternatives, mime and

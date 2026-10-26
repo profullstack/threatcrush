@@ -8,10 +8,6 @@ export default defineConfig({
     environment: 'node',
     include: ['__tests__/**/*.test.js', '__tests__/**/*.test.jsx'],
     globals: true,
-    environmentMatchGlobs: [
-      // Use jsdom for React component tests
-      ['__tests__/**/*.test.jsx', 'jsdom'],
-    ],
     setupFiles: ['./vitest.setup.js'],
   },
   resolve: {

@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush",
-  "version": "0.13.49",
+  "version": "0.13.50",
   "description": "All-in-one security agent daemon — monitor, detect, scan, and protect servers in real-time",
   "bin": {
     "threatcrush": "./dist/index.js"
@@ -44,23 +44,23 @@
   "license": "MIT",
   "dependencies": {
     "@iarna/toml": "^2.2.5",
-    "@profullstack/hqtui": "^0.10.3",
-    "@sentry/node": "^8.45.0",
+    "@profullstack/hqtui": "^0.11.0",
+    "@sentry/node": "^11.9.0",
     "better-sqlite3": "^13.0.3",
-    "chalk": "^5.4.1",
-    "commander": "^13.1.0",
-    "nodemailer": "^6.9.16",
-    "ora": "^8.2.0"
+    "chalk": "^6.0.1",
+    "commander": "^15.0.0",
+    "nodemailer": "^10.2.1",
+    "ora": "^9.4.1"
   },
   "devDependencies": {
     "@threatcrush/attack-map": "workspace:*",
     "@threatcrush/scan": "workspace:*",
-    "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^22.19.17",
-    "@types/nodemailer": "^6.4.17",
-    "tsup": "^8.5.1",
-    "typescript": "^5.9.3",
-    "vitest": "^3.0.0"
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.5",
+    "@types/nodemailer": "^8.0.2",
+    "tsup": "^9.0.0",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.5"
   },
   "repository": {
     "type": "git",
