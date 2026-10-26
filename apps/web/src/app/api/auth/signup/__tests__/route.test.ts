@@ -9,6 +9,10 @@ const mockFromEq = vi.fn();
 const mockSingle = vi.fn();
 const mockCreateUser = vi.fn();
 const mockDeleteUser = vi.fn();
+const mockProfileUpsert = vi.fn();
+
+// First and last name are required on every signup (@profullstack/profile).
+const NAMES = { first_name: "Ada", last_name: "Lovelace" };
 
 function resetMocks(overrides: {
   createUserResult?: { data: unknown; error: unknown };
@@ -49,6 +53,10 @@ vi.mock("@/lib/supabase", () => ({
         return {
           select: mockFromSelect,
           insert: mockFromInsert,
+          upsert: (row: Record<string, unknown>, opts: unknown) => {
+            mockProfileUpsert(row, opts);
+            return { select: () => ({ single: async () => ({ data: row, error: null }) }) };
+          },
         };
       }
       if (table === "phone_verification_codes" || table === "phone_sms_sends") {
@@ -89,7 +97,7 @@ describe("POST /api/auth/signup", () => {
   });
 
   it("creates user with valid email + phone + password", async () => {
-    const req = makeRequest({ email: "test@example.com", phone: "+1234567890", password: "securePass1!" });
+    const req = makeRequest({ email: "test@example.com", phone: "+1234567890", password: "securePass1!", ...NAMES });
     const res = await POST(req);
     const body = await res.json();
 
@@ -109,7 +117,7 @@ describe("POST /api/auth/signup", () => {
   });
 
   it("returns referral_code in response", async () => {
-    const req = makeRequest({ email: "test@example.com", password: "securePass1!" });
+    const req = makeRequest({ email: "test@example.com", password: "securePass1!", ...NAMES });
     const res = await POST(req);
     const body = await res.json();
 
@@ -120,7 +128,7 @@ describe("POST /api/auth/signup", () => {
   });
 
   it("rejects missing email", async () => {
-    const req = makeRequest({ password: "securePass1!" });
+    const req = makeRequest({ password: "securePass1!", ...NAMES });
     const res = await POST(req);
     const body = await res.json();
 
@@ -145,7 +153,7 @@ describe("POST /api/auth/signup", () => {
       },
     });
 
-    const req = makeRequest({ email: "not-an-email", password: "securePass1!" });
+    const req = makeRequest({ email: "odd@example.com", password: "securePass1!", ...NAMES });
     const res = await POST(req);
     const body = await res.json();
 
@@ -161,7 +169,7 @@ describe("POST /api/auth/signup", () => {
       },
     });
 
-    const req = makeRequest({ email: "existing@example.com", password: "securePass1!" });
+    const req = makeRequest({ email: "existing@example.com", password: "securePass1!", ...NAMES });
     const res = await POST(req);
     const body = await res.json();
 
@@ -173,6 +181,7 @@ describe("POST /api/auth/signup", () => {
     const req = makeRequest({
       email: "test@example.com",
       password: "securePass1!",
+      ...NAMES,
       referral_code: "ABC12345",
     });
     const res = await POST(req);
@@ -187,7 +196,7 @@ describe("POST /api/auth/signup", () => {
   });
 
   it("sets needs_phone_verification=false when no phone provided", async () => {
-    const req = makeRequest({ email: "test@example.com", password: "securePass1!" });
+    const req = makeRequest({ email: "test@example.com", password: "securePass1!", ...NAMES });
     const res = await POST(req);
     const body = await res.json();
 
@@ -196,7 +205,7 @@ describe("POST /api/auth/signup", () => {
   });
 
   it("response shape matches contract", async () => {
-    const req = makeRequest({ email: "test@example.com", phone: "+1234567890", password: "securePass1!" });
+    const req = makeRequest({ email: "test@example.com", phone: "+1234567890", password: "securePass1!", ...NAMES });
     const res = await POST(req);
     const body = await res.json();
 
@@ -218,7 +227,7 @@ describe("POST /api/auth/signup", () => {
     for (let i = 0; i <= SMS_SENDS_PER_HOUR; i++) {
       resetMocks({ createUserResult: { data: { user: { id: `user-${i}` } }, error: null } });
       const res = await POST(
-        makeRequest({ email: `victim${i}@example.com`, phone: "+15551234567", password: "securePass1!" }),
+        makeRequest({ email: `victim${i}@example.com`, phone: "+15551234567", password: "securePass1!", ...NAMES }),
       );
       results.push({ status: res.status, ...(await res.json()) });
     }
@@ -228,5 +237,51 @@ describe("POST /api/auth/signup", () => {
     expect(results.map((r) => r.sms_sent)).toEqual([...Array(SMS_SENDS_PER_HOUR).fill(true), false]);
     expect(results.at(-1)?.sms_error).toMatch(/Too many verification codes/);
     expect(sendTelnyxSms).toHaveBeenCalledTimes(SMS_SENDS_PER_HOUR);
+  });
+
+  it("stores the profile fields on user_profiles after creating the account", async () => {
+    const res = await POST(
+      makeRequest({
+        email: "Ada@Acme.com",
+        password: "securePass1!",
+        first_name: "Ada",
+        last_name: "Lovelace",
+        company_domain: "https://www.acme.com/about",
+        job_title: "VP Engineering",
+        linkedin_url: "in/ada-lovelace",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    // No display name given: it defaults to the person's name.
+    expect(mockFromInsert).toHaveBeenCalledWith(expect.objectContaining({ display_name: "Ada Lovelace" }));
+    expect(mockProfileUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "user-123",
+        email: "ada@acme.com",
+        first_name: "Ada",
+        last_name: "Lovelace",
+        company_domain: "acme.com",
+        job_title: "VP Engineering",
+        linkedin_url: "https://www.linkedin.com/in/ada-lovelace",
+      }),
+      { onConflict: "id" },
+    );
+  });
+
+  it("refuses a signup without first and last name before creating anything", async () => {
+    const res = await POST(makeRequest({ email: "new@example.com", password: "securePass1!" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(Object.keys(body.errors)).toEqual(expect.arrayContaining(["first_name", "last_name"]));
+    expect(mockCreateUser).not.toHaveBeenCalled();
+    expect(mockProfileUpsert).not.toHaveBeenCalled();
+  });
+
+  it("does not write a profile for an already-registered address", async () => {
+    resetMocks({ createUserResult: { data: { user: { id: "stand-in", identities: [] } }, error: null } });
+    await POST(makeRequest({ email: "taken@example.com", password: "securePass1!", ...NAMES }));
+    expect(mockProfileUpsert).not.toHaveBeenCalled();
   });
 });
