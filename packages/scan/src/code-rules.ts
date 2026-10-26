@@ -1053,6 +1053,47 @@ export const CODE_RULES: readonly CodeRule[] = [
       /\[\s*['"]__proto__['"]\s*\]|\bObject\s*\.\s*assign\s*\(\s*[\w.$]*\.prototype\b|\.\s*__proto__\s*=/,
   },
 
+  // ── GitHub Actions ───────────────────────────────────────────────────────
+  //
+  // A workflow runs with the repository's secrets on every push, so writing one
+  // is the shortest path from "can commit" to "has every credential". In
+  // October 2026 a public repository's hidden instructions got ChatGPT's GitHub
+  // connector to commit exactly that into a victim's private repository; the
+  // same file arrives by a compromised maintainer token or a careless merge.
+  // Both rules look for the exfiltration itself, not for secrets being used:
+  // `Authorization: Bearer ${{ secrets.X }}` to the API it belongs to is the
+  // whole point of a secret and stays silent.
+  {
+    id: 'gha-all-secrets-serialized',
+    inherent: true,
+    title: 'every repository secret serialised into one value',
+    consequence:
+      'toJSON(secrets) is the full secret store as one string. Whatever step receives it can send every credential the repository holds anywhere it likes, and the runner masks it in logs, so nobody sees it leave.',
+    cwe: 'CWE-200',
+    severity: 'high',
+    languages: ['config'],
+    pattern: /\btoJSON\s*\(\s*secrets\s*\)/,
+    fileRequires: /^\s*runs-on\s*:/m,
+    guard: false,
+  },
+  {
+    id: 'gha-secret-to-collector',
+    inherent: true,
+    title: 'workflow sends secrets to a request-capture service',
+    consequence:
+      'The step posts repository secrets to a public request catcher, which is how stolen CI credentials are collected. Treat every secret the workflow can read as leaked and rotate it.',
+    cwe: 'CWE-200',
+    severity: 'critical',
+    languages: ['config'],
+    pattern:
+      /\b(?:webhook\.site|requestbin\.(?:com|net)|[\w-]+\.m\.pipedream\.net|pipedream\.net|[\w-]+\.(?:ngrok(?:-free)?\.(?:io|app|dev)|trycloudflare\.com)|[\w-]+\.(?:oast\.(?:fun|live|me|online|pro|site)|interact\.sh|burpcollaborator\.net)|beeceptor\.com|hookbin\.com|requestcatcher\.com)\b/i,
+    requires: /\$\{\{\s*(?:toJSON\s*\(\s*)?secrets\b/,
+    fileRequires: /^\s*runs-on\s*:/m,
+    guard: false,
+    guardBack: 12,
+    guardForward: 4,
+  },
+
   // ── Shell ────────────────────────────────────────────────────────────────
   //
   // `shell` was a language the type system knew about and no rule targeted, so

@@ -584,8 +584,55 @@ function osFileInPathRule(ported) {
   };
 }
 
+/**
+ * 10002-10004, known-exploit requests CRS scores 0 because they carry no
+ * generic attack syntax: the exploit is a fixed path or a framework's own
+ * routing. Each was seen in the wild against internet-facing hosts (VulnCheck,
+ * Flax Typhoon follow-on activity, 2026-10), and none has a legitimate caller,
+ * so each is CRITICAL on its own and bans at one request.
+ *  - 10002, CVE-2017-9841: PHPUnit's eval-stdin.php runs the request body as
+ *    PHP. It ships under vendor/ and is only ever reached by mistake or attack.
+ *  - 10003, CVE-2018-20062 / CVE-2022-47945 family: ThinkPHP routes
+ *    `s=/index/\think\app/invokefunction` to any class method. A backslash
+ *    namespace path into `\think\` never appears in a real query.
+ *  - 10004, CVE-2025-24893: XWiki renders wiki macros in SolrSearch's `text`
+ *    argument, so `{{groovy}}` or `{{async}}` in a query is code execution.
+ */
+function knownExploitRules() {
+  const path = ['utf8toUnicode', 'urlDecodeUni', 'normalizePathWin'];
+  return [
+    {
+      id: 10002,
+      msg: 'PHPUnit eval-stdin.php remote code execution probe (CVE-2017-9841)',
+      severity: 'CRITICAL',
+      tags: ['attack-rce', 'threatcrush', 'cve-2017-9841'],
+      targets: ['REQUEST_FILENAME'],
+      transforms: path,
+      op: { type: 'rx', source: '/src/util/php/eval-stdin\\.php', flags: 'i', negated: false },
+    },
+    {
+      id: 10003,
+      msg: 'ThinkPHP namespace routing remote code execution probe',
+      severity: 'CRITICAL',
+      tags: ['attack-rce', 'threatcrush', 'cve-2022-47945'],
+      targets: ['ARGS'],
+      transforms: ['urlDecodeUni'],
+      op: { type: 'rx', source: '\\\\think\\\\(?:app|container|request|module|template\\\\driver\\\\file)\\b', flags: 'i', negated: false },
+    },
+    {
+      id: 10004,
+      msg: 'XWiki macro injection remote code execution probe (CVE-2025-24893)',
+      severity: 'CRITICAL',
+      tags: ['attack-rce', 'threatcrush', 'cve-2025-24893'],
+      targets: ['ARGS'],
+      transforms: ['urlDecodeUni'],
+      op: { type: 'rx', source: '\\{\\{\\s*(?:groovy|python|async|velocity)\\b', flags: 'i', negated: false },
+    },
+  ];
+}
+
 function buildThreatcrush(ported) {
-  return [osFileInPathRule(ported)];
+  return [osFileInPathRule(ported), ...knownExploitRules()];
 }
 
 // Byte strings (one char per byte) go through JSON with \u escapes, which the
