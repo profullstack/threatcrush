@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseAuthClient, getSupabaseAdmin } from "@/lib/supabase";
 import { setSignupGrantCookie } from "@/lib/signup-grant";
+import { clearInviteCookie, INVITE_META_KEY, inviteCookie, onSignedIn } from "@/lib/credit-codes";
 
 export async function POST(req: NextRequest) {
   try {
@@ -57,7 +58,13 @@ export async function POST(req: NextRequest) {
       .eq("id", data.user.id)
       .single();
 
-    return NextResponse.json({
+    // Accept a pending invite (/i/<code> cookie or signup metadata) and settle
+    // any invite bonus that has become payable. Never throws.
+    const meta = (data.user.user_metadata ?? {}) as Record<string, unknown>;
+    const invite = inviteCookie(req) || (typeof meta[INVITE_META_KEY] === "string" ? (meta[INVITE_META_KEY] as string) : "");
+    await onSignedIn(data.user.id, invite);
+
+    const res = NextResponse.json({
       user: data.user,
       session: data.session,
       verified: {
@@ -66,6 +73,8 @@ export async function POST(req: NextRequest) {
       },
       phone: profile?.phone ?? null,
     });
+    clearInviteCookie(req, res);
+    return res;
   } catch (err) {
     console.error("Login error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

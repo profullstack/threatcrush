@@ -158,6 +158,20 @@ export default function SiteHeader() {
                         >
                           Usage & Billing
                         </a>
+                        <a
+                          href="/dashboard/billing"
+                          className="block px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors"
+                          onClick={() => setUserDropdownOpen(false)}
+                        >
+                          Credits & Codes
+                        </a>
+                        <a
+                          href="/invites"
+                          className="block px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors"
+                          onClick={() => setUserDropdownOpen(false)}
+                        >
+                          Invites
+                        </a>
                         {profile?.is_admin && (
                           <a
                             href="/admin"
@@ -234,6 +248,8 @@ export default function SiteHeader() {
                 <>
                   <a href="/dashboard" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Dashboard</a>
                   <a href="/account" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Account</a>
+                  <a href="/dashboard/billing" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Credits &amp; Codes</a>
+                  <a href="/invites" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Invites</a>
                   {profile?.is_admin && (
                     <a href="/admin" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Admin</a>
                   )}

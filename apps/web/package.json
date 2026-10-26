@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush-web",
-  "version": "0.7.53",
+  "version": "0.8.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,10 +10,12 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
+    "@profullstack/affiliates": "^0.2.0",
     "@profullstack/autoblog": "github:profullstack/autoblog#v0.4.0",
     "@profullstack/footer": "latest",
     "@profullstack/pluginstore": "^0.1.2",
     "@profullstack/profile": "0.1.6",
+    "@profullstack/redeem-credits": "^0.2.0",
     "@profullstack/stack": "^0.5.0",
     "@profullstack/throttle": "^0.3.4",
     "@profullstack/x402-gateway": "^0.13.1",

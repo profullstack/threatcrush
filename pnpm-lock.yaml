@@ -339,6 +339,9 @@ importers:
       '@iarna/toml':
         specifier: ^2.2.5
         version: 2.2.5
+      '@profullstack/affiliates':
+        specifier: ^0.2.0
+        version: 0.2.0(react@19.3.1)
       '@profullstack/autoblog':
         specifier: github:profullstack/autoblog#v0.4.0
         version: https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e
@@ -351,6 +354,9 @@ importers:
       '@profullstack/profile':
         specifier: 0.1.6
         version: 0.1.6(react@19.3.1)
+      '@profullstack/redeem-credits':
+        specifier: ^0.2.0
+        version: 0.2.0
       '@profullstack/stack':
         specifier: ^0.5.0
         version: 0.5.0(next@16.4.3(@opentelemetry/api@1.10.0)(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
@@ -2240,6 +2246,11 @@ packages:
     resolution: {integrity: sha512-//0sR/cow/s4ICQaYoAobOl4aU8cjU6x/V24V7XkKotb9+O+3zySIYp146vpaobYHnxa4pZX8NkV54Z5AwbDKA==}
     engines: {node: '>=12'}
 
+  '@profullstack/affiliates@0.2.0':
+    resolution: {integrity: sha512-fbP5uiS8Pa5g8mk5WFD79U4Cj7BUPH6Qy0tQP7ZXE9gfxHOHirHASmZ/rAk8MqnmzGOZTuwq9WwOHbmoFV2TSA==}
+    engines: {node: '>=22.13'}
+    hasBin: true
+
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e':
     resolution: {tarball: https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e}
     version: 0.4.0
@@ -2289,6 +2300,11 @@ packages:
         optional: true
       react:
         optional: true
+
+  '@profullstack/redeem-credits@0.2.0':
+    resolution: {integrity: sha512-JLowb7mWYfouIK7O522tuPPhvLjQjhdEfm6g3xEYrlNLGzLhrIADDhrYldBlGHfiVBWUFX7wefLuCSLF9fnyog==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@profullstack/referrals@0.1.0':
     resolution: {integrity: sha512-u66SdBVpsv3kc0N+NWISPoYD5vjCERyv5wfD07iSkZwQeC2IA+ihX5jNA4e7Xr+Y4AUvxLycG+3b4VaROqzgRg==}
@@ -9892,6 +9908,12 @@ snapshots:
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
 
+  '@profullstack/affiliates@0.2.0(react@19.3.1)':
+    dependencies:
+      '@profullstack/referrals': 0.1.0(react@19.3.1)
+    transitivePeerDependencies:
+      - react
+
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e': {}
 
   '@profullstack/emailer@1.0.3': {}
@@ -9911,6 +9933,8 @@ snapshots:
   '@profullstack/profile@0.1.6(react@19.3.1)':
     optionalDependencies:
       react: 19.3.1
+
+  '@profullstack/redeem-credits@0.2.0': {}
 
   '@profullstack/referrals@0.1.0(react@19.3.1)':
     optionalDependencies:

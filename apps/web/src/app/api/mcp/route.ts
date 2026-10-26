@@ -2,6 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { takeLookupShared } from "@/lib/reputation";
 import { reputationCaller, type ReputationCaller } from "@/lib/reputation-auth";
 import { lookupIndicator, parseIndicator } from "@/lib/reputation-service";
+import { feedPrincipal } from "@/lib/feed-auth";
+import {
+  createInvite,
+  inviteOverview,
+  InviteError,
+  inviteUrl,
+  originFromHeaders,
+  redeemCreditCode,
+  settleInvitesSentBy,
+} from "@/lib/credit-codes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +47,30 @@ const TOOLS = [
       required: ["indicators"],
     },
   },
+  {
+    name: "redeem_credit_code",
+    description:
+      "Redeem a ThreatCrush credit code (CR-XXXX-XXXX-XXXX-XXXX) into the signed-in account's credit balance (1 credit = $1.00). Needs the account's session token (`threatcrush login`), not a tc_agent_ key: agent keys belong to a team, not a person.",
+    inputSchema: {
+      type: "object",
+      properties: { code: { type: "string", description: "The credit code" } },
+      required: ["code"],
+    },
+  },
+  {
+    name: "list_invites",
+    description: "The signed-in account's invites: how many are left of 3, who joined, and whether the bonus credits were paid. Session token only.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "create_invite",
+    description:
+      "Create one invite link (each account has 3, single use, 30 days). When a new account joins on it and confirms its email, both get bonus credits. Session token only.",
+    inputSchema: { type: "object", properties: { note: { type: "string", description: "Who it is for (only you see it)" } } },
+  },
 ];
+
+const CREDIT_TOOLS = new Set(["redeem_credit_code", "list_invites", "create_invite"]);
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -72,6 +105,28 @@ async function callTool(who: ReputationCaller, name: string, args: Record<string
   return null;
 }
 
+async function callCreditTool(req: NextRequest, name: string, args: Record<string, unknown>) {
+  const p = await feedPrincipal(req);
+  if (!p) return text("Sign in first: pass your ThreatCrush session token (`threatcrush login`) as the Bearer token.", true);
+  if (p.kind !== "user") return text("Credit codes and invites belong to a person: use a session token, not a tc_agent_ key.", true);
+  try {
+    if (name === "redeem_credit_code") {
+      const r = await redeemCreditCode(p.userId, String(args.code ?? ""));
+      return r.ok ? text({ ok: true, credits: r.credits, balance_usd: r.balance }) : text(r.message, true);
+    }
+    if (name === "list_invites") {
+      await settleInvitesSentBy(p.userId);
+      return text(await inviteOverview(p.userId));
+    }
+    const inv = await createInvite(p.userId, String(args.note ?? ""));
+    return text({ code: inv.code, url: inviteUrl(originFromHeaders(req.headers), inv.code), expiresAt: inv.expiresAt });
+  } catch (err) {
+    if (err instanceof InviteError) return text(err.message, true);
+    console.error("[mcp] credit tool failed", err);
+    return text("That did not work. Try again.", true);
+  }
+}
+
 async function handle(req: NextRequest, msg: Rpc) {
   const id = msg.id;
   const isNotification = id === undefined;
@@ -91,6 +146,10 @@ async function handle(req: NextRequest, msg: Rpc) {
     case "tools/list":
       return ok(id, { tools: TOOLS });
     case "tools/call": {
+      const toolName = String(msg.params?.name ?? "");
+      if (CREDIT_TOOLS.has(toolName)) {
+        return ok(id, await callCreditTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
+      }
       const who = await reputationCaller(req);
       if (!who) return ok(id, text("A ThreatCrush API key is required (Authorization: Bearer tc_agent_…). Create one free at threatcrush.com.", true));
       const name = String(msg.params?.name ?? "");
