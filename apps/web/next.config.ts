@@ -35,7 +35,7 @@ const securityHeaders = [
       "frame-src 'self'",
       "frame-ancestors 'self'",
       "base-uri 'self'",
-      "form-action 'self'",
+      "form-action 'self' https://pit.world",
       "object-src 'none'",
       "upgrade-insecure-requests",
     ].join("; "),
