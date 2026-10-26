@@ -87,6 +87,47 @@ describe('CRS engine', () => {
   });
 });
 
+describe('known-exploit rules (10002-10004)', () => {
+  // Each payload is the shape seen in the wild; CRS alone scored all three 0.
+  const engine = new CrsEngine();
+  const assess = (uri: string) => engine.assess({ uri });
+
+  it('bans a PHPUnit eval-stdin.php probe on one request (CVE-2017-9841)', () => {
+    const a = assess('/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php');
+    expect(a.matches.map((m) => m.id)).toContain(10002);
+    expect(a.attackType).toBe('rce');
+    expect(a.score).toBeGreaterThanOrEqual(a.threshold);
+    expect(ids(engine, '/lib/phpunit/src/Util/PHP/%65val-stdin.php')).toContain(10002);
+  });
+
+  it('bans a ThinkPHP invokefunction probe (CVE-2022-47945)', () => {
+    const a = assess('/index.php?s=/index/\\think\\app/invokefunction&function=call_user_func_array&vars[0]=system&vars[1][]=id');
+    expect(a.matches.map((m) => m.id)).toContain(10003);
+    expect(a.score).toBeGreaterThanOrEqual(a.threshold);
+    expect(ids(engine, '/?s=index/%5Cthink%5CContainer/invokefunction')).toContain(10003);
+  });
+
+  it('bans an XWiki SolrSearch macro injection (CVE-2025-24893)', () => {
+    const a = assess(
+      '/xwiki/bin/get/Main/SolrSearch?media=rss&text=%7D%7D%7D%7B%7Basync%20async%3Dfalse%7D%7D%7B%7Bgroovy%7D%7Dprintln(%22id%22.execute().text)%7B%7B%2Fgroovy%7D%7D',
+    );
+    expect(a.matches.map((m) => m.id)).toContain(10004);
+    expect(a.score).toBeGreaterThanOrEqual(a.threshold);
+  });
+
+  it('leaves ordinary look-alikes alone', () => {
+    for (const uri of [
+      '/docs/phpunit/eval-stdin',
+      '/blog/how-to-think-about-apps',
+      '/search?q=think+app',
+      '/search?q=%7B%7Btemplate%7D%7D',
+      '/search?q=groovy+music',
+    ]) {
+      expect(ids(engine, uri).filter((id) => id >= 10002 && id <= 10004)).toEqual([]);
+    }
+  });
+});
+
 describe('the generated rule table', () => {
   it('is what the generator produces from the vendored CRS', () => {
     const script = join(__dirname, '..', '..', '..', '..', 'scripts', 'build-crs-rules.mjs');

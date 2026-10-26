@@ -5810,5 +5810,73 @@ export const THREATCRUSH_RULES: readonly CrsRule[] = [
       "flags": "i",
       "negated": false
     }
+  },
+  {
+    "id": 10002,
+    "msg": "PHPUnit eval-stdin.php remote code execution probe (CVE-2017-9841)",
+    "severity": "CRITICAL",
+    "tags": [
+      "attack-rce",
+      "threatcrush",
+      "cve-2017-9841"
+    ],
+    "targets": [
+      "REQUEST_FILENAME"
+    ],
+    "transforms": [
+      "utf8toUnicode",
+      "urlDecodeUni",
+      "normalizePathWin"
+    ],
+    "op": {
+      "type": "rx",
+      "source": "/src/util/php/eval-stdin\\.php",
+      "flags": "i",
+      "negated": false
+    }
+  },
+  {
+    "id": 10003,
+    "msg": "ThinkPHP namespace routing remote code execution probe",
+    "severity": "CRITICAL",
+    "tags": [
+      "attack-rce",
+      "threatcrush",
+      "cve-2022-47945"
+    ],
+    "targets": [
+      "ARGS"
+    ],
+    "transforms": [
+      "urlDecodeUni"
+    ],
+    "op": {
+      "type": "rx",
+      "source": "\\\\think\\\\(?:app|container|request|module|template\\\\driver\\\\file)\\b",
+      "flags": "i",
+      "negated": false
+    }
+  },
+  {
+    "id": 10004,
+    "msg": "XWiki macro injection remote code execution probe (CVE-2025-24893)",
+    "severity": "CRITICAL",
+    "tags": [
+      "attack-rce",
+      "threatcrush",
+      "cve-2025-24893"
+    ],
+    "targets": [
+      "ARGS"
+    ],
+    "transforms": [
+      "urlDecodeUni"
+    ],
+    "op": {
+      "type": "rx",
+      "source": "\\{\\{\\s*(?:groovy|python|async|velocity)\\b",
+      "flags": "i",
+      "negated": false
+    }
   }
 ];
