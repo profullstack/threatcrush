@@ -38,7 +38,7 @@ COPY . .
 # Turbopack's hashed external. The standalone output then runs on Bun.
 RUN pnpm --filter @profullstack/threatcrush-web build
 
-FROM oven/bun:1.4.0-slim AS runner
+FROM oven/bun:1.4.4-slim AS runner
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

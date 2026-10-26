@@ -216,7 +216,8 @@ async function createPackages(targets) {
 
   let archiver;
   try {
-    archiver = (await import('archiver')).default;
+    const { ZipArchive } = await import('archiver');
+    archiver = (format, options) => new ZipArchive(options);
   } catch {
     console.log('⚠️  archiver not installed, skipping ZIP creation');
     console.log('   Run: pnpm add -D archiver');
