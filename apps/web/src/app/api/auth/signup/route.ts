@@ -5,6 +5,7 @@ import { issuePhoneCode } from "@/lib/phone-verification";
 import { setSignupGrantCookie } from "@/lib/signup-grant";
 import { COLUMNS, validateProfile, saveSignupProfile } from "@profullstack/profile";
 import { profileStore } from "@/lib/profile";
+import { cleanInviteCode, INVITE_META_KEY, inviteCookie } from "@/lib/credit-codes";
 
 function generateReferralCode(): string {
   // TC-30: Math.random() is not a CSPRNG, and referral codes are guessable
@@ -44,12 +45,17 @@ export async function POST(req: NextRequest) {
 
     // Use the anon client so Supabase actually sends the confirmation email.
     // admin.createUser silently creates users without sending any email.
+    // An invite (/i/<code> cookie or the form) rides in user_metadata, so it is
+    // accepted when the email is confirmed, even on another device.
+    const inviteCode = cleanInviteCode(body.invite ?? inviteCookie(req));
+
     const anon = createSupabaseAuthClient();
     const { data: authData, error: authError } = await anon.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${new URL(req.url).origin}/auth/verify`,
+        ...(inviteCode ? { data: { [INVITE_META_KEY]: inviteCode } } : {}),
       },
     });
 

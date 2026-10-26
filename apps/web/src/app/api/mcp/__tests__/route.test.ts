@@ -14,11 +14,11 @@ const call = (body: unknown) =>
   );
 
 describe("/api/mcp", () => {
-  it("initializes and lists the reputation tools without a key", async () => {
+  it("initializes and lists the tools without a key", async () => {
     const init = await (await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).json();
     expect(init.result.serverInfo.name).toBe("ThreatCrush");
     const list = await (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk"]);
+    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite"]);
   });
 
   it("a tool call without a key is a tool error the model can read", async () => {

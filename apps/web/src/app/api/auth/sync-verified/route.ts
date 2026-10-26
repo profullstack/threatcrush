@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase";
 import { syncEmailVerifiedIfConfirmed } from "@/lib/auth-sync";
+import { clearInviteCookie, INVITE_META_KEY, inviteCookie, onSignedIn } from "@/lib/credit-codes";
 
 /**
  * POST /api/auth/sync-verified
@@ -22,5 +23,14 @@ export async function POST(req: NextRequest) {
   }
 
   const synced = await syncEmailVerifiedIfConfirmed(data.user.id);
-  return NextResponse.json({ email_verified: synced });
+
+  // Email just confirmed: accept the invite the account signed up with and pay
+  // the invite bonus if it now qualifies (never throws).
+  const meta = (data.user.user_metadata ?? {}) as Record<string, unknown>;
+  const invite = inviteCookie(req) || (typeof meta[INVITE_META_KEY] === "string" ? (meta[INVITE_META_KEY] as string) : "");
+  await onSignedIn(data.user.id, invite);
+
+  const res = NextResponse.json({ email_verified: synced });
+  clearInviteCookie(req, res);
+  return res;
 }

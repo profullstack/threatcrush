@@ -638,6 +638,14 @@ export default function AccountContent() {
             <Link href="/usage" className="text-tc-green hover:underline text-sm">
               View Usage →
             </Link>
+            <span className="text-tc-text-dim mx-2">·</span>
+            <Link href="/dashboard/billing" className="text-tc-green hover:underline text-sm">
+              Have a code? →
+            </Link>
+            <span className="text-tc-text-dim mx-2">·</span>
+            <Link href="/invites" className="text-tc-green hover:underline text-sm">
+              Invites →
+            </Link>
           </div>
 
           {/* Logout */}

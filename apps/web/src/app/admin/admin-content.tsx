@@ -7,6 +7,7 @@ import { authHeaders } from "@/lib/auth-client";
 import MarketplacePanel from "./marketplace-panel";
 import GitHubScansPanel from "./github-scans-panel";
 import ModuleReviewPanel from "./module-review-panel";
+import CreditCodesPanel from "./credit-codes-panel";
 
 type Kind = "outrank" | "crawlproof";
 
@@ -321,6 +322,7 @@ export default function AdminContent() {
           )}
         </section>
 
+        <CreditCodesPanel />
         <ModuleReviewPanel />
         <MarketplacePanel />
         <GitHubScansPanel />

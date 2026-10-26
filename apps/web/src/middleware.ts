@@ -45,6 +45,9 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/r/", limit: 30, windowMs: 60_000 },
   // Invite tokens are credentials too.
   { prefix: "/api/invites/", limit: 30, windowMs: 60_000 },
+  // Credit codes and invite codes: guessing is capped (codes are 60-80 bits anyway).
+  { prefix: "/api/credits/redeem", limit: 10, windowMs: 60_000 },
+  { prefix: "/api/credits/invites/accept", limit: 10, windowMs: 60_000 },
   { prefix: "/api/hooks/", limit: 60, windowMs: 60_000 },
   { prefix: "/api/scan", limit: 20, windowMs: 60_000 },
   { prefix: "/api/modules/fetch-meta", limit: 20, windowMs: 60_000 },

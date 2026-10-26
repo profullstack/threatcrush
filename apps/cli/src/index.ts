@@ -22,6 +22,7 @@ import { modulesCommand } from "./commands/modules.js";
 import { pentestCommand } from "./commands/pentest.js";
 import { aiScanCommand, aiScanMoshCommand } from "./commands/ai-scan.js";
 import { orgsCommand } from "./commands/orgs.js";
+import { invitesCommand, redeemCommand } from "./commands/credits.js";
 import { serversCommand } from "./commands/servers.js";
 import { connectCommand } from "./commands/connect.js";
 import { daemonForeground, daemonRestart, daemonStart, daemonStop } from "./commands/daemon.js";
@@ -1292,6 +1293,25 @@ propsCmd
   .option("-n, --dry-run", "Preview without writing")
   .action(async (file: string, opts) => {
     await propertiesImportCommand(file, { org: opts.org, dryRun: opts.dryRun });
+  });
+
+// ─── Credit codes + invites ───
+
+program
+  .command("redeem")
+  .description("Redeem a ThreatCrush credit code into your credit balance (needs `threatcrush login`)")
+  .argument("<code>", "Credit code, e.g. CR-XXXX-XXXX-XXXX-XXXX")
+  .action(async (code: string) => {
+    await redeemCommand(code);
+  });
+
+program
+  .command("invites")
+  .description("Your invites (3 per account): list, create [note], accept <code>, revoke <id>")
+  .argument("[action]", "list | create | accept | revoke", "list")
+  .argument("[arg]", "note for create, code for accept, id for revoke")
+  .action(async (action: string, arg?: string) => {
+    await invitesCommand(action, arg);
   });
 
 // ─── Connect command ───

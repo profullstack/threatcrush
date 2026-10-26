@@ -17,6 +17,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [referralCode, setReferralCode] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [profile, setProfile] = useState<Partial<Record<ProfileField, string | null>>>({});
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<ProfileField, string>>>({});
   const [loading, setLoading] = useState(false);
@@ -32,6 +33,10 @@ export default function SignupPage() {
       const params = new URLSearchParams(window.location.search);
       const ref = params.get("ref");
       if (ref) setReferralCode(ref);
+      // An invite from /i/<code> (query or the tc_invite cookie it set).
+      const cookieInvite = document.cookie.match(/(?:^|;\s*)tc_invite=([^;]+)/)?.[1];
+      const invite = params.get("invite") || (cookieInvite ? decodeURIComponent(cookieInvite) : "");
+      if (invite) setInviteCode(invite.replace(/[^A-Za-z0-9-]/g, "").slice(0, 64));
     }
   }, []);
 
@@ -51,6 +56,7 @@ export default function SignupPage() {
           password,
           display_name: displayName || undefined,
           referral_code: referralCode || undefined,
+          invite: inviteCode || undefined,
           ...Object.fromEntries(PROFILE_FIELDS.map((k) => [k, profile[k] ?? ""])),
         }),
       });
@@ -84,6 +90,13 @@ export default function SignupPage() {
           <h1 className="text-2xl font-bold text-white mt-4">Create your account</h1>
           <p className="text-tc-text-dim mt-2">Get lifetime access to threat intelligence</p>
         </div>
+
+        {inviteCode && (
+          <div className="mb-4 rounded-xl border border-tc-green/30 bg-tc-card p-3 text-sm text-tc-text-dim">
+            You are joining on invite <code className="font-mono text-white">{inviteCode}</code>. You and the
+            person who invited you each get free credits once your email is confirmed.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="bg-tc-card border border-tc-border rounded-xl p-6 space-y-4">
           {error && (

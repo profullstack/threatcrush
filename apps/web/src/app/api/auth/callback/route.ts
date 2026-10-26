@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createOAuthCookieStorage } from "@/lib/oauth-cookie-storage";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { clearInviteCookie, inviteCookie, onSignedIn } from "@/lib/credit-codes";
 
 function generateReferralCode(): string {
   // TC-30: referral codes attribute payouts, so they come from a CSPRNG.
@@ -85,11 +86,16 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // OAuth accounts arrive confirmed: accept an /i/<code> invite and settle any
+  // invite bonus now. Never throws.
+  await onSignedIn(user.id, inviteCookie(request));
+
   const accessToken = sessionData.session?.access_token || "";
   const refreshToken = sessionData.session?.refresh_token || "";
   const response = NextResponse.redirect(
     `${appUrl}${nextPath}#access_token=${accessToken}&refresh_token=${refreshToken}&type=oauth`
   );
   applyVerifierCookies(response, new URL(appUrl).protocol === "https:");
+  clearInviteCookie(request, response);
   return response;
 }
