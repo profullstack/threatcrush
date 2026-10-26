@@ -5,6 +5,11 @@ import Link from "next/link";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { githubOAuthEnabled } from "@/lib/github-oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
+import { ProfileFields } from "@profullstack/profile/react";
+import type { ProfileField } from "@profullstack/profile";
+
+// Email has its own input below; the package renders the other five.
+const PROFILE_FIELDS: ProfileField[] = ["first_name", "last_name", "company_domain", "job_title", "linkedin_url"];
 
 export default function SignupPage() {
   const [email, setEmail] = useState("");
@@ -12,6 +17,8 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [referralCode, setReferralCode] = useState("");
+  const [profile, setProfile] = useState<Partial<Record<ProfileField, string | null>>>({});
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ProfileField, string>>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -32,6 +39,7 @@ export default function SignupPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setFieldErrors({});
 
     try {
       const res = await fetch("/api/auth/signup", {
@@ -43,11 +51,13 @@ export default function SignupPage() {
           password,
           display_name: displayName || undefined,
           referral_code: referralCode || undefined,
+          ...Object.fromEntries(PROFILE_FIELDS.map((k) => [k, profile[k] ?? ""])),
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
+        setFieldErrors(data.errors ?? {});
         setError(data.error || "Signup failed");
         return;
       }
@@ -88,13 +98,21 @@ export default function SignupPage() {
             </div>
           )}
 
+          <ProfileFields
+            fields={PROFILE_FIELDS}
+            idPrefix="signup-"
+            values={profile}
+            onChange={setProfile}
+            errors={fieldErrors}
+          />
+
           <div>
             <label className="block text-sm font-medium text-tc-text mb-1">Display Name</label>
             <input
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Your name"
+              placeholder="Defaults to your first and last name"
               className="w-full bg-tc-darker border border-tc-border rounded-lg px-4 py-2.5 text-white placeholder:text-tc-text-dim focus:outline-none focus:border-tc-green/50 transition-colors"
             />
           </div>

@@ -3,6 +3,8 @@ import { createSupabaseAuthClient, getSupabaseAdmin } from "@/lib/supabase";
 import { randomInt } from "node:crypto";
 import { issuePhoneCode } from "@/lib/phone-verification";
 import { setSignupGrantCookie } from "@/lib/signup-grant";
+import { COLUMNS, validateProfile, saveSignupProfile } from "@profullstack/profile";
+import { profileStore } from "@/lib/profile";
 
 function generateReferralCode(): string {
   // TC-30: Math.random() is not a CSPRNG, and referral codes are guessable
@@ -17,11 +19,28 @@ function generateReferralCode(): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const { email, phone, password, display_name, referral_code } = await req.json();
+    const body = await req.json();
+    const { email, phone, password, display_name, referral_code } = body;
 
     if (!email || !password) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
+
+    // The shared @profullstack/profile fields: first and last name required,
+    // company domain, job title and LinkedIn optional. Checked before any
+    // account is created.
+    const profileInput: Record<string, unknown> = Object.fromEntries(
+      COLUMNS.map((c) => [c, (body as Record<string, unknown>)?.[c]]),
+    );
+    profileInput.email = email;
+    const check = validateProfile(profileInput);
+    if (!check.ok) {
+      return NextResponse.json(
+        { error: Object.values(check.errors)[0] ?? "Some fields need fixing.", errors: check.errors },
+        { status: 400 },
+      );
+    }
+    const fullName = [check.profile.first_name, check.profile.last_name].filter(Boolean).join(" ");
 
     // Use the anon client so Supabase actually sends the confirmation email.
     // admin.createUser silently creates users without sending any email.
@@ -67,7 +86,7 @@ export async function POST(req: NextRequest) {
       id: userId,
       email,
       phone: phone || null,
-      display_name: display_name || null,
+      display_name: display_name || fullName || null,
       referral_code: userReferralCode,
       referred_by: referral_code || null,
       email_verified: false,
@@ -78,6 +97,17 @@ export async function POST(req: NextRequest) {
       // Cleanup auth user if profile creation fails
       await supabase.auth.admin.deleteUser(userId);
       return NextResponse.json({ error: "Failed to create profile: " + profileError.message }, { status: 500 });
+    }
+
+    // An address that is already registered comes back as a stand-in user
+    // with no identities; never write a profile for it.
+    if ((authData.user?.identities?.length ?? 1) > 0) {
+      try {
+        await saveSignupProfile(profileStore(), userId, profileInput, { email });
+      } catch (err) {
+        // The account exists; the fields can be filled in from /account.
+        console.error("[signup] profile save failed:", err);
+      }
     }
 
     // Verification email is sent automatically by auth.signUp above.

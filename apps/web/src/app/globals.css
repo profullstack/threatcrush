@@ -328,3 +328,26 @@ body {
   color: rgb(255 255 255);
   font-weight: 700;
 }
+
+/* @profullstack/profile fields: same look as the signup and account inputs. */
+.pfs-profile { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 1rem; }
+.pfs-profile__row label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--tc-text);
+}
+.pfs-profile__row input {
+  width: 100%;
+  background: var(--tc-darker);
+  border: 1px solid var(--tc-border);
+  border-radius: 0.5rem;
+  padding: 0.625rem 1rem;
+  color: #fff;
+  transition: border-color 150ms;
+}
+.pfs-profile__row input::placeholder { color: var(--tc-text-dim); }
+.pfs-profile__row input:focus { outline: none; border-color: rgb(0 255 65 / 0.5); }
+.pfs-profile__optional { color: var(--tc-text-dim); font-weight: 400; }
+.pfs-profile__error { margin-top: 0.25rem; font-size: 0.875rem; color: #f87171; }
