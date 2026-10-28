@@ -252,7 +252,7 @@ export async function emitToOrg(
     kick(hooks);
     return rows.length;
   } catch (err) {
-    console.error(`[webhooks] org ${orgId}: could not queue webhooks:`, (err as Error).message);
+    console.error("[webhooks] could not queue webhooks for an org:", (err as Error).message);
     return 0;
   }
 }
