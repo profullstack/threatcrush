@@ -78,6 +78,30 @@ function expire(window: EventWindow, now: number): void {
   }
 }
 
+const EVIDENCE_MESSAGE_CHARS = 500;
+const EVIDENCE_FIELD_CHARS = 200;
+const EVIDENCE_FIELDS = ['unit', 'identifier', 'process', 'comm', 'pid', 'user', 'path', 'method', 'status', 'host', 'priority'] as const;
+
+/**
+ * The event that tipped a rule over its threshold, small enough to upload:
+ * when, which module, the log/request line, and a few named fields. Never the
+ * whole details object (a request's headers, a module dump).
+ */
+export function evidenceOf(event: ThreatEvent): Record<string, unknown> {
+  const details = (event.details ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = {
+    at: event.timestamp instanceof Date ? event.timestamp.toISOString() : String(event.timestamp ?? ''),
+    module: event.module,
+    message: String(event.message ?? '').slice(0, EVIDENCE_MESSAGE_CHARS),
+  };
+  if (event.source_ip) out.source_ip = event.source_ip;
+  for (const k of EVIDENCE_FIELDS) {
+    const v = details[k];
+    if (typeof v === 'string' || typeof v === 'number') out[k] = String(v).slice(0, EVIDENCE_FIELD_CHARS);
+  }
+  return out;
+}
+
 export class RuleEngine {
   private rules: DetectionRule[] = [];
   private windows = new Map<string, EventWindow>();
@@ -190,6 +214,9 @@ export class RuleEngine {
           tags: rule.tags,
           category: rule.category,
           remediation: rule.remediation,
+          // What actually happened: without this every alert, page and incident
+          // could only repeat the rule's description ("a critical log message").
+          evidence: evidenceOf(event),
           ...(aggregate
             ? { group_by: groupBy, group: groupValue, distinct_ips: distinctIps, hits }
             : {}),

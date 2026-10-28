@@ -82,11 +82,26 @@ export function trimMetadata(meta: Record<string, unknown>): Record<string, unkn
   let truncated = entries.length !== Object.keys(meta).length;
   if (jsonBytes(out) > MAX_METADATA_BYTES) {
     truncated = true;
-    const bySize = [...entries].sort((a, b) => jsonBytes(a[1]) - jsonBytes(b[1]));
-    while (bySize.length > 0 && jsonBytes({ ...Object.fromEntries(bySize), _truncated: true }) > MAX_METADATA_BYTES) {
-      bySize.pop();
+    // Biggest value first: shrink it to an excerpt, and drop it only if even
+    // that does not fit. `evidence` (the line that triggered the detection) is
+    // never dropped: losing it is how a page ended up saying nothing at all.
+    const work = new Map(entries);
+    const shrunk = new Set<string>();
+    const size = () => jsonBytes({ ...Object.fromEntries(work), _truncated: true });
+    while (work.size > 0 && size() > MAX_METADATA_BYTES) {
+      const [key] = [...work.entries()]
+        .filter(([k]) => k !== 'evidence' || !shrunk.has(k))
+        .sort((a, b) => jsonBytes(b[1]) - jsonBytes(a[1]))[0] ?? [];
+      if (key === undefined) break;
+      if (!shrunk.has(key)) {
+        const text = typeof work.get(key) === 'string' ? (work.get(key) as string) : JSON.stringify(work.get(key));
+        work.set(key, text.length > MAX_STRING_CHARS ? `${text.slice(0, MAX_STRING_CHARS)}…` : text);
+        shrunk.add(key);
+      } else if (key !== 'evidence') {
+        work.delete(key);
+      } else break;
     }
-    out = Object.fromEntries(bySize);
+    out = Object.fromEntries(work);
   }
   return truncated ? { ...out, _truncated: true } : out;
 }
