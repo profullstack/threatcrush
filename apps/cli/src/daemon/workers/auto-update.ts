@@ -262,8 +262,13 @@ export class AutoUpdate {
     this.timer.unref?.();
   }
 
-  /** One check; returns what it did, for logs and tests. */
-  async check(): Promise<string> {
+  /**
+   * One check; returns what it did, for logs and tests.
+   * `force` is the dashboard's "Update now": no min_age wait and no
+   * retry-after-a-day for a version that failed before. `restartDelayMs`
+   * restarts that much later, so the action's result is reported first.
+   */
+  async check(opts: { force?: boolean; restartDelayMs?: number } = {}): Promise<string> {
     if (this.busy) return 'busy';
     this.busy = true;
     try {
@@ -281,7 +286,7 @@ export class AutoUpdate {
 
       const pick = pickUpdate(doc, this.opts.version, {
         allowMajor: this.opts.settings.allowMajor,
-        minAgeMs: this.opts.settings.minAgeMs,
+        minAgeMs: opts.force ? 0 : this.opts.settings.minAgeMs,
         now: this.now(),
       });
       // Silent only when there is nothing newer: a deferral is logged, so an
@@ -290,7 +295,7 @@ export class AutoUpdate {
       const target = pick.version;
 
       const last = this.lastAttempt();
-      if (last?.version === target && this.now() - last.at < RETRY_AFTER_MS) {
+      if (!opts.force && last?.version === target && this.now() - last.at < RETRY_AFTER_MS) {
         return this.note(`${target} was tried at ${new Date(last.at).toISOString()} and did not take; retrying after a day`);
       }
 
@@ -315,7 +320,8 @@ export class AutoUpdate {
         return this.note(`install of ${target} failed (exit ${code}): ${tail}`);
       }
       this.opts.log(`[update] ${target} installed; restarting onto it`);
-      this.opts.restartDaemon();
+      if (opts.restartDelayMs) setTimeout(() => this.opts.restartDaemon(), opts.restartDelayMs).unref?.();
+      else this.opts.restartDaemon();
       return `updated to ${target}`;
     } finally {
       this.busy = false;

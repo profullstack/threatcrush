@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getPrincipal, serverScopeIn, visibleIn } from "@/lib/access";
 import { buildFleet, type InventoryRow, type PatchFindingRow } from "@/lib/fleet";
 import { inventoryOrgIds } from "@/lib/fleet-inventory";
+import { latestPublishedVersion } from "@/lib/latest-release";
 
 // GET /api/fleet — every ThreatCrush install the caller can see, across every
 // organization they belong to (an agent key: its team's fleets), with a
@@ -86,7 +87,7 @@ export async function GET(req: NextRequest) {
     const hidden = (rows ?? []).filter((r) => !visibleIds.has(r.id) && invOrgs.includes(r.org_id));
 
     const fleetNames = new Map((fleets ?? []).map((f) => [f.id as string, f.name as string]));
-    return NextResponse.json(buildFleet(visible, orgs, Date.now(), fleetNames, patchRows, inventories, hidden));
+    return NextResponse.json(buildFleet(visible, orgs, Date.now(), fleetNames, patchRows, inventories, hidden, await latestPublishedVersion()));
   } catch (err) {
     console.error("Fleet error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
