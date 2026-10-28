@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { parsePaginationParam } from "@/lib/pagination";
 import { atLeast, serverRoleOf } from "@/lib/access";
 import { requireOrgScope, visibleServerIds } from "@/lib/route-access";
+import { allowlistValueError, isSingleIp } from "@/lib/allowlist-value";
 
 // GET /api/orgs/[id]/remediations — actions on the servers the caller can see
 export async function GET(
@@ -68,6 +69,14 @@ export async function POST(
 
     if (!["block", "unblock", "allowlist_add", "allowlist_remove"].includes(action_type)) {
       return NextResponse.json({ error: "Invalid action_type" }, { status: 400 });
+    }
+    // The daemon re-checks, but a bad target should never reach the queue: an
+    // allowlist_add of 0.0.0.0/0 would stop that server blocking anything.
+    if (action_type.startsWith("allowlist_")) {
+      const problem = allowlistValueError(target_value);
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    } else if (!isSingleIp(target_value)) {
+      return NextResponse.json({ error: "target_value must be an IP address" }, { status: 400 });
     }
 
     // TC-20: server_id and detection_id came straight from the body and were

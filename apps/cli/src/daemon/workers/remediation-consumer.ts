@@ -3,7 +3,7 @@ import { cloudFetch } from '../../core/cli-config.js';
 import { currentLink, type CloudLink } from '../../core/cloud-events.js';
 import type { RemediationManager } from '../firewall/remediation.js';
 import { DEFAULT_PROTECTED } from '../firewall/protected.js';
-import { isAddressOrCidr } from './allowlist-sync.js';
+import { isCloudAllowEntry } from './allowlist-sync.js';
 
 export interface ClaimedAction {
   id: string;
@@ -23,7 +23,7 @@ export interface ActionResult {
 
 export type ConsumerManager = Pick<
   RemediationManager,
-  'ban' | 'unban' | 'status' | 'getBlocklist' | 'addToAllowlist' | 'removeFromAllowlist'
+  'ban' | 'unban' | 'status' | 'getBlocklist' | 'addToAllowlist' | 'removeFromAllowlist' | 'isPinned'
 >;
 
 /** Results the dashboard has not acknowledged yet are retried, up to this many. */
@@ -171,12 +171,18 @@ export class RemediationConsumer {
           return { status: 'executed', dry_run: this.manager.status().dry_run, executed_at };
         }
         case 'allowlist_add':
-          if (!isAddressOrCidr(target)) return failed(`not an IP address or CIDR: ${target}`);
+          if (!isCloudAllowEntry(target)) return failed(`not an IP address or CIDR the dashboard may protect: ${target}`);
           this.manager.addToAllowlist(target);
           return { status: 'executed', executed_at };
         case 'allowlist_remove':
           if (DEFAULT_PROTECTED.includes(target)) {
             return failed(`${target} is a built-in protected range and cannot be removed`);
+          }
+          // Shared infrastructure, the operator's own allowlist and the gateway
+          // were protected before the dashboard said anything: the dashboard
+          // cannot unprotect them (and then block them).
+          if (this.manager.isPinned(target)) {
+            return failed(`${target} is protected by this server's own configuration and cannot be removed from the dashboard`);
           }
           this.manager.removeFromAllowlist(target);
           return { status: 'executed', executed_at };

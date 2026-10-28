@@ -13,6 +13,22 @@ export function isAddressOrCidr(value: string): boolean {
   return Number(prefix) <= (family === 4 ? 32 : 128);
 }
 
+/** Widest range the dashboard may protect: a /8 for IPv4, a /16 for IPv6. */
+export const CLOUD_MIN_PREFIX = { 4: 8, 6: 16 } as const;
+
+/**
+ * An entry the dashboard may add to this server's never-block set. Anything
+ * wider than CLOUD_MIN_PREFIX (0.0.0.0/0, ::/0, 0.0.0.0/1 …) would switch
+ * blocking off, so one bad or compromised dashboard write cannot do that to
+ * every box in the org. Local config is not limited by this.
+ */
+export function isCloudAllowEntry(value: string): boolean {
+  if (!isAddressOrCidr(value)) return false;
+  const [network, prefix] = value.split('/');
+  if (prefix === undefined) return true;
+  return Number(prefix) >= CLOUD_MIN_PREFIX[isIP(network) as 4 | 6];
+}
+
 export type AllowlistManager = Pick<
   RemediationManager,
   'getProtected' | 'addToAllowlist' | 'removeFromAllowlist'
@@ -65,7 +81,8 @@ export class AllowlistSync {
     for (const entry of entries) {
       if (entry.type !== 'ip' && entry.type !== 'cidr') continue;
       const value = String(entry.value ?? '').trim();
-      if (isAddressOrCidr(value)) wanted.add(value);
+      if (isCloudAllowEntry(value)) wanted.add(value);
+      else if (isAddressOrCidr(value)) this.opts.log(`[cloud] org allowlist: ignoring ${value} (wider than /${CLOUD_MIN_PREFIX[isIP(value.split('/')[0]) as 4 | 6]})`);
     }
 
     const added: string[] = [];

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireServer } from "@/lib/route-access";
+import { serverFieldsError } from "@/lib/server-fields";
 import { withConnectionState } from "@/lib/server-status";
 
 type Params = { params: Promise<{ id: string; server_id: string }> };
@@ -37,6 +38,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }
+    const invalid = serverFieldsError(updates);
+    if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
     const { data: server, error } = await access.admin
       .from("servers")

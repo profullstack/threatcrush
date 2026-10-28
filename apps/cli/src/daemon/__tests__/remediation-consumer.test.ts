@@ -148,6 +148,31 @@ describe('remediation consumer', () => {
       .toMatchObject({ status: 'failed' });
   });
 
+  it('never lets the dashboard allowlist the whole internet', async () => {
+    const { manager, adapter, log } = setup();
+    const consumer = new RemediationConsumer(manager, { log });
+    for (const target_value of ['0.0.0.0/0', '0.0.0.0/1', '128.0.0.0/1', '::/0', '2000::/3']) {
+      expect(await consumer.execute(action({ action_type: 'allowlist_add', target_value })))
+        .toMatchObject({ status: 'failed' });
+    }
+    expect(manager.isAllowlisted('203.0.113.9')).toBe(false);
+    // ...so a block still lands.
+    expect(await consumer.execute(action({}))).toMatchObject({ status: 'executed' });
+    expect(adapter.blocked.has('203.0.113.9')).toBe(true);
+  });
+
+  it('cannot unprotect shared infrastructure or the operator\'s own allowlist, then block it', async () => {
+    const { manager, adapter, log } = setup({ allowlist: ['198.51.100.7'] });
+    const consumer = new RemediationConsumer(manager, { log });
+    for (const target_value of ['198.51.100.7', '1.1.1.1/32', '173.245.48.0/20']) {
+      expect(await consumer.execute(action({ action_type: 'allowlist_remove', target_value })))
+        .toMatchObject({ status: 'failed' });
+    }
+    expect(manager.isAllowlisted('198.51.100.7')).toBe(true);
+    expect(await consumer.execute(action({ target_value: '198.51.100.7' }))).toMatchObject({ status: 'failed' });
+    expect(adapter.blocked.has('198.51.100.7')).toBe(false);
+  });
+
   it('executes a restart: reports executed now, restarts shortly after', async () => {
     vi.useFakeTimers();
     try {
@@ -233,6 +258,16 @@ describe('org allowlist sync', () => {
     expect(manager.isAllowlisted('10.1.2.3')).toBe(true);
     expect(manager.isAllowlisted('127.0.0.1')).toBe(true);
     expect(manager.isAllowlisted('192.0.2.1')).toBe(true);
+  });
+
+  it('ignores org entries wide enough to switch blocking off', async () => {
+    const { manager, log, logs } = setup();
+    fakeCloud(() => entries(['cidr', '0.0.0.0/0'], ['cidr', '::/0'], ['cidr', '0.0.0.0/1'], ['ip', '203.0.113.9']));
+    await new AllowlistSync(manager, { log }).sync();
+    expect(manager.isAllowlisted('8.8.4.5')).toBe(false);
+    expect(manager.isAllowlisted('2001:db8::1')).toBe(false);
+    expect(manager.isAllowlisted('203.0.113.9')).toBe(true);
+    expect(logs.some((l) => l.includes('ignoring 0.0.0.0/0'))).toBe(true);
   });
 
   it('keeps the current set when the dashboard cannot be reached', async () => {

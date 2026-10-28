@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { roleInScope, visibleIn } from "@/lib/access";
 import { requireOrgScope } from "@/lib/route-access";
 import { withConnectionState } from "@/lib/server-status";
+import { serverFieldsError } from "@/lib/server-fields";
 
 // GET /api/orgs/[org_id]/servers — the org's servers the caller can see (team
 // fleets, agent keys: see lib/access), with the caller's role on each.
@@ -83,6 +84,8 @@ export async function POST(
     if (!hostname && !ip_address) {
       return NextResponse.json({ error: "Either hostname or ip_address is required" }, { status: 400 });
     }
+    const invalid = serverFieldsError({ hostname, ip_address, port, ssh_username });
+    if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
 
     const { data: server, error } = await getSupabaseAdmin()
       .from("servers")

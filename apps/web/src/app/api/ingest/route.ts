@@ -18,6 +18,7 @@ import {
 import { clientIp } from "@/lib/client-ip";
 import { isPublicIp } from "@/lib/geoip";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { isSafeHostname } from "@/lib/server-fields";
 
 type Rejection = { index: number; error: string };
 
@@ -147,7 +148,8 @@ export async function POST(req: NextRequest) {
       [...heartbeats.values()].map(async (hb) => {
         const updates: Record<string, unknown> = { last_seen: now, status: "online" };
         if (hb.version) updates.threatcrushd_version = hb.version;
-        if (hb.hostname) updates.hostname = hb.hostname;
+        // `threatcrush connect` passes this to ssh: never store an option-looking value.
+        if (hb.hostname && isSafeHostname(hb.hostname)) updates.hostname = hb.hostname;
         if (publicIp) updates.public_ip = publicIp;
         let { error } = await admin.from("servers").update(updates).eq("id", hb.server_id);
         // Before the public_ip migration is applied, heartbeat without it.

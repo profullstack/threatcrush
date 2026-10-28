@@ -17,7 +17,7 @@ function fakeDb(db: {
   orgMembers: Array<{ org_id: string; user_id: string; role: string }>;
   teamMembers: Array<{ team_id: string; user_id: string; role: string }>;
   teams: Array<{ id: string; org_id: string }>;
-  fleets: Array<{ id: string; team_id: string }>;
+  fleets: Array<{ id: string; team_id: string; org_id: string }>;
 }) {
   return {
     from(table: string) {
@@ -57,7 +57,7 @@ const db = fakeDb({
     { team_id: "t-ops", user_id: "reader", role: "read" },
     { team_id: "t-ops", user_id: "writer", role: "write" },
   ],
-  fleets: [{ id: "f-prod", team_id: "t-ops" }, { id: "f-web", team_id: "t-web" }],
+  fleets: [{ id: "f-prod", team_id: "t-ops", org_id: "o1" }, { id: "f-web", team_id: "t-web", org_id: "o1" }],
 });
 
 const user = (userId: string): Principal => ({ kind: "user", userId, email: null });
@@ -147,6 +147,14 @@ describe("serverRoleOf", () => {
   it("gives org members write on fleet-less servers only (today's behaviour)", async () => {
     expect(await serverRoleOf(db, user("member"), looseServer)).toBe("write");
     expect(await serverRoleOf(db, user("member"), prodServer)).toBeNull();
+  });
+
+  it("ignores a fleet_id that points into another org (no cross-org grant)", async () => {
+    // A server of org o2 whose fleet_id names o1's prod fleet: o1's team and keys get nothing.
+    const foreign = { org_id: "o2", fleet_id: "f-prod" };
+    expect(await serverRoleOf(db, user("reader"), foreign)).toBeNull();
+    expect(await serverRoleOf(db, user("writer"), foreign)).toBeNull();
+    expect(await serverRoleOf(db, agent("admin"), foreign)).toBeNull();
   });
 
   it("gives team members their team role on the team's fleets and nothing else", async () => {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { allowlistValueError } from "@/lib/allowlist-value";
 
 // GET /api/orgs/[id]/allowlists
 export async function GET(
@@ -19,7 +20,8 @@ export async function GET(
 
     const { data: membership } = await admin.from("organization_members")
       .select("role").eq("org_id", orgId).eq("user_id", user.id).single();
-    if (!membership) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    // Guests see their teams' fleets and nothing org-wide.
+    if (!membership || membership.role === "guest") return NextResponse.json({ error: "Not authorized" }, { status: 403 });
 
     const { data: entries, error } = await admin.from("allowlists")
       .select("*").eq("organization_id", orgId).order("created_at", { ascending: false });
@@ -62,11 +64,16 @@ export async function POST(
     if (!["ip", "cidr", "user"].includes(type)) {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
     }
+    // Every daemon in the org stops blocking whatever is listed here.
+    if (type !== "user") {
+      const problem = allowlistValueError(value);
+      if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    }
 
     const { data: entry, error } = await admin.from("allowlists").insert({
       organization_id: orgId,
       type,
-      value,
+      value: type === "user" ? value : value.trim(),
       note: note || null,
     }).select().single();
 

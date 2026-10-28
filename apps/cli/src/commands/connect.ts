@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { execSync, spawn } from "node:child_process";
+import { isIP } from "node:net";
 
 const API_URL = process.env.THREATCRUSH_API_URL || "https://threatcrush.com";
 const CONFIG_PATH = join(homedir(), ".threatcrush", "config.json");
@@ -60,7 +61,7 @@ export async function connectCommand(options: {
     // Connect via SSH using server metadata
     await sshConnect({
       hostname: server.hostname || server.ip_address,
-      port: server.port,
+      port: server.port || 22,
       username: user || server.ssh_username || null,
       identity,
     });
@@ -183,6 +184,30 @@ async function resolveServer(nameOrSlug: string, orgSlug?: string): Promise<Serv
   }
 }
 
+const SSH_USER = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
+const SSH_HOST = /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,62}[A-Za-z0-9])?)*\.?$/;
+
+/**
+ * Hostname, user and port come from the API (or the dashboard, or a daemon's
+ * heartbeat), and go straight onto ssh's command line. A value starting with
+ * "-" would be read as an option (`-oProxyCommand=…` runs a command on this
+ * machine), so anything that is not a plain name/address/number is refused.
+ */
+export function sshTargetError(options: { hostname: string; username: string; port: number }): string | null {
+  if (!SSH_HOST.test(options.hostname) && isIP(options.hostname) === 0) return `refusing unsafe hostname ${JSON.stringify(options.hostname)}`;
+  if (!SSH_USER.test(options.username)) return `refusing unsafe ssh user ${JSON.stringify(options.username)}`;
+  if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) return `refusing port ${JSON.stringify(options.port)}`;
+  return null;
+}
+
+/** ssh argv for a checked target; `--` ends option parsing before the destination. */
+export function sshArgv(options: { hostname: string; username: string; port: number; identity?: string }): string[] {
+  const args = ["-p", String(options.port)];
+  if (options.identity) args.push("-i", options.identity);
+  args.push("--", `${options.username}@${options.hostname}`);
+  return args;
+}
+
 async function sshConnect(options: {
   hostname: string | null;
   port: number;
@@ -197,15 +222,17 @@ async function sshConnect(options: {
   }
 
   const user = username || "root";
+  const problem = sshTargetError({ hostname, username: user, port });
+  if (problem) {
+    console.log(chalk.red(`  ${problem}\n`));
+    process.exitCode = 1;
+    return;
+  }
 
   console.log(chalk.green(`  Connecting to ${user}@${hostname}:${port}...\n`));
   console.log(chalk.dim("  (Spawning SSH session — exit with Ctrl+D or type 'exit')\n"));
 
-  const sshArgs = ["-p", String(port)];
-  if (identity) {
-    sshArgs.push("-i", identity);
-  }
-  sshArgs.push(`${user}@${hostname}`);
+  const sshArgs = sshArgv({ hostname, username: user, port, identity });
 
   // Spawn SSH as a direct child process, inheriting stdio
   const ssh = spawn("ssh", sshArgs, { stdio: "inherit" });

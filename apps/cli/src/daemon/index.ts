@@ -230,7 +230,11 @@ export async function runDaemon(): Promise<void> {
 
   new AlertDispatcher(bus, config);
 
-  const runsWorker = new RunsWorker(bus);
+  const runsWorker = new RunsWorker(bus, {
+    enabled: config.cloud?.enabled !== false && config.cloud?.runs === true,
+    scanRoots: Array.isArray(config.cloud?.run_scan_paths) ? config.cloud.run_scan_paths.filter((p): p is string => typeof p === 'string') : [],
+    log: logLine,
+  });
   try {
     await runsWorker.start();
   } catch (err) {

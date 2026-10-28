@@ -59,10 +59,19 @@ beforeEach(() => {
 });
 
 describe("POST /api/orgs/:id/members", () => {
-  it("adds an existing user directly, no invite", async () => {
+  it("invites an existing user too: nobody joins an org without accepting", async () => {
     const res = await post({ email: "bob@acme.com", role: "member" });
     expect(res.status).toBe(201);
-    expect(db.organization_members.some((m) => m.user_id === "u-bob" && m.role === "member")).toBe(true);
+    const body = await res.json();
+    expect(body).toMatchObject({ invited: true, email: "bob@acme.com" });
+    expect(db.organization_members.some((m) => m.user_id === "u-bob")).toBe(false);
+    expect(db.team_invites).toHaveLength(1);
+    expect(db.team_invites[0]).toMatchObject({ org_id: ORG, email: "bob@acme.com", org_role: "member" });
+  });
+
+  it("refuses someone who is already a member", async () => {
+    db.organization_members.push({ id: "m2", org_id: ORG, user_id: "u-bob", role: "member" });
+    expect((await post({ email: "bob@acme.com" })).status).toBe(409);
     expect(db.team_invites ?? []).toHaveLength(0);
   });
 

@@ -219,7 +219,9 @@ A running daemon picks up `link` and `unlink` within a minute; no restart. It th
 - sends a heartbeat every 60 s with its version and hostname;
 - runs the `threatcrush harden` checks and `threatcrush patches` a minute after it starts and every 24 h, and uploads the findings (both commands upload too; `--no-upload` skips it);
 - every 15 s, picks up blocks and unblocks queued on the dashboard and applies them through auto-defence, so protected and allowlisted addresses and dry-run apply as they do locally;
-- every 5 min, adds the organization's IP/CIDR allowlist to the never-block set.
+- every 5 min, adds the organization's IP/CIDR allowlist to the never-block set (an entry wider than /8 for IPv4 or /16 for IPv6 is ignored, and the dashboard can never remove a built-in, shared-infrastructure or locally configured protected address).
+
+What the dashboard can make a daemon do is limited to block, unblock, allowlist add/remove, restart, and "update now" (which installs the newest `@profullstack/threatcrush` from the npm registry; the dashboard never supplies a version, URL or command). Property scans and pentests queued on the dashboard run on a machine only when its operator opts in, and then only for the linked organization:
 
 Uploads never hold up detection or a ban. While the dashboard is unreachable, events wait in a spool (`/var/lib/threatcrush/cloud-spool.jsonl`, or `~/.threatcrush/state/` for a user daemon) of at most 10,000 events / 20 MB, oldest dropped first, which survives a restart and is sent when the dashboard answers again. The daemon uses the login of the user it runs as (`/root/.threatcrush/config.json` for the system service) and refreshes the session itself; if the refresh token is refused, it logs that `threatcrush login` is needed and keeps spooling.
 
@@ -227,7 +229,11 @@ Uploads never hold up detection or a ban. While the dashboard is unreachable, ev
 [cloud]
 enabled = true            # false: the daemon neither reports to nor takes actions from the dashboard
 min_severity = "medium"   # info | low | medium | high | critical
+runs = false              # true: run property scans/pentests queued on the dashboard here
+run_scan_paths = []       # the only directories a dashboard scan may read; empty refuses scans
 ```
+
+Pentests from the dashboard only reach public addresses: a target that resolves to loopback, a private range or link-local (cloud metadata) is refused.
 
 ### Every machine, with what it costs
 

@@ -179,6 +179,12 @@ export class RemediationManager {
   private blocklist: BlockEntry[] = [];
   private strikes: Record<string, Strike> = {};
   private protectedList: string[] = [];
+  /**
+   * What was protected at start: built-ins, shared infrastructure, the
+   * operator's `[remediation] allowlist`, default gateways. The dashboard may
+   * add to the protected set but never take these out of it.
+   */
+  private pinned = new Set<string>();
   /** Operator address → last time seen (ms), persisted. */
   private operators: Record<string, number> = {};
   private expiryTimer: NodeJS.Timeout | null = null;
@@ -201,6 +207,7 @@ export class RemediationManager {
     // the same list.
     this.protectedList = [...DEFAULT_PROTECTED, ...SHARED_INFRASTRUCTURE, ...this.config.allowlist];
     for (const gateway of defaultGateways()) this.protectedList.push(gateway);
+    this.pinned = new Set(this.protectedList);
 
     // A dry-run adapter cannot enforce whatever the config says.
     if (this.adapter.enforces === false) this.config.dry_run = true;
@@ -524,6 +531,11 @@ export class RemediationManager {
   addToAllowlist(ip: string): void {
     if (!this.protectedList.includes(ip)) this.protectedList.push(ip);
     if (!this.config.allowlist.includes(ip)) this.config.allowlist.push(ip);
+  }
+
+  /** Protected since start (built-in, shared infrastructure, operator config, gateway): not removable from the cloud. */
+  isPinned(ip: string): boolean {
+    return this.pinned.has(ip);
   }
 
   removeFromAllowlist(ip: string): void {

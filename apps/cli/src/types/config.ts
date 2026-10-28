@@ -85,6 +85,13 @@ export interface CloudSection {
   enabled?: boolean;
   /** Lowest detection severity uploaded. Default `medium`. */
   min_severity?: 'info' | 'low' | 'medium' | 'high' | 'critical';
+  /**
+   * Default false. `true` runs the property scans and pentests queued on the
+   * dashboard (for the linked org only) on this machine.
+   */
+  runs?: boolean;
+  /** Directories a dashboard-queued scan may read. Default none: scans are refused. */
+  run_scan_paths?: string[];
 }
 
 /**

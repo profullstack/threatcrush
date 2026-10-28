@@ -179,7 +179,14 @@ export async function serverRoleOf(
   server: { org_id: string; fleet_id?: string | null },
 ): Promise<TeamRole | null> {
   if (server.fleet_id) {
-    const { data: fleet } = await admin.from("fleets").select("team_id").eq("id", server.fleet_id).maybeSingle();
+    // The fleet must be in the server's own org: a fleet_id pointing across
+    // orgs would hand that other org's team (and keys) this server.
+    const { data: fleet } = await admin
+      .from("fleets")
+      .select("team_id")
+      .eq("id", server.fleet_id)
+      .eq("org_id", server.org_id)
+      .maybeSingle();
     if (!fleet) return null;
     return teamRoleOf(admin, p, { id: fleet.team_id, org_id: server.org_id });
   }

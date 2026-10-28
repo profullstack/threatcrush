@@ -28,7 +28,9 @@ export async function GET(
     if (!userId) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
     const { id: orgId } = await params;
-    if (!(await requireMembership(orgId, userId))) {
+    // Guests see their teams' fleets only, not the org's property targets.
+    const role = await requireMembership(orgId, userId);
+    if (!role || role === "guest") {
       return NextResponse.json({ error: "Not a member" }, { status: 403 });
     }
 

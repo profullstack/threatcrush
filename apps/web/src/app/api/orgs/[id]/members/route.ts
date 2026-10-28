@@ -134,69 +134,33 @@ export async function POST(
       .eq("email", normalizedEmail)
       .maybeSingle();
 
-    // No account yet: invite them instead of dead-ending. They join the org at
-    // this role when they accept.
-    if (!targetUser) {
-      const { data: org } = await getSupabaseAdmin().from("organizations").select("name").eq("id", orgId).maybeSingle();
-      const invite = await createOrgInvite(getSupabaseAdmin(), {
-        orgId,
-        email: normalizedEmail,
-        role: role as OrgRole,
-        invitedBy: user.id,
-        inviterEmail: user.email ?? null,
-        orgName: org?.name ?? "your organization",
-      });
-      if (!invite) return NextResponse.json({ error: "Could not create the invite" }, { status: 500 });
-      return NextResponse.json({ invited: true, email: normalizedEmail, url: invite.url, emailed: invite.emailed }, { status: 201 });
+    if (targetUser) {
+      const { data: existingMember } = await getSupabaseAdmin()
+        .from("organization_members")
+        .select("id")
+        .eq("org_id", orgId)
+        .eq("user_id", targetUser.id)
+        .maybeSingle();
+      if (existingMember) {
+        return NextResponse.json({ error: "User is already a member of this organization" }, { status: 409 });
+      }
     }
 
-    // Check if already a member
-    const { data: existingMember } = await getSupabaseAdmin()
-      .from("organization_members")
-      .select("id")
-      .eq("org_id", orgId)
-      .eq("user_id", targetUser.id)
-      .single();
-
-    if (existingMember) {
-      return NextResponse.json({ error: "User is already a member of this organization" }, { status: 409 });
-    }
-
-    // Add member
-    const { data: newMember, error: insertError } = await getSupabaseAdmin()
-      .from("organization_members")
-      .insert({
-        org_id: orgId,
-        user_id: targetUser.id,
-        role,
-      })
-      .select(`
-        role,
-        joined_at,
-        user_profiles (
-          id,
-          email,
-          display_name,
-          avatar_url
-        )
-      `)
-      .single();
-
-    if (insertError) {
-      console.error("Failed to add member:", insertError);
-      return NextResponse.json({ error: "Failed to add member" }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      member: {
-        id: ((newMember as Record<string, unknown>).user_profiles as Record<string, unknown> | null)?.id as string,
-        email: ((newMember as Record<string, unknown>).user_profiles as Record<string, unknown> | null)?.email as string,
-        display_name: ((newMember as Record<string, unknown>).user_profiles as Record<string, unknown> | null)?.display_name as string | null,
-        avatar_url: ((newMember as Record<string, unknown>).user_profiles as Record<string, unknown> | null)?.avatar_url as string | null,
-        role: (newMember as Record<string, unknown>).role as string,
-        joined_at: (newMember as Record<string, unknown>).joined_at as string,
-      },
-    }, { status: 201 });
+    // Everyone joins through an invite they accept, account or not. Adding an
+    // existing account directly let anyone put any ThreatCrush user in an org
+    // of theirs without asking, and a member's daemon works for every org its
+    // user belongs to (property runs), so that was a way onto their machines.
+    const { data: org } = await getSupabaseAdmin().from("organizations").select("name").eq("id", orgId).maybeSingle();
+    const invite = await createOrgInvite(getSupabaseAdmin(), {
+      orgId,
+      email: normalizedEmail,
+      role: role as OrgRole,
+      invitedBy: user.id,
+      inviterEmail: user.email ?? null,
+      orgName: org?.name ?? "your organization",
+    });
+    if (!invite) return NextResponse.json({ error: "Could not create the invite" }, { status: 500 });
+    return NextResponse.json({ invited: true, email: normalizedEmail, url: invite.url, emailed: invite.emailed }, { status: 201 });
   } catch (err) {
     console.error("Add member error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
