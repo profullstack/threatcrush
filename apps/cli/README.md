@@ -165,6 +165,26 @@ threatcrush init --offline          # Same, without signing in (scripts, CI, con
 
 Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/etc/threatcrush/threatcrushd.conf.d/`.
 
+### Findings in the cloud
+
+Signed in (`threatcrush login`), every `scan`, `pentest` and `ai-scan` result is
+saved to your current org (`threatcrush orgs use <slug>`), where findings are
+tracked across runs: new, still open, and fixed automatically once a later run of
+the same scope no longer sees them. Triage them in the CLI, on the web
+(threatcrush.com/org/&lt;slug&gt;/findings, installable as a PWA), in the desktop
+app (Findings, sign in with your browser) or over MCP (`findings_list`,
+`findings_get`, `findings_triage` at threatcrush.com/api/mcp):
+
+```bash
+threatcrush findings                       # open + acknowledged
+threatcrush findings --status all --severity critical,high --source ai-scan
+threatcrush findings show 3f2a9c1d
+threatcrush findings ack|fix|fp|ignore|reopen 3f2a9c1d 7b1e… --note "why"
+```
+
+`--no-upload` (or `THREATCRUSH_UPLOAD=0`) keeps a run local. A repo is named by
+its origin remote (credentials stripped); URL targets lose their query string.
+
 ### Usage counts
 
 Each `threatcrush ai-scan` / `ai-scan-run` sends one anonymous count to the API

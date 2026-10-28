@@ -6,7 +6,7 @@ vi.mock("@/lib/api-auth", () => ({
 
 import type { Principal } from "@/lib/access";
 
-const { atLeast, hashSecret, roleInScope, serverRoleOf, serverScopeIn, teamRoleOf, visibleIn } = await import("@/lib/access");
+const { atLeast, findingsRoleOf, hashSecret, roleInScope, serverRoleOf, serverScopeIn, teamRoleOf, visibleIn } = await import("@/lib/access");
 
 /**
  * A tiny in-memory PostgREST stand-in with the tables and calls lib/access
@@ -78,6 +78,21 @@ describe("roles", () => {
   it("hashes secrets deterministically and never returns the secret", () => {
     expect(hashSecret("abc")).toBe(hashSecret("abc"));
     expect(hashSecret("abc")).not.toContain("abc");
+  });
+});
+
+describe("findingsRoleOf", () => {
+  it("owner = admin, member = write, guest and strangers = nothing", async () => {
+    expect(await findingsRoleOf(db, user("owner"), "o1")).toBe("admin");
+    expect(await findingsRoleOf(db, user("member"), "o1")).toBe("write");
+    expect(await findingsRoleOf(db, user("reader"), "o1")).toBeNull();
+    expect(await findingsRoleOf(db, user("nobody"), "o1")).toBeNull();
+  });
+
+  it("an agent key gets its own role, in its own org only", async () => {
+    expect(await findingsRoleOf(db, agent("write"), "o1")).toBe("write");
+    expect(await findingsRoleOf(db, agent("read"), "o1")).toBe("read");
+    expect(await findingsRoleOf(db, agent("admin"), "o2")).toBeNull();
   });
 });
 

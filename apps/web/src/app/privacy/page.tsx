@@ -58,6 +58,17 @@ export default function PrivacyPage() {
                 in <code className={code}>~/.threatcrush/config.json</code>.
               </li>
               <li>
+                <span className="text-tc-text">Scan results from the CLI.</span> When you are signed in,{" "}
+                <code className={code}>threatcrush scan</code>, <code className={code}>pentest</code>{" "}and{" "}
+                <code className={code}>ai-scan</code>{" "}save each result to your current organization so you can
+                track and triage it on the web, in the desktop app and in the CLI: the target (a repository&apos;s
+                origin remote or the machine and path; a URL without its query string or credentials), and each
+                finding with its rule, severity, file path, line, the matched line of code, remediation and, for
+                ai-scan, the first 200 characters of the model&apos;s reply. Turn it off per run with{" "}
+                <code className={code}>--no-upload</code>{" "}or always with{" "}
+                <code className={code}>THREATCRUSH_UPLOAD=0</code>. Signed out, nothing is sent.
+              </li>
+              <li>
                 <span className="text-tc-text">CLI usage counts.</span> Each{" "}
                 <code className={code}>threatcrush ai-scan</code>{" "}run sends one anonymous count: the
                 command, CLI version, operating system, Node version, whether it ran in CI, a random

@@ -70,6 +70,8 @@ import { IpcClient } from "./core/ipc-client.js";
 import { findRunningDaemon } from "./daemon/pidfile.js";
 import { PKG_VERSION } from "./core/version.js";
 import { installUserAgent } from "./core/user-agent.js";
+import { cleanUrl, repoTarget, uploadResult } from "./core/cloud-upload.js";
+import { findingsListCommand, findingsShowCommand, findingsTriageCommand, TRIAGE, type TriageVerb } from "./commands/findings.js";
 
 installUserAgent();
 
@@ -558,7 +560,9 @@ program
     "also report security controls the tree shows no evidence of (headers, CSRF, rate limiting, body size limits)",
   )
   .option("-v, --verbose", "list the paths that could not be read")
+  .option("--no-upload", "do not save the results to your threatcrush.com org (also THREATCRUSH_UPLOAD=0)")
   .action(async (targetPath: string, opts: {
+    upload?: boolean;
     format?: string;
     output?: string;
     failOn?: string;
@@ -582,7 +586,7 @@ program
       process.exit(2);
     }
 
-    await scanCommand(targetPath, {
+    const result = await scanCommand(targetPath, {
       format: format as ScanFormat,
       output: opts.output,
       failOn,
@@ -592,14 +596,23 @@ program
       missingControls: opts.missingControls,
       verbose: opts.verbose,
     });
+    // A scan that never ran (bad path) proves nothing about the repo's findings.
+    if (!result.error) {
+      const repo = repoTarget(targetPath);
+      const scope = [`path=${repo.sub}`, opts.deps ? "deps" : "", opts.missingControls ? "missing-controls" : "",
+        ...(opts.exclude ?? []).map((g) => `exclude=${g}`)].filter(Boolean).join(";");
+      await uploadResult(result, { source: "scan", target: repo.target, kind: "repo", scope, upload: opts.upload, machineReadable: format !== "text" });
+    }
   });
 
 program
   .command("pentest")
   .description("Penetration test URLs and APIs")
   .argument("<url>", "Target URL to pentest")
-  .action(async (url: string) => {
-    await pentestCommand(url);
+  .option("--no-upload", "do not save the results to your threatcrush.com org (also THREATCRUSH_UPLOAD=0)")
+  .action(async (url: string, opts: { upload?: boolean }) => {
+    const result = await pentestCommand(url);
+    await uploadResult(result, { source: "pentest", target: cleanUrl(url), kind: "url", upload: opts.upload });
   });
 
 // ─── AI Red-Team Scan (LLM/agent endpoints you own) ───
@@ -614,8 +627,14 @@ program
   .option("--response-path <path>", 'dotted JSON path to the reply text, or "text"')
   .option("--delay <ms>", "delay between probes")
   .option("--json", "emit JSON")
+  .option("--no-upload", "do not save the results to your threatcrush.com org (also THREATCRUSH_UPLOAD=0)")
   .action(async (url: string, opts) => {
-    await aiScanCommand(url, opts);
+    const result = await aiScanCommand(url, opts);
+    const categories = String(opts.categories ?? "").split(",").map((c: string) => c.trim()).filter(Boolean).sort();
+    await uploadResult(result, {
+      source: "ai-scan", target: cleanUrl(url), kind: "api",
+      scope: categories.length ? `categories=${categories.join(",")}` : "", upload: opts.upload, machineReadable: Boolean(opts.json),
+    });
   });
 
 program
@@ -623,9 +642,50 @@ program
   .description("Drive the AI red-team scanner from a .mosh script")
   .argument("<file>", "Path to a .mosh script")
   .argument("[args...]", "Arguments passed to the script as argv")
-  .action(async (file: string, args: string[]) => {
-    await aiScanMoshCommand(file, args ?? []);
+  .option("--no-upload", "do not save the results to your threatcrush.com org (also THREATCRUSH_UPLOAD=0)")
+  .action(async (file: string, args: string[], opts: { upload?: boolean }) => {
+    const scans = await aiScanMoshCommand(file, args ?? []);
+    // A script's scans can hit several endpoints; each is its own property.
+    for (const r of scans) await uploadResult(r, { source: "ai-scan", target: cleanUrl(r.target), kind: "api", scope: `mosh=${file.split("/").pop()}`, upload: opts.upload });
   });
+
+// ─── Tracked findings in your org (from scan / pentest / ai-scan uploads) ───
+
+const listOpts = (c: Command) => c
+  .option("--status <list>", "open,acknowledged,fixed,false_positive,ignored or all (default: open,acknowledged)")
+  .option("--severity <list>", "critical,high,medium,low,info")
+  .option("--source <list>", "scan,pentest,ai-scan")
+  .option("--limit <n>", "how many to show (max 500)")
+  .option("--json", "emit JSON");
+
+const findings = listOpts(program
+  .command("findings")
+  .description("List and triage your org's tracked findings (also on the web and desktop apps)"))
+  .action(async (opts) => { await findingsListCommand(opts); });
+
+listOpts(findings.command("list").description("List findings (default: open + acknowledged)"))
+  .action(async (opts) => { await findingsListCommand(opts); });
+
+findings
+  .command("show <id>")
+  .description("Details of one finding (id or the 8-char prefix from the list)")
+  .option("--json", "emit JSON")
+  .action(async (id: string, opts) => { await findingsShowCommand(id, opts); });
+
+const VERB_HELP: Record<TriageVerb, string> = {
+  ack: "acknowledge: seen it, working on it",
+  fix: "mark fixed (a later run reopens it if it is still there)",
+  fp: "mark a false positive (runs never reopen it)",
+  ignore: "ignore: accepted risk (runs never reopen it)",
+  reopen: "set back to open",
+};
+for (const verb of Object.keys(TRIAGE) as TriageVerb[]) {
+  findings
+    .command(`${verb} <ids...>`)
+    .description(VERB_HELP[verb])
+    .option("--note <text>", "why (shown everywhere the finding is)")
+    .action(async (ids: string[], opts) => { await findingsTriageCommand(verb, ids, opts); });
+}
 
 program
   .command("status")

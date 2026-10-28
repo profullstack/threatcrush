@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/reputation-auth", () => ({ reputationCaller: vi.fn().mockResolvedValue(null) }));
+vi.mock("@/lib/feed-auth", () => ({ feedPrincipal: vi.fn().mockResolvedValue(null) }));
 
 import { POST } from "@/app/api/mcp/route";
 
@@ -18,7 +19,7 @@ describe("/api/mcp", () => {
     const init = await (await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).json();
     expect(init.result.serverInfo.name).toBe("ThreatCrush");
     const list = await (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite"]);
+    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite", "findings_list", "findings_get", "findings_triage"]);
   });
 
   it("a tool call without a key is a tool error the model can read", async () => {
@@ -27,6 +28,14 @@ describe("/api/mcp", () => {
     ).json();
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("API key is required");
+  });
+
+  it("a findings tool without a session or key says how to sign in", async () => {
+    const res = await (
+      await call({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "findings_list", arguments: {} } })
+    ).json();
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("threatcrush login");
   });
 
   it("notifications get 202, unknown methods an error, bad JSON a parse error", async () => {

@@ -48,6 +48,20 @@ const api = {
     return ipcRenderer.invoke('daemon-request', method, params)
   },
 
+  /** threatcrush.com account + tracked findings (main process holds the session). */
+  cloud: {
+    status: () => ipcRenderer.invoke('cloud-status'),
+    login: () => ipcRenderer.invoke('cloud-login'),
+    waitForLogin: () => ipcRenderer.invoke('cloud-login-wait'),
+    cancelLogin: () => ipcRenderer.invoke('cloud-login-cancel'),
+    logout: () => ipcRenderer.invoke('cloud-logout'),
+    orgs: () => ipcRenderer.invoke('cloud-orgs'),
+    useOrg: (id: string, slug: string) => ipcRenderer.invoke('cloud-use-org', id, slug),
+    findings: (q?: { status?: string; severity?: string; source?: string }) => ipcRenderer.invoke('cloud-findings', q),
+    finding: (id: string) => ipcRenderer.invoke('cloud-finding', id),
+    triage: (ids: string[], status: string | null, note?: string) => ipcRenderer.invoke('cloud-triage', ids, status, note),
+  },
+
   /** Subscribe to pushed frames from the daemon (events, module status, etc.) */
   onEvent: (callback: (event: unknown) => void): (() => void) => {
     const handler = (_: unknown, data: unknown): void => callback(data)

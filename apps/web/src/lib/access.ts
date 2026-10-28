@@ -87,6 +87,19 @@ export async function orgRoleOf(admin: SupabaseClient, p: Principal, orgId: stri
 
 const isOrgAdmin = (role: OrgRole | null) => role === "owner" || role === "admin";
 
+/**
+ * The caller's role on an org's scan findings (scan, pentest, ai-scan). They
+ * hang off properties, which are org-wide rather than in a fleet, so: org
+ * owner/admin = admin, member = write (triage + upload), guest = nothing,
+ * agent key = its own role, inside its own org only.
+ */
+export async function findingsRoleOf(admin: SupabaseClient, p: Principal, orgId: string): Promise<TeamRole | null> {
+  if (p.kind === "agent") return p.orgId === orgId ? p.role : null;
+  const role = await orgRoleOf(admin, p, orgId);
+  if (isOrgAdmin(role)) return "admin";
+  return role === "member" ? "write" : null;
+}
+
 /** The caller's role on a team, or null. Org owners and admins are admin everywhere. */
 export async function teamRoleOf(
   admin: SupabaseClient,
