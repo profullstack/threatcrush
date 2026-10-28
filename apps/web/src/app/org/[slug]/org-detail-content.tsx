@@ -171,6 +171,11 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
             <p className="text-sm text-zinc-500 group-hover:text-yellow-400">Scans + hardening</p>
             <p className="text-lg font-bold text-white mt-1">Findings</p>
           </Link>
+          <Link href={`/org/${org.slug}/known-ips`}
+            className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-green-500/30 transition-colors group">
+            <p className="text-sm text-zinc-500 group-hover:text-green-400">Ours</p>
+            <p className="text-lg font-bold text-white mt-1">Known IPs</p>
+          </Link>
           <Link href={`/org/${org.slug}/remediations`}
             className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-blue-500/30 transition-colors group">
             <p className="text-sm text-zinc-500 group-hover:text-blue-400">Remediation</p>

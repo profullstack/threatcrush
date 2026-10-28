@@ -7,10 +7,19 @@ function appUrl(): string {
 
 export function buildDetectionMessage(
   detection: AlertableDetection,
-  context: { orgSlug: string | null; serverName: string | null },
+  context: {
+    orgSlug: string | null;
+    serverName: string | null;
+    /** The source IP is one of the org's Known IPs (the never-ban list). */
+    knownSource?: string | null;
+  },
 ): AlertMessage {
   const base = appUrl();
   const lines = [
+    // Known is not trusted: this is the choke point that says one of our own
+    // addresses is running attack traffic.
+    context.knownSource &&
+      `Source is one of your Known IPs (${context.knownSource}). Known IPs are never banned, so check that box or service: attack traffic from one usually means it is compromised or misbehaving.`,
     detection.description,
     `Server: ${context.serverName ?? detection.server_id}`,
     detection.source_ip && `Source IP: ${detection.source_ip}`,
@@ -18,7 +27,7 @@ export function buildDetectionMessage(
   ].filter((line): line is string => Boolean(line));
 
   return {
-    title: `[${detection.severity.toUpperCase()}] ${detection.title}`,
+    title: `[${detection.severity.toUpperCase()}]${context.knownSource ? ` [OURS: ${context.knownSource}]` : ""} ${detection.title}`,
     body: lines.join("\n"),
     severity: detection.severity,
     // The detections list scrolls to and highlights ?detection=<id>.
