@@ -45,7 +45,7 @@ declare global {
         logout(): Promise<Res<void>>
         orgs(): Promise<Res<Array<{ id: string; slug: string; name: string }>>>
         useOrg(id: string, slug: string): Promise<Res<void>>
-        findings(q?: { status?: string; severity?: string; source?: string }): Promise<Res<{ findings: CloudFinding[]; total: number; counts: Record<string, number> }>>
+        findings(q?: { status?: string; severity?: string; source?: string; offset?: number }): Promise<Res<{ findings: CloudFinding[]; total: number; counts: Record<string, number> }>>
         finding(id: string): Promise<Res<{ finding: CloudFinding }>>
         triage(ids: string[], status: string | null, note?: string): Promise<Res<{ updated: Array<{ id: string; status: string }> }>>
       }

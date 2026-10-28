@@ -60,6 +60,7 @@ export default function ScanFindingsPanel({ orgId, canTriage }: { orgId: string;
   const [open, setOpen] = useState<string | null>(null);
   const [detail, setDetail] = useState<Record<string, ScanFinding>>({});
   const [note, setNote] = useState("");
+  const [more, setMore] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +83,24 @@ export default function ScanFindingsPanel({ orgId, canTriage }: { orgId: string;
   }, [orgId, status, severity, source]);
 
   useEffect(() => { load(); setSelected(new Set()); }, [load]);
+
+  const loadMore = async () => {
+    setMore(true);
+    const qs = new URLSearchParams({ status, limit: "200", offset: String(rows.length) });
+    if (severity) qs.set("severity", severity);
+    if (source) qs.set("source", source);
+    try {
+      const res = await fetch(`/api/orgs/${orgId}/scan-findings?${qs}`, { headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setRows((r) => [...r, ...(data.findings as ScanFinding[]).filter((f) => !r.some((x) => x.id === f.id))]);
+      setTotal(data.total || 0);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setMore(false);
+    }
+  };
 
   const expand = async (id: string) => {
     setOpen(open === id ? null : id);
@@ -187,7 +206,7 @@ export default function ScanFindingsPanel({ orgId, canTriage }: { orgId: string;
                     <span className="text-white font-medium break-words">{f.message}</span>
                   </div>
                   <p className="text-xs text-zinc-500 mt-1 break-all">
-                    {SOURCE_LABEL[f.source] ?? f.source} · {f.properties?.name ?? "?"}{f.location ? ` · ${f.location}` : ""} · seen {f.times_seen}× · last {day(f.last_seen_at)}
+                    {SOURCE_LABEL[f.source] ?? f.source} · {f.properties?.name ?? "?"}{f.location && f.location !== f.properties?.target ? ` · ${f.location}` : ""} · seen {f.times_seen}× · last {day(f.last_seen_at)}
                     {f.status !== "open" && <> · <span className="text-zinc-300">{f.status.replace("_", " ")}</span>{f.status_source === "sync" && f.status === "fixed" ? " (gone from the last run)" : ""}</>}
                   </p>
                 </button>
@@ -219,7 +238,15 @@ export default function ScanFindingsPanel({ orgId, canTriage }: { orgId: string;
           );
         })}
       </div>
-      {total > rows.length && <p className="mt-2 text-xs text-zinc-500">Showing {rows.length} of {total}. Narrow the filters to see the rest.</p>}
+      {total > rows.length && (
+        <div className="mt-3 flex items-center gap-3">
+          <button onClick={loadMore} disabled={more}
+            className="rounded px-3 py-1.5 text-xs bg-zinc-900 border border-zinc-700 text-zinc-200 hover:border-zinc-500 disabled:opacity-50">
+            {more ? "Loading…" : `Load ${Math.min(200, total - rows.length)} more`}
+          </button>
+          <span className="text-xs text-zinc-500">Showing {rows.length} of {total}</span>
+        </div>
+      )}
     </section>
   );
 }

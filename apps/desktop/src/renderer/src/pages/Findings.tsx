@@ -36,6 +36,7 @@ export default function Findings() {
   const [view, setView] = useState('open,acknowledged')
   const [rows, setRows] = useState<CloudFinding[]>([])
   const [counts, setCounts] = useState<Record<string, number>>({})
+  const [total, setTotal] = useState(0)
   const [open, setOpen] = useState<string | null>(null)
   const [detail, setDetail] = useState<Record<string, CloudFinding>>({})
   const [note, setNote] = useState('')
@@ -65,6 +66,7 @@ export default function Findings() {
     setError(null)
     setRows(r.result.findings)
     setCounts(r.result.counts || {})
+    setTotal(r.result.total || 0)
   }, [cloud, account?.signedIn, view, refreshAccount])
 
   useEffect(() => { refreshAccount() }, [refreshAccount])
@@ -88,6 +90,15 @@ export default function Findings() {
     const r = await cloud.triage(ids, status, withNote)
     if (!r.ok) return setError(r.error)
     await load()
+  }
+
+  const loadMore = async () => {
+    setLoading(true)
+    const r = await cloud.findings({ status: view, offset: rows.length })
+    setLoading(false)
+    if (!r.ok) return setError(r.error)
+    setRows((prev) => [...prev, ...r.result.findings.filter((f) => !prev.some((x) => x.id === f.id))])
+    setTotal(r.result.total || 0)
   }
 
   const expand = async (id: string) => {
@@ -176,7 +187,7 @@ export default function Findings() {
                   <span className="text-xs text-text truncate">{f.message}</span>
                 </div>
                 <p className="text-[10px] text-dim mt-1 truncate">
-                  {SOURCE[f.source] ?? f.source} · {f.properties?.name ?? '?'}{f.location ? ` · ${f.location}` : ''} · seen {f.times_seen}× · {f.status.replace('_', ' ')}
+                  {SOURCE[f.source] ?? f.source} · {f.properties?.name ?? '?'}{f.location && f.location !== f.properties?.target ? ` · ${f.location}` : ''} · seen {f.times_seen}× · {f.status.replace('_', ' ')}
                 </p>
               </button>
               {open === f.id && (
@@ -199,6 +210,14 @@ export default function Findings() {
             </div>
           )
         })}
+        {total > rows.length && (
+          <div className="p-3 flex items-center gap-3">
+            <button onClick={loadMore} disabled={loading} className="px-2.5 py-1 rounded border border-border text-[11px] text-text hover:bg-white/5 disabled:opacity-50">
+              {loading ? 'Loading…' : `Load ${Math.min(200, total - rows.length)} more`}
+            </button>
+            <span className="text-[10px] text-dim">Showing {rows.length} of {total}</span>
+          </div>
+        )}
       </div>
     </div>
   )

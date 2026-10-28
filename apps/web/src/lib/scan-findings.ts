@@ -93,7 +93,12 @@ export function normalizeFindings(raw: unknown): NormalizedFinding[] {
   return [...out.values()];
 }
 
-export interface SyncResult { new: number; seen: number; reopened: number; fixed: number }
+export interface RaisedFinding { severity: Severity; message: string; location: string | null; reopened: boolean }
+export interface SyncResult {
+  new: number; seen: number; reopened: number; fixed: number;
+  /** New and reopened findings, for alerts. Not part of any API response. */
+  raised: RaisedFinding[];
+}
 
 /**
  * Folds one finished run into scan_findings. Only a succeeded run can mark
@@ -103,7 +108,7 @@ export async function syncRunFindings(
   admin: SupabaseClient,
   run: { id: string; org_id: string; property_id: string; type: string; scope?: string | null; status: string; findings: unknown },
 ): Promise<SyncResult> {
-  const result: SyncResult = { new: 0, seen: 0, reopened: 0, fixed: 0 };
+  const result: SyncResult = { new: 0, seen: 0, reopened: 0, fixed: 0, raised: [] };
   if (!isFindingSource(run.type) || !["succeeded", "failed"].includes(run.status)) return result;
   const scope = run.scope ?? "";
   const now = new Date().toISOString();
@@ -130,6 +135,7 @@ export async function syncRunFindings(
         first_seen_at: now, last_seen_at: now,
       });
       result.new++;
+      result.raised.push({ severity: f.severity, message: f.message, location: f.location, reopened: false });
       continue;
     }
     const reopen = e.status === "fixed";
@@ -142,8 +148,10 @@ export async function syncRunFindings(
       })
       .eq("id", e.id);
     if (upErr) throw new Error(`scan_findings update: ${upErr.message}`);
-    if (reopen) result.reopened++;
-    else result.seen++;
+    if (reopen) {
+      result.reopened++;
+      result.raised.push({ severity: f.severity, message: f.message, location: f.location, reopened: true });
+    } else result.seen++;
   }
   if (inserts.length) {
     const { error: insErr } = await admin.from("scan_findings").insert(inserts);

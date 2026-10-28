@@ -50,6 +50,46 @@ from *inside* the directory being scanned.
 cd repo/vulns && threatcrush scan . --format sarif --path-prefix vulns
 ```
 
+## Tracking findings in the cloud (and from CI)
+
+Signed in (`threatcrush login`), each scan is saved to your current org and its
+findings are tracked across runs: new, still open, fixed once a later run of
+the same path and flags stops seeing them, reopened if they come back. Triage
+them on the web (`/org/<slug>/findings`), in the desktop app, with
+`threatcrush findings`, or over MCP. Org alert rules with no server scope fire
+on new findings at or above their severity, one message per run. `--no-upload`
+or `THREATCRUSH_UPLOAD=0` keeps a run local.
+
+In CI there is no login: create an agent key with `write` (Teams -> a team ->
+Agent keys on threatcrush.com; it starts `tc_agent_`), store it as a secret, and set
+`THREATCRUSH_API_KEY`. The run uploads into that key's org; the repository is
+named by its origin remote (credentials stripped), so CI runs and laptop runs
+of the same repo share one finding list.
+
+```yaml
+# .github/workflows/threatcrush.yml
+name: threatcrush
+on: [push, pull_request]
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm i -g @profullstack/threatcrush
+      - run: threatcrush scan . --fail-on critical,high
+        env:
+          THREATCRUSH_API_KEY: ${{ secrets.THREATCRUSH_API_KEY }}
+```
+
+Run it only on your default branch (`on: push: branches: [main]`) if feature
+branches should not mark findings fixed: a finding missing from any successful
+run of the same scope is closed.
+
+The upload alone is `POST /api/v1/findings/report` with the key as the Bearer
+token (or `X-API-Key`); see `lib/findings-report.ts` for the body.
+
 ## What it detects
 
 | Category | Covers |

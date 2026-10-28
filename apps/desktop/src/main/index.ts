@@ -213,7 +213,7 @@ ipcMain.handle('cloud-orgs', () => wrap(() => cloudClient().orgs()))
 ipcMain.handle('cloud-use-org', (_e, id: unknown, slug: unknown) =>
   wrap(() => cloudClient().useOrg(String(id), String(slug).slice(0, 100))))
 ipcMain.handle('cloud-findings', (_e, q: unknown) =>
-  wrap(() => cloudClient().findings((q && typeof q === 'object' ? q : {}) as Record<string, string>)))
+  wrap(() => cloudClient().findings((q && typeof q === 'object' ? q : {}) as { status?: string; severity?: string; source?: string; offset?: number })))
 ipcMain.handle('cloud-finding', (_e, id: unknown) => wrap(() => cloudClient().finding(String(id))))
 ipcMain.handle('cloud-triage', (_e, ids: unknown, status: unknown, note: unknown) =>
   wrap(() => cloudClient().triage(ids, status, note)))

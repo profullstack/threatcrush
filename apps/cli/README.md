@@ -182,7 +182,9 @@ threatcrush findings show 3f2a9c1d
 threatcrush findings ack|fix|fp|ignore|reopen 3f2a9c1d 7b1e… --note "why"
 ```
 
-`--no-upload` (or `THREATCRUSH_UPLOAD=0`) keeps a run local. A repo is named by
+In CI, set `THREATCRUSH_API_KEY` to a `tc_agent_` key with write and runs
+upload into that key's org with no login (workflow example in
+docs/SCANNING.md). `--no-upload` (or `THREATCRUSH_UPLOAD=0`) keeps a run local. A repo is named by
 its origin remote (credentials stripped); URL targets lose their query string.
 
 ### Usage counts

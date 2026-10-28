@@ -57,6 +57,17 @@ export interface AlertMessage {
   tag: string;
   /** Present for real alerts, absent for test sends. */
   detection?: AlertableDetection & { server_name: string | null };
+  /** Present for new scan / pentest / ai-scan findings (one alert per run). */
+  findings?: FindingAlertPayload;
+}
+
+/** New or reopened tracked findings from one run, as alerts carry them. */
+export interface FindingAlertPayload {
+  run_id: string;
+  organization_id: string;
+  property: { id: string; name: string; target: string };
+  source: "scan" | "pentest" | "ai-scan";
+  findings: Array<{ id?: string; severity: Severity; message: string; location: string | null; reopened: boolean }>;
 }
 
 export type DeliveryOutcome = { ok: true; detail?: string } | { ok: false; error: string };
