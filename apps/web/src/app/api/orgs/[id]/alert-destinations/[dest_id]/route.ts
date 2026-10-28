@@ -3,6 +3,7 @@ import { sendTestAlert } from "@/lib/alerts/senders";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { safeFetch } from "@/lib/ssrf-guard";
 import { DESTINATION_URL_FIELDS, destinationConfigError } from "@/lib/alert-destinations";
+import { ensureDestinationEndpoint, getHub, storedSecret } from "@/lib/webhooks/hub";
 
 // PATCH /api/orgs/[id]/alert-destinations/[dest_id]
 export async function PATCH(
@@ -36,12 +37,36 @@ export async function PATCH(
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
 
+    const { data: existing } = await admin.from("alert_destinations")
+      .select("id, organization_id, name, type, config, enabled").eq("id", dest_id).eq("organization_id", orgId).single();
+    if (!existing) return NextResponse.json({ error: "Destination not found" }, { status: 404 });
+
     if (updates.config !== undefined) {
-      const { data: existing } = await admin.from("alert_destinations")
-        .select("type").eq("id", dest_id).eq("organization_id", orgId).single();
-      if (!existing) return NextResponse.json({ error: "Destination not found" }, { status: 404 });
       const configError = await destinationConfigError(existing.type, updates.config);
       if (configError) return NextResponse.json({ error: configError }, { status: 400 });
+    }
+
+    if (existing.type === "webhook") {
+      // The hub endpoint holds the URL, secret and on/off switch; the destination keeps only its id.
+      try {
+        const { endpointId } = await ensureDestinationEndpoint(existing);
+        const { hooks, store } = getHub();
+        const next = (updates.config ?? {}) as Record<string, unknown>;
+        await hooks.updateEndpoint(orgId, endpointId, {
+          ...(typeof next.url === "string" ? { url: next.url.trim() } : {}),
+          ...(typeof updates.name === "string" ? { description: updates.name } : {}),
+          ...(updates.enabled !== undefined ? { enabled: Boolean(updates.enabled) } : {}),
+        });
+        if (typeof next.secret === "string" && next.secret.trim()) {
+          await store.updateEndpoint(endpointId, { secret: storedSecret(next.secret.trim()), updatedAt: Date.now() });
+        }
+        if (updates.config !== undefined) {
+          const { secret: _secret, ...rest } = next;
+          updates.config = { ...rest, hub_endpoint_id: endpointId };
+        }
+      } catch (hubErr) {
+        return NextResponse.json({ error: (hubErr as Error).message }, { status: 400 });
+      }
     }
 
     const { data: dest, error } = await admin.from("alert_destinations")
@@ -82,8 +107,16 @@ export async function DELETE(
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 
+    const { data: gone } = await admin.from("alert_destinations")
+      .select("type, config").eq("id", dest_id).eq("organization_id", orgId).maybeSingle();
+
     const { error } = await admin.from("alert_destinations")
       .delete().eq("id", dest_id).eq("organization_id", orgId);
+
+    const endpointId = (gone?.config as Record<string, unknown> | null)?.hub_endpoint_id;
+    if (!error && gone?.type === "webhook" && typeof endpointId === "string") {
+      await getHub().hooks.deleteEndpoint(orgId, endpointId).catch(() => { /* already gone */ });
+    }
 
     if (error) return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
 
@@ -130,22 +163,22 @@ export async function POST(
     };
 
     const payloads: Record<string, unknown> = {
-      webhook: testMessage,
       slack: { text: `:white_check_mark: ${testMessage.title}\n${testMessage.message}` },
       discord: { content: `**${testMessage.title}**\n${testMessage.message}` },
     };
-    const field = DESTINATION_URL_FIELDS[dest.type];
-    if (!field) {
-      // Email, push and PagerDuty go through the same senders as real alerts.
-      const outcome = await sendTestAlert(dest);
-      if (!outcome.ok) return NextResponse.json({ error: `Test failed: ${outcome.error}` }, { status: 502 });
-      return NextResponse.json({ success: true, message: "Test alert sent" });
-    }
-
     // Rows saved before create-time validation existed may hold anything, so
     // check again rather than trust the stored value.
     const configError = await destinationConfigError(dest.type, dest.config);
     if (configError) return NextResponse.json({ error: configError }, { status: 400 });
+
+    const field = DESTINATION_URL_FIELDS[dest.type];
+    if (!field || dest.type === "webhook") {
+      // Webhooks send the hub's signed webhook.test; email, push and
+      // PagerDuty go through the same senders as real alerts.
+      const outcome = await sendTestAlert(dest);
+      if (!outcome.ok) return NextResponse.json({ error: `Test failed: ${outcome.error}` }, { status: 502 });
+      return NextResponse.json({ success: true, message: "Test alert sent" });
+    }
 
     let res: Response;
     try {

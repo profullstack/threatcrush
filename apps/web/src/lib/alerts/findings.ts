@@ -1,7 +1,9 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { deliverAlert } from "./senders";
+import { emitToOrg } from "@/lib/webhooks/hub";
+import { COUNTED_STATUSES, outcomeRow } from "./dispatch";
+import { deliverAlert, webhookAlert } from "./senders";
 import { SEVERITY_RANK, type AlertDestinationRow, type AlertMessage, type AlertRuleRow, type FindingAlertPayload, type Severity } from "./types";
 
 /**
@@ -68,10 +70,13 @@ export async function dispatchFindingAlerts(p: FindingAlertPayload, admin: Supab
       const scoped = Array.isArray(r.server_scope) && r.server_scope.length > 0;
       return r.enabled && d?.enabled && d.organization_id === p.organization_id && !scoped && rank(r.min_severity) >= 0 && top >= rank(r.min_severity);
     });
+    const orgSlug = (orgRes.data as { slug?: string } | null)?.slug ?? null;
+    // Webhook endpoints made via /api/v1/webhooks get every run's new findings.
+    const hub = webhookAlert(buildFindingsMessage(p, orgSlug));
+    await emitToOrg(p.organization_id, hub ? [hub] : []);
     if (!firing.length) return out;
 
-    const orgSlug = (orgRes.data as { slug?: string } | null)?.slug ?? null;
-    const since = new Date(Date.now() - HOUR_MS).toISOString();
+        const since = new Date(Date.now() - HOUR_MS).toISOString();
     const deliveredTo = new Set<string>();
     const rows: Array<Record<string, unknown>> = [];
     for (const rule of firing) {
@@ -81,7 +86,7 @@ export async function dispatchFindingAlerts(p: FindingAlertPayload, admin: Supab
       const mine = { ...p, findings: p.findings.filter((f) => rank(f.severity) >= rank(rule.min_severity)) };
       const base = { organization_id: p.organization_id, rule_id: rule.id, destination_id: dest.id, detection_id: null };
       const { count } = await admin.from("alert_deliveries").select("id", { count: "exact", head: true })
-        .eq("rule_id", rule.id).in("status", ["sent", "failed"]).gte("created_at", since);
+        .eq("rule_id", rule.id).in("status", COUNTED_STATUSES).gte("created_at", since);
       const limit = rule.rate_limit_per_hour ?? DEFAULT_RATE_LIMIT_PER_HOUR;
       if ((count ?? 0) >= limit) {
         rows.push({ ...base, status: "rate_limited", error: `Rule limit of ${limit} alerts per hour reached` });
@@ -90,7 +95,7 @@ export async function dispatchFindingAlerts(p: FindingAlertPayload, admin: Supab
       deliveredTo.add(dest.id);
       const outcome = await deliverAlert(dest, buildFindingsMessage(mine, orgSlug));
       if (outcome.ok) out.sent++;
-      rows.push(outcome.ok ? { ...base, status: "sent", error: outcome.detail ?? null } : { ...base, status: "failed", error: outcome.error.slice(0, 1000) });
+      rows.push(outcomeRow(base, outcome));
     }
     if (rows.length) {
       const { error } = await admin.from("alert_deliveries").insert(rows);

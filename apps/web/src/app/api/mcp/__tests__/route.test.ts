@@ -19,7 +19,7 @@ describe("/api/mcp", () => {
     const init = await (await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).json();
     expect(init.result.serverInfo.name).toBe("ThreatCrush");
     const list = await (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite", "findings_list", "findings_get", "findings_triage", "incidents_list", "incidents_get", "incidents_update", "incidents_raise"]);
+    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite", "findings_list", "findings_get", "findings_triage", "incidents_list", "incidents_get", "incidents_update", "incidents_raise", "webhooks_list", "webhooks_create", "webhooks_update", "webhooks_delete", "webhooks_test", "webhooks_rotate_secret", "webhooks_deliveries"]);
   });
 
   it("a tool call without a key is a tool error the model can read", async () => {

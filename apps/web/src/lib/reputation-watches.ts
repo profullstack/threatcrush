@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { deliverAlert } from "./alerts/senders";
+import { deliverAlert, webhookAlert } from "./alerts/senders";
+import { emitToOrg } from "./webhooks/hub";
 import type { AlertDestinationRow, AlertMessage } from "./alerts/types";
 import { tierFor } from "./reputation";
 import { lookupIndicator, type AnyReport, type Indicator } from "./reputation-service";
@@ -57,6 +58,7 @@ export function watchMessage(watch: WatchRow, report: AnyReport, change: Exclude
     url: orgSlug ? `${base}/org/${orgSlug}` : `${base}/reputation`,
     timestamp: new Date().toISOString(),
     tag: `reputation-${watch.indicator}`,
+    reputation: { watch_id: watch.id, indicator: watch.indicator, kind: watch.kind, change, score: report.score, listed: report.listed },
   };
 }
 
@@ -131,6 +133,9 @@ export async function runWatches(
       if (result.ok) out.alerts++;
       else console.error(`[reputation] watch alert to ${d.id} failed: ${result.error}`);
     }
+    // Webhook endpoints made via /api/v1/webhooks see every watch change in the org.
+    const hub = webhookAlert(message);
+    if (hub && !w.destination_id) out.alerts += await emitToOrg(w.org_id, [hub]);
   }
   return out;
 }

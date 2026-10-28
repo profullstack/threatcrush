@@ -8,7 +8,9 @@ vi.mock("../senders", () => ({
     sent.push({ dest: d.id, title: m.title, body: m.body, findings: m.findings?.findings.length ?? 0 });
     return d.id === "broken" ? { ok: false, error: "HTTP 500" } : { ok: true };
   },
+  webhookAlert: () => null,
 }));
+vi.mock("@/lib/webhooks/hub", () => ({ emitToOrg: async () => 0 }));
 
 import { buildFindingsMessage, dispatchFindingAlerts } from "../findings";
 

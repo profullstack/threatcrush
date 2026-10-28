@@ -3,8 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildDetectionMessage } from "./message";
 import { ruleMatches } from "./rules";
-import { deliverAlert } from "./senders";
-import type { AlertableDetection, AlertDestinationRow, AlertRuleRow } from "./types";
+import { emitToOrg } from "@/lib/webhooks/hub";
+import { deliverAlert, webhookAlert } from "./senders";
+import type { AlertableDetection, AlertDestinationRow, AlertRuleRow, DeliveryOutcome } from "./types";
 
 export type { AlertableDetection } from "./types";
 
@@ -17,9 +18,20 @@ interface DeliveryRow {
   rule_id: string;
   destination_id: string;
   detection_id: string;
-  status: "sent" | "failed" | "rate_limited";
+  status: "sent" | "failed" | "rate_limited" | "queued";
   error: string | null;
+  hub_delivery_id?: string | null;
 }
+
+/** An alert_deliveries row for a delivery outcome; a hub-queued webhook starts as `queued`. */
+export function outcomeRow<T extends object>(base: T, outcome: DeliveryOutcome) {
+  if (!outcome.ok) return { ...base, status: "failed" as const, error: outcome.error.slice(0, 1000) };
+  if (outcome.hubDeliveryId) return { ...base, status: "queued" as const, error: null, hub_delivery_id: outcome.hubDeliveryId };
+  return { ...base, status: "sent" as const, error: outcome.detail ?? null };
+}
+
+/** Rows that count against a rule's hourly limit: every attempt, queued or done. */
+export const COUNTED_STATUSES = ["sent", "failed", "queued"];
 
 /**
  * Evaluate the org's enabled alert rules against newly inserted detections and
@@ -53,7 +65,26 @@ export async function dispatchDetectionAlerts(detections: AlertableDetection[]):
     } catch (err) {
       console.error(`[alerts] dispatch failed for org ${orgId}:`, err);
     }
+    // Webhook endpoints made via /api/v1/webhooks (no alert rule routes to them).
+    await emitToOrg(orgId, () => detectionWebhookAlerts(admin, orgId, orgDetections));
   }
+}
+
+async function detectionWebhookAlerts(admin: SupabaseClient, orgId: string, detections: AlertableDetection[]) {
+  const serverIds = [...new Set(detections.map((detection) => detection.server_id))];
+  const [orgRes, serversRes] = await Promise.all([
+    admin.from("organizations").select("slug").eq("id", orgId).maybeSingle(),
+    admin.from("servers").select("id, name, hostname").in("id", serverIds),
+  ]);
+  const orgSlug = (orgRes.data as { slug?: string } | null)?.slug ?? null;
+  const names = new Map(
+    ((serversRes.data ?? []) as { id: string; name: string | null; hostname: string | null }[]).map(
+      (server) => [server.id, server.name || server.hostname || null],
+    ),
+  );
+  return detections
+    .map((detection) => webhookAlert(buildDetectionMessage(detection, { orgSlug, serverName: names.get(detection.server_id) ?? null })))
+    .filter((alert): alert is NonNullable<typeof alert> => alert !== null);
 }
 
 async function dispatchForOrg(admin: SupabaseClient, orgId: string, detections: AlertableDetection[]) {
@@ -97,7 +128,7 @@ async function dispatchForOrg(admin: SupabaseClient, orgId: string, detections: 
           .from("alert_deliveries")
           .select("id", { count: "exact", head: true })
           .eq("rule_id", rule.id)
-          .in("status", ["sent", "failed"])
+          .in("status", COUNTED_STATUSES)
           .gte("created_at", since);
         if (error) console.error(`[alerts] rate-limit count failed for rule ${rule.id}:`, error.message);
         return [rule.id, count ?? 0] as const;
@@ -145,11 +176,7 @@ async function dispatchForOrg(admin: SupabaseClient, orgId: string, detections: 
       deliveredTo.add(destination.id);
       sends.push(
         deliverAlert(destination, message).then((outcome) => {
-          rows.push(
-            outcome.ok
-              ? { ...base, status: "sent", error: outcome.detail ?? null }
-              : { ...base, status: "failed", error: outcome.error.slice(0, 1000) },
-          );
+          rows.push(outcomeRow(base, outcome));
         }),
       );
     }

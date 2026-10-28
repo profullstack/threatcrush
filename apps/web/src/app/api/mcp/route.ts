@@ -8,6 +8,9 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getFinding, listFindings, triageFindings, TriageError } from "@/lib/scan-findings";
 import { getIncident, IncidentError, listIncidents, pageable, raiseIncident, updateIncident } from "@/lib/incidents/store";
 import { notifyIncident } from "@/lib/incidents/notify";
+import { WebhookError } from "@profullstack/webhooks";
+import { getHooks } from "@/lib/webhooks/hub";
+import { webhookOrgFor } from "@/lib/webhooks/owner";
 import {
   createInvite,
   inviteOverview,
@@ -155,7 +158,99 @@ const TOOLS = [
       required: ["report"],
     },
   },
+  {
+    name: "webhooks_list",
+    description:
+      "Your org's webhook endpoints (signed Standard Webhooks deliveries, retried for about three days) and the events ThreatCrush emits: detection.created, findings.raised, reputation.changed. Endpoints behind a Webhook alert destination follow your alert rules; the others get every event they subscribe to. Org owner/admin session token or an admin tc_agent_ key.",
+    inputSchema: { type: "object", properties: { org_id: { type: "string" } } },
+  },
+  {
+    name: "webhooks_create",
+    description: "Add a webhook endpoint (public https URL). Returns the endpoint and its signing secret (whsec_…), shown once.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        org_id: { type: "string" },
+        url: { type: "string" },
+        events: { type: "array", items: { type: "string" }, description: "Event patterns: *, detection.created, findings.*, ... (default *)" },
+        description: { type: "string" },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "webhooks_update",
+    description: "Change a webhook endpoint's url, events, description, or switch it on/off (on again clears its failure count).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        org_id: { type: "string" },
+        id: { type: "string" },
+        url: { type: "string" },
+        events: { type: "array", items: { type: "string" } },
+        description: { type: "string" },
+        enabled: { type: "boolean" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "webhooks_delete",
+    description: "Remove a webhook endpoint and its delivery log.",
+    inputSchema: { type: "object", properties: { org_id: { type: "string" }, id: { type: "string" } }, required: ["id"] },
+  },
+  {
+    name: "webhooks_test",
+    description: "Send a signed webhook.test event to one endpoint now and say how it went.",
+    inputSchema: { type: "object", properties: { org_id: { type: "string" }, id: { type: "string" } }, required: ["id"] },
+  },
+  {
+    name: "webhooks_rotate_secret",
+    description: "Replace an endpoint's signing secret; the old one stops working at once. Returns the new secret.",
+    inputSchema: { type: "object", properties: { org_id: { type: "string" }, id: { type: "string" } }, required: ["id"] },
+  },
+  {
+    name: "webhooks_deliveries",
+    description: "Recent webhook deliveries (status, attempts, last HTTP status/error, payload), for one endpoint or all.",
+    inputSchema: {
+      type: "object",
+      properties: { org_id: { type: "string" }, id: { type: "string", description: "Endpoint id (optional)" }, limit: { type: "number" } },
+    },
+  },
 ];
+
+const WEBHOOK_TOOLS = new Set(["webhooks_list", "webhooks_create", "webhooks_update", "webhooks_delete", "webhooks_test", "webhooks_rotate_secret", "webhooks_deliveries"]);
+
+async function callWebhookTool(req: NextRequest, name: string, args: Record<string, unknown>) {
+  const p = await feedPrincipal(req);
+  if (!p) return text("Sign in first: pass your ThreatCrush session token (`threatcrush login`) or an admin tc_agent_ key as the Bearer token.", true);
+  const who = await webhookOrgFor(getSupabaseAdmin(), p, typeof args.org_id === "string" ? args.org_id : null);
+  if ("error" in who) return text(who.error, true);
+  const hooks = getHooks();
+  const id = String(args.id ?? "");
+  try {
+    if (name === "webhooks_list") return text({ endpoints: await hooks.listEndpoints(who.orgId), event_types: hooks.eventTypes });
+    if (name === "webhooks_create") {
+      return text(await hooks.createEndpoint(who.orgId, {
+        url: String(args.url ?? ""),
+        events: Array.isArray(args.events) ? args.events.map(String) : undefined,
+        description: typeof args.description === "string" ? args.description : undefined,
+      }));
+    }
+    if (name === "webhooks_update") {
+      const { org_id: _o, id: _i, ...patch } = args;
+      return text(await hooks.updateEndpoint(who.orgId, id, patch as Parameters<typeof hooks.updateEndpoint>[2]));
+    }
+    if (name === "webhooks_delete") return text(await hooks.deleteEndpoint(who.orgId, id));
+    if (name === "webhooks_test") return text(await hooks.test(who.orgId, id));
+    if (name === "webhooks_rotate_secret") return text(await hooks.rotateSecret(who.orgId, id));
+    return text({ deliveries: await hooks.deliveries(who.orgId, { endpointId: id || undefined, limit: Number(args.limit) || 50 }) });
+  } catch (err) {
+    if (err instanceof WebhookError) return text(err.message, true);
+    console.error("[mcp] webhook tool failed", (err as Error).message);
+    return text("That did not work. Try again.", true);
+  }
+}
 
 const CREDIT_TOOLS = new Set(["redeem_credit_code", "list_invites", "create_invite"]);
 const FINDING_TOOLS = new Set(["findings_list", "findings_get", "findings_triage"]);
@@ -279,7 +374,7 @@ async function handle(req: NextRequest, msg: Rpc) {
         capabilities: { tools: {} },
         serverInfo: { name: "ThreatCrush", version: "0.13" },
         instructions:
-          "IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), and incidents raised to your team (incidents_list, incidents_get, incidents_update, incidents_raise). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
+          "IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), incidents raised to your team (incidents_list, incidents_get, incidents_update, incidents_raise), and your org's webhook endpoints (webhooks_list, webhooks_create, webhooks_update, webhooks_delete, webhooks_test, webhooks_rotate_secret, webhooks_deliveries). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
       });
     case "notifications/initialized":
       return null;
@@ -294,6 +389,9 @@ async function handle(req: NextRequest, msg: Rpc) {
       }
       if (INCIDENT_TOOLS.has(toolName)) {
         return ok(id, await callIncidentTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
+      }
+      if (WEBHOOK_TOOLS.has(toolName)) {
+        return ok(id, await callWebhookTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
       }
       if (CREDIT_TOOLS.has(toolName)) {
         return ok(id, await callCreditTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
