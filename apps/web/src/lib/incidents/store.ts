@@ -371,6 +371,18 @@ export async function raiseDetectionIncidents(
 ): Promise<RaiseOutcome[]> {
   const out: RaiseOutcome[] = [];
   const fleetTeams = new Map<string, string | null>();
+  // What actually happened: daemons 0.13.61+ attach the triggering line as
+  // raw_metadata.evidence. Without it an incident could only repeat the rule's
+  // description ("a critical log message"), which is what got paged.
+  const evidence = new Map<string, { message?: string; at?: string; module?: string }>();
+  const ids = detections.filter((d) => d.severity === "critical").map((d) => d.id);
+  if (ids.length) {
+    const { data } = await admin.from("detections").select("id, raw_metadata").in("id", ids);
+    for (const r of (data ?? []) as Array<{ id: string; raw_metadata: { evidence?: { message?: string; at?: string; module?: string } } | null }>) {
+      const ev = r.raw_metadata?.evidence;
+      if (ev && typeof ev.message === "string" && ev.message) evidence.set(r.id, ev);
+    }
+  }
   for (const d of detections) {
     if (d.severity !== "critical") continue;
     try {
@@ -385,7 +397,9 @@ export async function raiseDetectionIncidents(
       }
       const key = `detection:${d.server_id}:${d.rule_id || d.title}`.slice(0, 200);
       const at = new Date(d.detected_at).toISOString();
-      const summary = `${d.title}${d.source_ip ? ` from ${d.source_ip}` : ""}`.slice(0, 1000);
+      const ev = evidence.get(d.id);
+      const line = ev?.message ? ev.message.slice(0, 500) : null;
+      const summary = (line ?? `${d.title}${d.source_ip ? ` from ${d.source_ip}` : ""}`).slice(0, 1000);
       out.push(
         await upsertIncident(
           admin,
@@ -398,10 +412,10 @@ export async function raiseDetectionIncidents(
             severity: "critical",
             source: "daemon",
             dedupe_key: key,
-            summary: (d.description || summary).slice(0, 4000),
+            summary: (line ? `${line}${d.description ? `\n\n${d.description}` : ""}` : d.description || summary).slice(0, 4000),
             verdict: null,
             host: server?.name ?? null,
-            findings: [{ id: `detection:${d.rule_id || d.title}`.slice(0, 120), module: "daemon", severity: "critical", title: d.title.slice(0, 300), ...(d.description ? { detail: d.description.slice(0, 4000) } : {}), evidence: "evidence", at }],
+            findings: [{ id: `detection:${d.rule_id || d.title}`.slice(0, 120), module: "daemon", severity: "critical", title: d.title.slice(0, 300), ...(line || d.description ? { detail: [line, d.description].filter(Boolean).join("\n\n").slice(0, 4000) } : {}), evidence: "evidence", at }],
             timeline: [{ at, module: "daemon", summary, evidence: true, ref: `detection:${d.id}` }],
             recommendations: [],
           },

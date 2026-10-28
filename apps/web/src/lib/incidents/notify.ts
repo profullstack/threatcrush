@@ -60,7 +60,15 @@ export function buildPage(incident: PageableIncident, orgSlug: string | null, te
   const n = incident.findings_count;
   const prefix = test ? "[ThreatCrush TEST]" : `[ThreatCrush ${sev}]`;
   const tail = `${n} finding${n === 1 ? "" : "s"}. ${url}`;
-  let sms = `${prefix} ${incident.title}${on}. ${tail}`;
+  // The first line of the summary is what happened (for a detection, the log
+  // line that triggered it). A page that only names the rule says nothing.
+  const what = ((incident.summary || "").split("\n").map((l) => l.trim()).find(Boolean) ?? "").replace(/[.\s]+$/, "");
+  const head = `${prefix} ${incident.title}${on}`;
+  let sms = what && what !== incident.title ? `${head}: ${what}. ${tail}` : `${head}. ${tail}`;
+  if (sms.length > SMS_MAX && what && what !== incident.title) {
+    const room = SMS_MAX - `${head}: …. ${tail}`.length;
+    sms = room > 20 ? `${head}: ${what.slice(0, room)}…. ${tail}` : `${head}. ${tail}`;
+  }
   if (sms.length > SMS_MAX) {
     const room = SMS_MAX - (`${prefix} ${on}. ${tail}`.length + 1);
     sms = `${prefix} ${incident.title.slice(0, Math.max(10, room))}…${on}. ${tail}`.slice(0, SMS_MAX);
