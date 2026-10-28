@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
+import { dispatchFindingAlerts } from "@/lib/alerts/findings";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { syncRunFindings } from "@/lib/scan-findings";
+import { isFindingSource, syncRunFindings } from "@/lib/scan-findings";
 
 async function authUserId(req: NextRequest): Promise<string | null> {
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
@@ -118,7 +119,14 @@ export async function PATCH(
     // A finished run feeds the tracked findings (new / seen / reopened / fixed).
     if (typeof body.status === "string" && ["succeeded", "failed"].includes(body.status)) {
       try {
-        await syncRunFindings(getSupabaseAdmin(), run);
+        const sync = await syncRunFindings(getSupabaseAdmin(), run);
+        if (sync.raised.length && isFindingSource(run.type)) {
+          const { data: prop } = await getSupabaseAdmin().from("properties").select("id, name, target").eq("id", property_id).maybeSingle();
+          if (prop) {
+            const source = run.type;
+            after(() => dispatchFindingAlerts({ run_id: run.id, organization_id: orgId, source, property: prop, findings: sync.raised }));
+          }
+        }
       } catch (e) {
         console.error("Sync run findings error:", (e as Error).message);
       }

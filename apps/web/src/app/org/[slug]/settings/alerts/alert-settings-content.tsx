@@ -281,7 +281,7 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
               {rules.length === 0 ? (
                 <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-8 text-center">
                   <p className="text-zinc-400">No alert rules configured</p>
-                  <p className="text-zinc-600 text-sm mt-1">Rules route detections to destinations based on severity and server scope.</p>
+                  <p className="text-zinc-600 text-sm mt-1">Rules route detections to destinations based on severity and server scope. Rules with no server scope also alert on new scan, pentest and AI red-team findings (one message per run).</p>
                 </div>
               ) : rules.map(r => (
                 <div key={r.id} className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 flex items-center justify-between">

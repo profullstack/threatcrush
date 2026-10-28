@@ -96,6 +96,15 @@ describe('CloudClient API calls', () => {
     expect(calls[0].url).toBe(`https://tc/api/orgs/${ORG}/scan-findings?limit=200&severity=high`)
   })
 
+  it('passes a paging offset only when it is a sane integer', async () => {
+    const { calls, f } = fakeApi(() => ({ status: 200, body: {} }))
+    const c = new CloudClient(signedIn(), 'https://tc', f, noWait)
+    await c.findings({ offset: 200 })
+    await c.findings({ offset: -5 })
+    await c.findings({ offset: 1.5 })
+    expect(calls.map((x) => new URL(x.url).searchParams.get('offset'))).toEqual(['200', null, null])
+  })
+
   it('needs a session and an org', async () => {
     const { f } = fakeApi(() => ({ status: 200, body: {} }))
     await expect(new CloudClient(memStore(), 'https://tc', f, noWait).orgs()).rejects.toThrow('Not signed in')

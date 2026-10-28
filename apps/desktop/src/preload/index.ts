@@ -57,7 +57,7 @@ const api = {
     logout: () => ipcRenderer.invoke('cloud-logout'),
     orgs: () => ipcRenderer.invoke('cloud-orgs'),
     useOrg: (id: string, slug: string) => ipcRenderer.invoke('cloud-use-org', id, slug),
-    findings: (q?: { status?: string; severity?: string; source?: string }) => ipcRenderer.invoke('cloud-findings', q),
+    findings: (q?: { status?: string; severity?: string; source?: string; offset?: number }) => ipcRenderer.invoke('cloud-findings', q),
     finding: (id: string) => ipcRenderer.invoke('cloud-finding', id),
     triage: (ids: string[], status: string | null, note?: string) => ipcRenderer.invoke('cloud-triage', ids, status, note),
   },

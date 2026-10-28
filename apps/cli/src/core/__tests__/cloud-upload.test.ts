@@ -6,6 +6,7 @@ const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
 let reply: { status: number; body: unknown } = { status: 201, body: { sync: { new: 2, seen: 1, reopened: 0, fixed: 3 }, property_name: "x" } };
 
 vi.mock("../cli-config.js", () => ({
+  apiUrl: () => "https://tc.test",
   hasSession: () => session,
   readCliConfig: () => cfg,
   cloudFetch: async (path: string, init: { body: string }) => {
@@ -63,6 +64,23 @@ describe("cloud upload", () => {
     w.mockRestore();
     const sent = (calls[0].body.result as { findings: Array<{ location: string }> }).findings.map((f) => f.location);
     expect(sent).toEqual(["https://bot/chat", "a.ts:1"]);
+  });
+
+  it("THREATCRUSH_API_KEY uploads to the key's org with no login and no org picked", async () => {
+    session = false; cfg = {};
+    const seen: Array<{ url: string; auth: string }> = [];
+    const f = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      seen.push({ url: String(url), auth: (init?.headers as Record<string, string>).Authorization });
+      return new Response(JSON.stringify({ sync: { new: 1, seen: 0, reopened: 0, fixed: 0 } }), { status: 201 });
+    });
+    const out: string[] = [];
+    const w = vi.spyOn(process.stdout, "write").mockImplementation((s) => { out.push(String(s)); return true; });
+    const r = await uploadResult(result, { source: "scan", target: "github.com/acme/app", kind: "repo", env: { THREATCRUSH_API_KEY: " tc_agent_abc " } });
+    w.mockRestore(); f.mockRestore();
+    expect(r.uploaded).toBe(true);
+    expect(seen).toEqual([{ url: "https://tc.test/api/v1/findings/report", auth: "Bearer tc_agent_abc" }]);
+    expect(calls).toHaveLength(0);
+    expect(out.join("")).toMatch(/Saved to the API key's org: 1 new/);
   });
 
   it("a server error is reported, never thrown", async () => {

@@ -187,8 +187,10 @@ export class CloudClient {
     return id
   }
 
-  async findings(q: { status?: string; severity?: string; source?: string } = {}): Promise<unknown> {
+  async findings(q: { status?: string; severity?: string; source?: string; offset?: number } = {}): Promise<unknown> {
     const qs = new URLSearchParams({ limit: '200' })
+    const offset = Number(q.offset)
+    if (Number.isInteger(offset) && offset > 0 && offset <= 100_000) qs.set('offset', String(offset))
     for (const k of ['status', 'severity', 'source'] as const) {
       const v = q[k]
       if (typeof v === 'string' && /^[a-z_,-]{1,80}$/.test(v)) qs.set(k, v)

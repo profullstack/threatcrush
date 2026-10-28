@@ -73,13 +73,19 @@ describe("fingerprintOf", () => {
 describe("syncRunFindings", () => {
   it("adds new findings, bumps ones seen again, fixes ones that are gone, reopens ones that come back", async () => {
     const { rows, client } = fakeDb();
-    expect(await syncRunFindings(client, run([F("a"), F("b")]))).toEqual({ new: 2, seen: 0, reopened: 0, fixed: 0 });
-    expect(await syncRunFindings(client, run([F("a")]))).toEqual({ new: 0, seen: 1, reopened: 0, fixed: 1 });
+    const first = await syncRunFindings(client, run([F("a"), F("b")]));
+    expect(first).toMatchObject({ new: 2, seen: 0, reopened: 0, fixed: 0 });
+    expect(first.raised.map((r) => [r.message, r.reopened])).toEqual([["LLM01 a", false], ["LLM01 b", false]]);
+    const second = await syncRunFindings(client, run([F("a")]));
+    expect(second).toMatchObject({ new: 0, seen: 1, reopened: 0, fixed: 1 });
+    expect(second.raised).toEqual([]);
     const b = rows.find((r) => r.type === "b")!;
     expect(b.status).toBe("fixed");
     expect(b.resolved_at).toBeTruthy();
     expect(rows.find((r) => r.type === "a")!.times_seen).toBe(2);
-    expect(await syncRunFindings(client, run([F("a"), F("b")]))).toEqual({ new: 0, seen: 1, reopened: 1, fixed: 0 });
+    const third = await syncRunFindings(client, run([F("a"), F("b")]));
+    expect(third).toMatchObject({ new: 0, seen: 1, reopened: 1, fixed: 0 });
+    expect(third.raised).toEqual([{ severity: "high", message: "LLM01 b", location: "https://bot/chat", reopened: true }]);
     expect(b.status).toBe("open");
   });
 

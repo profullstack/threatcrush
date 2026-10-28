@@ -2,13 +2,15 @@ import { execFileSync } from 'node:child_process';
 import { hostname } from 'node:os';
 import { resolve } from 'node:path';
 import chalk from 'chalk';
-import { cloudFetch, hasSession, readCliConfig } from './cli-config.js';
+import { apiUrl, cloudFetch, hasSession, readCliConfig } from './cli-config.js';
 import { workerId, type RunResult } from './run-result.js';
 
 // Signed in? Then every `scan`, `pentest` and `ai-scan` result goes to the
 // current org on threatcrush.com, where its findings are tracked across runs
 // (new / still open / fixed) and triaged from the web app, desktop app and
-// `threatcrush findings`. Not signed in, `--no-upload`, THREATCRUSH_UPLOAD=0:
+// `threatcrush findings`. In CI, THREATCRUSH_API_KEY (a tc_agent_ key with
+// write) uploads into that key's org with no login; it wins over a session.
+// Not signed in and no key, `--no-upload`, THREATCRUSH_UPLOAD=0:
 // nothing leaves the machine. An upload never changes the command's exit code.
 
 export type UploadSource = 'scan' | 'pentest' | 'ai-scan';
@@ -79,22 +81,20 @@ export function repoTarget(path: string, run = (args: string[]) => execFileSync(
 export async function uploadResult(result: RunResult, opts: UploadOptions): Promise<UploadOutcome> {
   const say = (line: string) => (opts.machineReadable ? process.stderr : process.stdout).write(`${line}\n`);
   if (uploadDisabled(opts.upload, opts.env)) return { uploaded: false, reason: 'disabled' };
-  if (!hasSession()) {
+  const apiKey = (opts.env ?? process.env).THREATCRUSH_API_KEY?.trim();
+  if (!apiKey && !hasSession()) {
     if (!opts.machineReadable && process.stdout.isTTY) {
       say(chalk.dim(`  Sign in with ${chalk.white('threatcrush login')} to track these findings in the cloud and triage them anywhere.\n`));
     }
     return { uploaded: false, reason: 'signed-out' };
   }
   const cfg = readCliConfig();
-  if (!cfg.current_org_id) {
+  if (!apiKey && !cfg.current_org_id) {
     say(chalk.yellow(`  Not saved to the cloud: no current org. Pick one with ${chalk.white('threatcrush orgs use <slug>')}.\n`));
     return { uploaded: false, reason: 'no-org' };
   }
   try {
-    const res = await cloudFetch(`/api/orgs/${cfg.current_org_id}/scan-findings/report`, {
-      method: 'POST',
-      timeoutMs: 30_000,
-      body: JSON.stringify({
+    const body = JSON.stringify({
         source: opts.source,
         target: opts.target,
         kind: opts.kind,
@@ -108,17 +108,28 @@ export async function uploadResult(result: RunResult, opts: UploadOptions): Prom
           summary: result.summary,
           error: result.error,
         },
-      }),
-    });
+      });
+    const res = apiKey
+      ? await fetch(`${apiUrl()}/api/v1/findings/report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body,
+          signal: AbortSignal.timeout(30_000),
+        })
+      : await cloudFetch(`/api/orgs/${cfg.current_org_id}/scan-findings/report`, { method: 'POST', timeoutMs: 30_000, body });
     const data = await res.json().catch(() => ({})) as { sync?: UploadOutcome['sync']; property_name?: string; error?: string };
     if (!res.ok || !data.sync) {
       say(chalk.yellow(`  Not saved to the cloud: ${data.error || `HTTP ${res.status}`}.\n`));
       return { uploaded: false, reason: 'error' };
     }
     const s = data.sync;
-    const org = cfg.current_org_slug || 'your org';
     const parts = [`${s.new} new`, `${s.seen + s.reopened} still open${s.reopened ? ` (${s.reopened} back after a fix)` : ''}`, `${s.fixed} fixed`];
-    say(chalk.cyan(`  ☁ Saved to ${org}: ${parts.join(' · ')}. Triage with ${chalk.white('threatcrush findings')} or on threatcrush.com/org/${org}/findings\n`));
+    if (apiKey) {
+      say(chalk.cyan(`  ☁ Saved to the API key's org: ${parts.join(' · ')}. Triage on threatcrush.com (Findings).\n`));
+    } else {
+      const org = cfg.current_org_slug || 'your org';
+      say(chalk.cyan(`  ☁ Saved to ${org}: ${parts.join(' · ')}. Triage with ${chalk.white('threatcrush findings')} or on threatcrush.com/org/${org}/findings\n`));
+    }
     return { uploaded: true, sync: s, propertyName: data.property_name };
   } catch (err) {
     say(chalk.yellow(`  Not saved to the cloud: ${(err as Error).message}.\n`));

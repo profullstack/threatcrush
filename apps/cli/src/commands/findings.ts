@@ -90,7 +90,7 @@ export async function findingsListCommand(opts: { status?: string; severity?: st
   for (const f of data.findings) {
     const sev = (SEV_COLOR[f.severity] ?? chalk.white)(f.severity.toUpperCase().padEnd(8));
     console.log(`  ${chalk.gray(short(f.id))} ${sev} ${chalk.dim((STATUS_LABEL[f.status] ?? f.status).padEnd(7))} ${f.message}`);
-    console.log(chalk.dim(`           ${f.source} · ${f.properties?.name ?? '?'}${f.location ? ` · ${f.location}` : ''} · seen ${f.times_seen}x, last ${day(f.last_seen_at)}`));
+    console.log(chalk.dim(`           ${f.source} · ${f.properties?.name ?? '?'}${f.location && f.location !== f.properties?.target ? ` · ${f.location}` : ''} · seen ${f.times_seen}x, last ${day(f.last_seen_at)}`));
   }
   if (data.total > data.findings.length) console.log(chalk.dim(`\n  ${data.findings.length} of ${data.total} shown; --limit for more.`));
   console.log(chalk.dim(`\n  Triage: threatcrush findings ack|fix|fp|ignore|reopen <id...> [--note "why"]  ·  details: threatcrush findings show <id>\n`));

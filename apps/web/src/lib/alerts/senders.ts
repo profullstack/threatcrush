@@ -71,13 +71,14 @@ async function postJsonGuarded(
 
 function webhookPayload(message: AlertMessage) {
   return {
-    event: message.detection ? "detection.created" : "test",
+    event: message.detection ? "detection.created" : message.findings ? "findings.new" : "test",
     title: message.title,
     severity: message.severity,
     message: message.body,
     timestamp: message.timestamp,
     url: message.url,
     ...(message.detection && { detection: message.detection }),
+    ...(message.findings && { findings: message.findings }),
   };
 }
 
@@ -97,7 +98,7 @@ async function sendWebhook(destination: AlertDestinationRow, message: AlertMessa
 async function sendSlack(destination: AlertDestinationRow, message: AlertMessage): Promise<DeliveryOutcome> {
   const url = configString(destination, "webhook_url");
   if (!url) return { ok: false, error: "Slack webhook not configured" };
-  const icon = message.detection ? ":rotating_light:" : ":white_check_mark:";
+  const icon = message.detection || message.findings ? ":rotating_light:" : ":white_check_mark:";
   return postJsonGuarded(url, {
     text: `${icon} *${slackEscape(message.title)}*\n${slackEscape(message.body)}\n<${message.url}|View in ThreatCrush>`,
   });
@@ -135,9 +136,11 @@ async function sendPagerDuty(destination: AlertDestinationRow, message: AlertMes
         event_action: "trigger",
         // One incident per detection; PagerDuty folds resends into it.
         ...(detection && { dedup_key: `threatcrush-${detection.id}` }),
+        // One incident per run's new findings.
+        ...(message.findings && { dedup_key: `threatcrush-findings-${message.findings.run_id}` }),
         payload: {
           summary: message.title.slice(0, 1024),
-          source: detection?.server_name ?? detection?.server_id ?? "threatcrush.com",
+          source: detection?.server_name ?? detection?.server_id ?? message.findings?.property.name ?? "threatcrush.com",
           severity: PAGERDUTY_SEVERITY[message.severity],
           timestamp: message.timestamp,
           component: detection?.rule_id ?? undefined,
@@ -201,7 +204,9 @@ async function sendPush(destination: AlertDestinationRow, message: AlertMessage)
     tag: message.tag,
     data: message.detection
       ? { detection_id: message.detection.id, organization_id: message.detection.organization_id }
-      : {},
+      : message.findings
+        ? { run_id: message.findings.run_id, organization_id: message.findings.organization_id }
+        : {},
   });
   const failures = result.failures.join("; ").slice(0, 500);
   if (result.devices === 0) {
