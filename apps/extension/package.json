@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush-extension",
-  "version": "0.7.58",
+  "version": "0.7.59",
   "private": true,
   "type": "module",
   "scripts": {
