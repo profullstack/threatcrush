@@ -37,7 +37,7 @@ export async function queueRestart(
 }
 
 /** The first daemon release that understands action_type "update". */
-export const UPDATE_ACTION_SINCE = "0.13.57";
+export const UPDATE_ACTION_SINCE = "0.13.59";
 
 const older = (a: string | null, b: string) => !a || compareVersions(a, b) < 0;
 
