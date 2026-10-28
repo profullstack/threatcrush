@@ -37,6 +37,17 @@ export interface NormalizedFinding {
 
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
 
+/** https://user:pw@host/path?key=x#y -> https://host/path; anything else unchanged. */
+export function urlSafe(v: string): string {
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) return v;
+  try {
+    const u = new URL(v);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return v.split(/[?#]/)[0];
+  }
+}
+
 /**
  * Identity of a finding across runs: what it is and where, not how it was
  * worded this time.
@@ -70,7 +81,9 @@ export function normalizeFindings(raw: unknown): NormalizedFinding[] {
     if (o.details && typeof o.details === "object" && !Array.isArray(o.details)) {
       details = JSON.stringify(o.details).length <= MAX_DETAILS ? (o.details as Record<string, unknown>) : { truncated: true };
     }
-    const location = str(o.location, 1000) || null;
+    // A URL location keeps scheme, host and path only: query strings and
+    // userinfo carry tokens (the CLI strips them too; this is the backstop).
+    const location = urlSafe(str(o.location, 1000)) || null;
     const f = { type, severity, message, location, details };
     const fingerprint = fingerprintOf(f);
     const prev = out.get(fingerprint);

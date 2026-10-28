@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { atLeast, findingsRoleOf, getPrincipal } from "@/lib/access";
-import { isFindingSource, normalizeFindings, syncRunFindings } from "@/lib/scan-findings";
+import { isFindingSource, normalizeFindings, syncRunFindings, urlSafe } from "@/lib/scan-findings";
 
 // POST /api/orgs/[id]/scan-findings/report — the CLI's one-shot upload after a
 // local `threatcrush scan` / `pentest` / `ai-scan`. Finds (or creates) the
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const source = body.source;
   if (!isFindingSource(source)) return NextResponse.json({ error: "source must be scan, pentest or ai-scan" }, { status: 400 });
-  const target = typeof body.target === "string" ? body.target.trim().slice(0, 1000) : "";
+  const target = typeof body.target === "string" ? urlSafe(body.target.trim().slice(0, 1000)) : "";
   if (!target) return NextResponse.json({ error: "target required" }, { status: 400 });
   const kind = KINDS.includes(body.kind as (typeof KINDS)[number]) ? (body.kind as (typeof KINDS)[number]) : DEFAULT_KIND[source];
   const scope = typeof body.scope === "string" ? body.scope.slice(0, 500) : "";

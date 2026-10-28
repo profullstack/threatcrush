@@ -56,6 +56,15 @@ describe("cloud upload", () => {
     expect(out.join("")).toMatch(/Saved to acme: 2 new · 1 still open · 3 fixed/);
   });
 
+  it("cleans URL locations in findings like the target", async () => {
+    const w = quiet();
+    await uploadResult({ ...result, findings: [{ type: "p", severity: "high", message: "m", location: "https://bot/chat?key=sk-1" }, { ...result.findings[0] }] },
+      { source: "ai-scan", target: "https://bot/chat", kind: "api" });
+    w.mockRestore();
+    const sent = (calls[0].body.result as { findings: Array<{ location: string }> }).findings.map((f) => f.location);
+    expect(sent).toEqual(["https://bot/chat", "a.ts:1"]);
+  });
+
   it("a server error is reported, never thrown", async () => {
     reply = { status: 403, body: { error: "Not authorized" } };
     const out: string[] = [];
