@@ -16,6 +16,9 @@ import { AllowlistSync } from './workers/allowlist-sync.js';
 import { AutoUpdate, updateSettings } from './workers/auto-update.js';
 import { ThreatFeeds, threatFeedSettings } from './workers/threat-feeds.js';
 import { PrivilegeWatch, privilegeSettings } from './workers/privilege-watch.js';
+import { SshIntrusionWatch } from './workers/ssh-intrusion.js';
+import { LightningWatch } from './workers/lightning-watch.js';
+import { TorExitList } from '../core/tor-exits.js';
 import { RuleEngine } from './rules/engine.js';
 import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
@@ -228,7 +231,34 @@ export async function runDaemon(): Promise<void> {
   });
   privilegeWatch.start();
 
-  new AlertDispatcher(bus, config);
+  // SSH from Tor exits (banned at once, even in dry_run), keys logging in from
+  // new addresses and people's keys from hosting/VPN networks.
+  const torExits = new TorExitList({
+    cachePath: join(PATHS.stateDir, 'tor-exits.txt'),
+    url: config.remediation?.tor_exit_list_url,
+    log: logLine,
+  });
+  const sshIntrusion = new SshIntrusionWatch({
+    bus,
+    manager: remediation,
+    tor: torExits,
+    historyPath: join(PATHS.stateDir, 'key-logins.json'),
+    keyLoginWatch: config.privileged?.key_login_watch !== false,
+    log: logLine,
+  });
+  sshIntrusion.start();
+
+  // Core Lightning channel closes (a burst = the node being drained).
+  const lightningWatch = new LightningWatch({
+    bus,
+    enabled: config.lightning?.enabled !== false,
+    paths: Array.isArray(config.lightning?.log_paths) ? config.lightning.log_paths.map(String) : undefined,
+    log: logLine,
+  });
+  lightningWatch.start();
+
+  let cloudSyncRef: CloudSync | null = null;
+  new AlertDispatcher(bus, config, { cloudHealthy: () => cloudSyncRef?.healthy ?? false, log: logLine });
 
   const runsWorker = new RunsWorker(bus, {
     enabled: config.cloud?.enabled !== false && config.cloud?.runs === true,
@@ -261,6 +291,7 @@ export async function runDaemon(): Promise<void> {
       runHardening: runHardeningChecks,
     });
     cloudSync.start();
+    cloudSyncRef = cloudSync;
     remediationConsumer = new RemediationConsumer(remediation, {
       log: logLine,
       restartDaemon,
@@ -268,7 +299,16 @@ export async function runDaemon(): Promise<void> {
       updateNow: () => (autoUpdateRef ? autoUpdateRef.check({ force: true, restartDelayMs: 3000 }) : Promise.resolve('updater not started')),
     });
     remediationConsumer.start();
-    allowlistSync = new AllowlistSync(remediation, { log: logLine });
+    // `[remediation] block_tor_ssh` in the config wins; otherwise the org setting.
+    const torPinned = typeof config.remediation?.block_tor_ssh === 'boolean';
+    allowlistSync = new AllowlistSync(remediation, {
+      log: logLine,
+      onOrgSettings: ({ block_tor_ssh }) => {
+        if (torPinned || typeof block_tor_ssh !== 'boolean' || block_tor_ssh === remediation.blockTorSsh) return;
+        remediation.setBlockTorSsh(block_tor_ssh);
+        logLine(`[ssh-intrusion] Tor SSH ban ${block_tor_ssh ? 'ON' : 'OFF'} (org setting from the dashboard)`);
+      },
+    });
     allowlistSync.start();
     const link = currentLink();
     logLine(link
@@ -314,6 +354,8 @@ export async function runDaemon(): Promise<void> {
     try { autoUpdate.stop(); } catch {}
     try { threatFeeds.stop(); } catch {}
     try { privilegeWatch.stop(); } catch {}
+    try { sshIntrusion.stop(); } catch {}
+    try { lightningWatch.stop(); } catch {}
     try { await ipc.stop(); } catch {}
     try { closeDB(); } catch {}
     try { await flushTelemetry(); } catch {}

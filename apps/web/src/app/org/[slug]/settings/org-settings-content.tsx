@@ -19,6 +19,7 @@ interface OrgData {
   name: string;
   slug: string;
   user_role: string;
+  block_tor_ssh?: boolean;
 }
 
 interface MemberData {
@@ -40,6 +41,7 @@ export default function OrgSettingsContent({ slug }: { slug: string }) {
   // Rename form
   const [renameName, setRenameName] = useState("");
   const [renaming, setRenaming] = useState(false);
+  const [savingTor, setSavingTor] = useState(false);
 
   // Invite form
   const [inviteEmail, setInviteEmail] = useState("");
@@ -92,6 +94,22 @@ export default function OrgSettingsContent({ slug }: { slug: string }) {
       setError(err instanceof Error ? err.message : "Failed to update organization");
     } finally {
       setRenaming(false);
+    }
+  };
+
+  const handleTorToggle = async (on: boolean) => {
+    if (!org) return;
+    setSavingTor(true);
+    setError("");
+    try {
+      const { organization } = await updateOrganization(org.id, { block_tor_ssh: on });
+      setOrg({ ...org, block_tor_ssh: organization.block_tor_ssh !== false });
+      setSuccess(on ? "SSH from Tor will be banned on every server" : "SSH from Tor will only raise an alert");
+      setTimeout(() => setSuccess(""), 4000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update setting");
+    } finally {
+      setSavingTor(false);
     }
   };
 
@@ -235,6 +253,28 @@ export default function OrgSettingsContent({ slug }: { slug: string }) {
           {!isAdmin && (
             <p className="text-xs text-zinc-500 mt-2">Only owners and admins can edit organization settings.</p>
           )}
+        </div>
+
+        {/* Auto-defence */}
+        <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-6 mb-6">
+          <h2 className="text-lg font-semibold text-white mb-4">Auto-defence</h2>
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={org.block_tor_ssh !== false}
+              disabled={!isAdmin || savingTor}
+              onChange={(e) => handleTorToggle(e.target.checked)}
+              className="mt-1 h-4 w-4 accent-green-500 disabled:opacity-50"
+            />
+            <span>
+              <span className="block text-sm text-white">Ban SSH from Tor exit relays</span>
+              <span className="block text-xs text-zinc-400 mt-1">
+                Any SSH connection or login from a Tor exit is banned at once, even on servers in dry-run mode, and pages
+                on-call. Turn off only if your team really logs in over Tor; it then raises an alert instead. A server&apos;s
+                own <code className="text-zinc-300">[remediation] block_tor_ssh</code> setting wins over this one.
+              </span>
+            </span>
+          </label>
         </div>
 
         {/* Members */}

@@ -52,6 +52,14 @@ export interface RemediationSection {
   operator_memory?: string;
   /** Never auto-ban a Googlebot/Bingbot verified by forward-confirmed reverse DNS. Default true. */
   spare_verified_crawlers?: boolean;
+  /**
+   * Default true. Ban any SSH connection (attempt or successful login) from a
+   * Tor exit relay at once for `max_ban`, even in `dry_run` mode. Setting it
+   * here wins over the dashboard's org setting; leave it out to follow that.
+   */
+  block_tor_ssh?: boolean;
+  /** Tor exit list source. Default https://check.torproject.org/torbulkexitlist, refreshed hourly. */
+  tor_exit_list_url?: string;
   /** Historical spelling, seconds. Superseded by the doubling ladder. */
   default_ttl_seconds?: number;
 }
@@ -149,6 +157,14 @@ export interface ThreatFeedsSection {
 export interface PrivilegedSection {
   /** Default true. */
   enabled?: boolean;
+  /**
+   * authorized_keys additions that are expected: SHA256 fingerprints, or
+   * comment globs such as "github-actions-deploy@*". A new key that matches
+   * is reported `high`; any other new key is `critical` (pages on-call).
+   */
+  expected_keys?: string[];
+  /** Default true. Alert when a key logs in from an address it never used before. */
+  key_login_watch?: boolean;
   /** Default true. Geolocate accepted SSH logins via threatcrush.com/api/geo to spot a new country. */
   geo?: boolean;
 }
@@ -213,6 +229,8 @@ export interface ThreatCrushConfig {
   alerts: Record<string, AlertChannelConfig>;
   modules: ModulesConfig;
   remediation?: RemediationSection;
+  /** `[lightning]`: Core Lightning channel-close alerts. On when a cln.log is found. */
+  lightning?: { enabled?: boolean; log_paths?: string[] };
   detection?: DetectionSection;
   cloud?: CloudSection;
   watchdog?: WatchdogSection;

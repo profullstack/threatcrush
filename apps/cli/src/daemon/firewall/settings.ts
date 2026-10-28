@@ -47,6 +47,8 @@ export function remediationSettings(section?: RemediationSection): Partial<Remed
   const operatorMemory = parseDuration(section.operator_memory);
   if (operatorMemory) settings.operator_memory_seconds = operatorMemory;
 
+  if (typeof section.block_tor_ssh === 'boolean') settings.block_tor_ssh = section.block_tor_ssh;
+
   if (typeof section.spare_verified_crawlers === 'boolean') {
     settings.spare_verified_crawlers = section.spare_verified_crawlers;
   }

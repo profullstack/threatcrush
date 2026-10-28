@@ -48,7 +48,12 @@ export class AllowlistSync {
 
   constructor(
     private manager: AllowlistManager,
-    private opts: { log: (line: string) => void; intervalMs?: number },
+    private opts: {
+      log: (line: string) => void;
+      intervalMs?: number;
+      /** The org's auto-defence settings from the dashboard (`block_tor_ssh`). */
+      onOrgSettings?: (settings: { block_tor_ssh?: boolean }) => void;
+    },
   ) {}
 
   start(): void {
@@ -65,6 +70,17 @@ export class AllowlistSync {
   async sync(): Promise<void> {
     const link = currentLink();
     if (!link) return;
+
+    if (this.opts.onOrgSettings) {
+      try {
+        const res = await cloudFetch(`/api/orgs/${link.orgId}`);
+        if (res.ok) {
+          const data = await res.json() as { organization?: { block_tor_ssh?: unknown } };
+          const v = data.organization?.block_tor_ssh;
+          if (typeof v === 'boolean') this.opts.onOrgSettings({ block_tor_ssh: v });
+        }
+      } catch { /* keep the current setting */ }
+    }
 
     let entries: Array<{ type?: string; value?: string }>;
     try {

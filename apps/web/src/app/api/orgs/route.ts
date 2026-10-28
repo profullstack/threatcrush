@@ -86,7 +86,8 @@ export async function GET(req: NextRequest) {
           name,
           slug,
           created_by,
-          created_at
+          created_at,
+          block_tor_ssh
         )
       `)
       .eq("user_id", user.id)

@@ -68,6 +68,83 @@ the `adm`, `systemd-journal` or `wheel` group to read the system journal; withou
 it, and with no auth log, `ssh-guard` says so in `threatcrush status` instead of
 running blind.
 
+### SSH from Tor, stolen keys, planted keys
+
+On 2026-10-26/27 an intruder logged in to one of our servers with a stolen
+private key, from Tor exits, OVH, an NL hosting provider and Google Cloud, then
+appended a key of their own (`ops-recovery-20261027`) to root's and the user's
+`authorized_keys` and `authorized_keys2` and used it hundreds of times. None of
+it was a failed login, so none of the SSH rules above fired. These do:
+
+| Rule | Severity | What it means | Bans? |
+|------|----------|---------------|-------|
+| `ssh-from-tor` | critical | any sshd line naming a Tor exit: a connection, a failed or an **accepted** login | **yes**, at once, for `max_ban`, **even in `dry_run`** |
+| `ssh-key-new-ip` | high | a key logged in from an address that key never used before (network named: Tor / CI / hosting / VPN / ISP) | no |
+| `ssh-human-key-hosting-login` | high | a person's key (its `authorized_keys` comment is not automation) logged in from a hosting, cloud or VPN network | no |
+| `priv-authorized-key-added` | critical (high if expected) | a key was added to any login account's `authorized_keys` or `authorized_keys2`, root included; message carries the fingerprint and comment | no |
+| `ln-channel-close-burst` | critical | two or more Core Lightning channels left `CHANNELD_NORMAL` within 10 minutes (`ln-channel-close`, high, for one) | no |
+
+Critical detections page on-call from the dashboard (incident SMS/call), and
+from the box itself through `[alerts.smshub]` while it cannot reach the
+dashboard.
+
+**Tor.** The list is the Tor Project's bulk exit list
+(<https://check.torproject.org/torbulkexitlist>), refreshed hourly and cached in
+`/var/lib/threatcrush/tor-exits.txt`; `threatcrush tor` shows its size and age,
+`threatcrush tor check <ip>` looks one up. A Tor exit is never remembered as an
+operator address and a live session from one is not protected, which is what
+used to make such a login unbannable. Our own addresses still are: the pinned
+set below, `[remediation] protected` and the dashboard's Known IPs.
+
+The ban is a setting, on by default:
+
+```toml
+[remediation]
+block_tor_ssh = true          # false: alert (high) on SSH from Tor, never ban
+```
+
+Leave it out to follow the organization setting in the dashboard
+(Organization settings, Auto-defence); a value in the config file wins over the
+dashboard. Profullstack's own servers always run with it on.
+
+**Expected keys.** Keys your own tooling adds (CI deploy keys) can be named so
+their addition is `high` instead of a page:
+
+```toml
+[privileged]
+expected_keys = ["github-actions-deploy@*", "SHA256:XFpNTjYTzFPV4s6VsmAhDhSKgj5OlVddbz6+6zzZS1w"]
+key_login_watch = true        # ssh-key-new-ip and ssh-human-key-hosting-login
+```
+
+A key whose comment contains `threatcrush-selftest` raises a critical alert
+labelled `[TEST]`: add and remove one to prove the page reaches you.
+
+`ssh-key-new-ip` learns the last 30 days of key logins on first start (Tor
+exits excluded) so existing habits do not alert. Networks are classified from
+Team Cymru's IP-to-ASN DNS service (only accepted logins are looked up).
+
+**Per-rule enforcement flags.** Any rule (shipped, or yours in
+`/etc/threatcrush/rules.d`) may carry these in `remediation`:
+
+| Flag | Effect |
+|------|--------|
+| `enforce_in_dry_run` | write the firewall rule even when `mode = "dry_run"` |
+| `ban_on_login` | ban even though the line is a successful login (normally never grounds for a ban) |
+| `override_operator_protection` | remembered operator addresses and live sessions do not protect the source; the pinned/configured allowlist still does |
+| `max_ban` | ban for `max_ban` at once instead of starting at the bottom of the ladder |
+
+`ssh-from-tor` sets all four. A ban written in `dry_run` this way is re-applied
+after a restart like any enforced ban.
+
+**Lightning.** On when a `cln.log` is found
+(`/home/lightning/.lightning/cln.log`, `/root/.lightning/cln.log`, ...):
+
+```toml
+[lightning]
+enabled = true
+log_paths = ["/srv/cln/cln.log"]
+```
+
 ### Web attacks
 
 Every nginx request — its request line, User-Agent and Referer — is scored
@@ -227,6 +304,13 @@ max_ban = "7d"
 strike_memory = "30d"
 protected = ["203.0.113.7/32"]
 protect_current_ssh_client = true
+block_tor_ssh = true          # ban SSH from Tor exits at once, even in dry_run
+
+[alerts.smshub]               # page a phone from the box when the dashboard is unreachable
+enabled = true
+api_key_env = "SMSHUB_ALERT_API_KEY"   # or api_key = "..."
+min_severity = "critical"
+fallback_only = true          # false: page from the box as well as from the dashboard
 ```
 
 ## From the CLI
