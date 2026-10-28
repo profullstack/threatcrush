@@ -11,7 +11,10 @@ function builder(table: string) {
   const filters: Array<(r: Row) => boolean> = [];
   const b = {
     select() { return b; },
-    insert(rows: Row[]) { inserted.push(...rows); return { error: null }; },
+    insert(rows: Row[]) {
+      inserted.push(...rows);
+      return { select: async () => ({ data: rows.map((r, i) => ({ id: `a${i}`, ...r })), error: null }) };
+    },
     eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return b; },
     async maybeSingle() { const r = (db[table] ?? []).filter((x) => filters.every((f) => f(x))); return { data: r[0] ?? null, error: null }; },
     then(resolve: (v: unknown) => void) { resolve({ data: (db[table] ?? []).filter((x) => filters.every((f) => f(x))), error: null }); },
@@ -43,7 +46,11 @@ describe("POST /api/orgs/:id/restart-all", () => {
   it("queues a restart for every server an org owner administers", async () => {
     const res = await post();
     expect(res.status).toBe(200);
-    expect((await res.json()).queued).toBe(2);
+    const body = await res.json();
+    expect(body.queued).toBe(2);
+    // The ids let the dashboard follow each restart live.
+    expect(body.actions.map((a: Row) => a.server_id).sort()).toEqual(["s1", "s2"]);
+    expect(body.actions.every((a: Row) => typeof a.id === "string")).toBe(true);
     expect(inserted).toHaveLength(2);
     expect(inserted.every((r) => r.action_type === "restart" && r.status === "pending" && r.target_value === "daemon")).toBe(true);
     expect(new Set(inserted.map((r) => r.server_id))).toEqual(new Set(["s1", "s2"]));

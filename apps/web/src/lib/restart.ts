@@ -11,14 +11,21 @@ import { compareVersions } from "@/lib/fleet";
  */
 
 export const RESTART_TARGET = "daemon";
+
+/** One queued row, returned so the dashboard can follow it live. */
+export interface QueuedAction {
+  id: string;
+  server_id: string;
+  action_type: "restart" | "update";
+}
 const RESTART_TTL_MS = 10 * 60 * 1000;
 
 export async function queueRestart(
   admin: SupabaseClient,
   orgId: string,
   serverIds: string[],
-): Promise<number> {
-  if (serverIds.length === 0) return 0;
+): Promise<QueuedAction[]> {
+  if (serverIds.length === 0) return [];
   const expires_at = new Date(Date.now() + RESTART_TTL_MS).toISOString();
   const rows = serverIds.map((server_id) => ({
     organization_id: orgId,
@@ -28,12 +35,12 @@ export async function queueRestart(
     status: "pending",
     expires_at,
   }));
-  const { error } = await admin.from("remediation_actions").insert(rows);
+  const { data, error } = await admin.from("remediation_actions").insert(rows).select("id, server_id, action_type");
   if (error) {
     console.error("Failed to queue restart:", error);
     throw new Error("Could not queue the restart");
   }
-  return rows.length;
+  return (data ?? []) as QueuedAction[];
 }
 
 /** The first daemon release that understands action_type "update". */
@@ -51,8 +58,8 @@ export async function queueUpdate(
   admin: SupabaseClient,
   orgId: string,
   servers: Array<{ id: string; version: string | null }>,
-): Promise<{ updates: number; restarts: number }> {
-  if (servers.length === 0) return { updates: 0, restarts: 0 };
+): Promise<{ updates: number; restarts: number; actions: QueuedAction[] }> {
+  if (servers.length === 0) return { updates: 0, restarts: 0, actions: [] };
   const expires_at = new Date(Date.now() + RESTART_TTL_MS).toISOString();
   const rows = servers.map((s) => ({
     organization_id: orgId,
@@ -62,11 +69,11 @@ export async function queueUpdate(
     status: "pending",
     expires_at,
   }));
-  const { error } = await admin.from("remediation_actions").insert(rows);
+  const { data, error } = await admin.from("remediation_actions").insert(rows).select("id, server_id, action_type");
   if (error) {
     console.error("Failed to queue update:", error);
     throw new Error("Could not queue the update");
   }
   const updates = rows.filter((r) => r.action_type === "update").length;
-  return { updates, restarts: rows.length - updates };
+  return { updates, restarts: rows.length - updates, actions: (data ?? []) as QueuedAction[] };
 }

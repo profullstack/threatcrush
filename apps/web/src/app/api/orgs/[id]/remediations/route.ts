@@ -18,6 +18,8 @@ export async function GET(
     const url = new URL(req.url);
     const serverId = url.searchParams.get("server_id");
     const status = url.searchParams.get("status");
+    // ?ids=a,b: follow specific actions (the fleet panel's live restart/update progress).
+    const ids = (url.searchParams.get("ids") ?? "").split(",").map((v) => v.trim()).filter(Boolean).slice(0, 200);
     const limit = parsePaginationParam(url.searchParams.get("limit"), 50, { min: 1, max: 200 });
     const offset = parsePaginationParam(url.searchParams.get("offset"), 0);
 
@@ -32,6 +34,7 @@ export async function GET(
     if (visible) query = query.in("server_id", visible);
     if (serverId) query = query.eq("server_id", serverId);
     if (status) query = query.eq("status", status);
+    if (ids.length > 0) query = query.in("id", ids);
 
     const { data: remediations, error, count } = await query;
     if (error) return NextResponse.json({ error: "Failed to fetch remediations" }, { status: 500 });

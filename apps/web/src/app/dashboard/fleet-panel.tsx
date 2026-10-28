@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { authHeaders } from "@/lib/auth-client";
+import { jobStatus, TERMINAL, type JobAction, type JobItem, type JobPhase, type JobStatus } from "@/lib/daemon-job";
 import type { FleetPatches, FleetServer, FleetSummary } from "@/lib/fleet";
 
 interface FleetResponse {
@@ -11,6 +12,21 @@ interface FleetResponse {
 }
 
 const REFRESH_MS = 30_000;
+/** While an update/restart is in flight. Kept modest: our own dashboard polling once got a box banned. */
+const JOB_POLL_MS = 3_000;
+const JOB_MAX_MS = 15 * 60_000;
+/** Server machines themselves (reboots, deploys, OS) are managed there, not here. */
+const W3BS_FLEET_URL = "https://w3bs.org/fleet";
+
+interface Job {
+  intent: "restart" | "update";
+  started: number;
+  items: JobItem[];
+  actions: Record<string, JobAction>;
+  done: boolean;
+}
+
+interface QueuedAction { id: string; server_id: string; action_type: "restart" | "update" }
 
 /**
  * Every ThreatCrush install across all of the user's organizations. Linked
@@ -23,6 +39,8 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
   const [restarting, setRestarting] = useState(false);
   const [restartNote, setRestartNote] = useState("");
   const [updating, setUpdating] = useState(false);
+  const [job, setJob] = useState<Job | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     let cancelled = false;
@@ -49,24 +67,94 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
 
   const servers = (fleet?.servers ?? []).filter((s) => orgFilter === "all" || s.org_id === orgFilter);
   const summary = fleet?.summary;
+  const serverById = useMemo(() => new Map((fleet?.servers ?? []).map((s) => [s.id, s])), [fleet]);
+
+  const jobStatuses: JobStatus[] = job
+    ? job.items.map((i) => jobStatus(i, job.actions[i.action_id], serverById.get(i.server_id), now))
+    : [];
+  const jobRunning = !!job && !job.done;
+  const jobFinished = !!job && jobStatuses.every((st) => TERMINAL.has(st.phase));
+
+  useEffect(() => {
+    if (job && !job.done && (jobFinished || now - job.started > JOB_MAX_MS)) setJob({ ...job, done: true });
+  }, [job, jobFinished, now]);
+
+  // Live progress: follow each queued action and each server's heartbeat until all settle.
+  const jobKey = jobRunning ? job.started : null;
+  useEffect(() => {
+    if (jobKey === null || !job) return;
+    let cancelled = false;
+    const byOrg = new Map<string, string[]>();
+    for (const i of job.items) byOrg.set(i.org_id, [...(byOrg.get(i.org_id) ?? []), i.action_id]);
+    const tick = async () => {
+      try {
+        const [fleetRes, ...actionRes] = await Promise.all([
+          fetch("/api/fleet", { headers: authHeaders(), cache: "no-store" }),
+          ...[...byOrg].map(([orgId, ids]) =>
+            fetch(`/api/orgs/${orgId}/remediations?ids=${ids.join(",")}&limit=200`, { headers: authHeaders(), cache: "no-store" })),
+        ]);
+        const latest = fleetRes.ok ? (await fleetRes.json()) as FleetResponse : null;
+        const rows: JobAction[] = [];
+        for (const r of actionRes) {
+          if (r.ok) rows.push(...(((await r.json()) as { remediations?: JobAction[] }).remediations ?? []));
+        }
+        if (cancelled) return;
+        if (latest) setFleet(latest);
+        setJob((j) => j && j.started === jobKey
+          ? { ...j, actions: { ...j.actions, ...Object.fromEntries(rows.map((a) => [a.id, a])) } }
+          : j);
+      } catch {
+        // A dropped poll is fine: the next one catches up.
+      }
+    };
+    void tick();
+    const poll = setInterval(tick, JOB_POLL_MS);
+    const clock = setInterval(() => setNow(Date.now()), 1_000);
+    return () => { cancelled = true; clearInterval(poll); clearInterval(clock); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one poller per job, keyed by its start time
+  }, [jobKey]);
+
+  const startJob = (intent: Job["intent"], queued: Array<QueuedAction & { org_id: string }>) => {
+    const started = Date.now();
+    setNow(started);
+    setJob({
+      intent,
+      started,
+      done: false,
+      actions: {},
+      items: queued.map((a) => {
+        const s = serverById.get(a.server_id);
+        return {
+          action_id: a.id,
+          org_id: a.org_id,
+          server_id: a.server_id,
+          server_name: s?.name ?? a.server_id.slice(0, 8),
+          action_type: a.action_type,
+          intent,
+          from_version: s?.threatcrushd_version ?? null,
+        };
+      }),
+    });
+  };
 
   const restartAll = async () => {
     const scope = orgFilter === "all" ? "every organization" : "this organization";
-    if (!window.confirm(`Restart the ThreatCrush daemon on every server you administer in ${scope}? Each daemon drops for a few seconds while it restarts.`)) return;
+    if (!window.confirm(`Restart the ThreatCrush daemon (threatcrushd) on every server you administer in ${scope}?\n\nOnly the ThreatCrush daemon restarts, for a few seconds each. The servers themselves are not rebooted: manage those at ${W3BS_FLEET_URL}.`)) return;
     setRestarting(true);
     setRestartNote("");
     setError("");
     try {
       const orgIds = [...new Set(servers.filter((s) => s.agent).map((s) => s.org_id))];
-      let queued = 0;
+      const queued: Array<QueuedAction & { org_id: string }> = [];
       for (const orgId of orgIds) {
         const res = await fetch(`/api/orgs/${orgId}/restart-all`, { method: "POST", headers: authHeaders() });
-        const data = (await res.json().catch(() => ({}))) as { queued?: number; error?: string };
-        if (res.ok) queued += data.queued ?? 0;
+        const data = (await res.json().catch(() => ({}))) as { actions?: QueuedAction[]; error?: string };
+        if (res.ok) queued.push(...(data.actions ?? []).map((a) => ({ ...a, org_id: orgId })));
         // A 403 (no admin servers in that org) is not fatal across many orgs.
         else if (res.status !== 403) throw new Error(data.error || `Restart failed (${res.status})`);
       }
-      setRestartNote(queued > 0 ? `Restart queued for ${queued} server${queued === 1 ? "" : "s"}. They reconnect within a minute.` : "No servers you administer to restart.");
+      if (queued.length > 0) startJob("restart", queued);
+      else setRestartNote("No servers you administer to restart.");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -76,23 +164,21 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
 
   const updateAll = async () => {
     const behind = servers.filter((s) => s.agent && s.outdated);
-    if (!window.confirm(`Update ThreatCrush on ${behind.length} server${behind.length === 1 ? "" : "s"} behind v${summary?.latest_version}? Each daemon installs the release and restarts (a few seconds offline).`)) return;
+    if (!window.confirm(`Update the ThreatCrush daemon on ${behind.length} server${behind.length === 1 ? "" : "s"} behind v${summary?.latest_version}?\n\nEach ThreatCrush daemon installs the release and restarts (a few seconds without protection). The servers themselves are not updated or rebooted: manage those at ${W3BS_FLEET_URL}.`)) return;
     setUpdating(true);
     setRestartNote("");
     setError("");
     try {
       const orgIds = [...new Set(behind.map((s) => s.org_id))];
-      let updates = 0, restarts = 0;
+      const queued: Array<QueuedAction & { org_id: string }> = [];
       for (const orgId of orgIds) {
         const res = await fetch(`/api/orgs/${orgId}/update-all`, { method: "POST", headers: authHeaders() });
-        const data = (await res.json().catch(() => ({}))) as { updates?: number; restarts?: number; error?: string };
-        if (res.ok) { updates += data.updates ?? 0; restarts += data.restarts ?? 0; }
+        const data = (await res.json().catch(() => ({}))) as { actions?: QueuedAction[]; error?: string };
+        if (res.ok) queued.push(...(data.actions ?? []).map((a) => ({ ...a, org_id: orgId })));
         else if (res.status !== 403) throw new Error(data.error || `Update failed (${res.status})`);
       }
-      const parts = [];
-      if (updates) parts.push(`${updates} updating now (back within a minute)`);
-      if (restarts) parts.push(`${restarts} on a daemon too old for "update now" were restarted: their auto-updater checks within 40 minutes and takes the newest release at least 2 hours old; press Update all again after that for the rest`);
-      setRestartNote(parts.length ? `${parts.join(". ")}.` : "Every server you administer is already on the latest release.");
+      if (queued.length > 0) startJob("update", queued);
+      else setRestartNote("Every ThreatCrush daemon you administer is already on the latest release.");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -104,10 +190,14 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-white">Fleet</h2>
+          <h2 className="text-lg font-semibold text-white">ThreatCrush command &amp; control</h2>
           <p className="text-sm text-zinc-500">
             Every ThreatCrush install across your organizations
             {summary && summary.inventories > 0 ? ", plus every machine in your OpenDevice inventory." : "."}
+          </p>
+          <p className="text-xs text-zinc-600">
+            Update and restart act on the ThreatCrush daemon only, never the server. Manage the servers themselves at{" "}
+            <a href={W3BS_FLEET_URL} target="_blank" rel="noopener noreferrer" className="text-zinc-400 underline hover:text-green-400">w3bs.org/fleet</a>.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -126,21 +216,21 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
             <button
               type="button"
               onClick={updateAll}
-              disabled={updating}
-              title="Install the newest ThreatCrush on every server behind it that you administer"
+              disabled={updating || jobRunning}
+              title="Install the newest ThreatCrush daemon on every server behind it that you administer. The server itself is not updated."
               className="rounded-lg px-3 py-1.5 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition-colors disabled:opacity-50"
             >
-              {updating ? "Updating…" : `Update all (${servers.filter((s) => s.agent && s.outdated).length})`}
+              {updating ? "Queueing…" : `Update ThreatCrush (${servers.filter((s) => s.agent && s.outdated).length})`}
             </button>
           )}
           <button
             type="button"
             onClick={restartAll}
-            disabled={restarting || !servers.some((s) => s.agent)}
-            title="Restart the daemon on every server you administer (in the current filter)"
+            disabled={restarting || jobRunning || !servers.some((s) => s.agent)}
+            title="Restart the ThreatCrush daemon on every server you administer (in the current filter). The server itself is not rebooted."
             className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-300 bg-zinc-800 border border-zinc-700 hover:border-yellow-500/50 hover:bg-zinc-700 transition-colors disabled:opacity-50"
           >
-            {restarting ? "Restarting…" : "Restart all"}
+            {restarting ? "Queueing…" : "Restart ThreatCrush"}
           </button>
           <Link
             href={addServerHref}
@@ -150,6 +240,8 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
           </Link>
         </div>
       </div>
+
+      {job && <JobProgress job={job} statuses={jobStatuses} now={now} onDismiss={() => setJob(null)} />}
 
       {restartNote && (
         <div className="mb-4 rounded-lg bg-green-500/10 border border-green-500/20 px-4 py-3">
@@ -278,6 +370,65 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+const PHASE_STYLE: Record<JobPhase, { label: string; className: string }> = {
+  queued: { label: "queued", className: "bg-zinc-700 text-zinc-300" },
+  running: { label: "running", className: "bg-blue-500/15 text-blue-300" },
+  restarting: { label: "restarting", className: "bg-yellow-500/15 text-yellow-300" },
+  online: { label: "back online", className: "bg-green-500/15 text-green-400" },
+  failed: { label: "failed", className: "bg-red-500/15 text-red-400" },
+  expired: { label: "not reached", className: "bg-red-500/15 text-red-400" },
+  stalled: { label: "no heartbeat", className: "bg-red-500/15 text-red-400" },
+};
+
+/** Live per-server progress of an "Update ThreatCrush" / "Restart ThreatCrush" run. */
+function JobProgress({ job, statuses, now, onDismiss }: { job: Job; statuses: JobStatus[]; now: number; onDismiss: () => void }) {
+  const total = statuses.length;
+  const ok = statuses.filter((s) => s.phase === "online").length;
+  const bad = statuses.filter((s) => TERMINAL.has(s.phase) && s.phase !== "online").length;
+  const elapsed = Math.max(0, Math.floor((now - job.started) / 1000));
+  const verb = job.intent === "update" ? "Updating" : "Restarting";
+  const title = job.done
+    ? `ThreatCrush daemon ${job.intent} finished: ${ok} of ${total} back online${bad ? `, ${bad} need attention` : ""}`
+    : `${verb} the ThreatCrush daemon on ${total} server${total === 1 ? "" : "s"}: ${ok} of ${total} back`;
+  const tone = !job.done ? "border-yellow-500/30" : bad ? "border-red-500/30" : "border-green-500/30";
+
+  return (
+    <div className={`mb-4 rounded-lg border bg-zinc-900 p-4 ${tone}`} aria-live="polite">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-white">
+          {!job.done && <span className="h-3 w-3 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent" aria-hidden />}
+          {title}
+        </div>
+        <div className="flex items-center gap-3 text-xs text-zinc-500">
+          <span>{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}</span>
+          {job.done && <button type="button" onClick={onDismiss} className="text-zinc-400 hover:text-white">Dismiss</button>}
+        </div>
+      </div>
+      <div className="mt-3 flex h-1.5 overflow-hidden rounded-full bg-zinc-800">
+        <div className="bg-green-500 transition-all" style={{ width: `${(ok / total) * 100}%` }} />
+        <div className="bg-red-500 transition-all" style={{ width: `${(bad / total) * 100}%` }} />
+      </div>
+      <ul className="mt-3 divide-y divide-zinc-800/70">
+        {job.items.map((item, i) => {
+          const st = statuses[i];
+          const style = PHASE_STYLE[st.phase];
+          return (
+            <li key={item.action_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5 text-sm">
+              <span className="min-w-32 font-medium text-zinc-200">{item.server_name}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${style.className}`}>{style.label}</span>
+              <span className="text-xs text-zinc-400">{st.detail}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <p className="mt-3 text-xs text-zinc-600">
+        Only the ThreatCrush daemon is touched. Reboots, deploys and OS updates for these servers live at{" "}
+        <a href={W3BS_FLEET_URL} target="_blank" rel="noopener noreferrer" className="text-zinc-400 underline hover:text-green-400">w3bs.org/fleet</a>.
+      </p>
     </div>
   );
 }

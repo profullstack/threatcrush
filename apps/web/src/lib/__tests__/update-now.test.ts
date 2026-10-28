@@ -8,17 +8,25 @@ import { buildFleet } from "@/lib/fleet";
 describe("queueUpdate", () => {
   it("sends update to daemons that know it and restart to older ones", async () => {
     const inserted: Array<{ server_id: string; action_type: string; expires_at: string }> = [];
-    const admin = { from: () => ({ insert: async (rows: typeof inserted) => { inserted.push(...rows); return { error: null }; } }) } as never;
+    const admin = {
+      from: () => ({
+        insert: (rows: typeof inserted) => {
+          inserted.push(...rows);
+          return { select: async () => ({ data: rows.map((r) => ({ id: `a-${r.server_id}`, server_id: r.server_id, action_type: r.action_type })), error: null }) };
+        },
+      }),
+    } as never;
     const out = await queueUpdate(admin, "o1", [
       { id: "old", version: "0.13.51" }, { id: "new", version: "0.13.59" }, { id: "newer", version: "0.14.0" }, { id: "unknown", version: null }, { id: "parallel", version: "0.13.58" },
     ]);
-    expect(out).toEqual({ updates: 2, restarts: 3 });
+    expect(out).toMatchObject({ updates: 2, restarts: 3 });
+    expect(out.actions).toContainEqual({ id: "a-new", server_id: "new", action_type: "update" });
     expect(Object.fromEntries(inserted.map((r) => [r.server_id, r.action_type]))).toEqual({ old: "restart", new: "update", newer: "update", unknown: "restart", parallel: "restart" });
     expect(Date.parse(inserted[0].expires_at) - Date.now()).toBeLessThanOrEqual(10 * 60_000);
   });
 
   it("queues nothing for an empty list", async () => {
-    expect(await queueUpdate({} as never, "o1", [])).toEqual({ updates: 0, restarts: 0 });
+    expect(await queueUpdate({} as never, "o1", [])).toEqual({ updates: 0, restarts: 0, actions: [] });
   });
 });
 
