@@ -1,5 +1,5 @@
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import TOML from '@iarna/toml';
 import type { ThreatCrushConfig, ModuleConfig } from '../types/config.js';
 
@@ -27,38 +27,82 @@ const DEFAULT_CONFIG: ThreatCrushConfig = {
   },
 };
 
-export function loadConfig(configPath?: string): ThreatCrushConfig {
+export function loadConfig(configPath?: string, onError?: (err: Error) => void): ThreatCrushConfig {
   const path = configPath || DEFAULT_CONFIG_PATH;
   if (!existsSync(path)) {
     return { ...DEFAULT_CONFIG };
   }
-
   try {
-    const raw = readFileSync(path, 'utf-8');
-    const parsed = TOML.parse(raw) as unknown as Partial<ThreatCrushConfig>;
-    return {
-      daemon: { ...DEFAULT_CONFIG.daemon, ...parsed.daemon },
-      api: { ...DEFAULT_CONFIG.api, ...parsed.api },
-      alerts: parsed.alerts || {},
-      modules: { ...DEFAULT_CONFIG.modules, ...parsed.modules },
-      remediation: parsed.remediation,
-      detection: parsed.detection,
-      cloud: parsed.cloud,
-      watchdog: parsed.watchdog,
-      update: parsed.update,
-      threat_feeds: parsed.threat_feeds,
-      privileged: parsed.privileged,
-      lightning: parsed.lightning,
-      storage: parsed.storage,
-      // TOML's `[abuse-reporter]` parses to a hyphenated key; expose it under
-      // the JS-friendly name the rest of the daemon reads.
-      abuse_reporter:
-        (parsed as Record<string, unknown>)['abuse-reporter'] as ThreatCrushConfig['abuse_reporter'] ??
-        parsed.abuse_reporter,
-      license: parsed.license,
-    };
-  } catch {
+    return parseConfigText(readFileSync(path, 'utf-8'));
+  } catch (err) {
+    onError?.(err as Error);
     return { ...DEFAULT_CONFIG };
+  }
+}
+
+/**
+ * One config file's text as the daemon's config. Throws on invalid TOML (a
+ * duplicate key, a header glued to a key): callers decide what a broken file
+ * means. `loadConfig` falls back to the defaults; the daemon must not, since
+ * the defaults have no `[remediation] protected` list (see loadDaemonConfig).
+ */
+export function parseConfigText(raw: string): ThreatCrushConfig {
+  const parsed = TOML.parse(raw) as unknown as Partial<ThreatCrushConfig>;
+  return {
+    daemon: { ...DEFAULT_CONFIG.daemon, ...parsed.daemon },
+    api: { ...DEFAULT_CONFIG.api, ...parsed.api },
+    alerts: parsed.alerts || {},
+    modules: { ...DEFAULT_CONFIG.modules, ...parsed.modules },
+    remediation: parsed.remediation,
+    detection: parsed.detection,
+    cloud: parsed.cloud,
+    watchdog: parsed.watchdog,
+    update: parsed.update,
+    threat_feeds: parsed.threat_feeds,
+    privileged: parsed.privileged,
+    lightning: parsed.lightning,
+    storage: parsed.storage,
+    // TOML's `[abuse-reporter]` parses to a hyphenated key; expose it under
+    // the JS-friendly name the rest of the daemon reads.
+    abuse_reporter:
+      (parsed as Record<string, unknown>)['abuse-reporter'] as ThreatCrushConfig['abuse_reporter'] ??
+      parsed.abuse_reporter,
+    license: parsed.license,
+  };
+}
+
+/**
+ * The daemon's config, never silently the defaults.
+ *
+ * 2026-10-28: a duplicated key in dev2's threatcrushd.conf made TOML.parse
+ * throw, loadConfig returned the defaults, and the daemon came up with backend
+ * auto (fail2ban) and NO protected list, then banned one of our own servers
+ * as a scanner within a minute. Now a file that parses is saved as the last
+ * good copy; a file that does not is reported and the last good copy is used.
+ */
+export function loadDaemonConfig(configPath: string, lastGoodPath: string): {
+  config: ThreatCrushConfig;
+  error?: string;
+  usedLastGood: boolean;
+} {
+  if (!existsSync(configPath)) return { config: { ...DEFAULT_CONFIG }, usedLastGood: false };
+  let raw = '';
+  try {
+    raw = readFileSync(configPath, 'utf-8');
+    const config = parseConfigText(raw);
+    try {
+      mkdirSync(dirname(lastGoodPath), { recursive: true });
+      writeFileSync(lastGoodPath, raw, { mode: 0o600 });
+    } catch { /* best effort */ }
+    return { config, usedLastGood: false };
+  } catch (err) {
+    const error = `${configPath} is not valid TOML: ${(err as Error).message.split('\n')[0]}`;
+    try {
+      if (existsSync(lastGoodPath)) {
+        return { config: parseConfigText(readFileSync(lastGoodPath, 'utf-8')), error, usedLastGood: true };
+      }
+    } catch { /* fall through */ }
+    return { config: { ...DEFAULT_CONFIG }, error, usedLastGood: false };
   }
 }
 

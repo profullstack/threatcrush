@@ -29,7 +29,7 @@ import { bus } from './event-bus.js';
 import { startWatchdog } from './watchdog-service.js';
 import { initStateDB, closeDB, pruneEvents, DEFAULT_EVENT_RETENTION_SECONDS, DEFAULT_MAX_EVENTS } from '../core/state.js';
 import { parseDuration } from './firewall/backoff.js';
-import { loadConfig } from '../core/config.js';
+import { loadDaemonConfig } from '../core/config.js';
 import { configureAttackDetection } from '../core/log-parser.js';
 import { captureException, flushTelemetry, initTelemetry } from '../core/telemetry.js';
 import { currentLink } from '../core/cloud-events.js';
@@ -133,7 +133,11 @@ export async function runDaemon(): Promise<void> {
     logLine(`[daemon] state db unavailable: ${(err as Error).message}`);
   }
 
-  const config = loadConfig(existsSync(PATHS.configFile) ? PATHS.configFile : undefined);
+  const loaded = loadDaemonConfig(PATHS.configFile, join(PATHS.stateDir, 'threatcrushd.conf.last-good'));
+  const config = loaded.config;
+  if (loaded.error) {
+    logLine(`[daemon] CONFIG ERROR: ${loaded.error}; ${loaded.usedLastGood ? 'running on the last config that parsed' : 'no earlier good copy, running on DEFAULTS (no protected list)'}`);
+  }
   configureAttackDetection(config.detection);
 
   // Bounded history: without this the events table grew without limit (85 GB
@@ -259,6 +263,17 @@ export async function runDaemon(): Promise<void> {
 
   let cloudSyncRef: CloudSync | null = null;
   new AlertDispatcher(bus, config, { cloudHealthy: () => cloudSyncRef?.healthy ?? false, log: logLine });
+  if (loaded.error) {
+    // After the dispatcher and cloud are up, so it reaches someone.
+    setTimeout(() => bus.publish({
+      timestamp: new Date(),
+      module: 'daemon',
+      category: 'system',
+      severity: 'critical',
+      message: `threatcrushd.conf does not parse; ${loaded.usedLastGood ? 'running on the last good copy' : 'running on defaults with NO protected list'}: ${loaded.error}`.slice(0, 500),
+      details: { rule_id: 'daemon-config-invalid', used_last_good: loaded.usedLastGood },
+    }), 15_000).unref?.();
+  }
 
   const runsWorker = new RunsWorker(bus, {
     enabled: config.cloud?.enabled !== false && config.cloud?.runs === true,
