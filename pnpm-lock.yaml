@@ -345,6 +345,9 @@ importers:
       '@profullstack/autoblog':
         specifier: github:profullstack/autoblog#v0.4.0
         version: https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e
+      '@profullstack/fleet':
+        specifier: 0.1.0
+        version: 0.1.0
       '@profullstack/footer':
         specifier: latest
         version: 0.4.0(react@19.3.1)
@@ -2258,6 +2261,11 @@ packages:
 
   '@profullstack/emailer@1.0.3':
     resolution: {integrity: sha512-VyAtCcfnSI6LOwJvWogCr3ZNmEsaZw+iuWrqnosLsdcKsbRyCrCmXigMNZJZEjlgYlR+lK//PwNPG+xtCFvWAw==}
+
+  '@profullstack/fleet@0.1.0':
+    resolution: {integrity: sha512-yZnmg5YQPAKctFPRZLHv0uUoIgxiRAtLPxM6SxnIQ87TAqYvRYBaG+avSemjRFJNK/9//36h4fFkV+/thXhpRw==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@profullstack/footer@0.4.0':
     resolution: {integrity: sha512-EJZnMUQmWDi9Gzx6BAjogloeaPFFSSCHtHJuC9dsXiOz8M87hfn6Z+Zx9AMYWk8s6xemPrPlkXKGB3PZugkcEA==}
@@ -9917,6 +9925,8 @@ snapshots:
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e': {}
 
   '@profullstack/emailer@1.0.3': {}
+
+  '@profullstack/fleet@0.1.0': {}
 
   '@profullstack/footer@0.4.0(react@19.3.1)':
     optionalDependencies:

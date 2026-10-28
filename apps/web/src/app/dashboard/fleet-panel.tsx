@@ -56,7 +56,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
     setRestartNote("");
     setError("");
     try {
-      const orgIds = [...new Set(servers.map((s) => s.org_id))];
+      const orgIds = [...new Set(servers.filter((s) => s.agent).map((s) => s.org_id))];
       let queued = 0;
       for (const orgId of orgIds) {
         const res = await fetch(`/api/orgs/${orgId}/restart-all`, { method: "POST", headers: authHeaders() });
@@ -78,7 +78,10 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <h2 className="text-lg font-semibold text-white">Fleet</h2>
-          <p className="text-sm text-zinc-500">Every ThreatCrush install across your organizations.</p>
+          <p className="text-sm text-zinc-500">
+            Every ThreatCrush install across your organizations
+            {summary && summary.inventories > 0 ? ", plus every machine in your OpenDevice inventory." : "."}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {orgs.length > 1 && (
@@ -95,7 +98,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
           <button
             type="button"
             onClick={restartAll}
-            disabled={restarting || servers.length === 0}
+            disabled={restarting || !servers.some((s) => s.agent)}
             title="Restart the daemon on every server you administer (in the current filter)"
             className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-300 bg-zinc-800 border border-zinc-700 hover:border-yellow-500/50 hover:bg-zinc-700 transition-colors disabled:opacity-50"
           >
@@ -123,8 +126,15 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
       )}
 
       {summary && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-4">
-          <Tile label="Installs" value={summary.total} hint={`${summary.organizations} org${summary.organizations === 1 ? "" : "s"}`} />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mb-4">
+          <Tile
+            label="Installs"
+            value={summary.installs}
+            hint={summary.no_agent > 0
+              ? `${summary.no_agent} more without a daemon`
+              : `${summary.organizations} org${summary.organizations === 1 ? "" : "s"}`}
+            tone={summary.no_agent > 0 ? "warn" : undefined}
+          />
           <Tile label="Online" value={summary.online} hint="seen in the last 3 min" tone={summary.online > 0 ? "good" : undefined} />
           <Tile label="Offline" value={summary.offline} hint="no recent heartbeat" tone={summary.offline > 0 ? "bad" : undefined} />
           <Tile
@@ -140,6 +150,13 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
               ? "no server has reported yet"
               : `${summary.patch_cves} CVE${summary.patch_cves === 1 ? "" : "s"} · ${summary.patch_critical_high} high/critical`}
             tone={summary.patch_critical_high > 0 ? "bad" : summary.patch_hosts_with_fixes > 0 ? "warn" : summary.patch_reported > 0 ? "good" : undefined}
+          />
+          <Tile
+            label="Monthly cost"
+            value={summary.inventories > 0 ? summary.monthly_total_label : "—"}
+            hint={summary.inventories === 0
+              ? "import an inventory: threatcrush fleet import"
+              : `${summary.cost_counted} counted${summary.cost_unstated > 0 ? ` · ${summary.cost_unstated} unstated` : ""}`}
           />
         </div>
       )}
@@ -159,7 +176,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
           <table className="min-w-full divide-y divide-zinc-800">
             <thead className="bg-zinc-900">
               <tr>
-                {["Server", "Organization", "Status", "Version", "Patches", "Bans", "Last seen"].map((h) => (
+                {["Server", "Organization", "Status", "$/mo", "Version", "Patches", "Bans", "Last seen"].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-zinc-400 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -168,30 +185,54 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
               {servers.map((s) => (
                 <tr key={s.id} className="hover:bg-zinc-900 transition-colors">
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <Link href={`/org/${s.org_slug}/servers/${s.id}`} className="text-sm font-medium text-white hover:text-green-400">
-                      {s.name}
-                    </Link>
-                    <div className="text-xs text-zinc-500">{s.hostname || s.ip_address || "—"}</div>
+                    {s.agent ? (
+                      <Link href={`/org/${s.org_slug}/servers/${s.id}`} className="text-sm font-medium text-white hover:text-green-400">
+                        {s.name}
+                      </Link>
+                    ) : (
+                      <span className="text-sm font-medium text-zinc-300">{s.name}</span>
+                    )}
+                    <div className="text-xs text-zinc-500">
+                      {s.hostname || s.ip_address || (s.device ? s.device.profile : "—")}
+                      {s.device?.provider && <span className="text-zinc-600"> · {s.device.provider}</span>}
+                      {s.device && s.device.status !== "active" && <span className="text-yellow-500/80"> · {s.device.status}</span>}
+                    </div>
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-zinc-300">
                     <Link href={`/org/${s.org_slug}`} className="hover:text-green-400">{s.org_name}</Link>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap"><ConnectionBadge state={s.connection} /></td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <ConnectionBadge state={s.connection} />
+                    {!s.agent && (
+                      <div className="mt-1 text-xs text-zinc-600" title="threatcrush login, then threatcrush servers link">
+                        Install daemon: <code className="text-zinc-500">threatcrush servers link</code>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">
+                    {!s.device
+                      ? <span className="text-xs text-zinc-600">—</span>
+                      : s.device.monthly.amount == null
+                        ? <span className="text-xs text-zinc-600" title="The inventory does not state what this costs">{s.device.monthly_label}</span>
+                        : <span className="text-zinc-300">{s.device.monthly_label}</span>}
+                  </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm">
                     <span className={s.outdated ? "text-yellow-400" : "text-zinc-300"}>
                       {s.threatcrushd_version ? `v${s.threatcrushd_version}` : "—"}
                     </span>
                     {s.outdated && <div className="text-xs text-yellow-500/80">behind</div>}
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm"><PatchCell patches={s.patches} /></td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{s.agent ? <PatchCell patches={s.patches} /> : <span className="text-xs text-zinc-600">—</span>}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-xs text-zinc-400">
-                    {s.remediation
+                    {!s.agent
+                      ? <span className="text-zinc-600">—</span>
+                      : s.remediation
                       ? <>max {String(s.remediation.max_ban ?? "default")} · memory {String(s.remediation.strike_memory ?? "default")}</>
                       : <span className="text-zinc-600">not saved</span>}
                     {s.config_saved_at && <div className="text-zinc-600">saved {timeAgo(s.config_saved_at)}</div>}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-zinc-400">
-                    {s.last_seen ? timeAgo(s.last_seen) : "Never"}
+                    {s.last_seen ? timeAgo(s.last_seen) : s.agent ? "Never" : "—"}
                   </td>
                 </tr>
               ))}
@@ -203,7 +244,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
   );
 }
 
-function Tile({ label, value, hint, tone }: { label: string; value: number; hint: string; tone?: "good" | "bad" | "warn" }) {
+function Tile({ label, value, hint, tone }: { label: string; value: number | string; hint: string; tone?: "good" | "bad" | "warn" }) {
   const color = tone === "good" ? "text-green-400" : tone === "bad" ? "text-red-400" : tone === "warn" ? "text-yellow-400" : "text-white";
   return (
     <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-4">
@@ -237,7 +278,14 @@ function PatchCell({ patches }: { patches: FleetPatches | null }) {
   );
 }
 
-function ConnectionBadge({ state }: { state: "online" | "offline" }) {
+function ConnectionBadge({ state }: { state: FleetServer["connection"] }) {
+  if (state === "no-agent") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium border border-dashed border-zinc-700 text-zinc-500">
+        no agent
+      </span>
+    );
+  }
   const online = state === "online";
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${online ? "bg-green-500/10 text-green-400" : "bg-zinc-700 text-zinc-400"}`}>

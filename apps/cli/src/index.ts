@@ -23,6 +23,7 @@ import { pentestCommand } from "./commands/pentest.js";
 import { aiScanCommand, aiScanMoshCommand } from "./commands/ai-scan.js";
 import { orgsCommand } from "./commands/orgs.js";
 import { invitesCommand, redeemCommand } from "./commands/credits.js";
+import { fleetCostCommand, fleetImportCommand } from "./commands/fleet.js";
 import { serversCommand } from "./commands/servers.js";
 import { connectCommand } from "./commands/connect.js";
 import { daemonForeground, daemonRestart, daemonStart, daemonStop } from "./commands/daemon.js";
@@ -1221,6 +1222,32 @@ orgsCmd
   .description("Switch to an organization")
   .action(async (slug: string) => {
     await orgsCommand({ action: "use", name: slug });
+  });
+
+// ─── Fleet inventory (OpenDevice) ───
+
+const fleetCmd = program
+  .command("fleet")
+  .description("Every machine you run (OpenDevice inventory) with monthly cost, daemon or not")
+  .action(async () => {
+    await fleetCostCommand({});
+  });
+
+fleetCmd
+  .command("import <source>")
+  .description("Upload an OpenDevice inventory (file or https URL) to your organization")
+  .option("--org <slug>", "Organization slug or id (default: the `orgs use` org, or the only one you administer)")
+  .action(async (source: string, opts: { org?: string }) => {
+    await fleetImportCommand(source, opts);
+  });
+
+fleetCmd
+  .command("cost")
+  .alias("costs")
+  .description("Per-box monthly cost and the fleet total")
+  .option("--json", "Print the raw /api/fleet response")
+  .action(async (opts: { json?: boolean }) => {
+    await fleetCostCommand(opts);
   });
 
 // ─── Server commands ───

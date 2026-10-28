@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { unauthorized } from "@/lib/api-auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getPrincipal, serverScopeIn, visibleIn } from "@/lib/access";
-import { buildFleet, type PatchFindingRow } from "@/lib/fleet";
+import { buildFleet, type InventoryRow, type PatchFindingRow } from "@/lib/fleet";
+import { inventoryOrgIds } from "@/lib/fleet-inventory";
 
 // GET /api/fleet — every ThreatCrush install the caller can see, across every
 // organization they belong to (an agent key: its team's fleets), with a
-// summary for the dashboard.
+// summary for the dashboard. Orgs with an OpenDevice inventory add every
+// machine in it: matched servers carry their device + monthly cost, devices
+// with no daemon come back as extra rows (connection "no-agent"), and the
+// summary gains the monthly total. Inventories are for owners, admins and
+// members (not guests or agent keys): costs are org-wide.
 export async function GET(req: NextRequest) {
   try {
     const admin = getSupabaseAdmin();
@@ -35,7 +40,7 @@ export async function GET(req: NextRequest) {
       admin.from("organizations").select("id, name, slug").in("id", orgIds),
       admin
         .from("servers")
-        .select("id, name, hostname, ip_address, org_id, fleet_id, last_seen, threatcrushd_version, config, config_saved_at, created_at")
+        .select("id, name, hostname, ip_address, public_ip, org_id, fleet_id, last_seen, threatcrushd_version, config, config_saved_at, created_at")
         .in("org_id", orgIds),
       admin.from("fleets").select("id, name").in("org_id", orgIds),
     ]);
@@ -65,8 +70,23 @@ export async function GET(req: NextRequest) {
       else patchRows = (data ?? []) as PatchFindingRow[];
     }
 
+    // The inventory half. A failure (table not migrated yet) costs the extra
+    // rows and the cost column, not the page.
+    let inventories: InventoryRow[] = [];
+    const invOrgs = await inventoryOrgIds(admin, p, orgIds);
+    if (invOrgs.length > 0) {
+      const { data, error: invError } = await admin
+        .from("fleet_inventories")
+        .select("org_id, document, updated_at")
+        .in("org_id", invOrgs);
+      if (invError) console.error("Fleet: failed to load inventories:", invError);
+      else inventories = (data ?? []) as InventoryRow[];
+    }
+    const visibleIds = new Set(visible.map((s) => s.id));
+    const hidden = (rows ?? []).filter((r) => !visibleIds.has(r.id) && invOrgs.includes(r.org_id));
+
     const fleetNames = new Map((fleets ?? []).map((f) => [f.id as string, f.name as string]));
-    return NextResponse.json(buildFleet(visible, orgs, Date.now(), fleetNames, patchRows));
+    return NextResponse.json(buildFleet(visible, orgs, Date.now(), fleetNames, patchRows, inventories, hidden));
   } catch (err) {
     console.error("Fleet error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

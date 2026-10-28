@@ -229,6 +229,17 @@ enabled = true            # false: the daemon neither reports to nor takes actio
 min_severity = "medium"   # info | low | medium | high | critical
 ```
 
+### Every machine, with what it costs
+
+The Fleet panel lists linked daemons. To also list the machines that do not run one, and what each box costs a month, upload an [OpenDevice](https://logicsrc.com/docs/opendevice) inventory (org owners and admins):
+
+```bash
+threatcrush fleet import opendevice.json         # or an https:// URL; --org <slug> to pick the org
+threatcrush fleet cost                           # per-box $/mo, provider, daemon status and the total
+```
+
+Devices are matched to linked servers by hostname, name or IP. A device with no daemon shows as "no agent"; a cost the inventory does not state shows as "unstated" and is never guessed. Totals are per currency, never converted. `GET /api/fleet/costs` returns the recurring costs in the shape CoinPay imports.
+
 ## Automatic updates
 
 The daemon keeps itself on the latest release. About every 6 hours (plus up to an hour of jitter, so a fleet does not restart in step) it asks the npm registry for `latest`. When a newer version has been published for at least 2 hours, and is on the same major version, it installs it and restarts onto it. The update shows in the live feed as an info event (`auto-update`).
