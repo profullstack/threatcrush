@@ -50,6 +50,8 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/api/credits/invites/accept", limit: 10, windowMs: 60_000 },
   { prefix: "/api/hooks/", limit: 60, windowMs: 60_000 },
   { prefix: "/api/scan", limit: 20, windowMs: 60_000 },
+  // Anonymous CLI usage pings: one per ai-scan run, so 30/min per IP is generous.
+  { prefix: "/api/telemetry", limit: 30, windowMs: 60_000 },
   { prefix: "/api/modules/fetch-meta", limit: 20, windowMs: 60_000 },
   { prefix: "/api/funding/", limit: 30, windowMs: 60_000 },
   // Public and unauthenticated: IP geolocation for the TUI and desktop maps,

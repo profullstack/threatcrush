@@ -165,6 +165,15 @@ threatcrush init --offline          # Same, without signing in (scripts, CI, con
 
 Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/etc/threatcrush/threatcrushd.conf.d/`.
 
+### Usage counts
+
+Each `threatcrush ai-scan` / `ai-scan-run` sends one anonymous count to the API
+(`THREATCRUSH_API_URL`, default threatcrush.com): command, CLI version, OS, Node
+version, CI or not, a random install ID (`~/.threatcrush/usage-ping.json`), and
+probe/finding counts and run time. Never the target, prompts, responses or
+finding text. Turn it off with `THREATCRUSH_TELEMETRY=0` or `DO_NOT_TRACK=1`.
+Requests to our API also carry the user agent `threatcrush/<version>`.
+
 ## Cloud dashboard
 
 The daemon reports to your ThreatCrush dashboard once the machine is logged in and linked to a server there:

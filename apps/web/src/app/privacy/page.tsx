@@ -17,7 +17,7 @@ export default function PrivacyPage() {
           <h1 className="mt-3 text-4xl font-bold text-tc-text">
             Privacy <span className="text-tc-green glow-green">Policy</span>
           </h1>
-          <p className="mt-2 text-sm text-tc-text-dim">Last updated: September 25, 2026</p>
+          <p className="mt-2 text-sm text-tc-text-dim">Last updated: October 28, 2026</p>
         </header>
 
         <div className="space-y-8 text-tc-text">
@@ -56,6 +56,16 @@ export default function PrivacyPage() {
                 detection); hardening check results; and the IP bans and unbans it carries out. An
                 unlinked daemon sends none of this. The CLI keeps your sign-in tokens on the machine
                 in <code className={code}>~/.threatcrush/config.json</code>.
+              </li>
+              <li>
+                <span className="text-tc-text">CLI usage counts.</span> Each{" "}
+                <code className={code}>threatcrush ai-scan</code>{" "}run sends one anonymous count: the
+                command, CLI version, operating system, Node version, whether it ran in CI, a random
+                install ID kept in <code className={code}>~/.threatcrush/usage-ping.json</code>, and the
+                number of probes, findings by severity and the run time. It never includes the target,
+                prompts, responses or finding text, and is not tied to your account. Turn it off with{" "}
+                <code className={code}>THREATCRUSH_TELEMETRY=0</code>{" "}or{" "}
+                <code className={code}>DO_NOT_TRACK=1</code>.
               </li>
               <li>
                 <span className="text-tc-text">GitHub App.</span> If you install the ThreatCrush

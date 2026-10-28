@@ -6,6 +6,7 @@ import type { RunResult } from '../core/run-result.js';
 import { runAiScan, httpSender } from '../aiscan/runner.js';
 import { selectProbes, type ProbeCategory } from '../aiscan/probes.js';
 import { runMosh } from '../aiscan/mosh.js';
+import { sendUsagePing } from '../core/usage-ping.js';
 
 export interface AiScanCliOptions {
   categories?: string;   // comma list
@@ -46,6 +47,7 @@ export async function aiScanCommand(url: string, opts: AiScanCliOptions): Promis
   const probes = selectProbes(categories);
   logger.info(`Probing ${chalk.white(url)} with ${probes.length} check(s)...\n`);
   const spinner = ora({ text: 'Running probes...', color: 'green' }).start();
+  const t0 = Date.now();
 
   const result = await runAiScan(url, send, {
     categories,
@@ -55,6 +57,10 @@ export async function aiScanCommand(url: string, opts: AiScanCliOptions): Promis
     },
   });
   spinner.stop();
+  await sendUsagePing({
+    event: 'ai-scan', probes: probes.length, findings: result.findings.length,
+    severity: result.severity_summary, duration_ms: Date.now() - t0, failed: Boolean(result.error),
+  });
 
   if (opts.json) {
     console.log(JSON.stringify(result, null, 2));
@@ -93,7 +99,12 @@ export async function aiScanMoshCommand(file: string, args: string[]): Promise<v
     return;
   }
 
+  const t0 = Date.now();
   const res = await runMosh(source, { argv: args, out: (s) => console.log('  ' + s) });
+  await sendUsagePing({
+    event: 'ai-scan-run', scans: res.scans.length, findings: res.scans.reduce((n, s) => n + s.findings.length, 0),
+    duration_ms: Date.now() - t0, failed: Boolean(res.failed),
+  });
   if (res.failed) {
     console.log();
     console.log(`  ${chalk.red('✗ script failed:')} ${res.failed}`);

@@ -104,7 +104,7 @@ sudo threatcrush install-service
 - **Normalized detections only** by default -- no raw logs are stored
 - All data stays in your Supabase/Postgres instance
 - The agent sends only structured detection events (severity, title, source IP)
-- No telemetry phones home unless you opt in
+- No telemetry phones home unless you opt in. The CLI's anonymous ai-scan usage count goes to `THREATCRUSH_API_URL`, so a self-hosted install sends it to your own server, never to threatcrush.com (off with `THREATCRUSH_TELEMETRY=0`)
 
 ## Updating
 
