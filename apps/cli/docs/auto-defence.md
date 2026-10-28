@@ -313,6 +313,12 @@ min_severity = "critical"
 fallback_only = true          # false: page from the box as well as from the dashboard
 ```
 
+If `threatcrushd.conf` stops parsing (a duplicated key, a section header with
+a key on the same line), the daemon does not fall back to the defaults, which
+have no `protected` list: it runs on the last copy that parsed
+(`/var/lib/threatcrush/threatcrushd.conf.last-good`), logs `CONFIG ERROR` with
+the TOML error, and raises a critical `daemon-config-invalid` alert.
+
 ## From the CLI
 
 ```sh
