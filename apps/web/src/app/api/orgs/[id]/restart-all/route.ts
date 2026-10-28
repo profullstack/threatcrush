@@ -20,8 +20,8 @@ export async function POST(
       return NextResponse.json({ error: "You are not an admin of any server in this organization" }, { status: 403 });
     }
 
-    const queued = await queueRestart(access.admin, orgId, ids);
-    return NextResponse.json({ queued });
+    const actions = await queueRestart(access.admin, orgId, ids);
+    return NextResponse.json({ queued: actions.length, actions });
   } catch (err) {
     console.error("Restart-all error:", err);
     return NextResponse.json({ error: (err as Error).message || "Internal server error" }, { status: 500 });
