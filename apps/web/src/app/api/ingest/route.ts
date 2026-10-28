@@ -1,5 +1,6 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { dispatchDetectionAlerts } from "@/lib/alerts/dispatch";
+import { pageCriticalDetections } from "@/lib/incidents/detections";
 import { unauthorized } from "@/lib/api-auth";
 import { atLeast, getPrincipal, roleInScope, serverScopeIn, type ServerScope } from "@/lib/access";
 import {
@@ -81,15 +82,17 @@ export async function POST(req: NextRequest) {
     // ids can't be probed.
     const serverIds = [...new Set(valid.map((v) => v.event.server_id))];
     const serverOrg = new Map<string, string>();
+    const serverInfo = new Map<string, { fleet_id: string | null; name: string | null }>();
     if (serverIds.length > 0) {
       const { data: servers, error: serversError } = await admin
         .from("servers")
-        .select("id, org_id, fleet_id")
+        .select("id, org_id, fleet_id, name, hostname")
         .in("id", serverIds);
       if (serversError) throw new Error(`servers lookup: ${serversError.message}`);
 
       const scopes = new Map<string, ServerScope | null>();
-      for (const s of (servers ?? []) as Array<{ id: string; org_id: string; fleet_id: string | null }>) {
+      for (const s of (servers ?? []) as Array<{ id: string; org_id: string; fleet_id: string | null; name?: string | null; hostname?: string | null }>) {
+        serverInfo.set(s.id, { fleet_id: s.fleet_id ?? null, name: s.name || s.hostname || null });
         if (!scopes.has(s.org_id)) scopes.set(s.org_id, await serverScopeIn(admin, auth, s.org_id));
         const scope = scopes.get(s.org_id);
         if (scope && atLeast(roleInScope(scope, s), "write")) serverOrg.set(s.id, s.org_id);
@@ -168,6 +171,10 @@ export async function POST(req: NextRequest) {
     if (newDetections.length > 0) {
       const alertable = newDetections;
       after(() => dispatchDetectionAlerts(alertable));
+      // Critical ones also become incidents that page the server's team (once
+      // per open incident, not per detection).
+      const critical = alertable.filter((d) => d.severity === "critical");
+      if (critical.length > 0) after(() => pageCriticalDetections(critical, serverInfo));
     }
 
     let findingCount = 0;

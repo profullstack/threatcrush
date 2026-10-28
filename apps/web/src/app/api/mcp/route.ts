@@ -6,6 +6,8 @@ import { feedPrincipal } from "@/lib/feed-auth";
 import { atLeast, findingsRoleOf, type Principal } from "@/lib/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getFinding, listFindings, triageFindings, TriageError } from "@/lib/scan-findings";
+import { getIncident, IncidentError, listIncidents, pageable, raiseIncident, updateIncident } from "@/lib/incidents/store";
+import { notifyIncident } from "@/lib/incidents/notify";
 import {
   createInvite,
   inviteOverview,
@@ -106,10 +108,81 @@ const TOOLS = [
       required: ["ids"],
     },
   },
+  {
+    name: "incidents_list",
+    description:
+      "Your org's incidents: what `threatcrush investigate --raise`, the daemon (critical detections) and people raised to humans. Only the teams you can see. Session token or tc_agent_ key.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        org_id: { type: "string", description: "Organization id (default: the key's org, or your first org)" },
+        status: { type: "string", description: "Comma list of open, acknowledged, resolved, or all (default all)" },
+        team_id: { type: "string" },
+        limit: { type: "number", description: "Max 500, default 100" },
+      },
+    },
+  },
+  {
+    name: "incidents_get",
+    description: "One incident: verdict, findings (evidence vs inference), timeline, recommended actions, notes and who was paged.",
+    inputSchema: { type: "object", properties: { org_id: { type: "string" }, id: { type: "string", description: "Incident id" } }, required: ["id"] },
+  },
+  {
+    name: "incidents_update",
+    description: "Acknowledge, resolve or reopen an incident, assign it (a team member, or null), and/or add a note. Needs write.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        org_id: { type: "string" },
+        id: { type: "string" },
+        status: { type: "string", enum: ["open", "acknowledged", "resolved"] },
+        assignee_id: { type: ["string", "null"] },
+        note: { type: "string" },
+      },
+      required: ["id"],
+    },
+  },
+  {
+    name: "incidents_raise",
+    description:
+      "Raise an incident report (report_version 1: title, severity, source, dedupe_key, summary, verdict, findings, timeline, recommendations, optional team_id/server_id). The same dedupe_key while open updates it; a new incident pages the team by SMS and email once. Reports that contain anything shaped like a private key or mnemonic are refused. Needs write.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        org_id: { type: "string" },
+        report: { type: "object", description: "The report body, as POST /api/orgs/{id}/incidents takes it" },
+      },
+      required: ["report"],
+    },
+  },
 ];
 
 const CREDIT_TOOLS = new Set(["redeem_credit_code", "list_invites", "create_invite"]);
 const FINDING_TOOLS = new Set(["findings_list", "findings_get", "findings_triage"]);
+const INCIDENT_TOOLS = new Set(["incidents_list", "incidents_get", "incidents_update", "incidents_raise"]);
+
+async function callIncidentTool(req: NextRequest, name: string, args: Record<string, unknown>) {
+  const p = await feedPrincipal(req);
+  if (!p) return text("Sign in first: pass your ThreatCrush session token (`threatcrush login`) or a tc_agent_ key as the Bearer token.", true);
+  const admin = getSupabaseAdmin();
+  const orgId = await findingsOrg(p, args.org_id);
+  if (!orgId) return text("No organization: pass org_id, or create one at threatcrush.com.", true);
+  try {
+    if (name === "incidents_list") return text(await listIncidents(admin, p, orgId, args));
+    if (name === "incidents_get") return text(await getIncident(admin, p, orgId, String(args.id ?? "")));
+    if (name === "incidents_update") {
+      const { org_id: _o, id, ...body } = args;
+      return text(await updateIncident(admin, p, orgId, String(id ?? ""), body));
+    }
+    const out = await raiseIncident(admin, p, orgId, args.report);
+    const notified = out.page ? await notifyIncident(pageable(out.incident), admin) : null;
+    return text({ incident: out.incident, created: out.created, paged: out.page, notified });
+  } catch (err) {
+    if (err instanceof IncidentError) return text(err.message, true);
+    console.error("[mcp] incident tool failed", (err as Error).message);
+    return text("That did not work. Try again.", true);
+  }
+}
 
 /** The org a findings tool acts on: the one asked for, else the agent key's, else the person's first. */
 async function findingsOrg(p: Principal, asked: unknown): Promise<string | null> {
@@ -206,7 +279,7 @@ async function handle(req: NextRequest, msg: Rpc) {
         capabilities: { tools: {} },
         serverInfo: { name: "ThreatCrush", version: "0.13" },
         instructions:
-          "IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), and your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
+          "IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), and incidents raised to your team (incidents_list, incidents_get, incidents_update, incidents_raise). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
       });
     case "notifications/initialized":
       return null;
@@ -218,6 +291,9 @@ async function handle(req: NextRequest, msg: Rpc) {
       const toolName = String(msg.params?.name ?? "");
       if (FINDING_TOOLS.has(toolName)) {
         return ok(id, await callFindingsTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
+      }
+      if (INCIDENT_TOOLS.has(toolName)) {
+        return ok(id, await callIncidentTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
       }
       if (CREDIT_TOOLS.has(toolName)) {
         return ok(id, await callCreditTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));

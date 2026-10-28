@@ -19,7 +19,7 @@ describe("/api/mcp", () => {
     const init = await (await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).json();
     expect(init.result.serverInfo.name).toBe("ThreatCrush");
     const list = await (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite", "findings_list", "findings_get", "findings_triage"]);
+    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite", "findings_list", "findings_get", "findings_triage", "incidents_list", "incidents_get", "incidents_update", "incidents_raise"]);
   });
 
   it("a tool call without a key is a tool error the model can read", async () => {
@@ -33,6 +33,14 @@ describe("/api/mcp", () => {
   it("a findings tool without a session or key says how to sign in", async () => {
     const res = await (
       await call({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "findings_list", arguments: {} } })
+    ).json();
+    expect(res.result.isError).toBe(true);
+    expect(res.result.content[0].text).toContain("threatcrush login");
+  });
+
+  it("an incident tool without a session or key says how to sign in", async () => {
+    const res = await (
+      await call({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "incidents_list", arguments: {} } })
     ).json();
     expect(res.result.isError).toBe(true);
     expect(res.result.content[0].text).toContain("threatcrush login");

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import IncidentAlertsCard from "./incident-alerts-card";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { authHeaders } from "@/lib/auth-client";
@@ -591,7 +592,7 @@ export default function AccountContent() {
                     onChange={(e) => setNotifEmail(e.target.checked)}
                     className="accent-tc-green w-4 h-4"
                   />
-                  <span className="text-white">Email notifications</span>
+                  <span className="text-white">Email notifications <span className="text-tc-text-dim text-sm">(incl. incident pages)</span></span>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
@@ -600,7 +601,7 @@ export default function AccountContent() {
                     onChange={(e) => setNotifSms(e.target.checked)}
                     className="accent-tc-green w-4 h-4"
                   />
-                  <span className="text-white">SMS notifications</span>
+                  <span className="text-white">SMS notifications <span className="text-tc-text-dim text-sm">(incident pages, needs a verified phone)</span></span>
                 </label>
                 <div>
                   <label className="block text-sm text-tc-text-dim mb-1">Webhook URL</label>
@@ -628,6 +629,8 @@ export default function AccountContent() {
               </div>
             )}
           </div>
+
+          <IncidentAlertsCard />
 
           <PlanCard />
 

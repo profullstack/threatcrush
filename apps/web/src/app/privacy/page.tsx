@@ -69,6 +69,16 @@ export default function PrivacyPage() {
                 <code className={code}>THREATCRUSH_UPLOAD=0</code>. Signed out, nothing is sent.
               </li>
               <li>
+                <span className="text-tc-text">Incidents and pages.</span>{" "}
+                <code className={code}>threatcrush investigate --raise</code>{" "}and critical daemon detections
+                create an incident in your organization: its title, host name, summary, findings, timeline
+                and recommended actions. Secret values (private keys, seed phrases) are never sent, and the
+                API refuses any report that looks like it contains one. A new incident pages the members of
+                its team by email and, if they verified a phone and kept SMS notifications on, by text
+                message (sent through smshub.dev or Telnyx). Each page is logged on the incident. Mute a
+                team or a channel on your account page.
+              </li>
+              <li>
                 <span className="text-tc-text">CLI usage counts.</span> Each{" "}
                 <code className={code}>threatcrush ai-scan</code>{" "}run sends one anonymous count: the
                 command, CLI version, operating system, Node version, whether it ran in CI, a random
