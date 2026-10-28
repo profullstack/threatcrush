@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildDetectionMessage } from "./message";
+import { knownName, loadKnownIps, matchKnown } from "@/lib/known-ips";
 import { ruleMatches } from "./rules";
 import { emitToOrg } from "@/lib/webhooks/hub";
 import { deliverAlert, webhookAlert } from "./senders";
@@ -82,8 +83,12 @@ async function detectionWebhookAlerts(admin: SupabaseClient, orgId: string, dete
       (server) => [server.id, server.name || server.hostname || null],
     ),
   );
+  const known = await loadKnownIps(admin, orgId);
   return detections
-    .map((detection) => webhookAlert(buildDetectionMessage(detection, { orgSlug, serverName: names.get(detection.server_id) ?? null })))
+    .map((detection) => {
+      const k = matchKnown(detection.source_ip, known);
+      return webhookAlert(buildDetectionMessage(detection, { orgSlug, serverName: names.get(detection.server_id) ?? null, knownSource: k ? knownName(k) : null }));
+    })
     .filter((alert): alert is NonNullable<typeof alert> => alert !== null);
 }
 
@@ -144,10 +149,13 @@ async function dispatchForOrg(admin: SupabaseClient, orgId: string, detections: 
   );
   const used = new Map(usageCounts);
 
+  const known = await loadKnownIps(admin, orgId);
   for (const detection of detections) {
+    const k = matchKnown(detection.source_ip, known);
     const message = buildDetectionMessage(detection, {
       orgSlug,
       serverName: serverNames.get(detection.server_id) ?? null,
+      knownSource: k ? knownName(k) : null,
     });
     const rows: DeliveryRow[] = [];
     // Two rules routing to the same destination send one alert, not two.
