@@ -127,6 +127,14 @@ export async function PATCH(
       updates.slug = slugify(body.name);
     }
 
+    // Auto-defence: ban SSH from Tor exits. Daemons pick it up within minutes.
+    if (body.block_tor_ssh !== undefined) {
+      if (typeof body.block_tor_ssh !== "boolean") {
+        return NextResponse.json({ error: "block_tor_ssh must be true or false" }, { status: 400 });
+      }
+      updates.block_tor_ssh = body.block_tor_ssh;
+    }
+
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }

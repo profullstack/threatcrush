@@ -43,6 +43,7 @@ import { rulesCommand } from "./commands/rules.js";
 import { hardenCommand } from "./commands/harden.js";
 import { patchesCommand } from "./commands/patches.js";
 import { feedsCommand } from "./commands/feeds.js";
+import { torCommand } from "./commands/tor.js";
 import { reputationLookupCommand, reputationSubscribeCommand, reputationWatchCommand } from "./commands/reputation.js";
 import { privilegedCommand } from "./commands/privileged.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
@@ -783,6 +784,15 @@ program
   .action(async (action: string | undefined, value: string | undefined, opts: { json?: boolean }) => {
     await feedsCommand(action, value, opts);
   });
+
+program
+  .command("tor [action] [value]")
+  .description("Show the Tor exit list the daemon bans SSH from (count, age, whether the ban is on); `tor check <ip>` looks one up (exit 1 when it is an exit)")
+  .option("--json", "JSON output")
+  .action(async (action: string | undefined, value: string | undefined, opts: { json?: boolean }) => {
+    await torCommand(action, value, opts);
+  });
+
 
 const reputationCmd = program
   .command("reputation")

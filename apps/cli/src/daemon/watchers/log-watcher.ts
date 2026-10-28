@@ -1,7 +1,7 @@
 import { existsSync, accessSync, constants } from 'node:fs';
 import { LogTail } from '../../core/log-tail.js';
 import type { EventBus } from '../event-bus.js';
-import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, parseAuthLog, parseNginxLog } from '../../core/log-parser.js';
+import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, isSshdProcess, parseAuthLog, parseNginxLog, sshdPeerIp } from '../../core/log-parser.js';
 import { insertEvent } from '../../core/state.js';
 import type { ThreatEvent, EventCategory, EventSeverity } from '../../types/events.js';
 
@@ -90,9 +90,14 @@ export class LogWatcher {
     if (parsed.source === 'auth') {
       const entry = parseAuthLog(line);
       if (!entry) return;
+      if (isSshdProcess(entry.fields.process)) {
+        const peer = sshdPeerIp(entry.fields.message);
+        if (peer) this.bus.sshdLine?.({ timestamp: entry.timestamp, message: entry.fields.message, ip: peer, raw: line });
+      }
       const verdict = classifySshAuth(entry);
       if (!verdict) return;
       ({ severity, message, source_ip: sourceIp } = verdict);
+      if (verdict.details) Object.assign(details, verdict.details);
     } else if (parsed.source === 'nginx') {
       const entry = parseNginxLog(line);
       if (!entry) return;

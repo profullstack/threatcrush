@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, watch, writeFileSync, type FSWatcher } from 'node:fs';
 import { dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import type { ThreatEvent } from '../../types/events.js';
@@ -28,10 +28,68 @@ import {
  * a geography hunch. A first run only records the baseline.
  */
 
-export interface PrivilegeWatchSettings { enabled: boolean; geo: boolean; pollMs: number }
+export interface PrivilegeWatchSettings {
+  enabled: boolean;
+  geo: boolean;
+  pollMs: number;
+  /** Fingerprints or comment globs of keys whose addition is expected (high, not critical). */
+  expectedKeys?: string[];
+  /** React to authorized_keys writes at once (inotify) instead of at the next poll. */
+  watchFiles?: boolean;
+}
 
 export function privilegeSettings(section: PrivilegedSection | undefined): PrivilegeWatchSettings {
-  return { enabled: section?.enabled !== false, geo: section?.geo !== false, pollMs: 60_000 };
+  return {
+    enabled: section?.enabled !== false,
+    geo: section?.geo !== false,
+    pollMs: 60_000,
+    expectedKeys: Array.isArray(section?.expected_keys) ? section.expected_keys.map(String).filter(Boolean) : [],
+    watchFiles: true,
+  };
+}
+
+/** A comment glob (`*` wildcard) or an exact SHA256 fingerprint. */
+export function keyIsExpected(fingerprint: string, comment: string, expected: string[]): boolean {
+  return expected.some((pattern) => {
+    if (pattern.startsWith('SHA256:')) return pattern === fingerprint;
+    const re = new RegExp(`^${pattern.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`, 'i');
+    return re.test(comment);
+  });
+}
+
+/** The comment our own self-test key carries; its alert says TEST. */
+export const SELFTEST_KEY_COMMENT = 'threatcrush-selftest';
+
+/**
+ * A new authorized key is the step that turns one stolen login into
+ * persistence (2026-10-27: `ops-recovery-20261027` appended to root's and
+ * anthony's authorized_keys and authorized_keys2, then used 852 times). So any
+ * addition is critical, which pages on-call, unless `[privileged]
+ * expected_keys` names it (then high). The self-test key is labelled TEST.
+ */
+export function classifyKeyAddition(
+  change: { severity: ThreatEvent['severity']; message: string; details: Record<string, unknown> },
+  expected: string[],
+): { severity: ThreatEvent['severity']; message: string; details: Record<string, unknown> } {
+  if (change.details.rule_id !== 'priv-authorized-key-added') return change;
+  const fp = String(change.details.fingerprint ?? '');
+  const comment = String(change.details.comment ?? '');
+  const account = String(change.details.account ?? '?');
+  if (comment.includes(SELFTEST_KEY_COMMENT)) {
+    return {
+      severity: 'critical',
+      message: `[TEST] ThreatCrush self-test: new SSH key for ${account} detected (${fp}, ${comment}). This is a test, nothing is wrong.`,
+      details: { ...change.details, rule_id: 'priv-authorized-key-selftest', selftest: true },
+    };
+  }
+  if (keyIsExpected(fp, comment, expected)) {
+    return { ...change, severity: 'high', details: { ...change.details, expected: true } };
+  }
+  return {
+    severity: 'critical',
+    message: `New SSH key added for ${account}: ${change.details.key_type ?? ''} ${fp}${comment ? ` "${comment}"` : ' (no comment)'}, not an expected key; whoever holds it can log in`,
+    details: { ...change.details, expected: false },
+  };
 }
 
 interface LoginHistory { [user: string]: { [country: string]: { first: string; last: string } } }
@@ -141,6 +199,8 @@ export class PrivilegeWatch {
   private readonly run: NonNullable<PrivilegeWatchOptions['run']>;
   private readonly now: () => Date;
   private warnedUnreadable = false;
+  private watchers = new Map<string, FSWatcher>();
+  private debounce: NodeJS.Timeout | null = null;
   private readonly onEvent = (event: ThreatEvent) => { void this.checkLogin(event); };
 
   constructor(private opts: PrivilegeWatchOptions) {
@@ -160,7 +220,12 @@ export class PrivilegeWatch {
       this.opts.bus.on('event', this.onEvent);
       void this.backfillLogins();
     }
-    const timer = setInterval(() => { this.checkSnapshot(); this.readSudoLedger(); }, this.opts.settings.pollMs);
+    if (this.opts.settings.watchFiles) this.watchKeyDirs();
+    const timer = setInterval(() => {
+      this.checkSnapshot();
+      this.readSudoLedger();
+      if (this.opts.settings.watchFiles) this.watchKeyDirs();
+    }, this.opts.settings.pollMs);
     timer.unref?.();
     this.timers.push(timer);
   }
@@ -168,7 +233,40 @@ export class PrivilegeWatch {
   stop(): void {
     for (const t of this.timers) clearInterval(t);
     this.timers = [];
+    for (const w of this.watchers.values()) { try { w.close(); } catch { /* gone */ } }
+    this.watchers.clear();
+    if (this.debounce) clearTimeout(this.debounce);
     this.opts.bus.off('event', this.onEvent);
+  }
+
+  /**
+   * inotify on every login account's ~/.ssh (and /root/.ssh): a write there
+   * re-checks the snapshot within a second, not at the next minute's poll.
+   * Re-run each poll so a directory created later is picked up.
+   */
+  private watchKeyDirs(): void {
+    const dirs = new Set<string>();
+    for (const line of (this.io.readFile('/etc/passwd') ?? '').split('\n')) {
+      const f = line.split(':');
+      if (f.length < 7) continue;
+      const uid = Number(f[2]);
+      const home = f[5];
+      if (!home || home === '/' || (uid !== 0 && /(nologin|\/false)$/.test(f[6].trim()))) continue;
+      dirs.add(`${home.replace(/\/$/, '')}/.ssh`);
+    }
+    for (const dir of dirs) {
+      if (this.watchers.has(dir) || !this.io.exists(dir)) continue;
+      try {
+        const w = watch(dir, { persistent: false }, (_type, name) => {
+          if (name && !String(name).startsWith('authorized_keys')) return;
+          if (this.debounce) clearTimeout(this.debounce);
+          this.debounce = setTimeout(() => { this.debounce = null; this.checkSnapshot(); }, 750);
+          this.debounce.unref?.();
+        });
+        w.on('error', () => { try { w.close(); } catch { /* */ } this.watchers.delete(dir); });
+        this.watchers.set(dir, w);
+      } catch { /* unreadable or gone: the poll still covers it */ }
+    }
   }
 
   private emit(severity: ThreatEvent['severity'], message: string, details: Record<string, unknown>): void {
@@ -188,7 +286,16 @@ export class PrivilegeWatch {
       const keys = Object.values(next.keys).reduce((n, k) => n + Object.keys(k).length, 0);
       this.opts.log(`[privileged] baseline recorded: uid0 [${next.uid0.join(', ')}], ${Object.values(next.admin_groups).flat().length} admin-group member(s), ${Object.keys(next.sudoers).length} sudoers file(s), ${keys} authorized key(s)`);
     } else {
-      for (const change of diffSnapshots(prev, next)) this.emit(change.severity, change.message, change.details);
+      for (const raw of diffSnapshots(prev, next)) {
+        const change = classifyKeyAddition(raw, this.opts.settings.expectedKeys ?? []);
+        if (change.details.rule_id === 'priv-authorized-key-added' || change.details.rule_id === 'priv-authorized-key-selftest') {
+          this.opts.log(`[privileged] ${change.severity.toUpperCase()} ${change.message}`);
+        }
+        this.emit(change.severity, change.message, {
+          ...change.details,
+          evidence: { at: this.now().toISOString(), module: 'privileged-access', message: change.message.slice(0, 500) },
+        });
+      }
     }
     try { writeJson(this.opts.snapshotPath, next); } catch (err) {
       this.opts.log(`[privileged] could not save snapshot: ${(err as Error).message}`);

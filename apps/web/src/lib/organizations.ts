@@ -52,7 +52,7 @@ export async function getOrganization(id: string) {
   return res.json() as Promise<{ organization: Record<string, unknown> }>;
 }
 
-export async function updateOrganization(id: string, updates: { name?: string; slug?: string }) {
+export async function updateOrganization(id: string, updates: { name?: string; slug?: string; block_tor_ssh?: boolean }) {
   const res = await fetch(`${API_BASE}/api/orgs/${id}`, {
     method: "PATCH",
     headers: { ...authHeaders(), "Content-Type": "application/json" },

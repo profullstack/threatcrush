@@ -65,6 +65,7 @@ export class CloudSync {
   private retryAt = 0;
   private link: CloudLink | null = null;
   private lastProblem = '';
+  private lastOkAt = 0;
   private readonly onEvent = (event: ThreatEvent) => this.capture(event);
 
   constructor(private opts: CloudSyncOptions) {
@@ -109,6 +110,11 @@ export class CloudSync {
   }
 
   get queued(): number { return this.spool.size; }
+
+  /** Linked, and the dashboard accepted an upload or heartbeat in the last 3 minutes. */
+  get healthy(): boolean {
+    return !!this.link && !this.lastProblem && Date.now() - this.lastOkAt < 180_000;
+  }
 
   /** Queue hardening results for upload (the CLI posts its own directly). */
   enqueueFindings(results: HardeningResult[]): number {
@@ -192,6 +198,7 @@ export class CloudSync {
       this.backoffMs = 0;
       this.retryAt = 0;
       this.lastProblem = '';
+      this.lastOkAt = Date.now();
       return 'sent';
     }
 
@@ -244,6 +251,7 @@ export class CloudSync {
     };
     try {
       const res = await cloudFetch('/api/ingest', { method: 'POST', body: JSON.stringify({ events: [event] }) });
+      if (res.ok) this.lastOkAt = Date.now();
       if (res.ok && this.retryAt > 0) {
         this.retryAt = 0;
         void this.flush();

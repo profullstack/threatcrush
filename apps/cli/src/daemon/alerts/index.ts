@@ -4,6 +4,7 @@ import type { EventBus } from '../event-bus.js';
 import { smtpChannel, type SmtpConfig } from './smtp.js';
 import { discordChannel, type DiscordConfig } from './discord.js';
 import { pagerdutyChannel, type PagerDutyConfig } from './pagerduty.js';
+import { smshubChannel, type SmshubConfig } from './smshub.js';
 
 type Channel = (event: ThreatEvent) => Promise<void>;
 
@@ -11,7 +12,11 @@ export class AlertDispatcher {
   private channels: Channel[] = [];
   private rateLimits = new Map<string, number[]>();
 
-  constructor(private bus: EventBus, private config: ThreatCrushConfig) {
+  constructor(
+    private bus: EventBus,
+    private config: ThreatCrushConfig,
+    private hooks: { cloudHealthy?: () => boolean; log?: (line: string) => void } = {},
+  ) {
     this.bindChannels();
     bus.on('alert', (event) => { void this.dispatch(event); });
   }
@@ -32,6 +37,9 @@ export class AlertDispatcher {
       }
       if (name === 'discord' && typeof cfg.webhook_url === 'string') {
         this.channels.push(discordChannel(cfg as unknown as DiscordConfig));
+      }
+      if (name === 'smshub') {
+        this.channels.push(smshubChannel(cfg as unknown as SmshubConfig, this.hooks));
       }
       if (name === 'pagerduty' && typeof cfg.routing_key === 'string') {
         this.channels.push(pagerdutyChannel(cfg as unknown as PagerDutyConfig));

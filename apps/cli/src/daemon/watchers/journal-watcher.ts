@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess, spawnSync } from 'node:child_process';
 import type { EventBus } from '../event-bus.js';
-import { classifySshAuth, parseAuthMessage } from '../../core/log-parser.js';
+import { classifySshAuth, parseAuthMessage, sshdPeerIp } from '../../core/log-parser.js';
 import { insertEvent } from '../../core/state.js';
 import type { ThreatEvent, EventSeverity } from '../../types/events.js';
 
@@ -37,7 +37,17 @@ export function sshEventFromJournal(entry: Record<string, unknown>): ThreatEvent
     severity: verdict.severity,
     message: verdict.message,
     source_ip: verdict.source_ip,
+    ...(verdict.details ? { details: verdict.details } : {}),
   };
+}
+
+/** The peer address of any sshd journal record (Tor exit checks), or null. */
+export function sshdLineFromJournal(entry: Record<string, unknown>): { timestamp: Date; message: string; ip: string; raw: string } | null {
+  if (!isSshdRecord(entry) || typeof entry.MESSAGE !== 'string') return null;
+  const ip = sshdPeerIp(entry.MESSAGE);
+  if (!ip) return null;
+  const timestamp = realtimeToDate(entry.__REALTIME_TIMESTAMP as string | undefined) || new Date();
+  return { timestamp, message: entry.MESSAGE, ip, raw: entry.MESSAGE };
 }
 
 /** `running`, or why sshd's journal records cannot be followed. */
@@ -125,6 +135,8 @@ export class JournalWatcher {
     child.stdout.setEncoding('utf-8');
     child.stdout.on('data', (chunk: string) => {
       this.sshdBuffer = this.drain(this.sshdBuffer + chunk, (entry) => {
+        const line = sshdLineFromJournal(entry);
+        if (line) this.bus.sshdLine?.(line);
         const event = sshEventFromJournal(entry);
         if (event) this.emit(event);
       });

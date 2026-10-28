@@ -32,6 +32,30 @@ export interface BlockEntry {
   strikes: number;
   /** How the ban came about, so the dashboard can tell them apart. */
   source: 'auto' | 'manual';
+  /**
+   * Only the pinned and configured allowlist (our own boxes) can lift this
+   * ban: remembered operator addresses and live sessions do not protect it.
+   * Set for rules with `override_operator_protection` (SSH from a Tor exit).
+   */
+  strict?: boolean;
+}
+
+/**
+ * Per-rule remediation flags, on a detection's `details.remediation` (rule
+ * engine rules carry them from their YAML/TS definition; built-in workers set
+ * them directly). Documented in docs/auto-defence.md.
+ */
+export interface RuleRemediation {
+  action?: string;
+  description?: string;
+  /** Ban for real even when `[remediation] mode = "dry_run"`. */
+  enforce_in_dry_run?: boolean;
+  /** Ban even though the line is a successful login (normally never grounds for a ban). */
+  ban_on_login?: boolean;
+  /** Remembered operator addresses and live SSH sessions do not protect the source; the pinned/configured allowlist still does. */
+  override_operator_protection?: boolean;
+  /** Ban for `max_ban` straight away instead of starting at the bottom of the ladder. */
+  max_ban?: boolean;
 }
 
 export interface RemediationConfig {
@@ -68,6 +92,13 @@ export interface RemediationConfig {
    * A manual `threatcrush block` still works.
    */
   spare_verified_crawlers: boolean;
+  /**
+   * Ban any SSH connection from a Tor exit relay at once, for `max_ban`, even
+   * in dry_run, and even when it logged in. Default true. Profullstack's own
+   * fleet always runs with it on; customers may switch it off here or in the
+   * dashboard (org settings).
+   */
+  block_tor_ssh: boolean;
 }
 
 const DEFAULT_CONFIG: RemediationConfig = {
@@ -84,6 +115,7 @@ const DEFAULT_CONFIG: RemediationConfig = {
   protect_recent_operators: true,
   operator_memory_seconds: 30 * 86400,
   spare_verified_crawlers: true,
+  block_tor_ssh: true,
 };
 
 /** Where operator addresses are discovered; replaced in tests. */
@@ -189,6 +221,8 @@ export class RemediationManager {
   private operators: Record<string, number> = {};
   private expiryTimer: NodeJS.Timeout | null = null;
   private operatorTimer: NodeJS.Timeout | null = null;
+  /** True for a Tor exit address; such an address is never an operator. */
+  private isTorExit: (ip: string) => boolean = () => false;
 
   constructor(
     private adapter: FirewallAdapter,
@@ -223,12 +257,53 @@ export class RemediationManager {
   getOperators(): Record<string, number> { return { ...this.operators }; }
 
   /**
+   * Teach the manager which addresses are Tor exits. They are never
+   * remembered as operators and never protected as a live session: on dev2
+   * the 2026-10-27 intruder logged in with a stolen key from Tor, which made
+   * the exit an "operator" that nothing could ban for 30 days.
+   */
+  setTorExitCheck(check: (ip: string) => boolean): void {
+    this.isTorExit = check;
+    let dropped = 0;
+    // A live session from an exit was protected before the list was known.
+    this.protectedList = this.protectedList.filter((a) => !isIP(a) || !check(a) || this.pinned.has(a) || this.config.allowlist.includes(a));
+    for (const ip of Object.keys(this.operators)) {
+      if (!check(ip)) continue;
+      delete this.operators[ip];
+      this.protectedList = this.protectedList.filter((a) => a !== ip || this.pinned.has(a) || this.config.allowlist.includes(a));
+      dropped++;
+    }
+    if (dropped) {
+      this.logLine(`[firewall] forgot ${dropped} remembered operator address(es) that are Tor exits`);
+      this.saveState();
+    }
+  }
+
+  /** Tor SSH bans on (setting) — the cloud may change it unless config pinned it. */
+  get blockTorSsh(): boolean { return this.config.enabled && this.config.block_tor_ssh; }
+
+  setBlockTorSsh(on: boolean): void { this.config.block_tor_ssh = on; }
+
+  /**
+   * Our own addresses: built-ins, shared infrastructure, gateways, the
+   * operator's `[remediation] protected` and the dashboard's org allowlist
+   * (Known IPs). Not remembered operators or live sessions.
+   */
+  isFleetAddress(ip: string): boolean {
+    return isProtected(ip, [...this.pinned, ...this.config.allowlist]);
+  }
+
+  /**
    * An address an operator really came from: never ban it, remember it, and
    * lift a ban that is already on it — the operator is the one who needs in.
    */
   private noteOperator(ip: string, at: number, remember = true): void {
     // A login older than the memory is history, not an operator address.
     if (Date.now() - at > this.config.operator_memory_seconds * 1000) return;
+    // Nobody we work for logs in through Tor; and an address under a strict
+    // ban (SSH from Tor) is not an operator however it logged in.
+    if (this.isTorExit(ip) && !this.isFleetAddress(ip)) return;
+    if (this.blocklist.some((b) => b.ip === ip && b.strict)) return;
     if (!this.protectedList.includes(ip)) this.protectedList.push(ip);
     if (!remember || !this.config.protect_recent_operators || isProtected(ip, DEFAULT_PROTECTED)) return;
     const known = this.operators[ip] ?? 0;
@@ -295,20 +370,26 @@ export class RemediationManager {
     // logged in** — seconds after they did. It never fired before the RFC3339
     // parser fix taught ssh-guard to read auth.log at all, and enforcing by
     // default turned it into a lockout.
-    if (isSuccessfulAuth(event.message)) return;
+    // A rule may say otherwise (`ban_on_login`): SSH from a Tor exit is banned
+    // whether or not it got in, because getting in is the worse case.
+    const remediation = event.details?.remediation as RuleRemediation | undefined;
+    if (isSuccessfulAuth(event.message) && remediation?.ban_on_login !== true) return;
 
     // A rule-engine detection bans only when the rule asked for it. Banning on
     // severity alone means any rule author who writes `critical` writes a
     // firewall rule by accident — three of the twelve shipped rules declare no
     // remediation at all and were banning anyway.
     if (event.details?.rule_id) {
-      const remediation = event.details?.remediation as { action?: string } | undefined;
       if (remediation?.action !== 'block') return;
     }
 
     const ip = event.source_ip;
     if (!ip || isIP(ip) === 0) return;
-    if (this.isAllowlisted(ip)) return;
+    const strict = remediation?.override_operator_protection === true;
+    if (strict ? this.isFleetAddress(ip) : this.isAllowlisted(ip)) {
+      if (strict) this.logLine(`[remediation] not banning ${ip}: it is one of our own addresses (${event.message})`);
+      return;
+    }
     // Already contained. The ladder climbs on the *next* offence after this
     // ban expires, not on every packet that arrives while it is in force.
     if (this.blocklist.some((b) => b.ip === ip)) return;
@@ -322,7 +403,13 @@ export class RemediationManager {
     }
 
     const ruleId = event.details?.rule_id as string | undefined;
-    await this.ban(ip, event.message, { ruleId, source: 'auto' });
+    await this.ban(ip, event.message, {
+      ruleId,
+      source: 'auto',
+      enforceInDryRun: remediation?.enforce_in_dry_run === true,
+      strict,
+      ...(remediation?.max_ban ? { ttlSeconds: this.config.max_ban_seconds } : {}),
+    });
   }
 
   /**
@@ -339,10 +426,14 @@ export class RemediationManager {
       source?: 'auto' | 'manual';
       /** `cloud` when the dashboard asked for it; the cloud already has that row. */
       origin?: 'cloud';
+      /** Write the firewall rule even in dry_run (a rule's `enforce_in_dry_run`). */
+      enforceInDryRun?: boolean;
+      /** Only our own addresses protect the source (a rule's `override_operator_protection`). */
+      strict?: boolean;
     } = {},
   ): Promise<{ ok: boolean; entry?: BlockEntry; error?: string }> {
     if (isIP(ip) === 0) return { ok: false, error: `not an IP address: ${ip}` };
-    if (this.isAllowlisted(ip)) {
+    if (opts.strict ? this.isFleetAddress(ip) : this.isAllowlisted(ip)) {
       return { ok: false, error: `${ip} is protected and can never be blocked` };
     }
 
@@ -358,7 +449,9 @@ export class RemediationManager {
     // error — inflate the ladder while dropping no packets, so the counter
     // claimed a protection that did not exist. If the block fails we change
     // nothing: no strike, no ledger entry, no kernel rule.
-    if (!this.config.dry_run) {
+    // A dry-run *adapter* (no firewall at all) still cannot enforce.
+    const dryRun = this.config.dry_run && !(opts.enforceInDryRun && this.adapter.enforces !== false);
+    if (!dryRun) {
       try {
         await this.adapter.block(ip);
       } catch (err) {
@@ -393,17 +486,23 @@ export class RemediationManager {
       rule_id: opts.ruleId,
       blocked_at: now,
       expires_at: now + ttl * 1000,
-      dry_run: this.config.dry_run,
+      dry_run: dryRun,
       strikes: strike,
       source: opts.source ?? 'manual',
+      ...(opts.strict ? { strict: true } : {}),
     };
+    if (opts.strict) {
+      // Not an operator any more, whatever the journal said.
+      delete this.operators[ip];
+      this.protectedList = this.protectedList.filter((a) => a !== ip || this.pinned.has(a) || this.config.allowlist.includes(a));
+    }
 
     // Re-banning with an explicit TTL replaces the entry rather than stacking.
     this.blocklist = this.blocklist.filter((b) => b.ip !== ip);
     this.blocklist.push(entry);
     this.saveState();
 
-    const mode = this.config.dry_run ? '[DRY-RUN] ' : '';
+    const mode = dryRun ? '[DRY-RUN] ' : (this.config.dry_run ? '[ENFORCED IN DRY-RUN] ' : '');
     const label = `${mode}Banned ${ip} for ${formatDuration(ttl)} (offence #${strike}): ${reason}`;
     this.logLine(`[firewall] ${label}`);
     this.bus.publish({
@@ -418,7 +517,7 @@ export class RemediationManager {
         rule_id: opts.ruleId,
         reason,
         origin: opts.origin,
-        dry_run: this.config.dry_run,
+        dry_run: dryRun,
         ttl_seconds: ttl,
         strikes: strike,
         source: entry.source,
@@ -521,10 +620,15 @@ export class RemediationManager {
    * Saying so up front beats a dashboard that looks armed and is not.
    */
   private privilegeWarning(): string | undefined {
-    if (!this.config.enabled || this.config.dry_run) return undefined;
+    if (!this.config.enabled) return undefined;
     if (this.adapter.enforces === false) return undefined;
     const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
     if (uid === 0) return undefined;
+    if (this.config.dry_run) {
+      return this.config.block_tor_ssh
+        ? `daemon runs as uid ${uid}: the Tor SSH ban (enforced even in dry_run) cannot write ${this.adapter.name} rules`
+        : undefined;
+    }
     return `daemon runs as uid ${uid} and cannot write ${this.adapter.name} rules — bans will fail`;
   }
 
@@ -563,10 +667,11 @@ export class RemediationManager {
     // banned by an older release, an operator added to the allowlist later) is
     // lifted at start rather than left to its backstop: seed1 still held 9
     // Cloudflare edges in its fail2ban jail after the upgrade that protects them.
-    const lifted = this.blocklist.filter((b) => this.isAllowlisted(b.ip));
+    const guarded = (b: BlockEntry) => (b.strict ? this.isFleetAddress(b.ip) : this.isAllowlisted(b.ip));
+    const lifted = this.blocklist.filter(guarded);
     for (const entry of lifted) this.logLine(`[firewall] reconcile: lifting ban on protected ${entry.ip}`);
-    const live = this.blocklist.filter((b) => b.expires_at > now && !this.isAllowlisted(b.ip));
-    const stale = this.blocklist.filter((b) => b.expires_at <= now || this.isAllowlisted(b.ip));
+    const live = this.blocklist.filter((b) => b.expires_at > now && !guarded(b));
+    const stale = this.blocklist.filter((b) => b.expires_at <= now || guarded(b));
 
     for (const entry of stale) {
       if (!entry.dry_run) {
@@ -601,8 +706,10 @@ export class RemediationManager {
       }
     }
 
-    if (this.config.dry_run) return;
+    // In dry_run only the bans a rule enforced anyway (`enforce_in_dry_run`)
+    // were written, and only those are put back.
     for (const entry of live) {
+      if (entry.dry_run) continue;
       if (applied?.includes(entry.ip)) continue;
       try { await this.adapter.block(entry.ip); } catch { /* reported on next ban */ }
     }
@@ -666,6 +773,7 @@ export class RemediationManager {
         const cutoff = Date.now() - this.config.operator_memory_seconds * 1000;
         for (const [ip, at] of Object.entries(saved)) {
           if (typeof at !== 'number' || at < cutoff || !isIP(ip)) continue;
+          if (this.blocklist.some((b) => b.ip === ip && b.strict)) continue;
           this.operators[ip] = at;
           if (!this.protectedList.includes(ip)) this.protectedList.push(ip);
         }

@@ -48,6 +48,7 @@ export function loadConfig(configPath?: string): ThreatCrushConfig {
       update: parsed.update,
       threat_feeds: parsed.threat_feeds,
       privileged: parsed.privileged,
+      lightning: parsed.lightning,
       storage: parsed.storage,
       // TOML's `[abuse-reporter]` parses to a hyphenated key; expose it under
       // the JS-friendly name the rest of the daemon reads.
