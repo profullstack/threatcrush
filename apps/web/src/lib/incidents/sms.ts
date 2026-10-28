@@ -1,30 +1,52 @@
 import "server-only";
 import { isTelnyxConfigured, sendTelnyxSms } from "@/lib/telnyx";
 
-export type SmsOutcome = { ok: true; provider: "smshub" | "telnyx" } | { ok: false; error: string };
+export type SmsOutcome = { ok: true; provider: "smshub" | "telnyx"; detail?: string } | { ok: false; error: string };
 
-const TIMEOUT_MS = 10_000;
+const TIMEOUT_MS = 15_000;
+
+/** smshub alert severity for an incident severity: critical/high always ring the phone. */
+export function smshubSeverity(severity: string | undefined): "info" | "warning" | "critical" {
+  const s = (severity ?? "").toLowerCase();
+  if (s === "critical" || s === "high") return "critical";
+  if (s === "info" || s === "low") return "info";
+  return "warning";
+}
 
 /**
- * One incident text. smshub first (SMSHUB_API_KEY: POST /api/v1/messages/send
- * from the account's own number), then Telnyx directly (TELNYX_API_KEY +
- * TELNYX_PHONE_NUMBER, the verification-code sender) when smshub is not set up
- * or fails. Never throws.
+ * One incident page to a phone. smshub's alert API first (SMSHUB_API_KEY:
+ * POST /api/v1/alerts), which texts when the account has a number that can
+ * deliver SMS and otherwise, and always for critical, calls and reads the
+ * message. Then Telnyx SMS directly (TELNYX_API_KEY + TELNYX_PHONE_NUMBER)
+ * when smshub is not set up or fails. Never throws.
  */
-export async function sendIncidentSms(to: string, message: string, env: NodeJS.ProcessEnv = process.env): Promise<SmsOutcome> {
+export async function sendIncidentSms(
+  to: string,
+  message: string,
+  env: NodeJS.ProcessEnv = process.env,
+  severity?: string,
+): Promise<SmsOutcome> {
   const errors: string[] = [];
   const key = env.SMSHUB_API_KEY?.trim();
   if (key) {
     const base = (env.SMSHUB_URL?.trim() || "https://smshub.dev").replace(/\/$/, "");
     try {
-      const res = await fetch(`${base}/api/v1/messages/send`, {
+      const res = await fetch(`${base}/api/v1/alerts`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "User-Agent": "ThreatCrush-Incidents/1" },
-        body: JSON.stringify({ to, message }),
+        headers: { "X-API-Key": key, "Content-Type": "application/json", "User-Agent": "ThreatCrush-Incidents/1" },
+        body: JSON.stringify({ to, message, severity: smshubSeverity(severity) }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
-      if (res.ok) return { ok: true, provider: "smshub" };
       const text = await res.text().catch(() => "");
+      if (res.ok) {
+        let channels: string[] = [];
+        try {
+          channels = (JSON.parse(text) as { alert?: { channels?: string[] } }).alert?.channels ?? [];
+        } catch {
+          // a 2xx without a JSON body still went out
+        }
+        return { ok: true, provider: "smshub", detail: channels.length ? `smshub ${channels.join("+")}` : "smshub" };
+      }
       errors.push(`smshub HTTP ${res.status}${text ? `: ${text.slice(0, 160)}` : ""}`);
     } catch (err) {
       errors.push(`smshub: ${(err as Error).message}`);

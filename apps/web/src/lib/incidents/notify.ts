@@ -45,7 +45,7 @@ interface Profile {
   notification_sms: boolean | null;
 }
 
-export interface PageMessage { subject: string; text: string; sms: string; url: string }
+export interface PageMessage { subject: string; text: string; sms: string; url: string; severity: string }
 
 const emptyTally = (): ChannelTally => ({ sent: 0, failed: 0, skipped: 0, rate_limited: 0 });
 
@@ -70,6 +70,7 @@ export function buildPage(incident: PageableIncident, orgSlug: string | null, te
     text: `${incident.title}${on}\nSeverity: ${sev}\n\n${incident.summary}\n\n${tail}`,
     sms,
     url,
+    severity: incident.severity,
   };
 }
 
@@ -130,8 +131,8 @@ async function pagePerson(
   else if (profile.notification_sms === false) record("sms", "skipped", "SMS alerts are off");
   else if ((await sentLastHour(admin, profile.id, "sms")) >= PAGES_PER_HOUR) record("sms", "rate_limited", `${PAGES_PER_HOUR} pages an hour reached`);
   else {
-    const out = await sendIncidentSms(profile.phone, msg.sms);
-    record("sms", out.ok ? "sent" : "failed", out.ok ? out.provider : out.error.slice(0, 500));
+    const out = await sendIncidentSms(profile.phone, msg.sms, process.env, msg.severity);
+    record("sms", out.ok ? "sent" : "failed", out.ok ? (out.detail ?? out.provider) : out.error.slice(0, 500));
   }
 
   const { error } = await admin.from("incident_notifications").insert(rows);

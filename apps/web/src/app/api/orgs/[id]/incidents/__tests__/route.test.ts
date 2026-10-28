@@ -21,7 +21,7 @@ const h = vi.hoisted(() => ({
   db: null as unknown as ReturnType<typeof import("@/lib/incidents/__tests__/fake-db").fakeDb>,
   principal: null as unknown,
   emails: [] as Array<{ to: string[]; subject: string; text: string; html: string }>,
-  sms: [] as Array<{ url: string; body: string }>,
+  sms: [] as Array<{ url: string; body: string; headers: Record<string, string> }>,
   telnyx: [] as Array<{ to: string; text: string }>,
   smshubStatus: 200,
   afterTasks: [] as Array<() => unknown>,
@@ -100,9 +100,9 @@ beforeEach(() => {
   process.env.RESEND_API_KEY = "re_test";
   process.env.SMSHUB_API_KEY = "smshub_test";
   process.env.SMSHUB_URL = "https://smshub.test";
-  vi.stubGlobal("fetch", async (url: string, init: { body: string }) => {
-    h.sms.push({ url, body: init.body });
-    return new Response(h.smshubStatus === 200 ? "{}" : "nope", { status: h.smshubStatus });
+  vi.stubGlobal("fetch", async (url: string, init: { body: string; headers: Record<string, string> }) => {
+    h.sms.push({ url, body: init.body, headers: init.headers });
+    return new Response(h.smshubStatus === 200 ? JSON.stringify({ alert: { channels: ["call"] } }) : "nope", { status: h.smshubStatus });
   });
 });
 
@@ -127,13 +127,17 @@ describe("POST /api/orgs/[id]/incidents", () => {
     // writer: email + SMS; reader: email off + phone unverified; muted: never.
     expect(h.emails.map((e) => e.to[0])).toEqual([`${U.writer.slice(-1)}@delivered.test`]);
     expect(h.sms).toHaveLength(1);
-    expect(h.sms[0].url).toBe("https://smshub.test/api/v1/messages/send");
+    // smshub's alert API (texts when it can, else calls): API key in X-API-Key, HIGH rings the phone.
+    expect(h.sms[0].url).toBe("https://smshub.test/api/v1/alerts");
+    expect(h.sms[0].headers["X-API-Key"]).toBe("smshub_test");
+    expect(JSON.parse(h.sms[0].body).severity).toBe("critical");
     const text = JSON.parse(h.sms[0].body).message as string;
     expect(text).toMatch(/^\[ThreatCrush HIGH\] Solana wallet drained on box1\. 1 finding\. https:\/\/.+\/org\/acme\/incidents\//);
     expect(text.length).toBeLessThanOrEqual(320);
     const rows = h.db.tables.incident_notifications;
     expect(rows.filter((r) => r.user_id === U.muted)).toHaveLength(0);
     expect(rows.find((r) => r.user_id === U.reader && r.channel === "sms")).toMatchObject({ status: "skipped", detail: "phone not verified" });
+    expect(rows.find((r) => r.user_id === U.writer && r.channel === "sms")).toMatchObject({ status: "sent", detail: "smshub call" });
     expect(rows.find((r) => r.user_id === U.reader && r.channel === "email")).toMatchObject({ status: "skipped" });
     expect(h.db.tables.incidents[0].last_notified_at).toBeTruthy();
   });
