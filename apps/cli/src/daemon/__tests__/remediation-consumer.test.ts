@@ -166,6 +166,19 @@ describe('remediation consumer', () => {
     }
   });
 
+  it('executes an update: installed or already current is executed, anything else fails with the reason', async () => {
+    const { manager, log } = setup();
+    const run = async (outcome: string) =>
+      new RemediationConsumer(manager, { log, updateNow: async () => outcome }).execute(action({ action_type: 'update', target_value: 'daemon' }));
+    expect(await run('updated to 0.13.57')).toMatchObject({ status: 'executed' });
+    expect(await run('up to date (0.13.57)')).toMatchObject({ status: 'executed' });
+    expect(await run('0.13.57 is available but cannot self-install: not an npm global install')).toMatchObject({
+      status: 'failed', error: expect.stringContaining('cannot self-install'),
+    });
+    expect(await new RemediationConsumer(manager, { log }).execute(action({ action_type: 'update', target_value: 'daemon' })))
+      .toMatchObject({ status: 'failed', error: 'update not supported by this daemon' });
+  });
+
   it('fails a restart when the daemon cannot restart itself', async () => {
     const { manager, log } = setup();
     const consumer = new RemediationConsumer(manager, { log }); // no restartDaemon

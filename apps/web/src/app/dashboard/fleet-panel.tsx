@@ -22,6 +22,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
   const [orgFilter, setOrgFilter] = useState("all");
   const [restarting, setRestarting] = useState(false);
   const [restartNote, setRestartNote] = useState("");
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +74,32 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
     }
   };
 
+  const updateAll = async () => {
+    const behind = servers.filter((s) => s.agent && s.outdated);
+    if (!window.confirm(`Update ThreatCrush on ${behind.length} server${behind.length === 1 ? "" : "s"} behind v${summary?.latest_version}? Each daemon installs the release and restarts (a few seconds offline).`)) return;
+    setUpdating(true);
+    setRestartNote("");
+    setError("");
+    try {
+      const orgIds = [...new Set(behind.map((s) => s.org_id))];
+      let updates = 0, restarts = 0;
+      for (const orgId of orgIds) {
+        const res = await fetch(`/api/orgs/${orgId}/update-all`, { method: "POST", headers: authHeaders() });
+        const data = (await res.json().catch(() => ({}))) as { updates?: number; restarts?: number; error?: string };
+        if (res.ok) { updates += data.updates ?? 0; restarts += data.restarts ?? 0; }
+        else if (res.status !== 403) throw new Error(data.error || `Update failed (${res.status})`);
+      }
+      const parts = [];
+      if (updates) parts.push(`${updates} updating now (back within a minute)`);
+      if (restarts) parts.push(`${restarts} on a daemon too old for "update now" were restarted: their auto-updater checks within 40 minutes and takes the newest release at least 2 hours old; press Update all again after that for the rest`);
+      setRestartNote(parts.length ? `${parts.join(". ")}.` : "Every server you administer is already on the latest release.");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -94,6 +121,17 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
               <option value="all">All organizations</option>
               {orgs.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
             </select>
+          )}
+          {servers.some((s) => s.agent && s.outdated) && (
+            <button
+              type="button"
+              onClick={updateAll}
+              disabled={updating}
+              title="Install the newest ThreatCrush on every server behind it that you administer"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition-colors disabled:opacity-50"
+            >
+              {updating ? "Updating…" : `Update all (${servers.filter((s) => s.agent && s.outdated).length})`}
+            </button>
           )}
           <button
             type="button"
@@ -140,7 +178,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
           <Tile
             label="Behind latest"
             value={summary.outdated}
-            hint={summary.latest_version ? `latest in fleet: v${summary.latest_version}` : "no versions reported"}
+            hint={summary.latest_version ? `latest: v${summary.latest_version}` : "no versions reported"}
             tone={summary.outdated > 0 ? "warn" : undefined}
           />
           <Tile

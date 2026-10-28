@@ -166,6 +166,8 @@ export function buildFleet(
   inventories: InventoryRow[] = [],
   /** Servers in the inventories' orgs the caller cannot see: they still claim their device. */
   hiddenRows: Array<Pick<ServerRow, "id" | "name" | "hostname" | "ip_address" | "public_ip" | "org_id">> = [],
+  /** The newest published release (npm), when known: "outdated" is measured against it too. */
+  published: string | null = null,
 ): { servers: FleetServer[]; summary: FleetSummary } {
   const at = new Date(now);
   const deviceOf = new Map<string, FleetDevice>();
@@ -207,7 +209,7 @@ export function buildFleet(
   const latest = rows
     .map((r) => r.threatcrushd_version)
     .filter((v): v is string => Boolean(v))
-    .reduce<string | null>((best, v) => (compareVersions(v, best) > 0 ? v : best), null);
+    .reduce<string | null>((best, v) => (compareVersions(v, best) > 0 ? v : best), published);
 
   const servers: FleetServer[] = rows.map((r) => {
     const org = orgs.get(r.org_id);

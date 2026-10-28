@@ -1,7 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ThreatEvent } from '../../types/events.js';
 import {
   AutoUpdate,
@@ -189,6 +189,28 @@ describe('AutoUpdate', () => {
     const second = await t.updater.check();
     expect(second).toContain('did not take');
     expect(t.runs).toHaveLength(1);
+  });
+
+  posix('force ("Update now") skips min_age and the retry window, and can delay the restart', async () => {
+    vi.useFakeTimers({ now: NOW, toFake: ['setTimeout'] });
+    try {
+      const young = setup(doc('0.13.32', HOUR / 4)); // 15 minutes old
+      expect(await young.updater.check()).toContain('younger than min_age');
+      const forced = await young.updater.check({ force: true, restartDelayMs: 3000 });
+      if (forced.includes('no npm beside')) return;
+      expect(forced).toBe('updated to 0.13.32');
+      expect(young.restarts()).toBe(0);
+      vi.advanceTimersByTime(3500);
+      expect(young.restarts()).toBe(1);
+
+      const failing = setup(doc('0.13.32', 3 * HOUR), 1);
+      await failing.updater.check();
+      expect(await failing.updater.check()).toContain('did not take');
+      expect(await failing.updater.check({ force: true })).toContain('install of 0.13.32 failed');
+      expect(failing.runs).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does nothing when already current or the registry is down', async () => {

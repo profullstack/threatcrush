@@ -47,7 +47,13 @@ export class RemediationConsumer {
     // process (systemctl restart in system mode). Scheduled a few seconds out
     // so the "executed" result is reported before the process dies — otherwise
     // the action stays `executing`, returns to `pending`, and restart-loops.
-    private opts: { log: (line: string) => void; pollMs?: number; restartDaemon?: () => void },
+    private opts: {
+      log: (line: string) => void;
+      pollMs?: number;
+      restartDaemon?: () => void;
+      /** The dashboard's "Update now": install the newest release, then restart onto it. */
+      updateNow?: () => Promise<string>;
+    },
   ) {}
 
   start(): void {
@@ -186,6 +192,14 @@ export class RemediationConsumer {
             }
           }, 3000).unref?.();
           return { status: 'executed', executed_at };
+        }
+        case 'update': {
+          if (!this.opts.updateNow) return failed('update not supported by this daemon');
+          this.opts.log('[cloud] dashboard requested an update');
+          const outcome = await this.opts.updateNow();
+          // Installed (restart follows) or already current: both are what was asked for.
+          if (outcome.startsWith('updated to') || outcome.startsWith('up to date')) return { status: 'executed', executed_at };
+          return failed(outcome);
         }
         default:
           return failed(`unsupported action_type: ${action.action_type}`);

@@ -240,6 +240,7 @@ export async function runDaemon(): Promise<void> {
   // Dashboard reporting and remote remediation (docs: README "Cloud dashboard").
   let cloudSync: CloudSync | null = null;
   let remediationConsumer: RemediationConsumer | null = null;
+  let autoUpdateRef: AutoUpdate | null = null;
   let allowlistSync: AllowlistSync | null = null;
   if (config.cloud?.enabled === false) {
     logLine('[cloud] disabled by [cloud] enabled = false');
@@ -256,7 +257,12 @@ export async function runDaemon(): Promise<void> {
       runHardening: runHardeningChecks,
     });
     cloudSync.start();
-    remediationConsumer = new RemediationConsumer(remediation, { log: logLine, restartDaemon });
+    remediationConsumer = new RemediationConsumer(remediation, {
+      log: logLine,
+      restartDaemon,
+      // autoUpdate is created below; the action only runs once polling starts.
+      updateNow: () => (autoUpdateRef ? autoUpdateRef.check({ force: true, restartDelayMs: 3000 }) : Promise.resolve('updater not started')),
+    });
     remediationConsumer.start();
     allowlistSync = new AllowlistSync(remediation, { log: logLine });
     allowlistSync.start();
@@ -276,7 +282,7 @@ export async function runDaemon(): Promise<void> {
   const watchdog = startWatchdog({ bus, config: config.watchdog, stateDir: PATHS.stateDir, log: logLine });
 
   // Keep this box on the latest release (`[update]`, on by default).
-  const autoUpdate = new AutoUpdate({
+  const autoUpdate = (autoUpdateRef = new AutoUpdate({
     version,
     settings: updateSettings(config.update),
     pkgRoot: join(__dirname, '..'),
@@ -284,7 +290,7 @@ export async function runDaemon(): Promise<void> {
     bus,
     log: logLine,
     restartDaemon,
-  });
+  }));
   autoUpdate.start();
 
   const ipc = new IpcServer(version, moduleHost, remediation, () => watchdog.status());
