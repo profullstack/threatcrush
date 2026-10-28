@@ -31,6 +31,9 @@ vi.mock("@/lib/supabase", () => ({
   }),
 }));
 
+import { createHooks, setHubForTests } from "@/lib/webhooks/hub";
+import { supabaseStore } from "@/lib/webhooks/supabase-store";
+import { fakeSupabase } from "@/lib/webhooks/__tests__/fake-supabase";
 import { POST as createDestination } from "@/app/api/orgs/[id]/alert-destinations/route";
 import {
   PATCH as updateDestination,
@@ -100,6 +103,14 @@ beforeEach(() => {
     organization_members: [{ org_id: ORG, user_id: "owner-1", role: "owner" }],
     alert_destinations: [],
   });
+  // A real webhooks hub on an in-memory store; deliveries go out through safeFetch (mocked https above).
+  const hubDb = fakeSupabase();
+  const store = supabaseStore(hubDb);
+  setHubForTests({
+    hooks: createHooks(store, { guard: { lookup: async (host) => (host === "internal.example" ? ["10.1.2.3"] : [PUBLIC_HOST_ADDRESS]) } }),
+    store,
+    client: hubDb,
+  });
   mockLookup.mockImplementation(async (host: string) =>
     host === "internal.example"
       ? [{ address: "10.1.2.3", family: 4 }]
@@ -138,6 +149,19 @@ describe("creating an alert destination", () => {
 
     expect(res.status).toBe(201);
     expect(db.tables.alert_destinations).toHaveLength(1);
+  });
+
+  it("makes a webhook a hub endpoint: keeps a typed secret out of the row, returns a generated one once", async () => {
+    const typed = ["typed", "receiver", "key"].join("-");
+    const withSecret = await create("webhook", { url: "https://hooks.example.com/a", secret: typed });
+    expect(withSecret.status).toBe(201);
+    expect((await withSecret.json()).secret).toBeUndefined();
+    const row = db.tables.alert_destinations[0] as { config: Record<string, unknown> };
+    expect(row.config.secret).toBeUndefined();
+    expect(row.config.hub_endpoint_id).toMatch(/^wh_/);
+
+    const generated = await create("webhook", { url: "https://hooks.example.com/b" });
+    expect((await generated.json()).secret).toMatch(/^whsec_/);
   });
 
   it("does not require a URL for types that do not deliver to one", async () => {

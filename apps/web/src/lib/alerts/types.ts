@@ -59,6 +59,8 @@ export interface AlertMessage {
   detection?: AlertableDetection & { server_name: string | null };
   /** Present for new scan / pentest / ai-scan findings (one alert per run). */
   findings?: FindingAlertPayload;
+  /** Present for a reputation watch that changed (listed, cleared, score moved). */
+  reputation?: { watch_id: string; indicator: string; kind: string; change: string; score: number; listed: boolean };
 }
 
 /** New or reopened tracked findings from one run, as alerts carry them. */
@@ -70,4 +72,9 @@ export interface FindingAlertPayload {
   findings: Array<{ id?: string; severity: Severity; message: string; location: string | null; reopened: boolean }>;
 }
 
-export type DeliveryOutcome = { ok: true; detail?: string } | { ok: false; error: string };
+/**
+ * `hubDeliveryId`: the webhook was queued in the webhooks hub, which sends and
+ * retries it later; the alert_deliveries row starts as `queued` and the hub
+ * moves it to `sent` or `failed`.
+ */
+export type DeliveryOutcome = { ok: true; detail?: string; hubDeliveryId?: string } | { ok: false; error: string };

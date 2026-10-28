@@ -104,11 +104,11 @@ describe("dispatchDetectionAlerts", () => {
     ]);
   });
 
-  it("counts only sent and failed attempts from the last hour against the limit", async () => {
+  it("counts sent, failed and queued attempts from the last hour against the limit", async () => {
     await dispatchDetectionAlerts([detection("det-1")]);
 
     expect(db.deliveryCalls).toContainEqual(["eq", "rule_id", "rule-1"]);
-    expect(db.deliveryCalls).toContainEqual(["in", "status", ["sent", "failed"]]);
+    expect(db.deliveryCalls).toContainEqual(["in", "status", ["sent", "failed", "queued"]]);
     const since = db.deliveryCalls.find(([method, column]) => method === "gte" && column === "created_at");
     const ageMs = Date.now() - Date.parse(since![2] as string);
     expect(ageMs).toBeGreaterThanOrEqual(60 * 60 * 1000);

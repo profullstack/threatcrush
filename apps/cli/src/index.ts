@@ -71,6 +71,16 @@ import { findRunningDaemon } from "./daemon/pidfile.js";
 import { PKG_VERSION } from "./core/version.js";
 import { installUserAgent } from "./core/user-agent.js";
 import { cleanUrl, repoTarget, uploadResult } from "./core/cloud-upload.js";
+import {
+  webhooksAddCommand,
+  webhooksDeliveriesCommand,
+  webhooksListCommand,
+  webhooksRemoveCommand,
+  webhooksRetryCommand,
+  webhooksSecretCommand,
+  webhooksTestCommand,
+  webhooksUpdateCommand,
+} from "./commands/webhooks.js";
 import { findingsListCommand, findingsShowCommand, findingsTriageCommand, TRIAGE, type TriageVerb } from "./commands/findings.js";
 
 installUserAgent();
@@ -686,6 +696,46 @@ for (const verb of Object.keys(TRIAGE) as TriageVerb[]) {
     .option("--note <text>", "why (shown everywhere the finding is)")
     .action(async (ids: string[], opts) => { await findingsTriageCommand(verb, ids, opts); });
 }
+
+// ─── Webhooks: your org's signed event callbacks (detections, findings, reputation) ───
+
+const webhooks = program
+  .command("webhooks")
+  .description("Your org's webhook endpoints: detection.created, findings.raised, reputation.changed (also on the web app and MCP)")
+  .option("--json", "emit JSON")
+  .action(async (opts) => { await webhooksListCommand(opts); });
+
+webhooks.command("list").description("List endpoints").option("--json", "emit JSON")
+  .action(async (opts) => { await webhooksListCommand(opts); });
+
+webhooks.command("add <url>").description("Add an endpoint (prints its signing secret once)")
+  .option("--events <list>", "comma list of patterns: *, detection.created, findings.*, ... (default *)")
+  .option("--description <text>", "a note for you")
+  .option("--json", "emit JSON")
+  .action(async (url: string, opts) => { await webhooksAddCommand(url, opts); });
+
+webhooks.command("update <id>").description("Change url, events, description, or switch on/off")
+  .option("--url <url>").option("--events <list>").option("--description <text>")
+  .option("--enable", "switch on (clears the failure count)").option("--disable", "switch off")
+  .option("--json", "emit JSON")
+  .action(async (id: string, opts) => { await webhooksUpdateCommand(id, opts); });
+
+webhooks.command("rm <id>").alias("remove").description("Remove an endpoint")
+  .action(async (id: string) => { await webhooksRemoveCommand(id); });
+
+webhooks.command("test <id>").description("Send a signed webhook.test now")
+  .action(async (id: string) => { await webhooksTestCommand(id); });
+
+webhooks.command("secret <id>").description("Show the signing secret (--rotate replaces it; the old one stops working)")
+  .option("--rotate", "make a new secret")
+  .action(async (id: string, opts) => { await webhooksSecretCommand(id, opts); });
+
+webhooks.command("deliveries [id]").description("Recent deliveries, for one endpoint or all")
+  .option("--limit <n>", "how many (max 200)").option("--json", "emit JSON")
+  .action(async (id: string | undefined, opts) => { await webhooksDeliveriesCommand(id, opts); });
+
+webhooks.command("retry <deliveryId>").description("Send one delivery again")
+  .action(async (id: string) => { await webhooksRetryCommand(id); });
 
 program
   .command("status")

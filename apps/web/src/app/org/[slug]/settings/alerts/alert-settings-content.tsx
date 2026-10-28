@@ -6,6 +6,7 @@ import { listOrganizations } from "@/lib/organizations";
 import { authHeaders } from "@/lib/auth-client";
 import Link from "next/link";
 import BrowserNotifications from "./browser-notifications";
+import WebhookEndpoints from "./webhook-endpoints";
 
 interface AlertDestination {
   id: string;
@@ -31,7 +32,7 @@ const DEST_TYPES = [
   { value: "slack", label: "Slack", fields: [{ key: "webhook_url", label: "Webhook URL", type: "url" }] },
   { value: "discord", label: "Discord", fields: [{ key: "webhook_url", label: "Webhook URL", type: "url" }] },
   { value: "email", label: "Email", fields: [{ key: "to", label: "To address(es), comma-separated", type: "text" }] },
-  { value: "webhook", label: "Webhook", fields: [{ key: "url", label: "URL", type: "url" }, { key: "secret", label: "Signing secret (optional, HMAC-SHA256 in X-ThreatCrush-Signature)", type: "text" }] },
+  { value: "webhook", label: "Webhook", fields: [{ key: "url", label: "URL", type: "url" }, { key: "secret", label: "Signing secret (optional: leave empty and we make one)", type: "text" }] },
   { value: "pagerduty", label: "PagerDuty", fields: [{ key: "routing_key", label: "Routing Key", type: "text" }] },
   { value: "push", label: "Push (mobile app and browsers)", fields: [] },
 ];
@@ -49,6 +50,8 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
   const [newDestName, setNewDestName] = useState("");
   const [newDestType, setNewDestType] = useState("slack");
   const [newDestConfig, setNewDestConfig] = useState<Record<string, string>>({});
+  // A generated webhook signing secret, shown once after the destination is added.
+  const [shownSecret, setShownSecret] = useState<string | null>(null);
 
   // Add rule form
   const [showAddRule, setShowAddRule] = useState(false);
@@ -91,6 +94,8 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
       alert(`Could not add destination: ${data.error || "Unknown error"}`);
       return;
     }
+    const created = await res.json().catch(() => ({}));
+    setShownSecret(typeof created.secret === "string" ? created.secret : null);
     setShowAddDest(false);
     setNewDestName("");
     setNewDestConfig({});
@@ -206,6 +211,15 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
               </div>
             )}
 
+            {shownSecret && (
+              <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-4 mb-4 text-sm">
+                <p className="text-green-400 mb-2">Webhook signing secret. Copy it now: it is not shown again here (the API and CLI can show it).</p>
+                <code className="block break-all text-white bg-zinc-900 rounded px-2 py-1">{shownSecret}</code>
+                <p className="text-zinc-500 mt-2">Verify the Standard Webhooks <code>webhook-signature</code> header with it (any Standard Webhooks library). <code>X-ThreatCrush-Signature: sha256=…</code> is still sent too.</p>
+                <button onClick={() => setShownSecret(null)} className="mt-2 text-xs text-zinc-400 hover:text-zinc-300">Done</button>
+              </div>
+            )}
+
             <div className="space-y-3">
               {destinations.length === 0 ? (
                 <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-8 text-center">
@@ -232,6 +246,8 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
             </div>
           </div>
         )}
+
+        {tab === "destinations" && <WebhookEndpoints orgId={org.id} />}
 
         {/* Rules */}
         {tab === "rules" && (

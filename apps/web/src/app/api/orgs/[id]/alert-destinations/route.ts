@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { destinationConfigError } from "@/lib/alert-destinations";
+import { ensureDestinationEndpoint } from "@/lib/webhooks/hub";
 
 // GET /api/orgs/[id]/alert-destinations
 export async function GET(
@@ -83,6 +84,18 @@ export async function POST(
     }).select("id, organization_id, name, type, enabled, created_at").single();
 
     if (error) return NextResponse.json({ error: "Failed to create" }, { status: 500 });
+
+    if (type === "webhook") {
+      // Generic webhooks are endpoints in the webhooks hub; the destination points at one.
+      try {
+        const { generatedSecret } = await ensureDestinationEndpoint({ ...dest, enabled: enabled !== false, config });
+        // Shown once: the customer needs it to verify signatures.
+        return NextResponse.json({ destination: dest, ...(generatedSecret ? { secret: generatedSecret } : {}) }, { status: 201 });
+      } catch (hubErr) {
+        await admin.from("alert_destinations").delete().eq("id", dest.id);
+        return NextResponse.json({ error: (hubErr as Error).message }, { status: 400 });
+      }
+    }
 
     return NextResponse.json({ destination: dest }, { status: 201 });
   } catch (err) {

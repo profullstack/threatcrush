@@ -1,9 +1,9 @@
 import "server-only";
-import { createHmac } from "node:crypto";
 import { Resend } from "resend";
 import { sendOrgPush } from "@/lib/push/org";
 import { safeFetch } from "@/lib/ssrf-guard";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { ensureDestinationEndpoint, getHooks, queueToEndpoint, type WebhookAlert } from "@/lib/webhooks/hub";
 import { buildTestMessage } from "./message";
 import type { AlertDestinationRow, AlertMessage, DeliveryOutcome, Severity } from "./types";
 
@@ -69,9 +69,14 @@ async function postJsonGuarded(
   }
 }
 
-function webhookPayload(message: AlertMessage) {
+/**
+ * The webhook body the old sender posted. It is still the whole alert:
+ * CloudEvents `data`, and mirrored at the top level for receivers built
+ * against it (`event` keeps its old values there).
+ */
+export function webhookPayload(message: AlertMessage) {
   return {
-    event: message.detection ? "detection.created" : message.findings ? "findings.new" : "test",
+    event: message.detection ? "detection.created" : message.findings ? "findings.new" : message.reputation ? "reputation.changed" : "test",
     title: message.title,
     severity: message.severity,
     message: message.body,
@@ -79,20 +84,35 @@ function webhookPayload(message: AlertMessage) {
     url: message.url,
     ...(message.detection && { detection: message.detection }),
     ...(message.findings && { findings: message.findings }),
+    ...(message.reputation && { reputation: message.reputation }),
   };
 }
 
+/** The hub event for an alert, or null for a test message (the hub sends its own webhook.test). */
+export function webhookAlert(message: AlertMessage): WebhookAlert | null {
+  const legacy = webhookPayload(message);
+  if (message.detection) return { type: "detection.created", legacy, subject: `detection:${message.detection.id}` };
+  if (message.findings) return { type: "findings.raised", legacy, subject: `run:${message.findings.run_id}` };
+  if (message.reputation) return { type: "reputation.changed", legacy, subject: `${message.reputation.kind}:${message.reputation.indicator}` };
+  return null;
+}
+
+/**
+ * Generic webhooks go through the webhooks hub (@profullstack/webhooks): the
+ * alert is queued to this destination's endpoint and sent, signed and retried
+ * by the drainer. See src/lib/webhooks/hub.ts for the headers and body.
+ */
 async function sendWebhook(destination: AlertDestinationRow, message: AlertMessage): Promise<DeliveryOutcome> {
-  const url = configString(destination, "url");
-  if (!url) return { ok: false, error: "Webhook URL not configured" };
-  const body = JSON.stringify(webhookPayload(message));
-  const secret = configString(destination, "secret");
-  // Receivers verify with HMAC-SHA256(secret, raw body); the secret itself never travels.
-  const headers: Record<string, string> = {};
-  if (secret) {
-    headers["X-ThreatCrush-Signature"] = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
+  const alert = webhookAlert(message);
+  if (!alert) return { ok: false, error: "Webhook tests go through the destination's Test button" };
+  let endpointId: string;
+  try {
+    ({ endpointId } = await ensureDestinationEndpoint(destination));
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
   }
-  return postJsonGuarded(url, body, headers);
+  const queued = await queueToEndpoint(destination.organization_id, endpointId, alert);
+  return queued.ok ? { ok: true, detail: "queued", hubDeliveryId: queued.deliveryId } : queued;
 }
 
 async function sendSlack(destination: AlertDestinationRow, message: AlertMessage): Promise<DeliveryOutcome> {
@@ -250,6 +270,23 @@ export async function deliverAlert(
 
 /** The destination's "Test" button: a canned message through the real sender. */
 export async function sendTestAlert(destination: AlertDestinationRow): Promise<DeliveryOutcome> {
+  if (destination.type === "webhook") {
+    // The hub's webhook.test, signed like every real delivery, sent now and not retried.
+    try {
+      const { endpointId } = await ensureDestinationEndpoint(destination);
+      const r = await getHooks().test(destination.organization_id, endpointId);
+      if (r.ok) return { ok: true, detail: `HTTP ${r.status}` };
+      // Connection errors (refused, reset, timeout) are logged, not echoed:
+      // telling them apart is how a caller would map hosts and ports.
+      if (r.status === null && !r.error?.startsWith("url:")) {
+        console.error("Test webhook delivery failed:", r.error);
+        return { ok: false, error: "Could not reach the destination URL" };
+      }
+      return { ok: false, error: r.error ?? `HTTP ${r.status}` };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
   const { data: org } = await getSupabaseAdmin()
     .from("organizations")
     .select("slug")

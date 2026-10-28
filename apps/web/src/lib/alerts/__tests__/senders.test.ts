@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordQuery } from "@/__tests__/helpers/query-recorder";
 
@@ -25,6 +24,16 @@ vi.mock("@/lib/supabase", () => ({
       throw new Error(`Unexpected table ${table}`);
     },
   }),
+}));
+
+const hub = {
+  ensure: vi.fn(),
+  queue: vi.fn(),
+};
+vi.mock("@/lib/webhooks/hub", () => ({
+  ensureDestinationEndpoint: (...a: unknown[]) => hub.ensure(...a),
+  queueToEndpoint: (...a: unknown[]) => hub.queue(...a),
+  getHooks: () => ({ test: async () => ({ ok: true, status: 204, error: null }) }),
 }));
 
 import { buildDetectionMessage } from "../message";
@@ -58,6 +67,8 @@ function sentBody(mock: typeof safeFetch | typeof fetchMock) {
 }
 
 beforeEach(() => {
+  hub.ensure.mockReset();
+  hub.queue.mockReset();
   safeFetch.mockReset().mockResolvedValue(new Response("ok", { status: 200 }));
   fetchMock.mockReset().mockResolvedValue(new Response('{"status":"success"}', { status: 202 }));
   resendSend.mockReset().mockResolvedValue({ data: { id: "email-1" }, error: null });
@@ -89,23 +100,28 @@ describe("customer-URL senders go through the SSRF guard", () => {
     });
   });
 
-  it("signs webhook bodies with HMAC-SHA256 of the exact bytes sent", async () => {
-    await deliverAlert(dest("webhook", { url: "https://example.com/hook", secret: "s3cret" }), message);
+  it("queues webhooks in the hub for the destination's endpoint, with the old body as data", async () => {
+    hub.ensure.mockResolvedValue({ endpointId: "wh_1", generatedSecret: null });
+    hub.queue.mockResolvedValue({ ok: true, deliveryId: "dlv_1" });
+    const outcome = await deliverAlert(dest("webhook", { url: "https://example.com/hook", hub_endpoint_id: "wh_1" }), message);
 
-    const [, init] = safeFetch.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
-    const expected = `sha256=${createHmac("sha256", "s3cret").update(init.body as string).digest("hex")}`;
-    expect(init.headers["X-ThreatCrush-Signature"]).toBe(expected);
-    expect(JSON.parse(init.body as string)).toMatchObject({
-      event: "detection.created",
-      severity: "critical",
-      detection: { id: "det-1", server_name: "web-1", source_ip: "203.0.113.5" },
+    expect(outcome).toEqual({ ok: true, detail: "queued", hubDeliveryId: "dlv_1" });
+    expect(safeFetch).not.toHaveBeenCalled();
+    const [owner, endpointId, alert] = hub.queue.mock.calls[0];
+    expect(owner).toBe("org-1");
+    expect(endpointId).toBe("wh_1");
+    expect(alert).toMatchObject({
+      type: "detection.created",
+      subject: "detection:det-1",
+      legacy: { event: "detection.created", severity: "critical", detection: { id: "det-1", server_name: "web-1", source_ip: "203.0.113.5" } },
     });
   });
 
-  it("sends no signature header without a secret", async () => {
-    await deliverAlert(dest("webhook", { url: "https://example.com/hook" }), message);
-    const [, init] = safeFetch.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
-    expect(init.headers["X-ThreatCrush-Signature"]).toBeUndefined();
+  it("reports a webhook that cannot be queued as a failure", async () => {
+    hub.ensure.mockRejectedValue(new Error("Webhook URL not configured"));
+    const outcome = await deliverAlert(dest("webhook", {}), message);
+    expect(outcome).toEqual({ ok: false, error: "Webhook URL not configured" });
+    expect(hub.queue).not.toHaveBeenCalled();
   });
 
   it("records a non-2xx answer as a failure with the status", async () => {
@@ -116,7 +132,7 @@ describe("customer-URL senders go through the SSRF guard", () => {
 
   it("records a guard refusal as a failure instead of throwing", async () => {
     safeFetch.mockRejectedValue(new Error("Requests to internal addresses are not allowed"));
-    const outcome = await deliverAlert(dest("webhook", { url: "http://169.254.169.254/" }), message);
+    const outcome = await deliverAlert(dest("slack", { webhook_url: "http://169.254.169.254/" }), message);
     expect(outcome).toEqual({ ok: false, error: "Requests to internal addresses are not allowed" });
   });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 
 const deliverAlert = vi.fn().mockResolvedValue({ ok: true });
-vi.mock("@/lib/alerts/senders", () => ({ deliverAlert: (...a: unknown[]) => deliverAlert(...a) }));
+vi.mock("@/lib/alerts/senders", () => ({ deliverAlert: (...a: unknown[]) => deliverAlert(...a), webhookAlert: () => null }));
 import type { DetectionRow } from "@/lib/community-threats";
 import { networkBase } from "@/lib/geoip";
 import { buildReport, ruleClassOf, scoreOf, takeLookup, resetLookupUsage, type ReputationReport } from "@/lib/reputation";
