@@ -32,6 +32,8 @@ vi.mock("@/lib/settings-crypto", () => ({
 
 import { GET, PUT } from "@/app/api/settings/route";
 
+const SEALED = "tc_e2e_secret_v1:eyJ2IjoxfQ";
+
 function request(body?: unknown, url = "http://localhost/api/settings") {
   return new Request(url, {
     method: body === undefined ? "GET" : "PUT",
@@ -99,15 +101,15 @@ describe("/api/settings", () => {
     expect(body.secretValues).toBeUndefined();
   });
 
-  it("merges plain settings and encrypts updated secrets", async () => {
+  it("merges plain settings and stores browser-sealed secrets", async () => {
     const res = await PUT(request({
       plain: { DEEPSEC_AGENT: "claude" },
-      secrets: { AI_GATEWAY_API_KEY: "vck_new" },
+      secrets: { AI_GATEWAY_API_KEY: SEALED },
     }));
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(mocks.encrypt).toHaveBeenCalledWith({ AI_GATEWAY_API_KEY: "vck_new" });
+    expect(mocks.encrypt).toHaveBeenCalledWith({ AI_GATEWAY_API_KEY: SEALED });
     expect(mocks.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         user_id: "user-1",
@@ -118,7 +120,7 @@ describe("/api/settings", () => {
       }),
       { onConflict: "user_id" },
     );
-    expect(body.secrets.AI_GATEWAY_API_KEY).toEqual({ isSet: true, length: 7, e2eEncrypted: false });
+    expect(body.secrets.AI_GATEWAY_API_KEY).toEqual({ isSet: true, e2eEncrypted: true });
   });
 
   it("clears a secret when the value is null", async () => {
@@ -144,12 +146,37 @@ describe("/api/settings", () => {
     mocks.configured.mockReturnValue(false);
 
     const res = await PUT(request({
-      secrets: { AI_GATEWAY_API_KEY: "vck_new" },
+      secrets: { AI_GATEWAY_API_KEY: SEALED },
     }));
     const body = await res.json();
 
     expect(res.status).toBe(503);
     expect(body.error).toContain("SETTINGS_ENCRYPTION_KEY");
     expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("refuses a plaintext secret: only browser-sealed values are stored", async () => {
+    const res = await PUT(request({ secrets: { AI_GATEWAY_API_KEY: "vck_plain" } }));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.code).toBe("secret_not_sealed");
+    expect(mocks.encrypt).not.toHaveBeenCalled();
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it("with LEGACY_KEY_MIGRATION=off a legacy plaintext value is no longer revealed", async () => {
+    vi.stubEnv("LEGACY_KEY_MIGRATION", "off");
+    try {
+      const res = await GET(request(undefined, "http://localhost/api/settings?revealSecret=AI_GATEWAY_API_KEY"));
+      const body = await res.json();
+      expect(body.secretValues).toBeUndefined();
+
+      mocks.decrypt.mockReturnValue({ AI_GATEWAY_API_KEY: SEALED });
+      const sealed = await (await GET(request(undefined, "http://localhost/api/settings?revealSecret=AI_GATEWAY_API_KEY"))).json();
+      expect(sealed.secretValues).toEqual({ AI_GATEWAY_API_KEY: SEALED });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

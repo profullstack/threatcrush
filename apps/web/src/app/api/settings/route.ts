@@ -18,6 +18,23 @@ type SettingsRow = {
 const KEY_RE = /^[A-Z][A-Z0-9_]{1,100}$/;
 const E2E_SECRET_PREFIX = "tc_e2e_secret_v1:";
 
+/*
+ * Fleet rule (2026-10-28): nothing the server holds may decrypt a user's
+ * secrets. The server never USES these values (no job reads them); the
+ * browser seals each one (lib/client-secret-crypto.ts) before it is sent, so
+ * only `tc_e2e_secret_v1:` ciphertext is accepted. SETTINGS_ENCRYPTION_KEY
+ * still wraps the stored map, but what it opens is already ciphertext.
+ *
+ * Values saved before that are plaintext inside the server-key wrapper. They
+ * are revealed once, one key at a time, to the owner's browser, which
+ * re-seals them and saves them back (the existing upgrade path). That legacy
+ * reveal is the only plaintext path left, and LEGACY_KEY_MIGRATION=off ends
+ * it. Count what is left with scripts/settings-legacy-report.mjs.
+ */
+function legacyMigrationEnabled(): boolean {
+  return (process.env.LEGACY_KEY_MIGRATION ?? "on").trim().toLowerCase() !== "off";
+}
+
 function rowToCipher(row: SettingsRow | null): CipherBlob | null {
   if (!row?.payload_secret_ciphertext || !row.payload_secret_iv || !row.payload_secret_tag) return null;
   return {
@@ -117,7 +134,8 @@ export async function GET(request: NextRequest) {
   if (
     revealSecret &&
     !PROTO_KEYS.has(revealSecret) &&
-    Object.prototype.hasOwnProperty.call(secrets, revealSecret)
+    Object.prototype.hasOwnProperty.call(secrets, revealSecret) &&
+    (secrets[revealSecret].startsWith(E2E_SECRET_PREFIX) || legacyMigrationEnabled())
   ) {
     response.secretValues = Object.fromEntries([[revealSecret, secrets[revealSecret]]]);
   }
@@ -136,6 +154,21 @@ export async function PUT(request: NextRequest) {
 
   const plainUpdates = sanitizePlain(body.plain);
   const secretUpdates = sanitizeSecrets(body.secrets);
+
+  // Only browser-sealed values: a plaintext secret would be readable by the
+  // server key, which is exactly what the rule forbids.
+  const unsealed = Object.entries(secretUpdates)
+    .filter(([, value]) => value !== null && value.trim() !== "" && !value.startsWith(E2E_SECRET_PREFIX))
+    .map(([key]) => key);
+  if (unsealed.length > 0) {
+    return NextResponse.json(
+      {
+        error: `Secrets must be encrypted in your browser before they are saved (${unsealed.join(", ")}). Reload the page and save again.`,
+        code: "secret_not_sealed",
+      },
+      { status: 400 },
+    );
+  }
 
   let existing: SettingsRow | null;
   try {
