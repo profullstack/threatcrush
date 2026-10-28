@@ -6,7 +6,7 @@ vi.mock("@/lib/api-auth", () => ({
 
 import type { Principal } from "@/lib/access";
 
-const { atLeast, findingsRoleOf, hashSecret, roleInScope, serverRoleOf, serverScopeIn, teamRoleOf, visibleIn } = await import("@/lib/access");
+const { atLeast, findingsRoleOf, hashSecret, incidentRoleInScope, incidentRoleOf, incidentScopeIn, roleInScope, serverRoleOf, serverScopeIn, teamRoleOf, visibleIn } = await import("@/lib/access");
 
 /**
  * A tiny in-memory PostgREST stand-in with the tables and calls lib/access
@@ -78,6 +78,49 @@ describe("roles", () => {
   it("hashes secrets deterministically and never returns the secret", () => {
     expect(hashSecret("abc")).toBe(hashSecret("abc"));
     expect(hashSecret("abc")).not.toContain("abc");
+  });
+});
+
+describe("incidentRoleOf", () => {
+  it("a team incident takes the team role; org owner is admin; outsiders get nothing", async () => {
+    const inc = { org_id: "o1", team_id: "t-ops" };
+    expect(await incidentRoleOf(db, user("owner"), inc)).toBe("admin");
+    expect(await incidentRoleOf(db, user("writer"), inc)).toBe("write");
+    expect(await incidentRoleOf(db, user("reader"), inc)).toBe("read");
+    expect(await incidentRoleOf(db, user("member"), inc)).toBeNull();
+    expect(await incidentRoleOf(db, user("reader"), { org_id: "o1", team_id: "t-web" })).toBeNull();
+  });
+
+  it("an agent key sees only its own team's incidents", async () => {
+    expect(await incidentRoleOf(db, agent("write"), { org_id: "o1", team_id: "t-ops" })).toBe("write");
+    expect(await incidentRoleOf(db, agent("write"), { org_id: "o1", team_id: "t-web" })).toBeNull();
+    expect(await incidentRoleOf(db, agent("write"), { org_id: "o2", team_id: "t-ops" })).toBeNull();
+  });
+
+  it("a team-less incident follows the findings rule", async () => {
+    const inc = { org_id: "o1", team_id: null };
+    expect(await incidentRoleOf(db, user("owner"), inc)).toBe("admin");
+    expect(await incidentRoleOf(db, user("member"), inc)).toBe("write");
+    expect(await incidentRoleOf(db, user("reader"), inc)).toBeNull();
+  });
+});
+
+describe("incidentScopeIn", () => {
+  it("owner sees all; a team reader sees their team; a guest no team-less ones; agent its team", async () => {
+    const owner = (await incidentScopeIn(db, user("owner"), "o1"))!;
+    expect(incidentRoleInScope(owner, { team_id: "t-web" })).toBe("admin");
+    const reader = (await incidentScopeIn(db, user("reader"), "o1"))!;
+    expect(incidentRoleInScope(reader, { team_id: "t-ops" })).toBe("read");
+    expect(incidentRoleInScope(reader, { team_id: "t-web" })).toBeNull();
+    expect(incidentRoleInScope(reader, { team_id: null })).toBeNull();
+    const member = (await incidentScopeIn(db, user("member"), "o1"))!;
+    expect(incidentRoleInScope(member, { team_id: null })).toBe("write");
+    expect(incidentRoleInScope(member, { team_id: "t-ops" })).toBeNull();
+    const key = (await incidentScopeIn(db, agent("read"), "o1"))!;
+    expect(incidentRoleInScope(key, { team_id: "t-ops" })).toBe("read");
+    expect(incidentRoleInScope(key, { team_id: "t-web" })).toBeNull();
+    expect(await incidentScopeIn(db, agent("read"), "o2")).toBeNull();
+    expect(await incidentScopeIn(db, user("nobody"), "o1")).toBeNull();
   });
 });
 

@@ -60,6 +60,10 @@ const { dispatchDetectionAlerts } = vi.hoisted(() => ({
   dispatchDetectionAlerts: vi.fn(async (_detections: unknown[]) => {}),
 }));
 vi.mock("@/lib/alerts/dispatch", () => ({ dispatchDetectionAlerts }));
+const { pageCriticalDetections } = vi.hoisted(() => ({
+  pageCriticalDetections: vi.fn(async (_detections: unknown[], _servers: unknown) => {}),
+}));
+vi.mock("@/lib/incidents/detections", () => ({ pageCriticalDetections }));
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<typeof NextServer>()),
   after: (task: () => unknown) => {
@@ -112,6 +116,7 @@ describe("POST /api/ingest", () => {
     state.rpc = vi.fn();
     state.rpcResult = {};
     dispatchDetectionAlerts.mockClear();
+    pageCriticalDetections.mockClear();
   });
 
   it("rejects a missing or invalid bearer token", async () => {
@@ -214,6 +219,22 @@ describe("POST /api/ingest", () => {
     expect(dispatchDetectionAlerts).toHaveBeenCalledWith([expect.objectContaining({ id: "d-1" })]);
   });
 
+  it("a new CRITICAL detection also becomes a team incident; high ones do not", async () => {
+    state.rpcResult.ingest_detections = {
+      data: [
+        { id: "d-1", severity: "critical", inserted: true, occurrences: 1, server_id: OWN_SERVER },
+        { id: "d-3", severity: "high", inserted: true, occurrences: 1, server_id: OWN_SERVER },
+        { id: "d-2", severity: "critical", inserted: false, occurrences: 3, server_id: OWN_SERVER },
+      ],
+      error: null,
+    };
+    await post({ events: [detection({ severity: "critical" }), detection({ rule_id: "x" })] });
+    expect(pageCriticalDetections).toHaveBeenCalledTimes(1);
+    const [rows, servers] = pageCriticalDetections.mock.calls[0] as [Array<{ id: string }>, Map<string, unknown>];
+    expect(rows.map((r) => r.id)).toEqual(["d-1"]);
+    expect(servers.has(OWN_SERVER)).toBe(true);
+  });
+
   it("does not alert when every detection in the batch was a repeat", async () => {
     state.rpcResult.ingest_detections = {
       data: [{ id: "d-2", inserted: false, occurrences: 8 }],
@@ -222,6 +243,7 @@ describe("POST /api/ingest", () => {
     const res = await post({ events: [detection()] });
     expect(res.status).toBe(200);
     expect(dispatchDetectionAlerts).not.toHaveBeenCalled();
+    expect(pageCriticalDetections).not.toHaveBeenCalled();
   });
 
   it("still accepts v1 heartbeat and detection bodies", async () => {

@@ -100,6 +100,61 @@ export async function findingsRoleOf(admin: SupabaseClient, p: Principal, orgId:
   return role === "member" ? "write" : null;
 }
 
+/**
+ * The caller's role on an incident. A team's incident takes the caller's role
+ * on that team (org owner/admin = admin, agent key = its role on its own team);
+ * an incident with no team (an unfleeted server, an org-wide investigation)
+ * follows the findings rule: owner/admin admin, member write, guest nothing.
+ */
+export async function incidentRoleOf(
+  admin: SupabaseClient,
+  p: Principal,
+  incident: { org_id: string; team_id: string | null },
+): Promise<TeamRole | null> {
+  if (incident.team_id) {
+    if (p.kind === "agent" && p.orgId !== incident.org_id) return null;
+    return teamRoleOf(admin, p, { id: incident.team_id, org_id: incident.org_id });
+  }
+  return findingsRoleOf(admin, p, incident.org_id);
+}
+
+/**
+ * Which of an org's incidents the caller can see, as a filter: everything (org
+ * owner/admin), or these teams' incidents plus (when `teamless`) the ones with
+ * no team. Same rules as incidentRoleOf, loaded once for a list.
+ */
+export interface IncidentScope {
+  all: boolean;
+  teamRoles: Map<string, TeamRole>;
+  teamless: TeamRole | null;
+}
+
+export async function incidentScopeIn(admin: SupabaseClient, p: Principal, orgId: string): Promise<IncidentScope | null> {
+  if (p.kind === "agent") {
+    if (p.orgId !== orgId) return null;
+    return { all: false, teamRoles: new Map([[p.teamId, p.role]]), teamless: p.role };
+  }
+  const orgRole = await orgRoleOf(admin, p, orgId);
+  if (!orgRole) return null;
+  if (isOrgAdmin(orgRole)) return { all: true, teamRoles: new Map(), teamless: "admin" };
+  const { data: seats } = await admin
+    .from("team_members")
+    .select("team_id, role, teams!inner(org_id)")
+    .eq("user_id", p.userId)
+    .eq("teams.org_id", orgId);
+  const teamRoles = new Map<string, TeamRole>();
+  for (const seat of (seats ?? []) as Array<{ team_id: string; role: string }>) {
+    if (isTeamRole(seat.role)) teamRoles.set(seat.team_id, seat.role);
+  }
+  return { all: false, teamRoles, teamless: orgRole === "member" ? "write" : null };
+}
+
+/** The caller's role on one incident, given a scope already loaded for its org. */
+export function incidentRoleInScope(scope: IncidentScope, incident: { team_id: string | null }): TeamRole | null {
+  if (scope.all) return "admin";
+  return incident.team_id ? scope.teamRoles.get(incident.team_id) ?? null : scope.teamless;
+}
+
 /** The caller's role on a team, or null. Org owners and admins are admin everywhere. */
 export async function teamRoleOf(
   admin: SupabaseClient,
