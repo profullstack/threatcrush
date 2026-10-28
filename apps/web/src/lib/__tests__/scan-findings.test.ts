@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-import { fingerprintOf, normalizeFindings, syncRunFindings } from "@/lib/scan-findings";
+import { fingerprintOf, normalizeFindings, syncRunFindings, urlSafe } from "@/lib/scan-findings";
 
 type Row = Record<string, unknown>;
 
@@ -48,6 +48,13 @@ describe("normalizeFindings", () => {
     expect(out.find((f) => f.type === "y")?.severity).toBe("info");
   });
   it("returns nothing for a non-array", () => expect(normalizeFindings({})).toEqual([]));
+
+  it("strips query strings and credentials from URL locations, leaves file locations alone", () => {
+    const [f] = normalizeFindings([{ type: "p", message: "m", location: "https://u:pw@bot.example/chat?key=sk-123#x" }]);
+    expect(f.location).toBe("https://bot.example/chat");
+    expect(urlSafe("src/app.ts:12")).toBe("src/app.ts:12");
+    expect(urlSafe("http://localhost:3000/chat?key=a")).toBe("http://localhost:3000/chat");
+  });
 });
 
 describe("fingerprintOf", () => {

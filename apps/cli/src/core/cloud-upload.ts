@@ -101,7 +101,9 @@ export async function uploadResult(result: RunResult, opts: UploadOptions): Prom
         scope: opts.scope ?? '',
         worker_id: workerId(),
         result: {
-          findings: result.findings,
+          // ai-scan and pentest put the target URL in each finding's location:
+          // clean it like the target, or a ?key= in the URL reaches the cloud.
+          findings: result.findings.map((f) => (f.location && /^https?:\/\//i.test(f.location) ? { ...f, location: cleanUrl(f.location) } : f)),
           severity_summary: result.severity_summary,
           summary: result.summary,
           error: result.error,
