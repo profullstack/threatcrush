@@ -69,6 +69,9 @@ import {
 import { IpcClient } from "./core/ipc-client.js";
 import { findRunningDaemon } from "./daemon/pidfile.js";
 import { PKG_VERSION } from "./core/version.js";
+import { installUserAgent } from "./core/user-agent.js";
+
+installUserAgent();
 
 const LOGO = `
 ${chalk.green("  ████████╗██╗  ██╗██████╗ ███████╗ █████╗ ████████╗")}
