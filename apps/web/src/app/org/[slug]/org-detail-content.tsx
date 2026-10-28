@@ -163,7 +163,7 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
           </Link>
           <Link href={`/org/${org.slug}/findings`}
             className="rounded-lg bg-zinc-900 border border-zinc-800 p-4 hover:border-yellow-500/30 transition-colors group">
-            <p className="text-sm text-zinc-500 group-hover:text-yellow-400">Hardening</p>
+            <p className="text-sm text-zinc-500 group-hover:text-yellow-400">Scans + hardening</p>
             <p className="text-lg font-bold text-white mt-1">Findings</p>
           </Link>
           <Link href={`/org/${org.slug}/remediations`}

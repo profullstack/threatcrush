@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { syncRunFindings } from "@/lib/scan-findings";
 
 async function authUserId(req: NextRequest): Promise<string | null> {
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
@@ -94,6 +95,7 @@ export async function PATCH(
     if (typeof body.error === "string") updates.error = body.error;
     if (typeof body.worker_id === "string") updates.worker_id = body.worker_id;
     if (typeof body.source === "string") updates.source = body.source;
+    if (typeof body.scope === "string") updates.scope = body.scope.slice(0, 500);
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: "No updatable fields" }, { status: 400 });
@@ -111,6 +113,15 @@ export async function PATCH(
     if (error || !run) {
       console.error("Update run error:", error);
       return NextResponse.json({ error: "Failed to update run" }, { status: 500 });
+    }
+
+    // A finished run feeds the tracked findings (new / seen / reopened / fixed).
+    if (typeof body.status === "string" && ["succeeded", "failed"].includes(body.status)) {
+      try {
+        await syncRunFindings(getSupabaseAdmin(), run);
+      } catch (e) {
+        console.error("Sync run findings error:", (e as Error).message);
+      }
     }
 
     // Mirror the latest run state onto the parent property for quick display.

@@ -3,6 +3,9 @@ import { takeLookupShared } from "@/lib/reputation";
 import { reputationCaller, type ReputationCaller } from "@/lib/reputation-auth";
 import { lookupIndicator, parseIndicator } from "@/lib/reputation-service";
 import { feedPrincipal } from "@/lib/feed-auth";
+import { atLeast, findingsRoleOf, type Principal } from "@/lib/access";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { getFinding, listFindings, triageFindings, TriageError } from "@/lib/scan-findings";
 import {
   createInvite,
   inviteOverview,
@@ -68,9 +71,75 @@ const TOOLS = [
       "Create one invite link (each account has 3, single use, 30 days). When a new account joins on it and confirms its email, both get bonus credits. Session token only.",
     inputSchema: { type: "object", properties: { note: { type: "string", description: "Who it is for (only you see it)" } } },
   },
+  {
+    name: "findings_list",
+    description:
+      "Your org's tracked findings from threatcrush scan, pentest and ai-scan (deduped across runs, with a triage status). Default: open + acknowledged. Session token or tc_agent_ key.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        org_id: { type: "string", description: "Organization id (default: the key's org, or your first org)" },
+        status: { type: "string", description: "Comma list of open, acknowledged, fixed, false_positive, ignored, or all" },
+        severity: { type: "string", description: "Comma list of critical, high, medium, low, info" },
+        source: { type: "string", description: "Comma list of scan, pentest, ai-scan" },
+        limit: { type: "number", description: "Max 500, default 100" },
+      },
+    },
+  },
+  {
+    name: "findings_get",
+    description: "One tracked finding with its details (code snippet, remediation, evidence), property and history.",
+    inputSchema: { type: "object", properties: { org_id: { type: "string" }, id: { type: "string", description: "Finding id" } }, required: ["id"] },
+  },
+  {
+    name: "findings_triage",
+    description:
+      "Set the status and/or note of up to 500 findings: acknowledged, fixed, false_positive, ignored or open. fixed is reopened by a later run that still sees it; false_positive and ignored never are. Needs write.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        org_id: { type: "string" },
+        ids: { type: "array", items: { type: "string" } },
+        status: { type: "string", enum: ["open", "acknowledged", "fixed", "false_positive", "ignored"] },
+        note: { type: "string", description: "Why (shown everywhere the finding is)" },
+      },
+      required: ["ids"],
+    },
+  },
 ];
 
 const CREDIT_TOOLS = new Set(["redeem_credit_code", "list_invites", "create_invite"]);
+const FINDING_TOOLS = new Set(["findings_list", "findings_get", "findings_triage"]);
+
+/** The org a findings tool acts on: the one asked for, else the agent key's, else the person's first. */
+async function findingsOrg(p: Principal, asked: unknown): Promise<string | null> {
+  if (typeof asked === "string" && asked) return asked;
+  if (p.kind === "agent") return p.orgId;
+  const { data } = await getSupabaseAdmin().from("organization_members").select("org_id").eq("user_id", p.userId).order("joined_at", { ascending: true }).limit(1);
+  return data?.[0]?.org_id ?? null;
+}
+
+async function callFindingsTool(req: NextRequest, name: string, args: Record<string, unknown>) {
+  const p = await feedPrincipal(req);
+  if (!p) return text("Sign in first: pass your ThreatCrush session token (`threatcrush login`) or a tc_agent_ key as the Bearer token.", true);
+  const admin = getSupabaseAdmin();
+  const orgId = await findingsOrg(p, args.org_id);
+  if (!orgId) return text("No organization: pass org_id, or create one at threatcrush.com.", true);
+  const role = await findingsRoleOf(admin, p, orgId);
+  if (!atLeast(role, name === "findings_triage" ? "write" : "read")) return text("Not allowed on that organization.", true);
+  try {
+    if (name === "findings_list") return text(await listFindings(admin, orgId, args));
+    if (name === "findings_get") {
+      const f = await getFinding(admin, orgId, String(args.id ?? ""));
+      return f ? text(f) : text("No such finding in that organization.", true);
+    }
+    return text({ updated: await triageFindings(admin, orgId, { userId: p.kind === "user" ? p.userId : null }, args) });
+  } catch (err) {
+    if (err instanceof TriageError) return text(err.message, true);
+    console.error("[mcp] findings tool failed", err);
+    return text("That did not work. Try again.", true);
+  }
+}
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -137,7 +206,7 @@ async function handle(req: NextRequest, msg: Rpc) {
         capabilities: { tools: {} },
         serverInfo: { name: "ThreatCrush", version: "0.13" },
         instructions:
-          "IP and domain reputation from the ThreatCrush community threat database. Use reputation_lookup for one indicator, reputation_bulk for many. Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
+          "IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), and your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
       });
     case "notifications/initialized":
       return null;
@@ -147,6 +216,9 @@ async function handle(req: NextRequest, msg: Rpc) {
       return ok(id, { tools: TOOLS });
     case "tools/call": {
       const toolName = String(msg.params?.name ?? "");
+      if (FINDING_TOOLS.has(toolName)) {
+        return ok(id, await callFindingsTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
+      }
       if (CREDIT_TOOLS.has(toolName)) {
         return ok(id, await callCreditTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
       }

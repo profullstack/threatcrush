@@ -83,7 +83,7 @@ export async function aiScanCommand(url: string, opts: AiScanCliOptions): Promis
 }
 
 /** `threatcrush ai-scan run <file.mosh>` — drive the scanner from a script. */
-export async function aiScanMoshCommand(file: string, args: string[]): Promise<void> {
+export async function aiScanMoshCommand(file: string, args: string[]): Promise<RunResult[]> {
   banner();
   console.log(chalk.green.bold('  AI Red-Team Script (.mosh)'));
   console.log(chalk.gray('  ' + '─'.repeat(50)));
@@ -96,7 +96,7 @@ export async function aiScanMoshCommand(file: string, args: string[]): Promise<v
   } catch (err) {
     logger.error(`Cannot read ${file}: ${(err as Error).message}`);
     process.exitCode = 1;
-    return;
+    return [];
   }
 
   const t0 = Date.now();
@@ -109,10 +109,11 @@ export async function aiScanMoshCommand(file: string, args: string[]): Promise<v
     console.log();
     console.log(`  ${chalk.red('✗ script failed:')} ${res.failed}`);
     process.exitCode = 1;
-    return;
+    return [];
   }
   const breached = res.scans.reduce((n, s) => n + s.findings.length, 0);
   console.log();
   console.log(`  ${breached === 0 ? chalk.green('✓') : chalk.red('✖')} ${res.scans.length} scan(s), ${breached} guardrail failure(s)`);
   console.log();
+  return res.scans;
 }

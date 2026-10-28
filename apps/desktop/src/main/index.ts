@@ -1,7 +1,10 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { hostname } from 'os'
 import { DaemonClient, resolveDaemonPaths } from './daemon-client'
+import { CloudClient } from './cloud'
+import { fileSessionStore } from './session-store'
 
 let daemon: DaemonClient | null = null
 let daemonUnsub: (() => void) | null = null
@@ -180,6 +183,40 @@ ipcMain.handle('daemon-request', async (_event, method: string, params?: Record<
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 })
+
+// ─── threatcrush.com: sign-in + tracked findings ───
+// The renderer never sees a token: each handler is one narrow call, and
+// CloudClient validates ids, statuses and paths before anything is sent.
+
+let cloud: CloudClient | null = null
+const cloudClient = (): CloudClient => (cloud ??= new CloudClient(fileSessionStore()))
+const wrap = async <T>(fn: () => Promise<T> | T) => {
+  try {
+    return { ok: true as const, result: await fn() }
+  } catch (err) {
+    return { ok: false as const, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+ipcMain.handle('cloud-status', () => wrap(() => cloudClient().status()))
+ipcMain.handle('cloud-login', () => wrap(async () => {
+  const c = cloudClient()
+  const req = await c.startLogin(hostname())
+  // Only ever our own site: the URL comes from our API, but check anyway.
+  if (new URL(req.verification_url).origin === new URL(c.status().api).origin) await shell.openExternal(req.verification_url)
+  return { user_code: req.user_code, verification_url: req.verification_url }
+}))
+ipcMain.handle('cloud-login-wait', () => wrap(() => cloudClient().finishLogin()))
+ipcMain.handle('cloud-login-cancel', () => wrap(() => cloudClient().cancelLogin()))
+ipcMain.handle('cloud-logout', () => wrap(() => cloudClient().logout()))
+ipcMain.handle('cloud-orgs', () => wrap(() => cloudClient().orgs()))
+ipcMain.handle('cloud-use-org', (_e, id: unknown, slug: unknown) =>
+  wrap(() => cloudClient().useOrg(String(id), String(slug).slice(0, 100))))
+ipcMain.handle('cloud-findings', (_e, q: unknown) =>
+  wrap(() => cloudClient().findings((q && typeof q === 'object' ? q : {}) as Record<string, string>)))
+ipcMain.handle('cloud-finding', (_e, id: unknown) => wrap(() => cloudClient().finding(String(id))))
+ipcMain.handle('cloud-triage', (_e, ids: unknown, status: unknown, note: unknown) =>
+  wrap(() => cloudClient().triage(ids, status, note)))
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.threatcrush.desktop')

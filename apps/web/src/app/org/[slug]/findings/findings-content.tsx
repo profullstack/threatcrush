@@ -8,6 +8,7 @@ import { serverConnectionState } from "@/lib/server-status";
 import ConnectServerHint from "@/components/ConnectServerHint";
 import FixReportActions from "@/components/FixReportActions";
 import Link from "next/link";
+import ScanFindingsPanel from "./scan-findings-panel";
 
 interface Finding {
   id: string;
@@ -111,7 +112,7 @@ export default function FindingsContent({ slug }: { slug: string }) {
               </svg>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-white">Hardening Findings</h1>
+              <h1 className="text-2xl font-bold text-white">Findings</h1>
               <p className="text-sm text-zinc-500">{org.name}</p>
             </div>
           </div>
@@ -126,6 +127,9 @@ export default function FindingsContent({ slug }: { slug: string }) {
           </div>
         </div>
 
+        <ScanFindingsPanel orgId={org.id} canTriage={["owner", "admin", "member"].includes(org.user_role ?? "")} />
+
+        <h2 className="text-xl font-semibold text-white mb-4">Server hardening</h2>
         {serverFindings.length === 0 ? (
           <div className="rounded-lg bg-zinc-900 border border-zinc-800 p-12 text-center">
             <p className="text-zinc-400 text-lg mb-2">No servers connected</p>
