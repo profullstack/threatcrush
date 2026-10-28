@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdmin, slugify } from "@/lib/supabase";
+import { findDuplicates } from "@/lib/blog-dedupe";
 import { SITE_URL } from "@/lib/blog";
 import { pingWebSubHub } from "@/lib/websub";
 
@@ -99,9 +100,17 @@ export async function POST(req: NextRequest) {
       };
     });
 
+  // One topic, one post: anything that repeats an existing topic is dropped.
+  const duplicates = await findDuplicates(supabase, rows);
+  const fresh = rows.filter((_, i) => !duplicates[i]);
+  const skipped = rows.length - fresh.length;
+  if (!fresh.length) {
+    return NextResponse.json({ message: "Every article repeats an existing topic", count: 0, skipped });
+  }
+
   const { error: upsertErr } = await supabase
     .from("blog_posts")
-    .upsert(rows, { onConflict: "source,source_id" });
+    .upsert(fresh, { onConflict: "source,source_id" });
 
   if (upsertErr) {
     console.error("[outrank webhook] upsert failed:", upsertErr);
@@ -118,5 +127,5 @@ export async function POST(req: NextRequest) {
   // block the response or the upsert that just succeeded.
   void pingWebSubHub(`${SITE_URL}/blog/rss.xml`);
 
-  return NextResponse.json({ message: "Webhook processed successfully", count: rows.length });
+  return NextResponse.json({ message: "Webhook processed successfully", count: fresh.length, skipped });
 }

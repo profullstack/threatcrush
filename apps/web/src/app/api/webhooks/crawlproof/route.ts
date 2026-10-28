@@ -21,6 +21,7 @@ import { gatePost } from "@profullstack/autoblog/quality";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { SITE_URL } from "@/lib/blog";
 import { pingWebSubHub } from "@/lib/websub";
+import { findDuplicates } from "@/lib/blog-dedupe";
 
 function tokensMatch(a: string, b: string): boolean {
   const ab = Buffer.from(a);
@@ -109,6 +110,15 @@ export async function POST(req: NextRequest) {
     published_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
+
+  // One topic, one post: a regenerated keyword is refused, not published as -2.
+  const [duplicate] = await findDuplicates(supabase, [row]);
+  if (duplicate) {
+    return NextResponse.json(
+      { error: "duplicate topic", existing: `${SITE_URL}/blog/${duplicate}` },
+      { status: 409 },
+    );
+  }
 
   const { error: upsertErr } = await supabase
     .from("blog_posts")

@@ -69,6 +69,22 @@ export async function getPostBySlug(slug: string): Promise<BlogPost | null> {
   return (data as BlogPost) ?? null;
 }
 
+/** Where a merged post's slug now lives (blog_redirects), or null. */
+export async function redirectFor(slug: string): Promise<string | null> {
+  const supabase = tryGetAdmin();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("blog_redirects")
+    .select("to_slug")
+    .eq("from_slug", slug)
+    .maybeSingle();
+  if (error) {
+    console.error("[blog] redirect lookup error:", error);
+    return null;
+  }
+  return (data as { to_slug: string } | null)?.to_slug ?? null;
+}
+
 let slugCache: { at: number; slugs: Set<string> } | null = null;
 const SLUG_TTL_MS = 10 * 60_000;
 
