@@ -1,5 +1,6 @@
 import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { isPlaceholderEmail } from "@/lib/coinpay-signin";
 
 /**
  * Mirror auth.users.email_confirmed_at into user_profiles.email_verified.
@@ -15,6 +16,8 @@ export async function syncEmailVerifiedIfConfirmed(userId: string): Promise<bool
 
   const { data: authData, error: authErr } = await admin.auth.admin.getUserById(userId);
   if (authErr || !authData?.user?.email_confirmed_at) return false;
+  // A CoinPay sign-up's placeholder address is "confirmed" in GoTrue but proves nothing.
+  if (isPlaceholderEmail(authData.user.email)) return false;
 
   const { error: updErr } = await admin
     .from("user_profiles")

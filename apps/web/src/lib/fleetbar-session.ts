@@ -1,6 +1,7 @@
 import "server-only";
 import type { NextResponse } from "next/server";
 import { getSupabaseAdmin, getSupabaseClient } from "@/lib/supabase";
+import { identityForUser, isPlaceholderEmail } from "@/lib/coinpay-signin";
 
 /**
  * The <fleet-bar> panel (@profullstack/fleetbar) calls /api/fleetbar with
@@ -24,6 +25,8 @@ export function clearFleetbarCookie(res: NextResponse): NextResponse {
 export interface FleetbarUser {
   email: string;
   emailVerified: boolean;
+  /** The CoinPay sub bound to this account (Sign in with CoinPay), when linked. */
+  coinpaySub?: string;
 }
 
 function bearer(request: Request): string | null {
@@ -74,6 +77,14 @@ export async function getFleetbarUser(request: Request): Promise<FleetbarUser | 
     .eq("id", user.id)
     .maybeSingle();
 
-  const verified = profile?.email_verified === true || Boolean(user.email_confirmed_at);
-  return { email: user.email, emailVerified: verified };
+  // A CoinPay-created account's auth email is a placeholder nobody can prove,
+  // even though GoTrue marks it confirmed: never report it verified.
+  const placeholder = isPlaceholderEmail(user.email);
+  const verified = !placeholder && (profile?.email_verified === true || Boolean(user.email_confirmed_at));
+  const identity = await identityForUser(getSupabaseAdmin(), user.id);
+  return {
+    email: user.email,
+    emailVerified: verified,
+    ...(identity ? { coinpaySub: identity.sub } : {}),
+  };
 }

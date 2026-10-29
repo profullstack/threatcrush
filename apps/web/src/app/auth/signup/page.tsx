@@ -105,6 +105,18 @@ export default function SignupPage() {
             </div>
           )}
 
+          <a
+            href={`/api/v1/coinpay/oauth/start?next=${encodeURIComponent(nextPath)}`}
+            className="w-full flex items-center justify-center gap-2 bg-tc-green text-black font-bold py-3 rounded-lg hover:bg-tc-green-dim transition-all"
+          >
+            Sign up with CoinPay
+          </a>
+          <div className="flex items-center gap-3 my-2">
+            <span className="h-px flex-1 bg-tc-border" />
+            <span className="text-xs text-tc-text-dim">or create an account with email</span>
+            <span className="h-px flex-1 bg-tc-border" />
+          </div>
+
           {success && (
             <div className="bg-tc-green/10 border border-tc-green/30 text-tc-green rounded-lg px-4 py-3 text-sm">
               ✅ Account created! Redirecting to verification...

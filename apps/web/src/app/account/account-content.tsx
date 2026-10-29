@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import IncidentAlertsCard from "./incident-alerts-card";
+import CoinpayCard from "./coinpay-card";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { authHeaders } from "@/lib/auth-client";
@@ -337,7 +338,7 @@ export default function AccountContent() {
               <div>
                 <span className="text-sm text-tc-text-dim">Email</span>
                 <p className="text-white flex items-center gap-2">
-                  {profile?.email}
+                  {profile?.email?.endsWith("@coinpay.threatcrush.invalid") ? "None yet (signed up with CoinPay)" : profile?.email}
                   {profile?.email_verified ? (
                     <span className="text-xs bg-tc-green/10 text-tc-green px-2 py-0.5 rounded">✓ Verified</span>
                   ) : (
@@ -358,6 +359,8 @@ export default function AccountContent() {
               </div>
             </div>
           </div>
+
+          <CoinpayCard />
 
           {/* License Status */}
           <div className="bg-tc-card border border-tc-border rounded-xl p-6">

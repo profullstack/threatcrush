@@ -25,6 +25,7 @@ import "server-only";
  *
  * Clients are built lazily, so env vars are read at runtime, not inlined at build.
  */
+import { isPlaceholderEmail } from "@/lib/coinpay-signin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Credits, supabaseStore as creditStore, type Grant } from "@profullstack/redeem-credits";
 import { Affiliates, supabaseStore as affiliateStore } from "@profullstack/affiliates";
@@ -81,7 +82,8 @@ async function adminAuthUser(db: SupabaseClient, userId: string, now: number): P
   const bannedUntil = u.banned_until ? new Date(u.banned_until).getTime() : 0;
   return {
     email: u.email ?? null,
-    confirmed: Boolean(u.email_confirmed_at ?? u.confirmed_at),
+    // A CoinPay sign-up's placeholder address is confirmed in GoTrue but proves nothing.
+    confirmed: Boolean(u.email_confirmed_at ?? u.confirmed_at) && !isPlaceholderEmail(u.email),
     banned: Boolean(u.deleted_at) || bannedUntil > now,
     createdAt: u.created_at ?? null,
   };
