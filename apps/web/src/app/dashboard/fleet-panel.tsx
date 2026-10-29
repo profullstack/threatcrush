@@ -198,6 +198,7 @@ export default function FleetPanel({ addServerHref }: { addServerHref: string })
           <p className="text-xs text-zinc-600">
             Update and restart act on the ThreatCrush daemon only, never the server. Manage the servers themselves at{" "}
             <a href={W3BS_FLEET_URL} target="_blank" rel="noopener noreferrer" className="text-zinc-400 underline hover:text-green-400">w3bs.org/fleet</a>.
+            SSH and uptime checks for them live on <Link href="/fleet" className="text-zinc-400 underline hover:text-green-400">Fleet</Link>.
           </p>
         </div>
         <div className="flex items-center gap-3">

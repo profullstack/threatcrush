@@ -352,6 +352,9 @@ importers:
       '@profullstack/fleet':
         specifier: 0.1.0
         version: 0.1.0
+      '@profullstack/fleetbar':
+        specifier: 0.1.0
+        version: 0.1.0
       '@profullstack/footer':
         specifier: latest
         version: 0.4.0(react@19.3.1)
@@ -2279,6 +2282,10 @@ packages:
     resolution: {integrity: sha512-yZnmg5YQPAKctFPRZLHv0uUoIgxiRAtLPxM6SxnIQ87TAqYvRYBaG+avSemjRFJNK/9//36h4fFkV+/thXhpRw==}
     engines: {node: '>=20'}
     hasBin: true
+
+  '@profullstack/fleetbar@0.1.0':
+    resolution: {integrity: sha512-u9pk3iOVxx5pvl5SUf9JTFJeEAkp/muVo9RCqIi9rEjnqYhDkGCjoYpysIi+hWC+LDzHXrZskA0cG6EQJKRY+Q==}
+    engines: {node: '>=20'}
 
   '@profullstack/footer@0.4.0':
     resolution: {integrity: sha512-EJZnMUQmWDi9Gzx6BAjogloeaPFFSSCHtHJuC9dsXiOz8M87hfn6Z+Zx9AMYWk8s6xemPrPlkXKGB3PZugkcEA==}
@@ -9931,6 +9938,8 @@ snapshots:
   '@profullstack/emailer@1.0.3': {}
 
   '@profullstack/fleet@0.1.0': {}
+
+  '@profullstack/fleetbar@0.1.0': {}
 
   '@profullstack/footer@0.4.0(react@19.3.1)':
     optionalDependencies:
