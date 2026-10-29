@@ -346,6 +346,9 @@ importers:
       '@profullstack/autoblog':
         specifier: github:profullstack/autoblog#v0.4.0
         version: https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e
+      '@profullstack/contact-form':
+        specifier: 0.1.0
+        version: 0.1.0(react@19.3.1)
       '@profullstack/fleet':
         specifier: 0.1.0
         version: 0.1.0
@@ -361,9 +364,6 @@ importers:
       '@profullstack/redeem-credits':
         specifier: ^0.2.0
         version: 0.2.0
-      '@profullstack/stack':
-        specifier: ^0.5.0
-        version: 0.5.0(next@16.4.3(@opentelemetry/api@1.10.0)(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)
       '@profullstack/throttle':
         specifier: ^0.4.0
         version: 0.4.0
@@ -2263,6 +2263,15 @@ packages:
     version: 0.4.0
     engines: {node: '>=18'}
 
+  '@profullstack/contact-form@0.1.0':
+    resolution: {integrity: sha512-X+qnTk9MPG5EXDMCiRS/CI0DcQLZ7YVVnsnkN/EwThB5ZqPw8TgTYb7C0NzuJsQnO5f2GCBPxtRNiP+mpAXMDw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      react: '>=18.0.0'
+    peerDependenciesMeta:
+      react:
+        optional: true
+
   '@profullstack/emailer@1.0.3':
     resolution: {integrity: sha512-VyAtCcfnSI6LOwJvWogCr3ZNmEsaZw+iuWrqnosLsdcKsbRyCrCmXigMNZJZEjlgYlR+lK//PwNPG+xtCFvWAw==}
 
@@ -2281,8 +2290,8 @@ packages:
       react:
         optional: true
 
-  '@profullstack/form-guard@0.1.1':
-    resolution: {integrity: sha512-RGLGfQhjq40f+JqEhSmsJnS0I5sFWjYdrYx4VYtkUqz8xvioN2yyR+6uFK0mnDAStKrYytlngg3meUsrChm/OQ==}
+  '@profullstack/form-guard@0.3.0':
+    resolution: {integrity: sha512-/rn5xd4mMG6eXGe85BmPfhz7zz3mmsmNV7U6a1bNhATIpVtKKEUEGF4QPrFx8sg6YDtpFkzmvjNEaFJm3DbFxg==}
     engines: {node: '>=20'}
 
   '@profullstack/hqtui@0.11.0':
@@ -2324,21 +2333,6 @@ packages:
     peerDependencies:
       react: '>=18'
     peerDependenciesMeta:
-      react:
-        optional: true
-
-  '@profullstack/stack@0.5.0':
-    resolution: {integrity: sha512-LbXovIhyzLEq+a+y3q8KWC+jN1tJjvSoUiFEhpiEBisQn5U+iutIGHDgg16Lul74kQaFZeFlbp7CMPAVJ8KL6g==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@supabase/ssr': '>=0.5.0'
-      next: '>=13.0.0'
-      react: '>=18.0.0'
-    peerDependenciesMeta:
-      '@supabase/ssr':
-        optional: true
-      next:
-        optional: true
       react:
         optional: true
 
@@ -9927,6 +9921,13 @@ snapshots:
 
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e': {}
 
+  '@profullstack/contact-form@0.1.0(react@19.3.1)':
+    dependencies:
+      '@profullstack/emailer': 1.0.3
+      '@profullstack/form-guard': 0.3.0
+    optionalDependencies:
+      react: 19.3.1
+
   '@profullstack/emailer@1.0.3': {}
 
   '@profullstack/fleet@0.1.0': {}
@@ -9935,7 +9936,7 @@ snapshots:
     optionalDependencies:
       react: 19.3.1
 
-  '@profullstack/form-guard@0.1.1': {}
+  '@profullstack/form-guard@0.3.0': {}
 
   '@profullstack/hqtui@0.11.0': {}
 
@@ -9951,15 +9952,6 @@ snapshots:
 
   '@profullstack/referrals@0.1.0(react@19.3.1)':
     optionalDependencies:
-      react: 19.3.1
-
-  '@profullstack/stack@0.5.0(next@16.4.3(@opentelemetry/api@1.10.0)(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react@19.3.1)':
-    dependencies:
-      '@profullstack/emailer': 1.0.3
-      '@profullstack/form-guard': 0.1.1
-      '@profullstack/referrals': 0.1.0(react@19.3.1)
-    optionalDependencies:
-      next: 16.4.3(@opentelemetry/api@1.10.0)(@types/node@26.6.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       react: 19.3.1
 
   '@profullstack/throttle@0.4.0':

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { SITE_URL } from "@/lib/blog";
 import { HireForm } from "@/components/HireForm";
-import { contactGuard } from "@/lib/contact-guard";
+import { contact } from "@/lib/contact";
 import { CheckoutPanel } from "@/components/CheckoutPanel";
 import { PaymentNotice } from "@/components/PaymentNotice";
 import { findProduct, SCAN_PRICE_USD } from "@/lib/catalog";
@@ -99,8 +99,7 @@ const steps = [
 export const dynamic = "force-dynamic";
 
 export default async function HirePage() {
-  const token = contactGuard ? await contactGuard.issue() : null;
-  const guardFields = token ? contactGuard!.fields(token) : null;
+  const form = await contact.props();
   const scan = findProduct("scan");
   const { methods } = await availableMethods();
 
@@ -211,11 +210,7 @@ export default async function HirePage() {
             usually the same business day.
           </p>
           <div className="mt-6">
-            <HireForm
-              token={token}
-              tokenName={guardFields?.token.name ?? null}
-              honeypotName={guardFields?.honeypot.name ?? null}
-            />
+            <HireForm form={form} />
           </div>
         </section>
       </main>
