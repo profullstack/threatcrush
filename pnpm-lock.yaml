@@ -347,8 +347,8 @@ importers:
         specifier: github:profullstack/autoblog#v0.4.0
         version: https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e
       '@profullstack/contact-form':
-        specifier: 0.1.0
-        version: 0.1.0(react@19.3.1)
+        specifier: 0.3.0
+        version: 0.3.0(react@19.3.1)
       '@profullstack/fleet':
         specifier: 0.1.0
         version: 0.1.0
@@ -2263,8 +2263,8 @@ packages:
     version: 0.4.0
     engines: {node: '>=18'}
 
-  '@profullstack/contact-form@0.1.0':
-    resolution: {integrity: sha512-X+qnTk9MPG5EXDMCiRS/CI0DcQLZ7YVVnsnkN/EwThB5ZqPw8TgTYb7C0NzuJsQnO5f2GCBPxtRNiP+mpAXMDw==}
+  '@profullstack/contact-form@0.3.0':
+    resolution: {integrity: sha512-62O5dj6tp6y76hfLPkTQG5MALRT1TkNg/T2FhZjU4QviKf7/ft5GULaKSPzgaR938oHk8JSmPC/JiahTfrdiUA==}
     engines: {node: '>=20'}
     peerDependencies:
       react: '>=18.0.0'
@@ -9921,7 +9921,7 @@ snapshots:
 
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e': {}
 
-  '@profullstack/contact-form@0.1.0(react@19.3.1)':
+  '@profullstack/contact-form@0.3.0(react@19.3.1)':
     dependencies:
       '@profullstack/emailer': 1.0.3
       '@profullstack/form-guard': 0.3.0

@@ -62,7 +62,7 @@ export const contact = createContactForm({
   subject: (s) => `[ThreatCrush] New ${s.fields.topic ?? "general"} inquiry from ${s.name}`,
   submitLabel: "Request a scope",
   successMessage:
-    "Got it — talk soon. We'll come back with a scope and a fixed price, usually the same business day. If it's urgent, email hello@threatcrush.com.",
+    "Got it — talk soon. We'll come back with a scope and a fixed price, usually the same business day.",
   onSendError: "ignore",
   persist: async (s) => {
     const { data, error } = await getSupabase()
