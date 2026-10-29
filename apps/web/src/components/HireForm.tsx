@@ -13,7 +13,15 @@ export function HireForm({ form }: { form: ContactFormProps }) {
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-tc-green to-transparent opacity-40" />
 
       <div className="p-8">
-        <ContactForm {...form} className="tc-hire-form" idPrefix="hire" />
+        <ContactForm {...form} className="tc-hire-form" idPrefix="hire" resetLabel="Send another request">
+          <p className="mt-2 text-sm text-tc-text-dim">
+            If it&apos;s urgent, email{" "}
+            <a href="mailto:hello@threatcrush.com" className="text-tc-green hover:underline">
+              hello@threatcrush.com
+            </a>
+            .
+          </p>
+        </ContactForm>
         <p className="mt-4 text-xs text-tc-text-dim">
           Engagements start at $400 for a scan with human input and are priced per
           app. You get the number in writing before any work starts.
