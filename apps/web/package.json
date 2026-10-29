@@ -15,7 +15,7 @@
     "@profullstack/coinpay-onboard": "0.3.0",
     "@profullstack/contact-form": "0.3.1",
     "@profullstack/fleet": "0.1.0",
-    "@profullstack/fleetbar": "0.1.0",
+    "@profullstack/fleetbar": "0.2.0",
     "@profullstack/footer": "latest",
     "@profullstack/pluginstore": "^0.1.2",
     "@profullstack/profile": "0.1.6",
