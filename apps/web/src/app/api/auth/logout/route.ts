@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseClient } from "@/lib/supabase";
 import { clearSignupGrantCookie } from "@/lib/signup-grant";
+import { clearFleetbarCookie } from "@/lib/fleetbar-session";
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,8 +13,8 @@ export async function POST(req: NextRequest) {
     }
     // Drop any pending signup grant too, so logging out on a shared machine
     // does not leave a usable identity behind.
-    return clearSignupGrantCookie(NextResponse.json({ ok: true }));
+    return clearFleetbarCookie(clearSignupGrantCookie(NextResponse.json({ ok: true })));
   } catch {
-    return clearSignupGrantCookie(NextResponse.json({ ok: true }));
+    return clearFleetbarCookie(clearSignupGrantCookie(NextResponse.json({ ok: true })));
   }
 }

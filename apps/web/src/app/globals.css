@@ -449,3 +449,25 @@ body {
 .cf-reset:hover {
   text-decoration: underline;
 }
+
+/* The shared @profullstack/fleetbar panel on /fleet, in ThreatCrush colours.
+   The site is dark-only, so light and dark schemes get the same tokens.
+   Set on the element itself: its :host defaults beat anything inherited from
+   an ancestor, but lose to a rule matching the host from this stylesheet. */
+.fleetbar-theme fleet-bar {
+  --fleetbar-bg: var(--tc-darker);
+  --fleetbar-surface: var(--tc-card);
+  --fleetbar-fg: var(--tc-text);
+  --fleetbar-muted: var(--tc-text-dim);
+  --fleetbar-border: var(--tc-border);
+  --fleetbar-accent: var(--tc-green);
+  --fleetbar-accent-fg: var(--tc-darker);
+  --fleetbar-up: var(--tc-green);
+  --fleetbar-down: #f85149;
+  --fleetbar-paused: var(--tc-text-dim);
+  --fleetbar-pending: #d29922;
+  --fleetbar-radius: 0.5rem;
+  --fleetbar-gap: 1rem;
+  --fleetbar-font: inherit;
+  --fleetbar-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+}

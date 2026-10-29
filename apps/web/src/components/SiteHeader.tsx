@@ -39,7 +39,10 @@ export default function SiteHeader() {
           </a>
           <div className="hidden md:flex items-center gap-5 text-sm text-tc-text-dim">
             {signedIn && (
-              <a href="/dashboard" className="text-tc-green transition-colors">Dashboard</a>
+              <>
+                <a href="/dashboard" className="text-tc-green transition-colors">Dashboard</a>
+                <a href="/fleet" className="text-tc-green transition-colors">Fleet</a>
+              </>
             )}
             <a href="/store" className="text-tc-green transition-colors">Module Store</a>
             <a href="/blog" className="hover:text-tc-green transition-colors">Blog</a>
@@ -247,6 +250,7 @@ export default function SiteHeader() {
               {signedIn ? (
                 <>
                   <a href="/dashboard" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Dashboard</a>
+                  <a href="/fleet" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Fleet</a>
                   <a href="/account" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Account</a>
                   <a href="/dashboard/billing" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Credits &amp; Codes</a>
                   <a href="/invites" className="text-tc-green transition-colors" onClick={() => setMobileNavOpen(false)}>Invites</a>
