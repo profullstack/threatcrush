@@ -22,12 +22,17 @@ describe("hire page", () => {
     expect(read("src/components/SiteFooter.tsx")).toContain('href: "/hire"');
   });
 
-  it("submits inquiries to the shared contact route under the hire topic", () => {
+  it("renders the shared contact form, minted per render, under the hire topic", () => {
+    const page = read("src/app/hire/page.tsx");
     const form = read("src/components/HireForm.tsx");
+    const contact = read("src/lib/contact.ts");
 
-    expect(form).toContain('"use client"');
-    expect(form).toContain('fetch("/api/contact"');
-    expect(form).toContain('topic: "hire"');
+    expect(page).toContain("await contact.props()");
+    expect(page).toContain('export const dynamic = "force-dynamic"');
+    expect(form).toContain('from "@profullstack/contact-form/react"');
+    expect(contact).toContain('{ name: "topic", type: "hidden", value: "hire" }');
+    // A visible honeypot drops the real people who fill it in.
+    expect(read("src/app/globals.css")).toMatch(/\.cf-hp\s*\{[^}]*left:\s*-9999px/);
   });
 });
 
@@ -55,12 +60,9 @@ describe("pricing page", () => {
 
 describe("contact route", () => {
   it("keeps extra form fields by appending them to the persisted message", () => {
-    const route = read("src/app/api/contact/route.ts");
+    const contact = read("src/lib/contact.ts");
 
-    expect(route).toContain("messageWithExtras");
-    expect(route).toContain("message: messageWithExtras(s)");
-    // company and topic have their own columns, so they must not be duplicated
-    // into the message body.
-    expect(route).toMatch(/key !== "company" && key !== "topic"/);
+    expect(contact).toContain("message: messageWithExtras(s)");
+    expect(read("src/app/api/contact/route.ts")).toContain("contact.POST");
   });
 });
