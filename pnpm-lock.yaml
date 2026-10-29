@@ -347,8 +347,8 @@ importers:
         specifier: github:profullstack/autoblog#v0.4.0
         version: https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e
       '@profullstack/coinpay-onboard':
-        specifier: 0.3.0
-        version: 0.3.0
+        specifier: 0.3.1
+        version: 0.3.1
       '@profullstack/contact-form':
         specifier: 0.3.1
         version: 0.3.1(react@19.3.1)
@@ -2285,8 +2285,8 @@ packages:
     version: 0.4.0
     engines: {node: '>=18'}
 
-  '@profullstack/coinpay-onboard@0.3.0':
-    resolution: {integrity: sha512-IVYDD9a50H4GMfYg5uE42xiNthHj9CCuGs4xurntH3/r95yC+LcEqXwN3vrBGnlEIzdLJv/ZCNLHHZsAyVCeaQ==}
+  '@profullstack/coinpay-onboard@0.3.1':
+    resolution: {integrity: sha512-+K7D6uaX10y+0V5sg7To1jKwNG8iCNbN9SSW6q5ACzoiDNswMox3G7gzY/Swxd128klq7ecN2Ni4JVNr50nRIQ==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -8117,9 +8117,6 @@ packages:
     peerDependencies:
       zod: ^3.25.28 || ^4
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
   zod@4.6.7:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
@@ -9961,7 +9958,7 @@ snapshots:
 
   '@mdn/browser-compat-data@8.1.4': {}
 
-  '@modelcontextprotocol/sdk@1.32.2(zod@3.25.76)':
+  '@modelcontextprotocol/sdk@1.32.2(zod@4.6.7)':
     dependencies:
       '@hono/node-server': 2.1.5(hono@4.13.14)
       ajv: 8.20.0
@@ -9978,8 +9975,8 @@ snapshots:
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
       raw-body: 3.0.2
-      zod: 3.25.76
-      zod-to-json-schema: 3.25.2(zod@3.25.76)
+      zod: 4.6.7
+      zod-to-json-schema: 3.25.2(zod@4.6.7)
     transitivePeerDependencies:
       - supports-color
 
@@ -10140,10 +10137,10 @@ snapshots:
 
   '@profullstack/autoblog@https://codeload.github.com/profullstack/autoblog/tar.gz/4e1fc9b92b3ced88798f3fe076aab1c511f01e7e': {}
 
-  '@profullstack/coinpay-onboard@0.3.0':
+  '@profullstack/coinpay-onboard@0.3.1':
     dependencies:
-      '@modelcontextprotocol/sdk': 1.32.2(zod@3.25.76)
-      zod: 3.25.76
+      '@modelcontextprotocol/sdk': 1.32.2(zod@4.6.7)
+      zod: 4.6.7
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - supports-color
@@ -16489,11 +16486,9 @@ snapshots:
       normalize-path: 3.0.0
       readable-stream: 4.8.0
 
-  zod-to-json-schema@3.25.2(zod@3.25.76):
+  zod-to-json-schema@3.25.2(zod@4.6.7):
     dependencies:
-      zod: 3.25.76
-
-  zod@3.25.76: {}
+      zod: 4.6.7
 
   zod@4.6.7: {}
 
