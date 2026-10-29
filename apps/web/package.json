@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush-web",
-  "version": "0.8.16",
+  "version": "0.8.17",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,6 +12,7 @@
     "@iarna/toml": "^2.2.5",
     "@profullstack/affiliates": "^0.2.0",
     "@profullstack/autoblog": "github:profullstack/autoblog#v0.4.0",
+    "@profullstack/coinpay-onboard": "0.3.0",
     "@profullstack/contact-form": "0.3.1",
     "@profullstack/fleet": "0.1.0",
     "@profullstack/fleetbar": "0.1.0",

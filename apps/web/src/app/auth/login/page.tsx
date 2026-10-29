@@ -6,6 +6,13 @@ import { clearUrlHash, parseAuthRedirectHash, setAccessToken } from "@/lib/auth-
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { githubOAuthEnabled } from "@/lib/github-oauth";
 
+const COINPAY_ERRORS: Record<string, string> = {
+  coinpay_state: "That CoinPay sign-in expired or did not start here. Try again.",
+  coinpay_denied: "CoinPay sign-in was cancelled.",
+  coinpay_failed: "CoinPay sign-in failed. Try again.",
+  coinpay_unavailable: "Sign in with CoinPay is not available right now.",
+};
+
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,6 +30,8 @@ export default function LoginPage() {
     }
     // GoTrue sends a rejected email link (expired, already used) back here
     // with the reason in the hash; without this the page just looked normal.
+    const coinpayError = COINPAY_ERRORS[new URLSearchParams(window.location.search).get("error") ?? ""];
+    if (coinpayError) setError(coinpayError);
     const redirect = parseAuthRedirectHash(window.location.hash);
     if (redirect?.kind === "error") {
       setError(
@@ -122,6 +131,19 @@ export default function LoginPage() {
             </div>
           )}
 
+          <a
+            href={`/api/v1/coinpay/oauth/start?next=${encodeURIComponent(nextPath)}`}
+            className="w-full flex items-center justify-center gap-2 bg-tc-green text-black font-bold py-3 rounded-lg hover:bg-tc-green-dim transition-all"
+          >
+            Sign in with CoinPay
+          </a>
+
+          <div className="flex items-center gap-3 my-2">
+            <span className="h-px flex-1 bg-tc-border" />
+            <span className="text-xs text-tc-text-dim">or log in with email</span>
+            <span className="h-px flex-1 bg-tc-border" />
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-tc-text mb-1">Email</label>
             <input
@@ -149,7 +171,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-tc-green text-black font-bold py-3 rounded-lg hover:bg-tc-green-dim transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-tc-darker border border-tc-green/50 text-tc-green font-bold py-3 rounded-lg hover:bg-tc-green/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? "Logging in..." : "Log In"}
           </button>
