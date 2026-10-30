@@ -132,12 +132,13 @@ describe("POST /api/orgs/[id]/incidents", () => {
     expect(h.sms[0].headers["X-API-Key"]).toBe("smshub_test");
     expect(JSON.parse(h.sms[0].body).severity).toBe("critical");
     const text = JSON.parse(h.sms[0].body).message as string;
-    expect(text).toMatch(/^\[ThreatCrush HIGH\] Solana wallet drained on box1: Full-balance sweep 12 minutes after a new SSH key\. 1 finding\. https:\/\/.+\/ic\/[a-z0-9]+$/);
+    expect(text).toMatch(/^\[ThreatCrush HIGH\] Solana wallet drained on box1: Full-balance sweep 12 minutes after a new SSH key\. 1 finding\. https:\/\/.+\/ic\/[0-9]{6}$/);
     expect(text.length).toBeLessThanOrEqual(320);
+    expect(h.telnyx).toEqual([{ to: "+15550000001", text }]);
     const rows = h.db.tables.incident_notifications;
     expect(rows.filter((r) => r.user_id === U.muted)).toHaveLength(0);
     expect(rows.find((r) => r.user_id === U.reader && r.channel === "sms")).toMatchObject({ status: "skipped", detail: "phone not verified" });
-    expect(rows.find((r) => r.user_id === U.writer && r.channel === "sms")).toMatchObject({ status: "sent", detail: "smshub call" });
+    expect(rows.find((r) => r.user_id === U.writer && r.channel === "sms")).toMatchObject({ status: "sent", detail: "smshub call; Telnyx SMS sent" });
     expect(rows.find((r) => r.user_id === U.reader && r.channel === "email")).toMatchObject({ status: "skipped" });
     expect(h.db.tables.incidents[0].last_notified_at).toBeTruthy();
   });
@@ -266,10 +267,21 @@ describe("notify", () => {
     for (let i = 0; i < PAGES_PER_HOUR; i++) {
       h.db.tables.incident_notifications.push({ id: `n${i}`, incident_id: null, user_id: U.writer, channel: "sms", status: "sent", created_at: now });
     }
-    await notifyIncident({ id: "i1", org_id: ORG, team_id: TEAM, title: "t", severity: "critical", host: null, summary: "", findings_count: 0 }, h.db);
+    await notifyIncident({ id: "i1", org_id: ORG, team_id: TEAM, title: "t", severity: "medium", host: null, summary: "", findings_count: 0 }, h.db);
     expect(h.sms).toHaveLength(0);
     expect(h.emails).toHaveLength(1);
     expect(h.db.tables.incident_notifications.find((r) => r.incident_id === "i1" && r.channel === "sms")).toMatchObject({ status: "rate_limited" });
+  });
+
+  it("keeps sending SMS for critical pages after the routine page cap", async () => {
+    const now = new Date().toISOString();
+    for (let i = 0; i < PAGES_PER_HOUR; i++) {
+      h.db.tables.incident_notifications.push({ id: `n${i}`, incident_id: null, user_id: U.writer, channel: "sms", status: "sent", created_at: now });
+    }
+    await notifyIncident({ id: "critical-1", org_id: ORG, team_id: TEAM, title: "critical", severity: "critical", host: null, summary: "", findings_count: 0 }, h.db);
+    expect(h.sms).toHaveLength(1);
+    expect(h.telnyx).toHaveLength(1);
+    expect(h.db.tables.incident_notifications.find((r) => r.incident_id === "critical-1" && r.channel === "sms")).toMatchObject({ status: "sent" });
   });
 
   it("test-notify pages only the one person asked for, org admins only", async () => {

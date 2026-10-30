@@ -4,10 +4,11 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 
-/** Resolve a short code only for a caller who can read that incident. */
+/** Resolve a six-digit or legacy short code only for a caller who can read it. */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ code: string }> }) {
   const { code: raw } = await params;
-  if (!/^[a-z0-9]{10,40}$/i.test(raw)) {
+  const humanCode = /^[0-9]{6}$/.test(raw);
+  if (!humanCode && !/^[a-z0-9]{10,40}$/i.test(raw)) {
     return NextResponse.json({ error: "Incident not found" }, { status: 404 });
   }
 
@@ -15,10 +16,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
   const principal = await getPrincipal(req, admin);
   if (!principal) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const { data: incident } = await admin
-    .from("incidents")
+  const { data: incident } = await admin.from("incidents")
     .select("id, org_id, team_id")
-    .eq("short_code", raw.toLowerCase())
+    .eq(humanCode ? "human_code" : "short_code", humanCode ? raw : raw.toLowerCase())
     .maybeSingle();
   if (!incident || !(await incidentRoleOf(admin, principal, incident))) {
     // Unknown and unreadable incidents intentionally have the same response.

@@ -10,9 +10,10 @@ import { sendIncidentSms } from "./sms";
  * the org's owners and admins) who has not muted that team, by email (Resend)
  * when their notification_email is on and by SMS when they have a verified
  * phone and notification_sms is on. Each attempt is a row in
- * incident_notifications. At most PAGES_PER_HOUR sent pages per person per
- * channel; the caller decides WHEN to page (new incident, or escalation to
- * critical), so one incident pages once, not once per finding. Never throws.
+ * incident_notifications. Email and routine SMS pages are capped per person;
+ * critical/high SMS pages bypass the cap so urgent incidents aren't silenced.
+ * The caller decides WHEN to page (new incident or escalation), so one incident
+ * pages once, not once per finding. Never throws.
  */
 
 export const PAGES_PER_HOUR = 5;
@@ -28,6 +29,7 @@ export interface NotifyResult { sms: ChannelTally; email: ChannelTally; recipien
 export interface PageableIncident {
   id: string;
   short_code?: string;
+  human_code?: string;
   org_id: string;
   team_id: string | null;
   title: string;
@@ -55,9 +57,11 @@ function html(text: string): string {
 }
 
 export function buildPage(incident: PageableIncident, orgSlug: string | null, test = false): PageMessage {
-  const url = incident.short_code
-    ? `${appUrl()}/ic/${incident.short_code}`
-    : orgSlug ? `${appUrl()}/org/${orgSlug}/incidents/${incident.id}` : `${appUrl()}/dashboard`;
+  const url = incident.human_code
+    ? `${appUrl()}/ic/${incident.human_code}`
+    : incident.short_code
+      ? `${appUrl()}/ic/${incident.short_code}`
+      : orgSlug ? `${appUrl()}/org/${orgSlug}/incidents/${incident.id}` : `${appUrl()}/dashboard`;
   const sev = incident.severity.toUpperCase();
   const on = incident.host ? ` on ${incident.host}` : "";
   const n = incident.findings_count;
@@ -140,7 +144,7 @@ async function pagePerson(
   if (!profile.phone) record("sms", "skipped", "no phone number");
   else if (!profile.phone_verified) record("sms", "skipped", "phone not verified");
   else if (profile.notification_sms === false) record("sms", "skipped", "SMS alerts are off");
-  else if ((await sentLastHour(admin, profile.id, "sms")) >= PAGES_PER_HOUR) record("sms", "rate_limited", `${PAGES_PER_HOUR} pages an hour reached`);
+  else if (!isUrgentSeverity(msg.severity) && (await sentLastHour(admin, profile.id, "sms")) >= PAGES_PER_HOUR) record("sms", "rate_limited", `${PAGES_PER_HOUR} pages an hour reached`);
   else {
     const out = await sendIncidentSms(profile.phone, msg.sms, process.env, msg.severity);
     record("sms", out.ok ? "sent" : "failed", out.ok ? (out.detail ?? out.provider) : out.error.slice(0, 500));
@@ -148,6 +152,10 @@ async function pagePerson(
 
   const { error } = await admin.from("incident_notifications").insert(rows);
   if (error) console.error("[incidents] could not record notifications:", error.message);
+}
+
+function isUrgentSeverity(severity: string): boolean {
+  return severity === "critical" || severity === "high";
 }
 
 /** Who gets paged for an incident: user ids, after per-team mutes. */

@@ -45,6 +45,21 @@ export async function sendIncidentSms(
         } catch {
           // a 2xx without a JSON body still went out
         }
+        if (channels.includes("call") && !channels.includes("sms") && isTelnyxConfigured()) {
+          try {
+            // SMSHub can successfully place a call when its sender line is not
+            // registered for texting. Preserve that call, then deliver the
+            // text from ThreatCrush's configured Telnyx line.
+            await sendTelnyxSms(to, message);
+            return { ok: true, provider: "smshub", detail: "smshub call; Telnyx SMS sent" };
+          } catch (err) {
+            return {
+              ok: true,
+              provider: "smshub",
+              detail: `smshub call; Telnyx SMS failed: ${(err as Error).message.slice(0, 300)}`,
+            };
+          }
+        }
         return { ok: true, provider: "smshub", detail: channels.length ? `smshub ${channels.join("+")}` : "smshub" };
       }
       errors.push(`smshub HTTP ${res.status}${text ? `: ${text.slice(0, 160)}` : ""}`);

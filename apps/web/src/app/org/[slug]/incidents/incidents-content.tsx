@@ -13,6 +13,7 @@ import { Centered, SeverityBadge, Shell, STATUS_CLS, useOrg, when } from "./shar
 interface IncidentSummary {
   id: string;
   short_code: string;
+  human_code: string;
   title: string;
   severity: string;
   status: string;
@@ -101,7 +102,7 @@ export default function IncidentsContent({ slug }: { slug: string }) {
         <ul className="divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-zinc-900">
           {rows.map((r) => (
             <li key={r.id}>
-              <Link href={`/ic/${r.short_code}`} className="flex flex-col gap-1 p-4 hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:justify-between">
+              <Link href={`/ic/${r.human_code}`} className="flex flex-col gap-1 p-4 hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <SeverityBadge severity={r.severity} />

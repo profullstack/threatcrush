@@ -46,7 +46,7 @@ export default function IncidentAlertsCard() {
     <div className="bg-tc-card border border-tc-border rounded-xl p-6">
       <h2 className="text-lg font-semibold text-white mb-2">Incident alerts</h2>
       <p className="text-tc-text-dim text-sm mb-4">
-        When an incident is raised on one of your teams (by <code>threatcrush investigate --raise</code> or a critical daemon detection) you are paged once by email and SMS, at most 5 pages an hour per channel.
+        When an incident is raised on one of your teams (by <code>threatcrush investigate --raise</code> or a critical daemon detection) you are paged once by email and SMS. Email and routine SMS pages are limited to 5 per hour; critical and high SMS pages bypass that limit when SMS alerts are enabled.
       </p>
       {error && <p className="text-sm text-red-400 mb-2">{error}</p>}
       {s && (
