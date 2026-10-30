@@ -47,3 +47,11 @@ ee6f49d583b361f7fa669b35a0091d06ae2734ab:packages/scan/src/__tests__/false-posit
 c3e1392c4ca3c3267fa874e0fc5d2166b34de909:packages/scan/src/secret-rules.ts:aws-access-token:250
 c3e1392c4ca3c3267fa874e0fc5d2166b34de909:packages/scan/src/secret-rules.ts:aws-access-token:257
 c3e1392c4ca3c3267fa874e0fc5d2166b34de909:packages/scan/src/__tests__/context-severity.test.ts:generic-api-key:119
+
+# Exact scanner regression assertions, not issued private keys. These fixtures
+# contain a named dummy body or a deliberately truncated, unusable PEM body.
+# Keep the real private-key rule enabled everywhere, including all other tests.
+fb2680628b2e7bb3e786f51ad6ac531c7e2919e5:packages/scan/src/__tests__/pem-placeholder.test.ts:private-key:4
+2187b981cab1f4774727c604d4c7a6c0897a3144:scripts/test_github_repository_report.py:private-key:61
+2187b981cab1f4774727c604d4c7a6c0897a3144:scripts/test_github_repository_report.py:private-key:65
+2187b981cab1f4774727c604d4c7a6c0897a3144:scripts/test_github_repository_report.py:private-key:67

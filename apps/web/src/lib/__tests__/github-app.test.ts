@@ -154,6 +154,16 @@ describe("listInstallationRepos", () => {
 });
 
 describe("listTree", () => {
+  it("treats GitHub's explicit empty-repository response as no files", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ message: "Git Repository is empty." }, 409));
+    expect(await listTree("tok", "org/empty", "main", fetchImpl)).toEqual({ entries: [], truncated: false });
+  });
+  it("keeps other conflicts and access errors as failures", async () => {
+    for (const status of [409, 403, 404]) {
+      const fetchImpl = vi.fn(async () => jsonResponse({ message: "Other failure" }, status));
+      await expect(listTree("tok", "org/a", "main", fetchImpl)).rejects.toThrow();
+    }
+  });
   it("keeps only blobs and surfaces GitHub's truncation flag", async () => {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
