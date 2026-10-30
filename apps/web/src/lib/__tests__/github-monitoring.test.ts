@@ -56,6 +56,12 @@ describe("GitHub identities and pagination",()=>{
   const admin=db({github_monitoring_links:[{org_id:"org-1",allowed_owners:[{id:42}]}]});
   vi.mocked(fetch).mockResolvedValue(json([]));await expect(enableOwners(admin,"org-1",[42])).rejects.toThrow("Install");
  });
+ it("rejects metadata-only installations instead of claiming private-code coverage",async()=>{
+  const admin=db({github_monitoring_links:[{org_id:"org-1",allowed_owners:[{id:42}]}]});
+  vi.mocked(fetch).mockResolvedValue(json([{id:123,account:{id:42,login:"our-org"},permissions:{metadata:"read",pull_requests:"read"},repository_selection:"all"}]));
+  await expect(enableOwners(admin,"org-1",[42])).rejects.toThrow("Contents: Read");
+  expect(admin.tables.github_monitoring_owners??[]).toHaveLength(0);
+ });
 });
 
 describe("durable repository discovery",()=>{

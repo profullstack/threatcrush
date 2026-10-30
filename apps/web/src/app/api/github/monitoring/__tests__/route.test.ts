@@ -5,7 +5,7 @@ const state=vi.hoisted(()=>({principal:null as unknown,db:null as unknown}));
 const mocks=vi.hoisted(()=>({enable:vi.fn(),link:vi.fn(),installed:vi.fn(),sync:vi.fn(),worker:vi.fn()}));
 vi.mock("@/lib/access",async original=>({...await original<typeof import("@/lib/access")>(),getPrincipal:async()=>state.principal}));
 vi.mock("@/lib/supabase",()=>({getSupabaseAdmin:()=>state.db}));
-vi.mock("@/lib/github-monitoring",async original=>({...await original<typeof import("@/lib/github-monitoring")>(),enableOwners:mocks.enable,linkIdentity:mocks.link,installations:mocks.installed,discoverOwner:mocks.sync,runMonitoringJob:mocks.worker}));
+vi.mock("@/lib/github-monitoring",async original=>({...await original<typeof import("@/lib/github-monitoring")>(),enableOwners:mocks.enable,linkIdentity:mocks.link,installations:mocks.installed,monitoringAppAccess:async()=>({contents_read:true,permissions_url:"https://github.com/settings/apps/threatcrush/permissions"}),discoverOwner:mocks.sync,runMonitoringJob:mocks.worker}));
 import {POST,GET} from "../route";
 import {POST as worker} from "../worker/route";
 const org="11111111-1111-4111-8111-111111111111",other="22222222-2222-4222-8222-222222222222";

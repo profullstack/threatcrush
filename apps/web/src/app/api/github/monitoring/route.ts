@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getPrincipal, hashSecret, isOrgAdmin, newSecret, orgRoleOf } from "@/lib/access";
 import { isUuid } from "@/lib/incidents/report";
-import { enableOwners, installations, linkIdentity, discoverOwner, GitHubMonitorError, type GitHubOwner, type MonitoringOwner } from "@/lib/github-monitoring";
+import { enableOwners, installations, linkIdentity, discoverOwner, monitoringAppAccess, canReadContents, GitHubMonitorError, type GitHubOwner, type MonitoringOwner } from "@/lib/github-monitoring";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -56,8 +56,9 @@ export async function POST(req: NextRequest) {
       const links=await admin.from("github_monitoring_links").select("allowed_owners").eq("org_id",b.org_id);
       if(links.error)throw new Error("Could not load linked accounts");
       const allowed=new Set((links.data??[]).flatMap(l=>(l.allowed_owners as GitHubOwner[]).map(o=>o.id)));
-      const found=(await installations()).filter(i=>allowed.has(i.account.id)).map(i=>({id:i.id,account_id:i.account.id,login:i.account.login,selection:i.repository_selection,suspended:Boolean(i.suspended_at)}));
-      return response({installations:found});
+      const [all,app]=await Promise.all([installations(),monitoringAppAccess()]);
+      const found=all.filter(i=>allowed.has(i.account.id)).map(i=>({id:i.id,account_id:i.account.id,login:i.account.login,selection:i.repository_selection,suspended:Boolean(i.suspended_at),contents_read:canReadContents(i.permissions)}));
+      return response({installations:found,app});
     }
     if(b.action==="enable") {
       if(!Array.isArray(b.owner_ids)||!b.owner_ids.length||b.owner_ids.length>100||b.owner_ids.some((id:unknown)=>!Number.isSafeInteger(id)))return response({error:"Choose GitHub accounts or organizations"},400);

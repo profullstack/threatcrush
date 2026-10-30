@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createAppJwt, createInstallationToken, readAppCredentials } from "./github-app";
+import { createAppJwt, createInstallationToken, readAppCredentials, GitHubApiError } from "./github-app";
 import { classifyRepositoryFindings, type RepositoryFinding } from "./repository-warnings";
 import { scanRepository } from "./github-repo-scan";
 import { parseIncidentReport } from "./incidents/report";
@@ -9,7 +9,7 @@ import { pageable, upsertIncident } from "./incidents/store";
 import { notifyIncident } from "./incidents/notify";
 
 export type GitHubOwner = { id: number; login: string; type: string };
-export type GitHubInstallation = { id: number; account: GitHubOwner; repository_selection: string; suspended_at: string | null };
+export type GitHubInstallation = { id: number; account: GitHubOwner; repository_selection: string; suspended_at: string | null; permissions?: Record<string,string> };
 type GitHubRepo = { id: number; full_name: string; default_branch?: string; pushed_at: string | null; archived?: boolean };
 export type MonitoringOwner = { id: string; org_id: string; installation_id: number; account_id: number; account_login: string; enabled: boolean; silence_examples: boolean; silence_warnings: boolean; last_discovery_at: string | null };
 
@@ -41,6 +41,11 @@ export function appToken(): string {
   return createAppJwt(credentials.appId, credentials.privateKey, Math.floor(Date.now() / 1000));
 }
 export async function installations(): Promise<GitHubInstallation[]> { return githubPages("/app/installations", appToken()); }
+export const canReadContents = (permissions?: Record<string,string>) => permissions?.contents === "read" || permissions?.contents === "write";
+export async function monitoringAppAccess() {
+  const app = await githubRead<{ slug: string; owner: {login:string;type:string}; permissions: Record<string,string> }>("/app",appToken());
+  return { contents_read: canReadContents(app.permissions), permissions_url: app.owner.type === "Organization" ? `https://github.com/organizations/${app.owner.login}/settings/apps/${app.slug}/permissions` : `https://github.com/settings/apps/${app.slug}/permissions` };
+}
 
 /** Only personal ownership and verified active GitHub org admins authorize linking. */
 export async function verifyGitHubIdentity(token: string, fetcher: typeof fetch = fetch) {
@@ -67,12 +72,15 @@ export async function enableOwners(admin: SupabaseClient, orgId: string, ownerId
   const installed = await installations();
   const selected = installed.filter((i) => ownerIds.includes(i.account.id) && !i.suspended_at);
   if (selected.length !== new Set(ownerIds).size) throw new GitHubMonitorError(409, "Install the ThreatCrush GitHub App for the missing account/organization first, choosing All repositories");
+  if (selected.some(i=>!canReadContents(i.permissions))) throw new GitHubMonitorError(409,"GitHub App needs Contents: Read access. Enable that app permission and approve the updated installation before monitoring all repositories.");
   for (const i of selected) {
-    const recorded = await admin.from("github_installations").upsert({ installation_id: i.id, account_id: i.account.id, account_login: i.account.login, account_type: i.account.type, repository_selection: i.repository_selection, status: "active", updated_at: new Date().toISOString() }, { onConflict: "installation_id" });
+    const recorded = await admin.from("github_installations").upsert({ installation_id: i.id, account_id: i.account.id, account_login: i.account.login, account_type: i.account.type, repository_selection: i.repository_selection, permissions:i.permissions??{}, status: "active", updated_at: new Date().toISOString() }, { onConflict: "installation_id" });
     if (recorded.error) throw new Error("Could not record GitHub installation");
     const owner = await admin.from("github_monitoring_owners").upsert({ org_id: orgId, installation_id: i.id, account_id: i.account.id, account_login: i.account.login, enabled: true }, { onConflict: "org_id,installation_id" }).select("*").single();
     if (owner.error) throw new Error("Could not enable monitoring");
     await discoverOwner(admin, owner.data as MonitoringOwner);
+    const retry = await admin.from("github_monitoring_repositories").update({ status:"queued",error:null,next_scan_at:new Date().toISOString() }).eq("owner_id",owner.data.id).eq("status","failed");
+    if(retry.error)throw new Error("Could not requeue previously inaccessible repositories");
   }
 }
 
@@ -147,7 +155,8 @@ export async function runMonitoringJob(admin: SupabaseClient) {
     return { status, counts: classified.counts, truncated: result.truncated };
   } catch (e) {
     const retry = e instanceof GitHubMonitorError && (e.status === 403 || e.status === 429);
-    await admin.from("github_monitoring_repositories").update({ status: retry ? "queued" : "failed", lease_until: null, next_scan_at: new Date(Date.now() + 3600000).toISOString(), error: retry ? "Waiting for GitHub access or API quota" : "Scan failed; retry from account monitoring" }).eq("id", job.id);
+    const denied = e instanceof GitHubApiError && e.status===403;
+    await admin.from("github_monitoring_repositories").update({ status: retry ? "queued" : "failed", lease_until: null, next_scan_at: new Date(Date.now() + 3600000).toISOString(), error: retry ? "Waiting for GitHub access or API quota" : denied ? "GitHub App needs Contents: Read access. Review its installation permissions, then retry." : "Scan failed; retry from account monitoring" }).eq("id", job.id);
     return { status: retry ? "rate_limited" : "failed" };
   }
 }
