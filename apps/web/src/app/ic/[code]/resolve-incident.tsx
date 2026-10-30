@@ -15,7 +15,7 @@ export default function ResolveIncident({ code }: { code: string }) {
       window.location.replace(`/auth/login?next=${encodeURIComponent(path)}`);
       return;
     }
-    if (!/^[a-z0-9]{10,40}$/i.test(code)) {
+    if (!/^(?:[0-9]{6}|[a-z0-9]{10,40})$/i.test(code)) {
       setMessage("Incident not found or you do not have permission to read it.");
       return;
     }

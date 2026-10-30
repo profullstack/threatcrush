@@ -12,8 +12,9 @@ export function fakeDb(tables: Record<string, Row[]>) {
   const t = (name: string) => (tables[name] ??= []);
   const uniqueViolation = (name: string, row: Row, selfId?: unknown) =>
     name === "incidents" &&
-    row.status !== "resolved" &&
-    t(name).some((r) => r.id !== selfId && r.org_id === row.org_id && r.dedupe_key === row.dedupe_key && r.status !== "resolved");
+    ((row.human_code != null && t(name).some((r) => r.id !== selfId && r.human_code === row.human_code)) ||
+      (row.status !== "resolved" &&
+        t(name).some((r) => r.id !== selfId && r.org_id === row.org_id && r.dedupe_key === row.dedupe_key && r.status !== "resolved")));
 
   function from(name: string) {
     const filters: Array<(r: Row) => boolean> = [];

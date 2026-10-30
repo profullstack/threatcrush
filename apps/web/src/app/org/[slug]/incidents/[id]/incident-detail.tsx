@@ -9,7 +9,7 @@ interface Finding { id: string; module: string; severity: string; title: string;
 interface TimelineEntry { at: string; module: string; summary: string; evidence: boolean; ref?: string }
 interface Recommendation { action: string; target?: string; priority: "now" | "soon" | "later" }
 interface Incident {
-  id: string; short_code: string; title: string; severity: string; status: string; source: string; host: string | null;
+  id: string; short_code: string; human_code: string; title: string; severity: string; status: string; source: string; host: string | null;
   summary: string; verdict: string | null; team_id: string | null; team_name: string | null;
   assignee_id: string | null; assignee_name: string | null; raise_count: number;
   findings: Finding[]; timeline: TimelineEntry[]; recommendations: Recommendation[];
@@ -111,7 +111,7 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
           </div>
           <h1 className="mt-1 text-2xl font-bold text-white break-words">{inc.title}</h1>
           <p className="text-xs text-zinc-500">
-            Short link: <Link href={`/ic/${inc.short_code}`} className="font-mono text-zinc-300 hover:text-white">threatcrush.com/ic/{inc.short_code}</Link>
+            Short link: <Link href={`/ic/${inc.human_code}`} className="font-mono text-zinc-300 hover:text-white">threatcrush.com/ic/{inc.human_code}</Link>
           </p>
           <p className="text-sm text-zinc-500">
             {inc.host ? `${inc.host} · ` : ""}{inc.team_name ?? "no team"} · {inc.source} · first {when(inc.first_seen_at)} · last {when(inc.last_seen_at)}

@@ -1,5 +1,5 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   atLeast,
@@ -32,6 +32,7 @@ export { IncidentError } from "./report";
 export interface IncidentRow {
   id: string;
   short_code: string;
+  human_code: string;
   org_id: string;
   team_id: string | null;
   server_id: string | null;
@@ -67,7 +68,7 @@ export interface RaiseOutcome {
 }
 
 const SUMMARY_COLUMNS =
-  "id, short_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
+  "id, short_code, human_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
 const MAX_NOTE = 4000;
 
 function incidentShortCode(title: string, id: string): string {
@@ -75,10 +76,21 @@ function incidentShortCode(title: string, id: string): string {
   return `${prefix}${id.replace(/-/g, "").slice(-14)}`;
 }
 
+async function availableHumanCode(admin: SupabaseClient): Promise<string> {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
+    const { data, error } = await admin.from("incidents").select("id").eq("human_code", code).maybeSingle();
+    if (error) throw new Error(`incident code lookup: ${error.message}`);
+    if (!data) return code;
+  }
+  throw new Error("could not allocate a unique six-digit incident code");
+}
+
 export function pageable(row: IncidentRow): PageableIncident {
   return {
     id: row.id,
     short_code: row.short_code,
+    human_code: row.human_code,
     org_id: row.org_id,
     team_id: row.team_id,
     title: row.title,
@@ -140,36 +152,46 @@ export async function upsertIncident(
   let existing = await live();
   if (!existing) {
     const id = randomUUID();
-    const { data, error } = await admin
-      .from("incidents")
-      .insert({
-        id,
-        short_code: incidentShortCode(report.title, id),
-        org_id: orgId,
-        team_id: teamId,
-        server_id: report.server_id,
-        title: report.title,
-        severity: report.severity,
-        source: report.source,
-        dedupe_key: report.dedupe_key,
-        summary: report.summary,
-        verdict: report.verdict,
-        host: report.host,
-        findings: report.findings,
-        timeline: report.timeline,
-        recommendations: report.recommendations,
-        created_by_user: by.userId,
-        created_by_agent_key: by.agentKeyId,
-        first_seen_at: now,
-        last_seen_at: now,
-      })
-      .select("*")
-      .single();
-    if (!error && data) return { incident: data as IncidentRow, created: true, page: true };
-    // Lost a race with a concurrent raise of the same key: fold into theirs.
-    if ((error as { code?: string } | null)?.code !== "23505") throw new Error(`incident insert: ${error?.message}`);
-    existing = await live();
-    if (!existing) throw new Error("incident insert conflicted but no live incident was found");
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const humanCode = await availableHumanCode(admin);
+      const { data, error } = await admin
+        .from("incidents")
+        .insert({
+          id,
+          short_code: incidentShortCode(report.title, id),
+          human_code: humanCode,
+          org_id: orgId,
+          team_id: teamId,
+          server_id: report.server_id,
+          title: report.title,
+          severity: report.severity,
+          source: report.source,
+          dedupe_key: report.dedupe_key,
+          summary: report.summary,
+          verdict: report.verdict,
+          host: report.host,
+          findings: report.findings,
+          timeline: report.timeline,
+          recommendations: report.recommendations,
+          created_by_user: by.userId,
+          created_by_agent_key: by.agentKeyId,
+          first_seen_at: now,
+          last_seen_at: now,
+        })
+        .select("*")
+        .single();
+      if (!error && data) return { incident: data as IncidentRow, created: true, page: true };
+      // A concurrent raise of the same dedupe key should fold into its row.
+      if ((error as { code?: string } | null)?.code !== "23505") throw new Error(`incident insert: ${error?.message}`);
+      existing = await live();
+      if (existing) break;
+      const { data: collision, error: collisionError } = await admin
+        .from("incidents").select("id").eq("human_code", humanCode).maybeSingle();
+      if (collisionError) throw new Error(`incident code collision check: ${collisionError.message}`);
+      if (collision) continue;
+      throw new Error(`incident insert: ${error?.message}`);
+    }
+    if (!existing) throw new Error("incident code allocation retries exhausted");
   }
 
   const merged = mergeReport(existing, report);
