@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -32,7 +33,35 @@ def severity(result, rules):
     return {"error": "high", "warning": "medium", "note": "low", "none": "info"}.get(result.get("level"), "medium")
 
 
-def metadata(result, rules):
+def verified_pem_placeholder(file, line, root):
+    """A named dummy PEM body is evidence; a test/example path alone is not."""
+    try:
+        base = Path(root).resolve()
+        path = (base / file).resolve()
+        if not path.is_relative_to(base) or not path.is_file():
+            return False
+        with path.open(encoding="utf8", errors="replace") as handle:
+            text = handle.read(262145)
+        if len(text) > 262144:
+            return False
+        lines = text.splitlines()
+        first = lines[line - 1]
+        header = re.search(r"-----BEGIN ((?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?)-----", first)
+        if not header:
+            return False
+        tail = "\n".join([first[header.end():]] + lines[line:line + 20]).replace("\\n", "\n")
+        footer = "-----END " + header.group(1) + "-----"
+        end = tail.find(footer)
+        if end < 0:
+            return False
+        # Exact, known dummy bodies only. A base64 body, a missing footer, or
+        # any extra material stays critical even inside an example file.
+        return tail[:end].strip().lower() in ("your-pem-body-here", "your-private-key-here", "your-private-key-body-here")
+    except (OSError, IndexError, ValueError):
+        return False
+
+
+def metadata(result, rules, source_root="."):
     physical = result["locations"][0]["physicalLocation"]
     file = physical["artifactLocation"]["uri"]
     rule = result["ruleId"]
@@ -42,7 +71,13 @@ def metadata(result, rules):
     fingerprint = result.get("partialFingerprints", {}).get("threatcrush/contentHash/v1")
     if not fingerprint:
         fingerprint = hashlib.sha256(f"{rule}\n{file}\n{content}".encode()).hexdigest()[:32]
-    return {"ruleId": rule, "file": file, "line": max(1, physical.get("region", {}).get("startLine", 1)), "severity": severity(result, rules), "fingerprint": fingerprint}
+    line = max(1, physical.get("region", {}).get("startLine", 1))
+    detected = severity(result, rules)
+    if rule == "secret-private-key" and detected == "critical" and verified_pem_placeholder(file, line, source_root):
+        detected = "low"
+        result.setdefault("properties", {}).update({"severity": "low", "originalSeverity": "critical", "classification": "verified-placeholder"})
+        result["message"] = {"text": "Private-key example contains an explicit placeholder body, not key material"}
+    return {"ruleId": rule, "file": file, "line": line, "severity": detected, "fingerprint": fingerprint}
 
 
 def example(file):
@@ -58,7 +93,7 @@ def report(log, env, submit=None):
         rules = {r["id"]: r for r in run.get("tool", {}).get("driver", {}).get("rules", [])}
         for r in run["results"]:
             results.append(r)
-            metas.append(metadata(r, rules))
+            metas.append(metadata(r, rules, env.get("GITHUB_WORKSPACE", ".")))
     visible, failed, connected = list(range(len(results))), False, False
     if env.get("THREATCRUSH_REPO_TOKEN"):
         try:
