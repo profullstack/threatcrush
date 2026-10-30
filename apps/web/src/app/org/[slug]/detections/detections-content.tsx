@@ -18,6 +18,7 @@ interface Detection {
   description: string | null;
   source_ip: string | null;
   username: string | null;
+  raw_metadata: Record<string, unknown> | null;
   detected_at: string;
   last_detected_at: string | null;
   occurrences: number | null;
@@ -46,6 +47,19 @@ const STATUS_COLORS: Record<string, string> = {
   acknowledged: "text-yellow-400",
   resolved: "text-green-400",
 };
+
+function systemAccountOf(detection: Detection): { name: string | null; uid: string | null } {
+  const metadata = detection.raw_metadata;
+  const evidence = metadata && typeof metadata.evidence === "object" && metadata.evidence !== null
+    ? metadata.evidence as Record<string, unknown>
+    : metadata;
+  const name = typeof evidence?.system_account === "string" && evidence.system_account
+    ? evidence.system_account
+    : null;
+  const rawUid = evidence?.system_uid;
+  const uid = typeof rawUid === "string" || typeof rawUid === "number" ? String(rawUid) : null;
+  return { name, uid };
+}
 
 export default function DetectionsContent({ slug, highlightId }: { slug: string; highlightId: string | null }) {
   const { signedIn, loading: authLoading } = useAuth();
@@ -156,6 +170,7 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
     const highlighted = d.id === highlightId;
     const count = d.occurrences ?? 1;
     const lastSeen = d.last_detected_at ?? d.detected_at;
+    const systemAccount = systemAccountOf(d);
     return (
       <div key={d.id} id={`detection-${d.id}`}
         className={`rounded-lg bg-zinc-900 border p-4 transition-colors ${
@@ -188,6 +203,11 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
               </span>
               {d.source_ip && <span>IP: <code className="text-zinc-400">{d.source_ip}</code></span>}
               {d.username && <span>User: <code className="text-zinc-400">{d.username}</code></span>}
+              {(systemAccount.name || systemAccount.uid) && (
+                <span>System account: <code className="text-zinc-400">
+                  {systemAccount.name ?? "unknown"}{systemAccount.uid ? ` (uid ${systemAccount.uid})` : ""}
+                </code></span>
+              )}
               <span>{count > 1 ? "First " : ""}{new Date(d.detected_at).toLocaleString()}</span>
               {count > 1 && <span>Last seen {new Date(lastSeen).toLocaleString()}</span>}
             </div>

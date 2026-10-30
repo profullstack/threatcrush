@@ -148,10 +148,20 @@ export function sshdPeerIp(message: string): string | null {
 export function classifySshAuth(entry: AuthLogEntry): SshAuthVerdict | null {
   const { ip, user, message } = entry.fields;
   if (/failed password/i.test(message)) {
-    return { severity: 'high', message: `Failed SSH login for ${user || 'unknown'} from ${ip || 'unknown'}`, source_ip: ip };
+    return {
+      severity: 'high',
+      message: `Failed SSH login for ${user || 'unknown'} from ${ip || 'unknown'}`,
+      source_ip: ip,
+      ...(user ? { details: { user } } : {}),
+    };
   }
   if (/invalid user/i.test(message)) {
-    return { severity: 'high', message: `Invalid SSH user: ${user || 'unknown'} from ${ip || 'unknown'}`, source_ip: ip };
+    return {
+      severity: 'high',
+      message: `Invalid SSH user: ${user || 'unknown'} from ${ip || 'unknown'}`,
+      source_ip: ip,
+      ...(user ? { details: { user } } : {}),
+    };
   }
   if (/accepted/i.test(message)) {
     const login = parseAcceptedLogin(message);
@@ -160,7 +170,7 @@ export function classifySshAuth(entry: AuthLogEntry): SshAuthVerdict | null {
       severity: 'info',
       message: `SSH login accepted for ${login?.user || user || 'unknown'}`,
       source_ip: sourceIp,
-      ...(login ? { details: { ssh_user: login.user, auth_method: login.method, port: login.port, ...(login.key_type ? { key_type: login.key_type } : {}), ...(login.fingerprint ? { fingerprint: login.fingerprint } : {}) } } : {}),
+      ...(login ? { details: { user: login.user, ssh_user: login.user, auth_method: login.method, port: login.port, ...(login.key_type ? { key_type: login.key_type } : {}), ...(login.fingerprint ? { fingerprint: login.fingerprint } : {}) } } : {}),
     };
   }
   return null;

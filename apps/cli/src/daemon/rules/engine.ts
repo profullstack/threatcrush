@@ -80,7 +80,11 @@ function expire(window: EventWindow, now: number): void {
 
 const EVIDENCE_MESSAGE_CHARS = 500;
 const EVIDENCE_FIELD_CHARS = 200;
-const EVIDENCE_FIELDS = ['unit', 'identifier', 'process', 'comm', 'pid', 'user', 'path', 'method', 'status', 'host', 'priority'] as const;
+const EVIDENCE_FIELDS = [
+  'unit', 'identifier', 'process', 'comm', 'pid', 'user', 'ssh_user', 'username', 'account', 'runas', 'command',
+  'system_account', 'system_uid', 'fingerprint', 'key_type', 'auth_method', 'port',
+  'path', 'method', 'status', 'host', 'priority',
+] as const;
 
 /**
  * The event that tipped a rule over its threshold, small enough to upload:
@@ -208,7 +212,7 @@ export class RuleEngine {
         title: rule.title,
         description: `${rule.description} (${hitsLabel} events in ${rule.window_seconds}s${spread})`,
         source_ip: aggregate ? undefined : event.source_ip,
-        username: event.details?.user as string || undefined,
+        username: (event.details?.user ?? event.details?.ssh_user ?? event.details?.username ?? event.details?.account) as string || undefined,
         raw_metadata: {
           rule_version: rule.version,
           tags: rule.tags,
