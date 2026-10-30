@@ -159,6 +159,13 @@ jobs:
           JSON
           fi
 
+      - name: Build the report and apply account warning settings
+        if: always()
+        run: python3 .github/threatcrush-report.py
+        env:
+          SCAN_STATUS: ${{ steps.scan.outputs.status }}
+          THREATCRUSH_REPO_TOKEN: ${{ secrets.THREATCRUSH_REPO_TOKEN }}
+
       - name: Upload to the Security tab
         if: always() && 'true' == 'true'
         continue-on-error: true
@@ -166,80 +173,6 @@ jobs:
         with:
           sarif_file: threatcrush.sarif
           category: threatcrush
-
-      - name: Build the report
-        if: always()
-        run: |
-          python3 << 'PYEOF'
-          import json, os
-
-          status = os.environ.get("SCAN_STATUS", "")
-          try:
-              with open("threatcrush.sarif") as handle:
-                  results = json.load(handle)["runs"][0]["results"]
-          except Exception as err:
-              results = None
-              print(f"::warning::could not read SARIF: {err}")
-
-          lines = ["## ThreatCrush Security Scan", ""]
-
-          # Fail closed: render findings only on positive evidence that a scan
-          # completed. Testing for `status == "error"` was fail-open and got
-          # caught immediately — when the capability check failed, the scan
-          # step was *skipped*, so `status` was the empty string rather than
-          # "error", and the comment cheerfully reported "0 findings" for a
-          # scan that never started. Any state that is not a known-good
-          # outcome is NOT RUN.
-          if status not in ("clean", "findings") or results is None:
-              # Never render "no issues found" for a scan that did not finish.
-              # An unexamined diff is not a clean one, and the two are
-              # indistinguishable to whoever reads the comment.
-              lines += [
-                  "**NOT RUN** — the scan did not complete, so this diff was not examined.",
-                  "This is not a clean result. See the job log.",
-              ]
-          else:
-              counts = {"error": 0, "warning": 0, "note": 0}
-              for result in results:
-                  level = result.get("level", "warning")
-                  if level in counts:
-                      counts[level] += 1
-
-              lines.append(f"**{len(results)}** finding(s)")
-              lines.append("")
-
-              if results:
-                  badges = []
-                  if counts["error"]:
-                      badges.append(f"**HIGH/CRITICAL**: {counts['error']}")
-                  if counts["warning"]:
-                      badges.append(f"**MEDIUM**: {counts['warning']}")
-                  if counts["note"]:
-                      badges.append(f"**LOW**: {counts['note']}")
-                  if badges:
-                      lines += [" | ".join(badges), ""]
-
-                  lines += ["| Severity | Rule | Location |", "|---|---|---|"]
-                  for result in results[:50]:
-                      location = result["locations"][0]["physicalLocation"]
-                      uri = location["artifactLocation"]["uri"]
-                      line_no = location.get("region", {}).get("startLine", 1)
-                      label = {"error": "HIGH", "warning": "MEDIUM", "note": "LOW"}.get(
-                          result.get("level", "warning"), "INFO"
-                      )
-                      lines.append(f"| {label} | `{result.get('ruleId','?')}` | `{uri}`:{line_no} |")
-                  if len(results) > 50:
-                      # Say so. A silent truncation reads as "that was everything".
-                      lines += ["", f"_…and {len(results) - 50} more. Full results in the Security tab._"]
-                  lines += ["", "Snippets are redacted; ThreatCrush never prints matched credential material."]
-              else:
-                  lines.append("No findings.")
-
-          with open(os.environ["RUNNER_TEMP"] + "/threatcrush-comment.md", "w") as handle:
-              handle.write("\n".join(lines) + "\n")
-          PYEOF
-        env:
-          SCAN_STATUS: ${{ steps.scan.outputs.status }}
 
       - name: Write report to job summary
         if: always()

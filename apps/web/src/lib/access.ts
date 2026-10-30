@@ -85,7 +85,7 @@ export async function orgRoleOf(admin: SupabaseClient, p: Principal, orgId: stri
   return (data?.role as OrgRole | undefined) ?? null;
 }
 
-const isOrgAdmin = (role: OrgRole | null) => role === "owner" || role === "admin";
+export const isOrgAdmin = (role: OrgRole | null) => role === "owner" || role === "admin";
 
 /**
  * The caller's role on an org's scan findings (scan, pentest, ai-scan). They
