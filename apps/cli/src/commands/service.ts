@@ -5,6 +5,8 @@ import { homedir } from 'node:os';
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
 import { daemonNodeProblem, versionOfNode } from '../core/node-runtime.js';
+import { loadConfig } from '../core/config.js';
+import { commandHistorySettings, historyWritableHomes } from '../daemon/workers/command-history.js';
 
 const UNIT_PATH = '/etc/systemd/system/threatcrushd.service';
 export const DAEMON_UNIT_NAME = 'threatcrushd.service';
@@ -92,12 +94,14 @@ export function execStartCommand(binPath: string, nodePath: string, isNodeScript
  */
 export function renderUnit(
   template: string,
-  opts: { exec: string; binPath: string; configDir: string },
+  opts: { exec: string; binPath: string; configDir: string; historyPaths?: string[] },
 ): string {
   return template
     .replaceAll('{{BIN_PATH}} daemon', opts.exec)
     .replaceAll('{{BIN_PATH}}', opts.binPath)
-    .replaceAll('{{CONFIG_DIR}}', opts.configDir);
+    .replaceAll('{{CONFIG_DIR}}', opts.configDir)
+    .replaceAll('{{HISTORY_PATHS}}', (opts.historyPaths ?? []).map((path) => `-${path}`).join(' '))
+    .replace(/ReadWritePaths=([^\n]*)/, (_line, paths: string) => `ReadWritePaths=${paths.split(/\s+/).filter(Boolean).join(' ')}`);
 }
 
 /**
@@ -288,7 +292,9 @@ export async function installServiceCommand(): Promise<void> {
   // The daemon runs as root under the unit, so its session lives in root's
   // ~/.threatcrush. It must be writable or the cloud token refresh hits EROFS.
   const configDir = join(homedir(), '.threatcrush');
-  const unit = renderUnit(resolveTemplate(), { exec, binPath, configDir });
+  const commandHistoryEnabled = commandHistorySettings(loadConfig().command_history).enabled;
+  const historyPaths = commandHistoryEnabled ? historyWritableHomes() : [];
+  const unit = renderUnit(resolveTemplate(), { exec, binPath, configDir, historyPaths });
   writeFileSync(UNIT_PATH, unit, { mode: 0o644 });
   console.log(chalk.green(`  ✓ Installed unit file: ${UNIT_PATH}`));
   console.log(chalk.dim(`    ExecStart=${exec}`));

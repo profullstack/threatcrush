@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadConfig, loadDaemonConfig } from '../config.js';
+import { generateDefaultConfig, loadConfig, loadDaemonConfig, parseConfigText } from '../config.js';
 
 const GOOD = '[remediation]\nbackend = "nftables"\nprotected = ["23.95.228.174"]\n';
 // What a bad edit left on dev2 on 2026-10-28: a section written twice.
@@ -33,5 +33,13 @@ describe('a config file that does not parse', () => {
     let seen: Error | null = null;
     loadConfig(conf, (e) => { seen = e; });
     expect(seen).not.toBeNull();
+  });
+});
+
+describe('command history configuration', () => {
+  it('defaults to disabled and accepts explicit opt-in', () => {
+    expect(loadConfig(join(tmpdir(), 'missing-threatcrushd.conf')).command_history?.enabled).toBeUndefined();
+    expect(parseConfigText('[command_history]\nenabled = true\n').command_history?.enabled).toBe(true);
+    expect(generateDefaultConfig([])).toContain('[command_history]\nenabled = false');
   });
 });

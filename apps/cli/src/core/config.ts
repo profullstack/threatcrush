@@ -60,6 +60,7 @@ export function parseConfigText(raw: string): ThreatCrushConfig {
     update: parsed.update,
     threat_feeds: parsed.threat_feeds,
     privileged: parsed.privileged,
+    command_history: parsed.command_history,
     lightning: parsed.lightning,
     storage: parsed.storage,
     // TOML's `[abuse-reporter]` parses to a hyphenated key; expose it under
@@ -139,6 +140,7 @@ export function generateDefaultConfig(detectedServices: string[]): string {
     // when the section is absent.
     cloud: { enabled: true, min_severity: 'medium' },
     update: { auto: true, interval: '6h', min_age: '2h' },
+    command_history: { enabled: false },
     // Reporting to shared reputation feeds (PRD 0015). On by default but inert
     // until a key is set: nothing is reported without ABUSEIPDB_API_KEY or the
     // key below, and only corroborated, handshake-verified sources ever are.
