@@ -84,6 +84,7 @@ const EVIDENCE_FIELDS = [
   'unit', 'identifier', 'process', 'comm', 'pid', 'user', 'ssh_user', 'username', 'account', 'runas', 'command',
   'system_account', 'system_uid', 'fingerprint', 'key_type', 'auth_method', 'port',
   'path', 'method', 'status', 'host', 'priority',
+  'boot_id', 'journal_cursor', 'audit_session', 'login_uid', 'source_ip_basis',
 ] as const;
 
 /**

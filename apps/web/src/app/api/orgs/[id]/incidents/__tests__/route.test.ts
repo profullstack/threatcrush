@@ -235,11 +235,35 @@ describe("GET + PATCH", () => {
     expect((await patch({ assignee_id: U.owner })).status).toBe(400); // owner is not on the team
     expect((await patch({ status: "closed" })).status).toBe(400);
     expect((await patch({})).status).toBe(400);
-    expect((await patch({ status: "resolved" })).status).toBe(200);
+    expect((await patch({ status: "resolved" })).status).toBe(400);
+    expect(h.db.tables.incidents[0].status).toBe("acknowledged");
+    const resolution = { reason: "Rejected unauthenticated packet", action: "No credential change needed", verification: "Reviewed the connection logs; no accepted login" };
+    expect((await patch({ status: "resolved", resolution: { ...resolution, verification: "" } })).status).toBe(400);
+    expect((await patch({ status: "resolved", resolution: { ...resolution, actor_user_id: U.owner } })).status).toBe(200);
+    expect(h.db.tables.incidents[0].resolution).toMatchObject({ ...resolution, actor_user_id: U.writer, actor_agent_key_id: null });
     const detail = await (await one.GET(req(undefined, "GET"), c)).json();
     expect(detail.incident.status).toBe("resolved");
     expect(detail.notes[0].author_name).toBe(U.writer.slice(-1));
     expect(detail.members.map((m: { user_id: string }) => m.user_id)).toContain(U.reader);
+  });
+
+  it("reads only linked detection evidence from the incident organization and server", async () => {
+    const { incident } = await (await POST(req(report()), ctx)).json();
+    const row = h.db.tables.incidents[0];
+    const a = "00000000-0000-4000-8000-000000000001";
+    const b = "00000000-0000-4000-8000-000000000002";
+    const c = "00000000-0000-4000-8000-000000000003";
+    row.server_id = "server-one";
+    row.timeline = [a,b,c].map((id) => ({ at: "2026-10-30T17:00:00Z", module: "daemon", summary: "record", evidence: true, ref: `detection:${id}` }));
+    h.db.tables.detections = [
+      { id: a, organization_id: ORG, server_id: "server-one", raw_metadata: { evidence: { message: "incomplete message [preauth]", system_account: "root" } } },
+      { id: b, organization_id: "other-org", server_id: "server-one", raw_metadata: { evidence: { message: "private other organization" } } },
+      { id: c, organization_id: ORG, server_id: "other-server", raw_metadata: { evidence: { message: "private other server" } } },
+    ];
+    const detail = await (await one.GET(req(undefined, "GET"), { params: Promise.resolve({ id: ORG, incident_id: incident.id }) })).json();
+    expect(detail.forensics).toHaveLength(1);
+    expect(detail.forensics[0].detection_id).toBe(a);
+    expect(detail.forensics[0].attribution).toContain("before authentication");
   });
 
   it("an unknown or other-team incident is a 404", async () => {
