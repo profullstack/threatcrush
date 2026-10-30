@@ -223,6 +223,16 @@ function isSuppressed(suppressions: Suppressions, index: number, ruleId: string)
   return rules.has('*') || rules.has(ruleId);
 }
 
+/** Only an exact named dummy body weakens a PEM finding; its path never does. */
+export function pemPlaceholder(lines: readonly string[], index: number): boolean {
+  const first = lines[index] ?? '';
+  const header = /-----BEGIN ((?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?)-----/.exec(first);
+  if (!header) return false;
+  const tail = [first.slice(header.index + header[0].length), ...lines.slice(index + 1, index + 21)].join('\n').replace(/\\n/g, '\n');
+  const end = tail.indexOf(`-----END ${header[1]}-----`);
+  return end >= 0 && ['your-pem-body-here', 'your-private-key-here', 'your-private-key-body-here'].includes(tail.slice(0, end).trim().toLowerCase());
+}
+
 /**
  * Does this path hold tests or fixtures?
  *
@@ -556,7 +566,7 @@ export function scanText(
         test: inTests,
         'test-block': inlineTests.has(index),
         suppressed: foreignSecurityMark(line),
-        placeholder: isPlaceholderAttribute(line, value),
+        placeholder: isPlaceholderAttribute(line, value) || (rule.id === 'secret-private-key' && pemPlaceholder(lines, index)),
         'self-describing': rule.keywordShaped === true && describesItsOwnKey(line, value),
       });
 

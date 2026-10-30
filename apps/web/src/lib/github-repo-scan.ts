@@ -77,6 +77,7 @@ export function isScannable(entry: TreeEntry): boolean {
 
   const basename = entry.path.split("/").pop() || "";
   if (MANIFESTS.has(basename)) return true;
+  if (basename === ".env" || basename.startsWith(".env.") || basename.endsWith(".env")) return true;
 
   const dot = basename.lastIndexOf(".");
   if (dot <= 0) return false;
