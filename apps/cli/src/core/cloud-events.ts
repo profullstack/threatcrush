@@ -116,7 +116,7 @@ function str(value: unknown): string | undefined {
  * name, which is also what the server deduplicates on.
  */
 export function detectionEvent(serverId: string, event: ThreatEvent): IngestEvent {
-  const { rule_id, username, user, description, ...rest } = event.details ?? {};
+  const { rule_id, username, user, ssh_user, account, description, ...rest } = event.details ?? {};
   const title = event.module === 'rule-engine'
     ? event.message.replace(/^\[DETECTION\]\s*/, '')
     : event.message;
@@ -128,7 +128,7 @@ export function detectionEvent(serverId: string, event: ThreatEvent): IngestEven
     rule_id: str(rule_id) ?? event.module,
     description: str(description),
     source_ip: event.source_ip && isIP(event.source_ip) ? event.source_ip : undefined,
-    username: str(username) ?? str(user),
+    username: str(username) ?? str(user) ?? str(ssh_user) ?? str(account),
     raw_metadata: trimMetadata({ module: event.module, category: event.category, ...rest }),
     detected_at: event.timestamp.toISOString(),
   };

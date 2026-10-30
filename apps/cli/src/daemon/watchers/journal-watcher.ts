@@ -10,6 +10,24 @@ import type { ThreatEvent, EventSeverity } from '../../types/events.js';
  */
 export const SSHD_COMMS = ['sshd', 'sshd-session'];
 
+const accountNames = new Map<string, string | null>();
+
+/** Resolve journald's trusted numeric process UID to a local account name. */
+function accountNameForUid(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
+  if (accountNames.has(value)) return accountNames.get(value) ?? null;
+  const result = spawnSync('getent', ['passwd', value], {
+    encoding: 'utf-8',
+    timeout: 1000,
+    maxBuffer: 4096,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const name = result.status === 0 ? result.stdout.split(':', 1)[0] : '';
+  const resolved = /^[a-zA-Z0-9_.@-]{1,256}$/.test(name) ? name : null;
+  accountNames.set(value, resolved);
+  return resolved;
+}
+
 /**
  * Whether journald says root's sshd logged this record. Only the fields
  * journald fills in itself count: SYSLOG_IDENTIFIER is whatever the sender
@@ -30,6 +48,7 @@ export function sshEventFromJournal(entry: Record<string, unknown>): ThreatEvent
   const timestamp = realtimeToDate(entry.__REALTIME_TIMESTAMP as string | undefined) || new Date();
   const verdict = classifySshAuth(parseAuthMessage(entry._COMM as string, entry.MESSAGE, timestamp));
   if (!verdict) return null;
+  const systemAccount = accountNameForUid(entry._UID);
   return {
     timestamp,
     module: 'ssh-guard',
@@ -37,7 +56,12 @@ export function sshEventFromJournal(entry: Record<string, unknown>): ThreatEvent
     severity: verdict.severity,
     message: verdict.message,
     source_ip: verdict.source_ip,
-    ...(verdict.details ? { details: verdict.details } : {}),
+    details: {
+      ...(verdict.details ?? {}),
+      ...(typeof entry._UID === 'string' && /^\d+$/.test(entry._UID) ? { system_uid: entry._UID } : {}),
+      ...(systemAccount ? { system_account: systemAccount } : {}),
+      ...(typeof entry._COMM === 'string' ? { process: entry._COMM } : {}),
+    },
   };
 }
 
@@ -203,6 +227,14 @@ export class JournalWatcher {
       category: 'system',
       severity: bumpedSeverity,
       message: `[${ident}] ${message}`.slice(0, 500),
+      details: {
+        ...(typeof entry._UID === 'string' && /^\d+$/.test(entry._UID) ? { system_uid: entry._UID } : {}),
+        ...(accountNameForUid(entry._UID) ? { system_account: accountNameForUid(entry._UID) } : {}),
+        ...(typeof entry._COMM === 'string' ? { process: entry._COMM } : {}),
+        ...(typeof entry.SYSLOG_IDENTIFIER === 'string' ? { identifier: entry.SYSLOG_IDENTIFIER } : {}),
+        ...(typeof entry._PID === 'string' ? { pid: entry._PID } : {}),
+        ...(typeof entry._SYSTEMD_UNIT === 'string' ? { unit: entry._SYSTEMD_UNIT } : {}),
+      },
     });
   }
 

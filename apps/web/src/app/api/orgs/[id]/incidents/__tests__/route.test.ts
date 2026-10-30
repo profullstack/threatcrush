@@ -132,7 +132,7 @@ describe("POST /api/orgs/[id]/incidents", () => {
     expect(h.sms[0].headers["X-API-Key"]).toBe("smshub_test");
     expect(JSON.parse(h.sms[0].body).severity).toBe("critical");
     const text = JSON.parse(h.sms[0].body).message as string;
-    expect(text).toMatch(/^\[ThreatCrush HIGH\] Solana wallet drained on box1: Full-balance sweep 12 minutes after a new SSH key\. 1 finding\. https:\/\/.+\/org\/acme\/incidents\//);
+    expect(text).toMatch(/^\[ThreatCrush HIGH\] Solana wallet drained on box1: Full-balance sweep 12 minutes after a new SSH key\. 1 finding\. https:\/\/.+\/ic\/[a-z0-9]+$/);
     expect(text.length).toBeLessThanOrEqual(320);
     const rows = h.db.tables.incident_notifications;
     expect(rows.filter((r) => r.user_id === U.muted)).toHaveLength(0);

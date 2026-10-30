@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   atLeast,
@@ -30,6 +31,7 @@ export { IncidentError } from "./report";
 
 export interface IncidentRow {
   id: string;
+  short_code: string;
   org_id: string;
   team_id: string | null;
   server_id: string | null;
@@ -65,12 +67,18 @@ export interface RaiseOutcome {
 }
 
 const SUMMARY_COLUMNS =
-  "id, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
+  "id, short_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
 const MAX_NOTE = 4000;
+
+function incidentShortCode(title: string, id: string): string {
+  const prefix = title.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16) || "incident";
+  return `${prefix}${id.replace(/-/g, "").slice(-14)}`;
+}
 
 export function pageable(row: IncidentRow): PageableIncident {
   return {
     id: row.id,
+    short_code: row.short_code,
     org_id: row.org_id,
     team_id: row.team_id,
     title: row.title,
@@ -131,9 +139,12 @@ export async function upsertIncident(
 
   let existing = await live();
   if (!existing) {
+    const id = randomUUID();
     const { data, error } = await admin
       .from("incidents")
       .insert({
+        id,
+        short_code: incidentShortCode(report.title, id),
         org_id: orgId,
         team_id: teamId,
         server_id: report.server_id,
@@ -374,13 +385,17 @@ export async function raiseDetectionIncidents(
   // What actually happened: daemons 0.13.61+ attach the triggering line as
   // raw_metadata.evidence. Without it an incident could only repeat the rule's
   // description ("a critical log message"), which is what got paged.
-  const evidence = new Map<string, { message?: string; at?: string; module?: string }>();
+  const evidence = new Map<string, Record<string, unknown> & { message?: string; at?: string; module?: string }>();
   const ids = detections.filter((d) => d.severity === "critical").map((d) => d.id);
   if (ids.length) {
-    const { data } = await admin.from("detections").select("id, raw_metadata").in("id", ids);
-    for (const r of (data ?? []) as Array<{ id: string; raw_metadata: { evidence?: { message?: string; at?: string; module?: string } } | null }>) {
+    const { data } = await admin.from("detections").select("id, username, raw_metadata").in("id", ids);
+    for (const r of (data ?? []) as Array<{
+      id: string;
+      username: string | null;
+      raw_metadata: { evidence?: Record<string, unknown> & { message?: string; at?: string; module?: string } } | null;
+    }>) {
       const ev = r.raw_metadata?.evidence;
-      if (ev && typeof ev.message === "string" && ev.message) evidence.set(r.id, ev);
+      if (ev) evidence.set(r.id, { ...ev, username: r.username ?? undefined });
     }
   }
   for (const d of detections) {
@@ -398,8 +413,21 @@ export async function raiseDetectionIncidents(
       const key = `detection:${d.server_id}:${d.rule_id || d.title}`.slice(0, 200);
       const at = new Date(d.detected_at).toISOString();
       const ev = evidence.get(d.id);
-      const line = ev?.message ? ev.message.slice(0, 500) : null;
-      const summary = (line ?? `${d.title}${d.source_ip ? ` from ${d.source_ip}` : ""}`).slice(0, 1000);
+      const line = typeof ev?.message === "string" ? ev.message.slice(0, 500) : null;
+      const targetAccount = [ev?.username, ev?.user, ev?.ssh_user, ev?.account].find((x) => typeof x === "string" && x.trim()) as string | undefined;
+      const systemAccount = typeof ev?.system_account === "string" ? ev.system_account : null;
+      const systemUid = typeof ev?.system_uid === "string" || typeof ev?.system_uid === "number" ? String(ev.system_uid) : null;
+      const accountLines = [
+        targetAccount ? `Target account: ${targetAccount}` : null,
+        systemAccount ? `System account: ${systemAccount}${systemUid ? ` (uid ${systemUid})` : ""}` : null,
+        !systemAccount && systemUid ? `System account UID: ${systemUid} (name unavailable)` : null,
+        typeof ev?.key_type === "string" || typeof ev?.fingerprint === "string"
+          ? `SSH key: ${[ev.key_type, ev.fingerprint].filter((x) => typeof x === "string").join(" ")}`
+          : null,
+      ].filter((x): x is string => Boolean(x));
+      const summaryAccounts = accountLines.filter((entry) => entry.startsWith("Target account:") || entry.startsWith("System account"));
+      const summary = [...summaryAccounts, line ?? `${d.title}${d.source_ip ? ` from ${d.source_ip}` : ""}`].filter(Boolean).join(" — ").slice(0, 1000);
+      const details = [line, d.description, ...accountLines].filter(Boolean).join("\n\n").slice(0, 4000);
       out.push(
         await upsertIncident(
           admin,
@@ -412,10 +440,10 @@ export async function raiseDetectionIncidents(
             severity: "critical",
             source: "daemon",
             dedupe_key: key,
-            summary: (line ? `${line}${d.description ? `\n\n${d.description}` : ""}` : d.description || summary).slice(0, 4000),
+            summary: [summary, d.description].filter(Boolean).join("\n\n").slice(0, 4000),
             verdict: null,
             host: server?.name ?? null,
-            findings: [{ id: `detection:${d.rule_id || d.title}`.slice(0, 120), module: "daemon", severity: "critical", title: d.title.slice(0, 300), ...(line || d.description ? { detail: [line, d.description].filter(Boolean).join("\n\n").slice(0, 4000) } : {}), evidence: "evidence", at }],
+            findings: [{ id: `detection:${d.rule_id || d.title}`.slice(0, 120), module: "daemon", severity: "critical", title: d.title.slice(0, 300), ...(details ? { detail: details } : {}), evidence: "evidence", at }],
             timeline: [{ at, module: "daemon", summary, evidence: true, ref: `detection:${d.id}` }],
             recommendations: [],
           },

@@ -27,6 +27,7 @@ export interface NotifyResult { sms: ChannelTally; email: ChannelTally; recipien
 
 export interface PageableIncident {
   id: string;
+  short_code?: string;
   org_id: string;
   team_id: string | null;
   title: string;
@@ -54,7 +55,9 @@ function html(text: string): string {
 }
 
 export function buildPage(incident: PageableIncident, orgSlug: string | null, test = false): PageMessage {
-  const url = orgSlug ? `${appUrl()}/org/${orgSlug}/incidents/${incident.id}` : `${appUrl()}/dashboard`;
+  const url = incident.short_code
+    ? `${appUrl()}/ic/${incident.short_code}`
+    : orgSlug ? `${appUrl()}/org/${orgSlug}/incidents/${incident.id}` : `${appUrl()}/dashboard`;
   const sev = incident.severity.toUpperCase();
   const on = incident.host ? ` on ${incident.host}` : "";
   const n = incident.findings_count;
