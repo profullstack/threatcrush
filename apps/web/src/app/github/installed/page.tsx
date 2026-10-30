@@ -78,6 +78,7 @@ export default async function GitHubInstalledPage({
         <div className="space-y-8 text-tc-text">
           <section>
             <h2 className="text-xl font-semibold text-tc-green">Next</h2>
+            <p className="mt-3 text-tc-text-dim"><Link href="/account#github-monitoring" className={linkClass}>Open account &amp; organization monitoring</Link> to monitor all repositories with one action. Your CoinPay/email login works here; there is no need to select hundreds of repositories or add a token to each one.</p>
             <ul className="mt-3 space-y-3 text-tc-text-dim">
               <li>
                 <Link href="/auth/login" className={linkClass}>

@@ -11,8 +11,7 @@ export default function AccountPage() {
     <>
       <AccountContent />
       <ProfileFieldsCard />
-      <GitHubAppSettings />
-      <RepositoryAlertsCard />
+      <details className="mx-auto max-w-3xl px-6 pb-10 text-tc-text-dim"><summary className="cursor-pointer mb-4">Advanced: scan announcements and individual CI connections</summary><GitHubAppSettings /><RepositoryAlertsCard /></details>
       <DeleteAccount />
     </>
   );

@@ -5,6 +5,7 @@ import { createOAuthCookieStorage } from "@/lib/oauth-cookie-storage";
 import { safeRedirectPath } from "@/lib/safe-redirect";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { clearInviteCookie, inviteCookie, onSignedIn } from "@/lib/credit-codes";
+import { githubMonitoringCallback } from "@/lib/github-monitoring-oauth";
 
 function generateReferralCode(): string {
   // TC-30: referral codes attribute payouts, so they come from a CSPRNG.
@@ -22,6 +23,7 @@ function generateReferralCode(): string {
  * Creates user_profiles row if first login.
  */
 export async function GET(request: NextRequest) {
+  if (new URL(request.url).searchParams.get("state")?.startsWith("tcm_")) return githubMonitoringCallback(request);
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const ref = searchParams.get("ref") || "";

@@ -7,6 +7,12 @@ import {
   scanRepository,
 } from "../github-repo-scan";
 
+it("includes environment files and their templates in account monitoring", () => {
+  for (const path of [".env", ".env.example", "config/.env.production", "config/example.env"]) {
+    expect(isScannable({ path, sha: "blob", size: 120 })).toBe(true);
+  }
+});
+
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,

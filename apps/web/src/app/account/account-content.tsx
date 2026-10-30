@@ -5,6 +5,7 @@ import IncidentAlertsCard from "./incident-alerts-card";
 import CoinpayCard from "./coinpay-card";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import GitHubMonitoringCard from "./github-monitoring-card";
 import { authHeaders } from "@/lib/auth-client";
 import { PlanCard } from "@/components/PlanCard";
 import { decryptClientSecret, encryptClientSecret, isE2ESecret } from "@/lib/client-secret-crypto";
@@ -298,6 +299,7 @@ export default function AccountContent() {
         <h1 className="text-3xl font-bold text-white mb-8">Account</h1>
 
         <div className="space-y-6">
+          <GitHubMonitoringCard />
           {/* Profile Info */}
           <div className="bg-tc-card border border-tc-border rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
