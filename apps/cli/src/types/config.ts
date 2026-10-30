@@ -170,6 +170,15 @@ export interface PrivilegedSection {
 }
 
 /**
+ * `[command_history]` stores local snapshots of supported interactive-shell
+ * history files. Snapshots are private to root and never uploaded.
+ */
+export interface CommandHistorySection {
+  /** Default false because shell history can contain credentials and private work details. */
+  enabled?: boolean;
+}
+
+/**
  * `[abuse-reporter]` (PRD 0015) — report confirmed attack sources to shared
  * reputation feeds (AbuseIPDB, StopForumSpam) so compromised hosts get cleaned
  * up, not merely blocked here.
@@ -237,6 +246,7 @@ export interface ThreatCrushConfig {
   update?: UpdateSection;
   threat_feeds?: ThreatFeedsSection;
   privileged?: PrivilegedSection;
+  command_history?: CommandHistorySection;
   /** How long the events table keeps history; see core/state.ts pruneEvents. */
   storage?: {
     /** e.g. "14d" (default). Older events are deleted. */

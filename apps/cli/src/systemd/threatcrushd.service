@@ -25,7 +25,10 @@ TimeoutStopSec=10
 NoNewPrivileges=true
 ProtectSystem=full
 # ProtectHome is read-only, but the daemon must write its own cloud session
-# dir (it rotates and re-saves the access/refresh token on every refresh).
+# dir (it rotates and re-saves the access/refresh token on every refresh). When
+# local command-history protection is enabled, install-service also punches
+# writable holes for supported interactive users' home directories so a
+# symlinked history file can be replaced safely.
 # {{CONFIG_DIR}} is the daemon user's ~/.threatcrush, punched back to writable
 # here by `threatcrush install-service`. Without it the token refresh hit
 # EROFS, the heartbeat stopped, and every server showed offline after an hour.
@@ -36,7 +39,7 @@ ProtectHome=read-only
 # ban. ProtectSystem=full makes /etc read-only, so every ban failed with EROFS
 # and read like a permissions problem. The leading '-' tells systemd to skip
 # the entry on boxes with no /etc/fail2ban instead of failing 226/NAMESPACE.
-ReadWritePaths=/etc/threatcrush /var/log/threatcrush /var/lib/threatcrush {{CONFIG_DIR}} -/etc/fail2ban
+ReadWritePaths=/etc/threatcrush /var/log/threatcrush /var/lib/threatcrush {{CONFIG_DIR}} {{HISTORY_PATHS}} -/etc/fail2ban
 # /var/run is a symlink to /run, which is a tmpfs — anything created there at
 # install time is gone after the next reboot. Listing it under ReadWritePaths
 # then makes the unit fail 226/NAMESPACE on every start. RuntimeDirectory has

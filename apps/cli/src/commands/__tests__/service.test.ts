@@ -98,6 +98,18 @@ describe("renderUnit", () => {
     expect(readWrite).toMatch(/ReadWritePaths=(\/\S+ )+\/root\/\.threatcrush( |$)/);
   });
 
+  it("adds selected account homes as writable paths when history protection is enabled", () => {
+    const renderedWithHistory = renderUnit(UNIT, {
+      exec: "/usr/bin/node /usr/lib/node_modules/@profullstack/threatcrush/dist/index.js daemon",
+      binPath: "/usr/lib/node_modules/@profullstack/threatcrush/dist/index.js",
+      configDir: "/root/.threatcrush",
+      historyPaths: ["/home/alice", "/root"],
+    });
+    const readWrite = renderedWithHistory.split("\n").find((l) => l.startsWith("ReadWritePaths="))!;
+    expect(readWrite.split(" ")).toContain("-/home/alice");
+    expect(readWrite.split(" ")).toContain("-/root");
+  });
+
   it("lets the fail2ban backend write its jail, and tolerates boxes without fail2ban", () => {
     // ProtectSystem=full made /etc read-only, so the first fail2ban ban died
     // with EROFS writing /etc/fail2ban/filter.d/threatcrush.conf (vienna,

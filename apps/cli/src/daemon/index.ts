@@ -16,6 +16,7 @@ import { AllowlistSync } from './workers/allowlist-sync.js';
 import { AutoUpdate, updateSettings } from './workers/auto-update.js';
 import { ThreatFeeds, threatFeedSettings } from './workers/threat-feeds.js';
 import { PrivilegeWatch, privilegeSettings } from './workers/privilege-watch.js';
+import { CommandHistoryWatcher, commandHistorySettings } from './workers/command-history.js';
 import { SshIntrusionWatch } from './workers/ssh-intrusion.js';
 import { LightningWatch } from './workers/lightning-watch.js';
 import { TorExitList } from '../core/tor-exits.js';
@@ -235,6 +236,15 @@ export async function runDaemon(): Promise<void> {
   });
   privilegeWatch.start();
 
+  // Optional local backups and tamper repair for interactive shell histories.
+  const commandHistory = new CommandHistoryWatcher({
+    settings: commandHistorySettings(config.command_history),
+    bus,
+    stateDir: PATHS.stateDir,
+    log: logLine,
+  });
+  commandHistory.start();
+
   // SSH from Tor exits (banned at once, even in dry_run), keys logging in from
   // new addresses and people's keys from hosting/VPN networks.
   const torExits = new TorExitList({
@@ -369,6 +379,7 @@ export async function runDaemon(): Promise<void> {
     try { autoUpdate.stop(); } catch {}
     try { threatFeeds.stop(); } catch {}
     try { privilegeWatch.stop(); } catch {}
+    try { commandHistory.stop(); } catch {}
     try { sshIntrusion.stop(); } catch {}
     try { lightningWatch.stop(); } catch {}
     try { await ipc.stop(); } catch {}

@@ -165,6 +165,19 @@ threatcrush init --offline          # Same, without signing in (scripts, CI, con
 
 Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/etc/threatcrush/threatcrushd.conf.d/`.
 
+### Local shell history protection
+
+Command-history collection is opt-in because shell histories may contain credentials or private work details:
+
+```toml
+[command_history]
+enabled = true
+```
+
+The system daemon checks Bash, Zsh, Fish, and Ksh history files every minute, keeps compressed local snapshots under `/var/lib/threatcrush/command-history/`, and retains up to 96 archived snapshots plus the current backup per file for up to 90 days. The directory is root-only. Snapshot contents stay on the host and are never sent to the dashboard. If a history file is replaced by a symlink, hard link, or removed after a backup exists, the daemon restores the last snapshot and emits a medium-severity event. Re-run `threatcrush install-service` after enabling collection so systemd grants write access only to supported interactive users' home directories.
+
+Snapshots contain only commands the shell has flushed to its history file. Bash commonly writes its in-memory history when the shell exits, so these backups are an audit trail, not a real-time activity clock or proof of hours worked. Use OS command auditing when you need complete per-command records.
+
 ### Findings in the cloud
 
 Signed in (`threatcrush login`), every `scan`, `pentest` and `ai-scan` result is
