@@ -1,6 +1,5 @@
 import {
   chmodSync,
-  chownSync,
   closeSync,
   constants,
   fchownSync,
@@ -18,7 +17,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { randomUUID } from 'node:crypto';
 import type { ThreatEvent } from '../../types/events.js';
@@ -26,6 +25,7 @@ import type { CommandHistorySection } from '../../types/config.js';
 
 const POLL_MS = 60_000;
 const MAX_HISTORY_BYTES = 4 * 1024 * 1024;
+const MAX_COMPRESSED_HISTORY_BYTES = MAX_HISTORY_BYTES + 65_536;
 const MAX_SNAPSHOTS = 96;
 const SNAPSHOT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 const HISTORY_TARGETS: Record<string, string[]> = {
@@ -92,31 +92,37 @@ export function historyWritableHomes(): string[] {
     .filter((home) => /^\/[A-Za-z0-9._/-]+$/.test(home));
 }
 
-function ensureUserDirectories(account: HistoryAccount, relativeDir: string): boolean {
-  let current = account.home;
-  try {
-    const homeStat = lstatSync(current);
-    if (!homeStat.isDirectory() || homeStat.isSymbolicLink()) return false;
-  } catch { return false; }
+function descriptorPath(directoryFd: number, name: string): string {
+  return `/proc/self/fd/${directoryFd}/${name}`;
+}
 
-  const parts = relative(account.home, join(account.home, relativeDir)).split(sep).filter(Boolean);
-  for (const part of parts) {
-    current = join(current, part);
-    let stat;
-    try { stat = lstatSync(current); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false;
-      try { mkdirSync(current, { mode: 0o700 }); }
-      catch { return false; }
-      if (typeof process.getuid === 'function' && process.getuid() === 0) {
-        try { chownSync(current, account.uid, account.gid); } catch { return false; }
-      }
-      try { chmodSync(current, 0o700); } catch { return false; }
-      continue;
+/** Walk an absolute path one no-follow directory descriptor at a time. */
+function openDirectoryChain(path: string): number {
+  if (!isAbsolute(path) || path.split(sep).includes('..')) throw new Error('directory path is not a safe absolute path');
+  const flags = constants.O_RDONLY | constants.O_DIRECTORY | (constants.O_NOFOLLOW ?? 0);
+  let fd = openSync('/', flags);
+  try {
+    for (const part of path.split(sep).filter((item) => item && item !== '.')) {
+      const next = openSync(descriptorPath(fd, part), flags);
+      closeSync(fd);
+      fd = next;
     }
-    if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
+    return fd;
+  } catch (error) {
+    closeSync(fd);
+    throw error;
   }
-  return true;
+}
+
+function readExact(fd: number, size: number): Buffer | null {
+  const data = Buffer.alloc(size);
+  let offset = 0;
+  while (offset < data.length) {
+    const read = readSync(fd, data, offset, data.length - offset, offset);
+    if (read === 0) break;
+    offset += read;
+  }
+  return offset === data.length ? data : null;
 }
 
 function privateDirectory(path: string): void {
@@ -126,36 +132,33 @@ function privateDirectory(path: string): void {
   chmodSync(path, 0o700);
 }
 
-function safeReadHistory(path: string, uid: number): Buffer | null {
-  const before = lstatSync(path);
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.uid !== uid) return null;
-  if (before.size > MAX_HISTORY_BYTES) throw new Error(`history file exceeds ${MAX_HISTORY_BYTES} bytes`);
-
+function safeReadHistory(directoryFd: number, name: string, uid: number): Buffer | null {
   const noFollow = constants.O_NOFOLLOW ?? 0;
-  const fd = openSync(path, constants.O_RDONLY | noFollow);
+  const fd = openSync(descriptorPath(directoryFd, name), constants.O_RDONLY | noFollow);
   try {
     const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.nlink !== 1 || opened.uid !== uid || opened.ino !== before.ino) return null;
-    const data = Buffer.alloc(opened.size);
-    let offset = 0;
-    while (offset < data.length) {
-      const read = readSync(fd, data, offset, data.length - offset, offset);
-      if (read === 0) break;
-      offset += read;
-    }
+    if (!opened.isFile() || opened.nlink !== 1 || opened.uid !== uid) return null;
+    if (opened.size > MAX_HISTORY_BYTES) throw new Error(`history file exceeds ${MAX_HISTORY_BYTES} bytes`);
+    const data = readExact(fd, opened.size);
+    if (data === null) return null;
     const after = fstatSync(fd);
-    if (offset !== data.length || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) return null;
+    if (after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) return null;
     return data;
   } finally {
     closeSync(fd);
   }
 }
 
-function atomicWrite(path: string, data: Buffer, mode = 0o600, owner?: { uid: number; gid: number }): void {
-  const temp = `${path}.${randomUUID()}.tmp`;
+function atomicWrite(path: string, data: Buffer, mode = 0o600, owner?: { uid: number; gid: number }, parentFd?: number): void {
+  const dirFd = parentFd ?? openDirectoryChain(dirname(path));
+  const ownsDirFd = parentFd === undefined;
+  const name = basename(path);
+  const temp = descriptorPath(dirFd, `${name}.${randomUUID()}.tmp`);
+  const destination = descriptorPath(dirFd, name);
   const noFollow = constants.O_NOFOLLOW ?? 0;
-  const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollow, mode);
+  let fd: number | undefined;
   try {
+    fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | noFollow, mode);
     let offset = 0;
     while (offset < data.length) offset += writeSync(fd, data, offset, data.length - offset);
     // Set mode while the file is still owned by the daemon. The systemd unit
@@ -166,22 +169,39 @@ function atomicWrite(path: string, data: Buffer, mode = 0o600, owner?: { uid: nu
       fchownSync(fd, owner.uid, owner.gid);
     }
     fsyncSync(fd);
-  } catch (error) {
     closeSync(fd);
+    fd = undefined;
+    renameSync(temp, destination);
+  } catch (error) {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* best effort */ }
+    }
     try { unlinkSync(temp); } catch { /* best effort */ }
     throw error;
+  } finally {
+    if (ownsDirFd) closeSync(dirFd);
   }
-  closeSync(fd);
-  renameSync(temp, path);
 }
 
 function readCurrentBackup(path: string): Buffer | null {
+  let fd: number | undefined;
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_HISTORY_BYTES) return null;
-    return gunzipSync(readFileSync(path), { maxOutputLength: MAX_HISTORY_BYTES });
+    const parentFd = openDirectoryChain(dirname(path));
+    try {
+      fd = openSync(descriptorPath(parentFd, basename(path)), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    } finally {
+      closeSync(parentFd);
+    }
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_COMPRESSED_HISTORY_BYTES) return null;
+    const compressed = readExact(fd, stat.size);
+    const after = fstatSync(fd);
+    if (!compressed || after.size !== stat.size || after.mtimeMs !== stat.mtimeMs) return null;
+    return gunzipSync(compressed, { maxOutputLength: MAX_HISTORY_BYTES });
   } catch {
     return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
@@ -271,14 +291,19 @@ export class CommandHistoryWatcher {
     const path = join(account.home, relative);
     const store = join(this.root, String(account.uid), basename(relative));
     const current = `${store}.current.gz`;
+    let userParentFd: number;
+    try {
+      userParentFd = openDirectoryChain(dirname(path));
+    } catch {
+      this.opts.log(`[command-history] skipped uid=${account.uid} ${basename(relative)} because its parent path is missing or not a real directory`);
+      return;
+    }
+
     try {
       privateDirectory(dirname(store));
-      if (!ensureUserDirectories(account, dirname(relative))) {
-        this.opts.log(`[command-history] skipped uid=${account.uid} ${basename(relative)} because its parent path is not a real directory`);
-        return;
-      }
+      const userPath = descriptorPath(userParentFd, basename(path));
       let status;
-      try { status = lstatSync(path); } catch (error) {
+      try { status = lstatSync(userPath); } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
 
@@ -288,16 +313,14 @@ export class CommandHistoryWatcher {
       if (suspicious || missingWithBackup) {
         const reason = !status ? 'deleted' : status.isSymbolicLink() ? 'symlinked' : !status.isFile() ? 'not a regular file' : status.nlink !== 1 ? 'hard-linked' : 'owned by another account';
         const restored = backup ?? Buffer.alloc(0);
-        this.restore(path, restored, account);
+        this.restore(path, restored, account, userParentFd);
         this.emitTamper(account, relative, reason, backup !== null);
-        status = lstatSync(path);
       } else if (!status) {
         // Establish a safe empty file so a later deletion or link becomes visible.
-        this.restore(path, Buffer.alloc(0), account);
-        status = lstatSync(path);
+        this.restore(path, Buffer.alloc(0), account, userParentFd);
       }
 
-      const data = safeReadHistory(path, account.uid);
+      const data = safeReadHistory(userParentFd, basename(path), account.uid);
       if (data === null) return;
       const previous = backup;
       if (previous?.equals(data)) {
@@ -312,14 +335,14 @@ export class CommandHistoryWatcher {
       this.pruneSnapshots(store);
     } catch (error) {
       this.opts.log(`[command-history] could not snapshot uid=${account.uid} ${basename(relative)}: ${(error as Error).message}`);
+    } finally {
+      closeSync(userParentFd);
     }
   }
 
-  private restore(path: string, content: Buffer, account: HistoryAccount): void {
+  private restore(path: string, content: Buffer, account: HistoryAccount, parentFd: number): void {
     // Atomic rename replaces a symlink itself and never follows its target.
-    const parent = dirname(path);
-    if (!ensureUserDirectories(account, relative(account.home, parent))) throw new Error('history parent path is not a real directory');
-    atomicWrite(path, content, 0o600, account);
+    atomicWrite(path, content, 0o600, account, parentFd);
   }
 
   private emitTamper(account: HistoryAccount, relative: string, reason: string, hadBackup: boolean): void {

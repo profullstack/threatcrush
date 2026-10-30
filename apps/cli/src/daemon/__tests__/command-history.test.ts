@@ -51,14 +51,14 @@ describe('command history watcher', () => {
     await service.scanOnce();
     const backup = join(stateDir, 'command-history', String(account.uid), '.bash_history.current.gz');
     expect(gunzipSync(readFileSync(backup)).toString()).toBe('pwd\n');
-    expect(lstatSync(join(stateDir, 'command-history')).mode & 0o777).toBe(0o700);
-    expect(lstatSync(backup).mode & 0o777).toBe(0o600);
     const snapshots = join(stateDir, 'command-history', String(account.uid));
     expect(readdirSync(snapshots).filter((name) => name.endsWith('.gz'))).toHaveLength(2); // current + one archive
 
     writeFileSync(historyPath, 'pwd\nls\n');
     await service.scanOnce();
     expect(gunzipSync(readFileSync(backup)).toString()).toBe('pwd\nls\n');
+    expect(lstatSync(join(stateDir, 'command-history')).mode & 0o777).toBe(0o700);
+    expect(lstatSync(backup).mode & 0o777).toBe(0o600);
     expect(readdirSync(snapshots).filter((name) => name.endsWith('.gz'))).toHaveLength(3);
     expect(events).toHaveLength(0);
   });
@@ -73,8 +73,8 @@ describe('command history watcher', () => {
     symlinkSync('/dev/null', historyPath);
     await service.scanOnce();
 
-    expect(lstatSync(historyPath).isSymbolicLink()).toBe(false);
     expect(readFileSync(historyPath, 'utf8')).toBe('deploy app\n');
+    expect(lstatSync(historyPath).isSymbolicLink()).toBe(false);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       module: 'command-history',
@@ -95,8 +95,8 @@ describe('command history watcher', () => {
     symlinkSync('/dev/null', bashHistory);
     await service.scanOnce();
 
-    expect(lstatSync(bashHistory).isSymbolicLink()).toBe(false);
     expect(readFileSync(bashHistory, 'utf8')).toBe('git status\n');
+    expect(lstatSync(bashHistory).isSymbolicLink()).toBe(false);
     expect(events).toHaveLength(1);
     expect(events[0].details).toMatchObject({ history_file: '.bash_history', reason: 'symlinked' });
   });
