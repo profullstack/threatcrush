@@ -1,3 +1,4 @@
+import { JournalProvenance } from './journal-provenance.js';
 import { spawn, type ChildProcess, spawnSync } from 'node:child_process';
 import type { EventBus } from '../event-bus.js';
 import { classifySshAuth, parseAuthMessage, sshdPeerIp } from '../../core/log-parser.js';
@@ -89,6 +90,7 @@ export class JournalWatcher {
   private buffer = '';
   private sshdBuffer = '';
   private moduleName = 'user-journal';
+  private provenance = new JournalProvenance();
   private active = false;
 
   constructor(private bus: EventBus) {}
@@ -161,8 +163,9 @@ export class JournalWatcher {
       this.sshdBuffer = this.drain(this.sshdBuffer + chunk, (entry) => {
         const line = sshdLineFromJournal(entry);
         if (line) this.bus.sshdLine?.(line);
+        const context = this.provenance.fields(entry);
         const event = sshEventFromJournal(entry);
-        if (event) this.emit(event);
+        if (event) this.emit({ ...event, source_ip: event.source_ip ?? context.source_ip, details: { ...event.details, ...context.details } });
       });
     });
     child.on('error', () => { this.sshdProc = null; });
@@ -207,6 +210,7 @@ export class JournalWatcher {
   }
 
   private handleEntry(entry: Record<string, unknown>): void {
+    const context = this.provenance.fields(entry);
     // The sshd tail reports these as ssh-guard events; once is enough.
     if (this.sshdProc && isSshdRecord(entry)) return;
 
@@ -226,8 +230,10 @@ export class JournalWatcher {
       module: this.moduleName,
       category: 'system',
       severity: bumpedSeverity,
+      ...(context.source_ip ? { source_ip: context.source_ip } : {}),
       message: `[${ident}] ${message}`.slice(0, 500),
       details: {
+        ...context.details,
         ...(typeof entry._UID === 'string' && /^\d+$/.test(entry._UID) ? { system_uid: entry._UID } : {}),
         ...(accountNameForUid(entry._UID) ? { system_account: accountNameForUid(entry._UID) } : {}),
         ...(typeof entry._COMM === 'string' ? { process: entry._COMM } : {}),

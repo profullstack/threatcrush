@@ -127,12 +127,12 @@ const TOOLS = [
   },
   {
     name: "incidents_get",
-    description: "One incident: verdict, findings (evidence vs inference), timeline, recommended actions, notes and who was paged.",
+    description: "One incident: linked forensic evidence, attribution limits, recorded resolution/operator, findings, timeline, notes and who was paged.",
     inputSchema: { type: "object", properties: { org_id: { type: "string" }, id: { type: "string", description: "Incident id" } }, required: ["id"] },
   },
   {
     name: "incidents_update",
-    description: "Acknowledge, resolve or reopen an incident, assign it (a team member, or null), and/or add a note. Needs write.",
+    description: "Acknowledge, resolve or reopen an incident, assign it, and/or add a note. Resolving requires resolution.reason, resolution.action and resolution.verification. Records the authenticated operator; does not execute remediation. Needs write.",
     inputSchema: {
       type: "object",
       properties: {
@@ -141,6 +141,15 @@ const TOOLS = [
         status: { type: "string", enum: ["open", "acknowledged", "resolved"] },
         assignee_id: { type: ["string", "null"] },
         note: { type: "string" },
+        resolution: {
+          type: "object", additionalProperties: false,
+          properties: {
+            reason: { type: "string", minLength: 1, maxLength: 2000 },
+            action: { type: "string", minLength: 1, maxLength: 2000 },
+            verification: { type: "string", minLength: 1, maxLength: 2000 },
+          },
+          required: ["reason", "action", "verification"],
+        },
       },
       required: ["id"],
     },

@@ -9,9 +9,9 @@ describe('detection evidence', () => {
     const e = evidenceOf({
       timestamp: new Date('2026-10-28T17:23:56.606Z'), module: 'user-journal', category: 'system', severity: 'critical',
       message: 'sudo: pam_unix(sudo:auth): auth could not identify password for [anthony]', source_ip: '10.0.0.1',
-      details: { unit: 'sudo', user: 'anthony', headers: { cookie: 'secret' }, huge: 'x'.repeat(10_000) },
+      details: { unit: 'sudo', user: 'anthony', pid: '321', boot_id: 'boot-a', journal_cursor: 'cursor-a', source_ip_basis: 'same boot and sshd PID within 120 seconds', headers: { cookie: 'secret' }, huge: 'x'.repeat(10_000) },
     } as never);
-    expect(e).toMatchObject({ at: '2026-10-28T17:23:56.606Z', module: 'user-journal', unit: 'sudo', user: 'anthony', source_ip: '10.0.0.1' });
+    expect(e).toMatchObject({ at: '2026-10-28T17:23:56.606Z', module: 'user-journal', unit: 'sudo', user: 'anthony', pid: '321', boot_id: 'boot-a', journal_cursor: 'cursor-a', source_ip_basis: 'same boot and sshd PID within 120 seconds', source_ip: '10.0.0.1' });
     expect(e.message).toContain('could not identify password');
     expect(e).not.toHaveProperty('headers');
     expect(e).not.toHaveProperty('huge');

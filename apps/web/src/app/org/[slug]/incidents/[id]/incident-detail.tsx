@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { forensicEvidence } from "@/lib/incidents/forensics";
 import { useCallback, useEffect, useState } from "react";
 import { authHeaders } from "@/lib/auth-client";
 import { Centered, SeverityBadge, Shell, STATUS_CLS, useOrg, when } from "../shared";
@@ -13,10 +14,13 @@ interface Incident {
   summary: string; verdict: string | null; team_id: string | null; team_name: string | null;
   assignee_id: string | null; assignee_name: string | null; raise_count: number;
   findings: Finding[]; timeline: TimelineEntry[]; recommendations: Recommendation[];
+  resolution?: { reason: string; action: string; verification: string; actor_user_id: string | null; actor_agent_key_id: string | null; at: string } | null;
   first_seen_at: string; last_seen_at: string; acknowledged_at: string | null; resolved_at: string | null;
 }
 interface Detail {
   incident: Incident;
+  forensics?: ReturnType<typeof forensicEvidence>[];
+  resolution_actor_name?: string | null;
   role: "read" | "write" | "admin";
   members: Array<{ user_id: string; name: string }>;
   notes: Array<{ id: string; author_name: string | null; body: string; created_at: string }>;
@@ -59,6 +63,9 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [closing, setClosing] = useState(false);
+  const [resolution, setResolution] = useState({ reason: "", action: "", verification: "" });
 
   const load = useCallback(async () => {
     if (!org) return;
@@ -74,6 +81,8 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
   const patch = async (body: Record<string, unknown>) => {
     if (!org) return;
     setBusy(true);
+    setError(null);
+    setMessage(null);
     try {
       const res = await fetch(`/api/orgs/${org.id}/incidents/${incidentId}`, {
         method: "PATCH",
@@ -81,8 +90,13 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
         body: JSON.stringify(body),
       });
       const out = await res.json().catch(() => ({}));
-      if (!res.ok) setError(out.error || `HTTP ${res.status}`);
+      if (!res.ok) { setError(out.error || `HTTP ${res.status}`); return false; }
       await load();
+      setMessage(body.status === "resolved" ? "Resolution saved with action, verification and operator." : "Incident updated.");
+      return true;
+    } catch {
+      setError("Could not save the incident. Your input is preserved; try again.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -120,7 +134,8 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
         </div>
       </div>
 
-      {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
+      {error && <p role="alert" className="mb-4 text-sm text-red-400">{error}</p>}
+      {message && <p role="status" className="mb-4 text-sm text-green-400">{message}</p>}
 
       {canWrite && (
         <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -128,7 +143,7 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
             <button disabled={busy} onClick={() => patch({ status: "acknowledged" })} className="rounded bg-yellow-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-yellow-400 disabled:opacity-50">Acknowledge</button>
           )}
           {inc.status !== "resolved" && (
-            <button disabled={busy} onClick={() => patch({ status: "resolved" })} className="rounded bg-green-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-green-400 disabled:opacity-50">Resolve</button>
+            <button disabled={busy} onClick={() => setClosing(true)} className="rounded bg-green-500 px-3 py-1.5 text-sm font-medium text-black hover:bg-green-400 disabled:opacity-50">Resolve</button>
           )}
           {inc.status !== "open" && (
             <button disabled={busy} onClick={() => patch({ status: "open" })} className="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:border-zinc-500 disabled:opacity-50">Reopen</button>
@@ -144,6 +159,49 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
         </div>
       )}
       {!canWrite && inc.assignee_name && <p className="mb-6 text-sm text-zinc-400">Assigned to {inc.assignee_name}</p>}
+
+      {closing && canWrite && inc.status !== "resolved" && (
+        <Section title="Record resolution">
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void patch({ status: "resolved", resolution }).then((ok) => { if (ok) setClosing(false); }); }}>
+            <p className="text-sm text-zinc-400">Describe what happened, what you did (or why no action was needed), and how you checked the outcome. Resolving records your assessment; it does not run a fix.</p>
+            {([ ["reason", "Conclusion and reason for closing"], ["action", "Action taken or reason no action was needed"], ["verification", "Verification and observed outcome"] ] as const).map(([key, label]) => (
+              <label key={key} className="block text-sm text-zinc-300">{label}
+                <textarea required maxLength={2000} value={resolution[key]} onChange={(e) => setResolution({ ...resolution, [key]: e.target.value })} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2" />
+              </label>
+            ))}
+            <button disabled={busy} className="rounded bg-green-600 px-3 py-2 text-sm text-white disabled:opacity-50">Save resolution</button>
+            <button type="button" disabled={busy} onClick={() => setClosing(false)} className="ml-3 text-sm text-zinc-400">Cancel</button>
+          </form>
+        </Section>
+      )}
+
+      <Section title="Who did what">
+        <p className="mb-3 text-sm text-zinc-400">A logging process account is not the remote actor. Missing fields mean the collector did not establish them.</p>
+        {!data.forensics?.length && <p className="text-sm text-zinc-400">No linked detection evidence is available. Actor, action and outcome cannot be established from the incident summary alone.</p>}
+        {data.forensics?.map((f) => (
+          <div key={f.detection_id} className="mb-3 rounded border border-zinc-800 p-3 text-sm">
+            <p className="mb-3 text-amber-300">{f.attribution}</p>
+            <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {Object.entries({ "Observed at": f.at, "Remote address": f.source_ip, "Address evidence": f.source_ip_basis, "Target account": f.target_account, "Logging account": f.logging_account ?? f.logging_uid, "Process / PID": [f.process, f.pid].filter(Boolean).join(" / ") || null, "Service": f.unit, "SSH key fingerprint": f.key_fingerprint, "Recorded command": f.command, "Journal boot": f.boot_id, "Journal cursor": f.journal_cursor }).map(([label, value]) => (
+                <div key={label} className="min-w-0"><dt className="text-zinc-500">{label}</dt><dd className="break-all text-zinc-200">{value || "Not captured"}</dd></div>
+              ))}
+            </dl>
+            {f.message && <pre className="mt-3 whitespace-pre-wrap break-all text-xs text-zinc-300">{f.message}</pre>}
+            <p className="mt-2 break-all text-xs text-zinc-500">Evidence: {f.detection_id} · rule {f.rule_id ?? "unknown"}</p>
+            <h3 className="mb-1 mt-4 font-medium text-white">Investigation and remediation</h3>
+            <ol className="list-decimal space-y-1 pl-5 text-zinc-400">{f.next_steps.map((step) => <li key={step}>{step}</li>)}</ol>
+          </div>
+        ))}
+      </Section>
+
+      <Section title={inc.status === "resolved" ? "Resolution" : "Last recorded resolution"}>
+        {inc.resolution ? <div className="space-y-2 text-sm text-zinc-300">
+          <p className="text-zinc-500">Recorded by {data.resolution_actor_name ?? (inc.resolution.actor_agent_key_id ? `agent key ${inc.resolution.actor_agent_key_id}` : inc.resolution.actor_user_id ?? "unknown operator")} · {when(inc.resolution.at)}</p>
+          <p className="whitespace-pre-wrap"><strong>Conclusion:</strong> {inc.resolution.reason}</p>
+          <p className="whitespace-pre-wrap"><strong>Action:</strong> {inc.resolution.action}</p>
+          <p className="whitespace-pre-wrap"><strong>Verification:</strong> {inc.resolution.verification}</p>
+        </div> : <p className="text-sm text-zinc-400">{inc.status === "resolved" ? "Closed without a recorded remediation or verification. Resolved status alone does not establish that the underlying issue was fixed." : "No resolution has been recorded."}</p>}
+      </Section>
 
       {(inc.verdict || inc.summary) && (
         <Section title="Verdict">
@@ -197,7 +255,7 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
           ))}
         </ul>
         {canWrite && (
-          <form onSubmit={(e) => { e.preventDefault(); if (note.trim()) void patch({ note }).then(() => setNote("")); }} className="flex flex-col gap-2 sm:flex-row">
+          <form onSubmit={(e) => { e.preventDefault(); if (note.trim()) void patch({ note }).then((ok) => { if (ok) setNote(""); }); }} className="flex flex-col gap-2 sm:flex-row">
             <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={4000} placeholder="Add a note (never paste keys or seed phrases)"
               className="flex-1 rounded border border-zinc-700 bg-black p-2 text-sm text-zinc-200" />
             <button disabled={busy || !note.trim()} className="rounded bg-purple-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50">Add note</button>

@@ -26,6 +26,8 @@ import {
   type TimelineEntry,
 } from "./report";
 import type { PageableIncident } from "./notify";
+import { forensicEvidence, type DetectionEvidence } from "./forensics";
+import { findSecret } from "./secret-guard";
 
 export { IncidentError } from "./report";
 
@@ -55,6 +57,7 @@ export interface IncidentRow {
   last_seen_at: string;
   acknowledged_at: string | null;
   resolved_at: string | null;
+  resolution?: { reason: string; action: string; verification: string; actor_user_id: string | null; actor_agent_key_id: string | null; at: string } | null;
   last_notified_at: string | null;
   created_at: string;
   updated_at: string;
@@ -309,10 +312,28 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
       names.set(x.id, x.display_name || x.email || x.id.slice(0, 8));
     }
   }
+  if (row.resolution?.actor_user_id && !names.has(row.resolution.actor_user_id)) {
+    const { data: actor } = await admin.from("user_profiles").select("id, display_name, email").eq("id", row.resolution.actor_user_id).maybeSingle();
+    if (actor) names.set(actor.id, actor.display_name || actor.email || actor.id.slice(0, 8));
+  }
+  const refs = [...new Set((row.timeline ?? []).map((t) => /^detection:([0-9a-f-]{36})$/i.exec(t.ref ?? "")?.[1]).filter((id): id is string => !!id && isUuid(id)))].slice(-100);
+  let forensics: ReturnType<typeof forensicEvidence>[] = [];
+  if (refs.length && row.server_id) {
+    const { data, error } = await admin.from("detections")
+      .select("id, server_id, rule_id, detected_at, source_ip, username, raw_metadata")
+      .eq("organization_id", orgId).eq("server_id", row.server_id).in("id", refs);
+    if (error) throw new Error(`incident evidence: ${error.message}`);
+    forensics = ((data ?? []) as DetectionEvidence[]).map(forensicEvidence).map((e) => {
+      // Old agents may have uploaded secrets. Omit any secret-bearing scalar before returning it.
+      return Object.fromEntries(Object.entries(e).map(([k, v]) => [k, typeof v === "string" && findSecret({ [k]: v }) ? "[redacted secret material]" : v])) as ReturnType<typeof forensicEvidence>;
+    });
+  }
   const nameOf = (id: string | null) => (id ? names.get(id) ?? null : null);
   return {
     incident: { ...row, team_name: (team.data as { name?: string } | null)?.name ?? null, assignee_name: nameOf(row.assignee_id) },
     role,
+    forensics,
+    resolution_actor_name: nameOf(row.resolution?.actor_user_id ?? null),
     members,
     notes: ((notes.data ?? []) as Array<{ author_id: string | null }>).map((n) => ({ ...n, author_name: nameOf(n.author_id) })),
     notifications: ((notifications.data ?? []) as Array<{ user_id: string }>).map((n) => ({ ...n, user_name: nameOf(n.user_id) })),
@@ -340,7 +361,19 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     if (!isStatus(body.status)) throw new IncidentError(400, "status must be open, acknowledged or resolved");
     patch.status = body.status;
     if (body.status === "acknowledged") patch.acknowledged_at = row.acknowledged_at ?? now;
-    if (body.status === "resolved") patch.resolved_at = now;
+    if (body.status === "resolved" && row.status !== "resolved") {
+      const r = body.resolution;
+      if (!r || typeof r !== "object" || Array.isArray(r)) throw new IncidentError(400, "Record the resolution reason, action taken and verification before resolving");
+      const input = r as Record<string, unknown>;
+      const fields: Record<string, string> = {};
+      for (const key of ["reason", "action", "verification"]) {
+        if (typeof input[key] !== "string" || !input[key].trim() || input[key].length > 2000) throw new IncidentError(400, `resolution.${key} must be 1–2000 characters`);
+        fields[key] = input[key].trim();
+      }
+      if (findSecret(fields)) throw new IncidentError(422, "Resolution must not contain secret material");
+      patch.resolved_at = now;
+      patch.resolution = { ...fields, actor_user_id: p.kind === "user" ? p.userId : null, actor_agent_key_id: p.kind === "agent" ? p.keyId : null, at: now };
+    }
     if (body.status === "open") patch.resolved_at = null;
     if (body.status === "open" && row.status === "resolved") {
       // Reopening must not collide with a newer live incident on the same key.
@@ -365,6 +398,7 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     if (typeof body.note !== "string" || !body.note.trim()) throw new IncidentError(400, "note must be a non-empty string");
     if (body.note.length > MAX_NOTE) throw new IncidentError(400, `note is longer than ${MAX_NOTE} characters`);
     note = body.note.trim();
+    if (findSecret({ note })) throw new IncidentError(422, "Notes must not contain secret material");
   }
   if (!Object.keys(patch).length && note === null) throw new IncidentError(400, "Nothing to change: pass status, assignee_id or note");
 

@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   }
 }
 
-// PATCH { status?: open|acknowledged|resolved, assignee_id?: uuid|null, note?: string } — needs write.
+// PATCH { status?, assignee_id?, note?, resolution?: { reason, action, verification } } — needs write. Resolving requires a resolution record.
 export async function PATCH(req: NextRequest, { params }: Ctx) {
   const admin = getSupabaseAdmin();
   const p = await getPrincipal(req, admin);
