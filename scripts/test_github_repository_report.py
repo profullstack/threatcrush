@@ -1,5 +1,6 @@
 import importlib.util
 import unittest
+import tempfile
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("report", Path(__file__).with_name("github-repository-report.py"))
@@ -53,6 +54,24 @@ class ReportTests(unittest.TestCase):
 
     def test_rule_score_preserves_critical_legacy_metadata(self):
         self.assertEqual(module.severity({"ruleId": "x", "level": "error"}, {"x": {"properties": {"security-severity": "9.5"}}}), "critical")
+
+    def test_pem_placeholder_requires_exact_dummy_body(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / ".env.example"
+            path.write_text("KEY=-----BEGIN PRIVATE KEY-----\\nyour-pem-body-here\\n-----END PRIVATE KEY-----")
+            data = log(["critical"])
+            m = module.metadata(data["runs"][0]["results"][0], {}, root)
+            self.assertEqual(m["severity"], "low")
+            path.write_text("KEY=-----BEGIN PRIVATE KEY-----\\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSk\\n-----END PRIVATE KEY-----")
+            self.assertEqual(module.metadata(log(["critical"])["runs"][0]["results"][0], {}, root)["severity"], "critical")
+            path.write_text("KEY=-----BEGIN PRIVATE KEY-----\\nyour-pem-body-here\\nMIIEvgIBADAN\\n-----END PRIVATE KEY-----")
+            self.assertFalse(module.verified_pem_placeholder(".env.example", 1, root))
+
+    def test_missing_footer_and_outside_paths_stay_critical(self):
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / ".env.example").write_text("-----BEGIN PRIVATE KEY-----\\nyour-pem-body-here")
+            self.assertFalse(module.verified_pem_placeholder(".env.example", 1, root))
+            self.assertFalse(module.verified_pem_placeholder("../outside", 1, root))
 
 
 if __name__ == "__main__":
