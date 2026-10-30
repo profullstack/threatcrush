@@ -48,6 +48,7 @@ export function sshEventFromJournal(entry: Record<string, unknown>): ThreatEvent
   const timestamp = realtimeToDate(entry.__REALTIME_TIMESTAMP as string | undefined) || new Date();
   const verdict = classifySshAuth(parseAuthMessage(entry._COMM as string, entry.MESSAGE, timestamp));
   if (!verdict) return null;
+  const systemAccount = accountNameForUid(entry._UID);
   return {
     timestamp,
     module: 'ssh-guard',
@@ -57,9 +58,9 @@ export function sshEventFromJournal(entry: Record<string, unknown>): ThreatEvent
     source_ip: verdict.source_ip,
     details: {
       ...(verdict.details ?? {}),
-      system_uid: entry._UID,
-      system_account: accountNameForUid(entry._UID),
-      process: entry._COMM,
+      ...(typeof entry._UID === 'string' && /^\d+$/.test(entry._UID) ? { system_uid: entry._UID } : {}),
+      ...(systemAccount ? { system_account: systemAccount } : {}),
+      ...(typeof entry._COMM === 'string' ? { process: entry._COMM } : {}),
     },
   };
 }

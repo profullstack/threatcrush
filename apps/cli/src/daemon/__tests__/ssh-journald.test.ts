@@ -206,7 +206,12 @@ describe('sshEventFromJournal', () => {
   ])('makes the event log-watcher makes of the same auth.log line: %s', (message) => {
     const { timestamp: _a, ...fromJournal } = sshEventFromJournal(sshdRecord('sshd-session', message))!;
     const { timestamp: _b, ...fromFile } = fromAuthLog(`Sep 25 16:47:29 dev sshd-session[4111430]: ${message}`)!;
-    expect(fromJournal).toEqual(fromFile);
+    const journalDetails = { ...(fromJournal.details ?? {}) };
+    delete journalDetails.system_uid;
+    delete journalDetails.system_account;
+    delete journalDetails.process;
+    expect({ ...fromJournal, details: journalDetails }).toEqual(fromFile);
+    expect(fromJournal.details).toMatchObject({ system_uid: '0', process: 'sshd-session' });
   });
 
   it('ignores a record a local user forged with `logger -t sshd`', () => {
