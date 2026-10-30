@@ -212,6 +212,12 @@ export async function listTree(
   const res = await fetchImpl(url, { headers: headers(installationToken, "token") });
 
   if (!res.ok) {
+    // GitHub has no tree endpoint for a repository with no commits. This is
+    // an empty scan, not an access/network failure. Other conflicts still fail.
+    if (res.status === 409) {
+      const body = await res.json().catch(() => null) as { message?: string } | null;
+      if (body?.message === "Git Repository is empty.") return { entries: [], truncated: false };
+    }
     throw new GitHubApiError(res.status, url, `Could not read tree for ${fullName}: ${res.status}`);
   }
 
