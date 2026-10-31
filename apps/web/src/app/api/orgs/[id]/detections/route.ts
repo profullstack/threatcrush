@@ -56,7 +56,53 @@ export async function GET(
       ...detection,
       username: detectionUsername(detection),
     }));
-    return NextResponse.json({ detections: normalized, total: count || 0 });
+
+    // Critical detections are folded into incidents by server + rule. Return
+    // that relationship with each detection so the feed can link to the place
+    // where operators assign, investigate, and record a resolution.
+    const critical = normalized.filter((detection) => detection.severity === "critical" && detection.server_id);
+    const incidentKeys = [...new Set(critical.map((detection) =>
+      `detection:${detection.server_id}:${detection.rule_id || detection.title}`.slice(0, 200),
+    ))];
+    const incidentsByKey = new Map<string, {
+      id: string;
+      status: string;
+      assignee_id: string | null;
+    }>();
+    if (incidentKeys.length) {
+      let incidentQuery = admin.from("incidents")
+        .select("id, dedupe_key, status, assignee_id, last_seen_at")
+        .eq("org_id", orgId)
+        .in("dedupe_key", incidentKeys)
+        .order("last_seen_at", { ascending: false });
+      if (visible) {
+        const visibleDetectionServers = [...new Set(critical.map((detection) => detection.server_id))];
+        incidentQuery = incidentQuery.in("server_id", visibleDetectionServers);
+      }
+      const { data: linkedIncidents, error: incidentError } = await incidentQuery;
+      if (incidentError) {
+        // Keep the detections feed available if incident linkage is unavailable.
+        console.error("Failed to link detections to incidents:", incidentError);
+      } else {
+        for (const incident of linkedIncidents ?? []) {
+          const current = incidentsByKey.get(incident.dedupe_key);
+          if (!current || (current.status === "resolved" && incident.status !== "resolved")) {
+            incidentsByKey.set(incident.dedupe_key, {
+              id: incident.id,
+              status: incident.status,
+              assignee_id: incident.assignee_id,
+            });
+          }
+        }
+      }
+    }
+
+    const withIncidents = normalized.map((detection) => {
+      if (detection.severity !== "critical" || !detection.server_id) return detection;
+      const key = `detection:${detection.server_id}:${detection.rule_id || detection.title}`.slice(0, 200);
+      return { ...detection, incident: incidentsByKey.get(key) ?? null };
+    });
+    return NextResponse.json({ detections: withIncidents, total: count || 0 });
   } catch (err) {
     console.error("List detections error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

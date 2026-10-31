@@ -24,6 +24,7 @@ interface Detection {
   last_detected_at: string | null;
   occurrences: number | null;
   status: string;
+  incident?: { id: string; status: string; assignee_id: string | null } | null;
 }
 
 interface Organization {
@@ -213,6 +214,22 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
               <span>{count > 1 ? "First " : ""}{new Date(d.detected_at).toLocaleString()}</span>
               {count > 1 && <span>Last seen {new Date(lastSeen).toLocaleString()}</span>}
             </div>
+            {d.incident && (
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-zinc-800 bg-black/30 px-3 py-2 text-xs">
+                <span className={`capitalize ${STATUS_COLORS[d.incident.status] || "text-zinc-400"}`}>
+                  Incident {d.incident.status}
+                </span>
+                <span className="text-zinc-500">{d.incident.assignee_id ? "Assigned" : "Unassigned"}</span>
+                {d.incident.status !== d.status && (
+                  <span className="text-amber-300">
+                    Detection is {d.status}; the incident is still {d.incident.status}.
+                  </span>
+                )}
+                <Link href={`/org/${slug}/incidents/${d.incident.id}`} className="font-medium text-blue-300 hover:text-blue-200">
+                  Open investigation to assign, review evidence, and record resolution →
+                </Link>
+              </div>
+            )}
           </div>
           <div className="flex gap-2 shrink-0">
             {d.status === "new" && (
