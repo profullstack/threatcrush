@@ -11,4 +11,11 @@ describe('forensic evidence presentation', () => {
     expect(e).not.toHaveProperty('authorization');
     expect(e.next_steps.join(' ')).toContain('does not prove compromise');
   });
+
+  it('recovers an SSH target account from preserved evidence when the database field is empty', () => {
+    const e = forensicEvidence({ id: 'd', server_id: 's', rule_id: 'ssh-success-after-failures', detected_at: '2026-10-31T08:07:07Z', username: null, source_ip: '20.169.68.241', raw_metadata: { evidence: { module: 'ssh-guard', message: 'SSH login accepted for anthony' } } });
+    expect(e.target_account).toBe('anthony');
+    expect(e.next_steps.join(' ')).toContain('not proof of compromise');
+    expect(e.next_steps.join(' ')).toContain('does not execute these server changes');
+  });
 });
