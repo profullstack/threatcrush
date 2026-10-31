@@ -95,7 +95,7 @@ describe('AgentDB activity detection from reverse-proxy access logs', () => {
     const bus = { publish: (event: ThreatEvent) => { published = event; } } as unknown as EventBus;
     const watcher = new LogWatcher(bus, []) as unknown as { process(line: string, src: typeof CADDY_SOURCE): void };
     watcher.process(JSON.stringify({
-      level: 'info', ts: 1793438369, logger: 'http.log.access', msg: 'handled request',
+      level: 'info', ts: 1793438369, logger: 'http.log.access.log0', msg: 'handled request',
       request: { remote_ip: '203.0.113.9', method: 'POST', host: 'agent.database.pit.world', uri: '/v1/query_readonly', proto: 'HTTP/2.0' },
       status: 200, size: 1_040_000,
     }), CADDY_SOURCE);
@@ -111,7 +111,7 @@ describe('AgentDB activity detection from reverse-proxy access logs', () => {
     const bus = { publish: (event: ThreatEvent) => { published = event; } } as unknown as EventBus;
     const watcher = new LogWatcher(bus, []) as unknown as { process(line: string, src: typeof CADDY_SOURCE): void };
     watcher.process(JSON.stringify({
-      logger: 'http.log.access',
+      logger: 'http.log.access.log0',
       request: { remote_ip: '203.0.113.9', method: 'POST', host: 'agent.database.pit.world', uri: '/v1/query_readonly?access_token=do-not-copy' },
       status: 200, size: 500,
     }), CADDY_SOURCE);
