@@ -57,6 +57,39 @@ export function parseNginxLog(line: string): NginxLogEntry | null {
   };
 }
 
+/** Parse a Caddy JSON access-log record into the same request shape as Nginx. */
+export function parseCaddyAccessLog(line: string): NginxLogEntry | null {
+  let entry: Record<string, unknown>;
+  try { entry = JSON.parse(line) as Record<string, unknown>; }
+  catch { return null; }
+  if (entry.logger !== 'http.log.access') return null;
+  const request = entry.request;
+  if (!request || typeof request !== 'object' || Array.isArray(request)) return null;
+  const req = request as Record<string, unknown>;
+  const host = typeof req.host === 'string' ? req.host.toLowerCase() : '';
+  if (host !== 'agent.database.pit.world') return null;
+  const required = [req.method, req.uri, entry.status, entry.size];
+  if (required.some((value) => typeof value !== 'string' && typeof value !== 'number')) return null;
+
+  const timestamp = typeof entry.ts === 'number' ? new Date(entry.ts * 1000) : new Date();
+  return {
+    timestamp: Number.isNaN(timestamp.getTime()) ? new Date() : timestamp,
+    raw: line,
+    source: 'nginx',
+    fields: {
+      ip: typeof req.client_ip === 'string' ? req.client_ip : (typeof req.remote_ip === 'string' ? req.remote_ip : ''),
+      method: String(req.method),
+      path: String(req.uri).split('?')[0],
+      protocol: typeof req.proto === 'string' ? req.proto : '',
+      status: String(entry.status),
+      size: String(entry.size),
+      referer: '',
+      user_agent: '',
+      host,
+    },
+  };
+}
+
 export function parseAuthLog(line: string): AuthLogEntry | null {
   const match = line.match(AUTH_REGEX);
   if (!match) return null;

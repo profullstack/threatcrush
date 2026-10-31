@@ -1,7 +1,7 @@
 import { existsSync, accessSync, constants } from 'node:fs';
 import { LogTail } from '../../core/log-tail.js';
 import type { EventBus } from '../event-bus.js';
-import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, isSshdProcess, parseAuthLog, parseNginxLog, sshdPeerIp } from '../../core/log-parser.js';
+import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, isSshdProcess, parseAuthLog, parseCaddyAccessLog, parseNginxLog, sshdPeerIp } from '../../core/log-parser.js';
 import { insertEvent } from '../../core/state.js';
 import type { ThreatEvent, EventCategory, EventSeverity } from '../../types/events.js';
 
@@ -15,8 +15,12 @@ export const DEFAULT_SOURCES: LogSource[] = [
   { path: '/var/log/auth.log', module: 'ssh-guard', category: 'auth' },
   { path: '/var/log/secure', module: 'ssh-guard', category: 'auth' },
   { path: '/var/log/nginx/access.log', module: 'log-watcher', category: 'web' },
+  { path: '/var/log/caddy/agent.database.pit.world.access.log', module: 'log-watcher', category: 'web' },
   { path: '/var/log/syslog', module: 'log-watcher', category: 'system' },
 ];
+
+const AGENTDB_API_PATH = /^\/v1\/(?:list_databases|inspect_schema|query_readonly|explain_query|cluster_health|backup_status|audit\/events|backup\/(?:create|verify)|tokens(?:\/revoke)?)$/;
+const AGENTDB_HOST = 'agent.database.pit.world';
 
 export class LogWatcher {
   private timers = new Map<string, NodeJS.Timeout>();
@@ -79,7 +83,8 @@ export class LogWatcher {
   }
 
   private process(line: string, src: LogSource): void {
-    const parsed = autoDetectParser(line);
+    const caddy = parseCaddyAccessLog(line);
+    const parsed = caddy ?? autoDetectParser(line);
     if (!parsed) return;
 
     let severity: EventSeverity = 'info';
@@ -99,7 +104,7 @@ export class LogWatcher {
       ({ severity, message, source_ip: sourceIp } = verdict);
       if (verdict.details) Object.assign(details, verdict.details);
     } else if (parsed.source === 'nginx') {
-      const entry = parseNginxLog(line);
+      const entry = caddy ?? parseNginxLog(line);
       if (!entry) return;
       sourceIp = entry.fields.ip;
       const status = parseInt(entry.fields.status, 10);
@@ -122,6 +127,20 @@ export class LogWatcher {
       if (Number.isFinite(status)) details.status = status;
       if (entry.fields.method) details.method = entry.fields.method;
       if (entry.fields.path) details.url = entry.fields.path.slice(0, 2048);
+      const agentDbHost = entry.fields.host?.toLowerCase();
+      const isAgentDbApi = AGENTDB_API_PATH.test(reqPath)
+        && (!agentDbHost || agentDbHost === AGENTDB_HOST);
+      if (isAgentDbApi) {
+        // Do not carry query parameters into local or cloud detection records.
+        // AgentDB places SQL in the POST body, but callers can still put secrets
+        // in a query string and the reverse proxy access log records that URL.
+        details.url = reqPath;
+        details.service = 'agentdb';
+        const responseBytes = Number(entry.fields.size);
+        if (Number.isSafeInteger(responseBytes) && responseBytes >= 0) {
+          details.response_bytes = responseBytes;
+        }
+      }
       if (crs.score > 0) {
         Object.assign(details, {
           attack_type: crs.attackType,
@@ -132,7 +151,10 @@ export class LogWatcher {
       }
       if (attack) {
         severity = attack;
-        message = `Attack [${type}]: ${entry.fields.method} ${entry.fields.path}`;
+        message = `Attack [${type}]: ${entry.fields.method} ${isAgentDbApi ? reqPath : entry.fields.path}`;
+      } else if (isAgentDbApi) {
+        severity = status >= 500 ? 'medium' : status >= 400 ? 'low' : 'info';
+        message = `AgentDB API ${status}: ${entry.fields.method} ${reqPath}`;
       } else if (status >= 500) {
         severity = 'medium';
         message = `Server error ${status}: ${entry.fields.method} ${entry.fields.path}`;
