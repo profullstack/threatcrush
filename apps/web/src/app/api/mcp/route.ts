@@ -140,7 +140,7 @@ const TOOLS = [
         id: { type: "string" },
         status: { type: "string", enum: ["open", "acknowledged", "resolved"] },
         assignee_id: { type: ["string", "null"] },
-        assignee_ids: { type: "array", maxItems: 50, items: { type: "string", format: "uuid" }, description: "Replace the assignee list with these active team member user IDs; [] clears it. Use incidents_get to find member IDs and emails." },
+        assignee_ids: { type: "array", maxItems: 50, items: { type: "string", format: "uuid" }, description: "Replace the assignee list with these active org/team member user IDs; [] clears it. An assignee receives write access to this incident. Use incidents_get to find member IDs and emails." },
         note: { type: "string" },
         fix_work: {
           type: "object", additionalProperties: false,

@@ -195,6 +195,7 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
         <p className="mb-4 text-sm text-zinc-400">ThreatCrush catalogs the incident. Assigned agents or people do the remediation and report progress here or through MCP. Closing requires a recorded outcome and verification.</p>
         <div className="mb-5">
           <h3 className="mb-2 text-sm font-medium text-white">Assigned people</h3>
+          <p className="mb-2 text-xs text-zinc-500">Assignment gives each selected person write access to this incident so they can update the fix record.</p>
           {canWrite ? data.members.length ? (
             <div className="grid gap-2 sm:grid-cols-2">
               {data.members.map((m) => (
