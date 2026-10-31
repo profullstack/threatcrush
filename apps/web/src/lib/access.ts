@@ -115,7 +115,13 @@ export async function incidentRoleOf(
     if (p.kind === "agent" && p.orgId !== incident.org_id) return null;
     return teamRoleOf(admin, p, { id: incident.team_id, org_id: incident.org_id });
   }
-  return findingsRoleOf(admin, p, incident.org_id);
+  const orgRole = await findingsRoleOf(admin, p, incident.org_id);
+  if (orgRole) return orgRole;
+  if (p.kind === "user" && "id" in incident && typeof incident.id === "string") {
+    const { data } = await admin.from("incident_fix_assignees").select("user_id").eq("incident_id", incident.id).eq("user_id", p.userId).maybeSingle();
+    if (data) return "write";
+  }
+  return null;
 }
 
 /**
@@ -127,16 +133,19 @@ export interface IncidentScope {
   all: boolean;
   teamRoles: Map<string, TeamRole>;
   teamless: TeamRole | null;
+  assignedIncidentIds: Set<string>;
 }
 
 export async function incidentScopeIn(admin: SupabaseClient, p: Principal, orgId: string): Promise<IncidentScope | null> {
   if (p.kind === "agent") {
     if (p.orgId !== orgId) return null;
-    return { all: false, teamRoles: new Map([[p.teamId, p.role]]), teamless: p.role };
+    return { all: false, teamRoles: new Map([[p.teamId, p.role]]), teamless: p.role, assignedIncidentIds: new Set() };
   }
   const orgRole = await orgRoleOf(admin, p, orgId);
-  if (!orgRole) return null;
-  if (isOrgAdmin(orgRole)) return { all: true, teamRoles: new Map(), teamless: "admin" };
+  if (isOrgAdmin(orgRole)) return { all: true, teamRoles: new Map(), teamless: "admin", assignedIncidentIds: new Set() };
+  const { data: assignedRows } = await admin.from("incident_fix_assignees").select("incident_id").eq("user_id", p.userId);
+  const assignedIncidentIds = new Set(((assignedRows ?? []) as Array<{ incident_id: string }>).map((a) => a.incident_id));
+  if (!orgRole && !assignedIncidentIds.size) return null;
   const { data: seats } = await admin
     .from("team_members")
     .select("team_id, role, teams!inner(org_id)")
@@ -146,12 +155,13 @@ export async function incidentScopeIn(admin: SupabaseClient, p: Principal, orgId
   for (const seat of (seats ?? []) as Array<{ team_id: string; role: string }>) {
     if (isTeamRole(seat.role)) teamRoles.set(seat.team_id, seat.role);
   }
-  return { all: false, teamRoles, teamless: orgRole === "member" ? "write" : null };
+  return { all: false, teamRoles, teamless: orgRole === "member" ? "write" : null, assignedIncidentIds };
 }
 
 /** The caller's role on one incident, given a scope already loaded for its org. */
-export function incidentRoleInScope(scope: IncidentScope, incident: { team_id: string | null }): TeamRole | null {
+export function incidentRoleInScope(scope: IncidentScope, incident: { id?: string; team_id: string | null }): TeamRole | null {
   if (scope.all) return "admin";
+  if (incident.id && scope.assignedIncidentIds.has(incident.id)) return "write";
   return incident.team_id ? scope.teamRoles.get(incident.team_id) ?? null : scope.teamless;
 }
 

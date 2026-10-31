@@ -403,10 +403,20 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
 
 /** Who an incident can be assigned to: its team's members, or the org's members when it has no team. */
 async function assignableMembers(admin: SupabaseClient, row: { org_id: string; team_id: string | null }) {
-  const { data } = row.team_id
-    ? await admin.from("team_members").select("user_id").eq("team_id", row.team_id)
-    : await admin.from("organization_members").select("user_id").eq("org_id", row.org_id).in("role", ["owner", "admin", "member"]);
-  const ids = ((data ?? []) as Array<{ user_id: string }>).map((m) => m.user_id);
+  let ids: string[];
+  if (row.team_id) {
+    const { data } = await admin.from("team_members").select("user_id").eq("team_id", row.team_id);
+    ids = ((data ?? []) as Array<{ user_id: string }>).map((m) => m.user_id);
+  } else {
+    const [orgMembers, teamMembers] = await Promise.all([
+      admin.from("organization_members").select("user_id").eq("org_id", row.org_id).in("role", ["owner", "admin", "member"]),
+      admin.from("team_members").select("user_id, teams!inner(org_id)").eq("teams.org_id", row.org_id),
+    ]);
+    ids = [...new Set([
+      ...((orgMembers.data ?? []) as Array<{ user_id: string }>).map((m) => m.user_id),
+      ...((teamMembers.data ?? []) as Array<{ user_id: string }>).map((m) => m.user_id),
+    ])];
+  }
   if (!ids.length) return [];
   const { data: prof } = await admin.from("user_profiles").select("id, email, display_name").in("id", ids);
   const byId = new Map(((prof ?? []) as Array<{ id: string; email: string | null; display_name: string | null }>).map((x) => [x.id, x]));
