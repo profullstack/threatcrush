@@ -22,6 +22,9 @@ interface IncidentSummary {
   team_name: string | null;
   findings_count: number;
   raise_count: number;
+  fix_status: string;
+  fix_test_status: string;
+  assignees: Array<{ user_id: string; name: string; email: string | null }>;
   last_seen_at: string;
   first_seen_at: string;
 }
@@ -34,6 +37,8 @@ const TABS = [
   { key: "all", label: "All" },
 ];
 const SOURCE_LABEL: Record<string, string> = { investigate: "investigate", watchdog: "watchdog", daemon: "daemon", manual: "manual" };
+const FIX_LABEL: Record<string, string> = { unassigned: "Unassigned", assigned: "Assigned", in_progress: "In progress", blocked: "Blocked", pr_open: "PR open", testing: "Testing", tested: "Tested", fixed: "Fixed", false_positive: "False positive" };
+const TEST_LABEL: Record<string, string> = { not_run: "not run", running: "running", passed: "passed", failed: "failed", skipped: "skipped" };
 
 export default function IncidentsContent({ slug }: { slug: string }) {
   const { org, ready } = useOrg(slug);
@@ -102,7 +107,7 @@ export default function IncidentsContent({ slug }: { slug: string }) {
         <ul className="divide-y divide-zinc-800 rounded-lg border border-zinc-800 bg-zinc-900">
           {rows.map((r) => (
             <li key={r.id}>
-              <Link href={`/ic/${r.human_code}`} className="flex flex-col gap-1 p-4 hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:justify-between">
+              <Link href={`/org/${slug}/incidents/${r.id}`} className="flex flex-col gap-1 p-4 hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <SeverityBadge severity={r.severity} />
@@ -111,6 +116,10 @@ export default function IncidentsContent({ slug }: { slug: string }) {
                   <p className="mt-1 text-xs text-zinc-500">
                     {r.host ? `${r.host} · ` : ""}{r.team_name ?? "no team"} · {SOURCE_LABEL[r.source] ?? r.source} · {r.findings_count} finding{r.findings_count === 1 ? "" : "s"}
                     {r.raise_count > 1 ? ` · raised ${r.raise_count}×` : ""}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-400">
+                    Fix: {FIX_LABEL[r.fix_status] ?? r.fix_status} · tests {TEST_LABEL[r.fix_test_status] ?? r.fix_test_status}
+                    {r.assignees.length ? ` · ${r.assignees.map((a) => a.email || a.name).join(", ")}` : " · unassigned"}
                   </p>
                 </div>
                 <div className="flex items-center gap-4 text-sm">
