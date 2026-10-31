@@ -7,6 +7,7 @@ import { authHeaders } from "@/lib/auth-client";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 import ConnectServerHint from "@/components/ConnectServerHint";
 import FixReportActions from "@/components/FixReportActions";
+import { detectionUsername, isSshDetection } from "@/lib/detection-display";
 import Link from "next/link";
 
 interface Detection {
@@ -171,6 +172,7 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
     const count = d.occurrences ?? 1;
     const lastSeen = d.last_detected_at ?? d.detected_at;
     const systemAccount = systemAccountOf(d);
+    const username = detectionUsername(d);
     return (
       <div key={d.id} id={`detection-${d.id}`}
         className={`rounded-lg bg-zinc-900 border p-4 transition-colors ${
@@ -202,7 +204,7 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
                 </Link>
               </span>
               {d.source_ip && <span>IP: <code className="text-zinc-400">{d.source_ip}</code></span>}
-              {d.username && <span>User: <code className="text-zinc-400">{d.username}</code></span>}
+              {username && <span>{isSshDetection(d) ? "SSH user" : "User"}: <code className="text-zinc-400">{username}</code></span>}
               {(systemAccount.name || systemAccount.uid) && (
                 <span>System account: <code className="text-zinc-400">
                   {systemAccount.name ?? "unknown"}{systemAccount.uid ? ` (uid ${systemAccount.uid})` : ""}
@@ -216,13 +218,13 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
             {d.status === "new" && (
               <button onClick={() => updateStatus([d.id], "acknowledged")}
                 className="rounded px-3 py-1 text-xs bg-zinc-800 text-zinc-300 hover:bg-zinc-700 border border-zinc-700">
-                Ack
+                Acknowledge
               </button>
             )}
             {d.status !== "resolved" && (
               <button onClick={() => updateStatus([d.id], "resolved")}
                 className="rounded px-3 py-1 text-xs bg-zinc-800 text-green-400 hover:bg-zinc-700 border border-zinc-700">
-                Resolve
+                Mark resolved
               </button>
             )}
           </div>
@@ -284,6 +286,10 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
             <option value="resolved">Resolved</option>
           </select>
         </div>
+
+        <p className="mb-6 rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-3 text-sm text-zinc-400">
+          Acknowledge marks an alert as seen. Mark resolved only changes its tracking status; neither action fixes the server or assigns an owner. A server operator must investigate and apply any fix.
+        </p>
 
         {highlightId && !inList && pinned && (
           <div className="mb-6">

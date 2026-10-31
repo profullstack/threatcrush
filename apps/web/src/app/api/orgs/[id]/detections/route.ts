@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { parsePaginationParam } from "@/lib/pagination";
 import { atLeast } from "@/lib/access";
 import { requireOrgScope, serverRolesIn, visibleServerIds } from "@/lib/route-access";
+import { detectionUsername } from "@/lib/detection-display";
 
 // GET /api/orgs/[id]/detections — detections on the servers the caller can see
 export async function GET(
@@ -51,7 +52,11 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch detections" }, { status: 500 });
     }
 
-    return NextResponse.json({ detections: detections || [], total: count || 0 });
+    const normalized = (detections || []).map((detection) => ({
+      ...detection,
+      username: detectionUsername(detection),
+    }));
+    return NextResponse.json({ detections: normalized, total: count || 0 });
   } catch (err) {
     console.error("List detections error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
