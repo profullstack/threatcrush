@@ -258,6 +258,13 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
           </div>
         </div>
 
+        <aside className="mb-6 rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 text-sm text-blue-200" aria-label="Shell history protection details">
+          <p className="font-medium">Shell history protection</p>
+          <p className="mt-1 text-blue-200/70">
+            When enabled in <code className="rounded bg-blue-500/10 px-1">/etc/threatcrush/threatcrushd.conf</code>, tampering alerts appear in this feed. Snapshot contents stay root-only on the server in <code className="rounded bg-blue-500/10 px-1">/var/lib/threatcrush/command-history/</code>; command contents are never uploaded.
+          </p>
+        </aside>
+
         {/* Filters */}
         <div className="flex gap-3 mb-6 flex-wrap">
           <select value={severity} onChange={e => { setSeverity(e.target.value); setPage(0); }}
