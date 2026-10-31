@@ -449,15 +449,6 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     verification: row.fix_verification,
     blocked_reason: row.fix_blocked_reason,
   };
-  const fixColumns: Record<keyof FixWorkValues, string> = {
-    status: "fix_status",
-    pr_url: "fix_pr_url",
-    test_status: "fix_test_status",
-    test_summary: "fix_test_summary",
-    test_url: "fix_test_url",
-    verification: "fix_verification",
-    blocked_reason: "fix_blocked_reason",
-  };
   type FixChange = { from: unknown; to: unknown };
   const fixChanges: Partial<Record<keyof FixWorkValues, FixChange>> = {};
   const recordFixChange = (key: keyof FixWorkValues, change: FixChange) => {
@@ -490,7 +481,7 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
       if ((key === "pr_url" || key === "test_url") && textValue && !validHttpsUrl(textValue)) {
         throw new IncidentError(400, `fix_work.${key} must be a public https URL`);
       }
-      if (textValue && findSecret({ [key]: textValue })) throw new IncidentError(422, "Fix progress must not contain secret material");
+      if (textValue && findSecret(textValue, `fix_work.${key}`)) throw new IncidentError(422, "Fix progress must not contain secret material");
       switch (key) {
         case "pr_url": nextFix.pr_url = textValue; break;
         case "test_summary": nextFix.test_summary = textValue; break;
@@ -511,14 +502,33 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     if (["passed", "failed", "skipped"].includes(String(nextFix.test_status)) && !(nextFix.test_summary as string | null)?.trim()) {
       throw new IncidentError(400, "Record a short fix_work.test_summary for passed, failed or skipped tests");
     }
-    for (const key of Object.keys(fixColumns) as Array<keyof FixWorkValues>) {
-      const value = nextFix[key];
-      const column = fixColumns[key];
-      const previous = (row as unknown as Record<string, unknown>)[column];
-      if (value !== previous) {
-        fixPatch[column] = value;
-        recordFixChange(key, { from: previous ?? null, to: value });
-      }
+    if (nextFix.status !== row.fix_status) {
+      fixPatch.fix_status = nextFix.status;
+      recordFixChange("status", { from: row.fix_status ?? null, to: nextFix.status });
+    }
+    if (nextFix.pr_url !== row.fix_pr_url) {
+      fixPatch.fix_pr_url = nextFix.pr_url;
+      recordFixChange("pr_url", { from: row.fix_pr_url ?? null, to: nextFix.pr_url });
+    }
+    if (nextFix.test_status !== row.fix_test_status) {
+      fixPatch.fix_test_status = nextFix.test_status;
+      recordFixChange("test_status", { from: row.fix_test_status ?? null, to: nextFix.test_status });
+    }
+    if (nextFix.test_summary !== row.fix_test_summary) {
+      fixPatch.fix_test_summary = nextFix.test_summary;
+      recordFixChange("test_summary", { from: row.fix_test_summary ?? null, to: nextFix.test_summary });
+    }
+    if (nextFix.test_url !== row.fix_test_url) {
+      fixPatch.fix_test_url = nextFix.test_url;
+      recordFixChange("test_url", { from: row.fix_test_url ?? null, to: nextFix.test_url });
+    }
+    if (nextFix.verification !== row.fix_verification) {
+      fixPatch.fix_verification = nextFix.verification;
+      recordFixChange("verification", { from: row.fix_verification ?? null, to: nextFix.verification });
+    }
+    if (nextFix.blocked_reason !== row.fix_blocked_reason) {
+      fixPatch.fix_blocked_reason = nextFix.blocked_reason;
+      recordFixChange("blocked_reason", { from: row.fix_blocked_reason ?? null, to: nextFix.blocked_reason });
     }
     if (Object.keys(fixPatch).length) {
       patch.fix_updated_at = now;
