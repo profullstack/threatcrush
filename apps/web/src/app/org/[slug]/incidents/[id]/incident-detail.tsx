@@ -9,10 +9,16 @@ import { Centered, SeverityBadge, Shell, STATUS_CLS, useOrg, when } from "../sha
 interface Finding { id: string; module: string; severity: string; title: string; detail?: string; evidence: "evidence" | "inference"; at?: string }
 interface TimelineEntry { at: string; module: string; summary: string; evidence: boolean; ref?: string }
 interface Recommendation { action: string; target?: string; priority: "now" | "soon" | "later" }
+type FixStatus = "unassigned" | "assigned" | "in_progress" | "blocked" | "pr_open" | "testing" | "tested" | "fixed" | "false_positive";
+type FixTestStatus = "not_run" | "running" | "passed" | "failed" | "skipped";
+interface FixWorkForm { status: FixStatus; pr_url: string; test_status: FixTestStatus; test_summary: string; test_url: string; verification: string; blocked_reason: string }
 interface Incident {
   id: string; short_code: string; human_code: string; title: string; severity: string; status: string; source: string; host: string | null;
   summary: string; verdict: string | null; team_id: string | null; team_name: string | null;
   assignee_id: string | null; assignee_name: string | null; raise_count: number;
+  assignees: Array<{ user_id: string; name: string; email: string | null; assigned_at: string }>;
+  fix_status: FixStatus; fix_pr_url: string | null; fix_test_status: FixTestStatus; fix_test_summary: string | null;
+  fix_test_url: string | null; fix_verification: string | null; fix_blocked_reason: string | null; fix_updated_at: string | null;
   findings: Finding[]; timeline: TimelineEntry[]; recommendations: Recommendation[];
   resolution?: { reason: string; action: string; verification: string; actor_user_id: string | null; actor_agent_key_id: string | null; at: string } | null;
   first_seen_at: string; last_seen_at: string; acknowledged_at: string | null; resolved_at: string | null;
@@ -22,12 +28,33 @@ interface Detail {
   forensics?: ReturnType<typeof forensicEvidence>[];
   resolution_actor_name?: string | null;
   role: "read" | "write" | "admin";
-  members: Array<{ user_id: string; name: string }>;
+  members: Array<{ user_id: string; name: string; email: string | null }>;
+  fix_events: Array<{ id: string; actor_label: string; event_type: string; details: Record<string, unknown>; created_at: string }>;
   notes: Array<{ id: string; author_name: string | null; body: string; created_at: string }>;
   notifications: Array<{ id: string; user_name: string | null; channel: string; status: string; detail: string | null; created_at: string }>;
 }
 
 const PRIORITY_CLS: Record<string, string> = { now: "text-red-400", soon: "text-yellow-400", later: "text-zinc-400" };
+const FIX_STATUS_LABEL: Record<FixStatus, string> = {
+  unassigned: "Unassigned", assigned: "Assigned", in_progress: "In progress", blocked: "Blocked", pr_open: "PR open",
+  testing: "Testing", tested: "Tested", fixed: "Fixed", false_positive: "False positive",
+};
+const TEST_STATUS_LABEL: Record<FixTestStatus, string> = { not_run: "Not run", running: "Running", passed: "Passed", failed: "Failed", skipped: "Skipped" };
+
+function eventSummary(event: Detail["fix_events"][number]): string {
+  if (event.event_type === "assignees_changed") {
+    const details = event.details as { added?: Array<{ name?: string; email?: string | null }>; removed?: Array<{ name?: string; email?: string | null }> };
+    const added = (details.added ?? []).map((x) => x.email || x.name || "member");
+    const removed = (details.removed ?? []).map((x) => x.email || x.name || "member");
+    return [added.length ? `Assigned ${added.join(", ")}` : "", removed.length ? `Removed ${removed.join(", ")}` : ""].filter(Boolean).join(" · ");
+  }
+  const changes = (event.details.changes ?? {}) as Record<string, { from?: unknown; to?: unknown }>;
+  const labels: Record<string, string> = { status: "Work", pr_url: "PR", test_status: "Tests", test_summary: "Test evidence", test_url: "Test run", verification: "Verification", blocked_reason: "Blocker" };
+  return Object.entries(changes).map(([key, value]) => {
+    const fmt = (x: unknown) => typeof x === "string" ? x : x == null ? "—" : JSON.stringify(x);
+    return `${labels[key] ?? key}: ${fmt(value.from)} → ${fmt(value.to)}`;
+  }).join(" · ") || "Updated fix progress";
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -66,6 +93,8 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
   const [message, setMessage] = useState<string | null>(null);
   const [closing, setClosing] = useState(false);
   const [resolution, setResolution] = useState({ reason: "", action: "", verification: "" });
+  const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
+  const [fixWork, setFixWork] = useState<FixWorkForm>({ status: "unassigned", pr_url: "", test_status: "not_run", test_summary: "", test_url: "", verification: "", blocked_reason: "" });
 
   const load = useCallback(async () => {
     if (!org) return;
@@ -73,6 +102,17 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
     const body = await res.json().catch(() => ({}));
     if (!res.ok) { setError(body.error || `HTTP ${res.status}`); return; }
     setData(body as Detail);
+    const incident = (body as Detail).incident;
+    setSelectedAssigneeIds(incident.assignees.map((x) => x.user_id));
+    setFixWork({
+      status: incident.fix_status,
+      pr_url: incident.fix_pr_url ?? "",
+      test_status: incident.fix_test_status,
+      test_summary: incident.fix_test_summary ?? "",
+      test_url: incident.fix_test_url ?? "",
+      verification: incident.fix_verification ?? "",
+      blocked_reason: incident.fix_blocked_reason ?? "",
+    });
     setError(null);
   }, [org, incidentId]);
 
@@ -92,7 +132,7 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
       const out = await res.json().catch(() => ({}));
       if (!res.ok) { setError(out.error || `HTTP ${res.status}`); return false; }
       await load();
-      setMessage(body.status === "resolved" ? "Resolution saved with action, verification and operator." : "Incident updated.");
+      setMessage(body.status === "resolved" ? "Resolution saved with action, verification and operator." : body.fix_work || body.assignee_ids ? "Fix progress and assignments saved." : "Incident updated.");
       return true;
     } catch {
       setError("Could not save the incident. Your input is preserved; try again.");
@@ -148,22 +188,92 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
           {inc.status !== "open" && (
             <button disabled={busy} onClick={() => patch({ status: "open" })} className="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 hover:border-zinc-500 disabled:opacity-50">Reopen</button>
           )}
-          <label className="ml-auto flex items-center gap-2 text-sm text-zinc-400">
-            Assignee
-            <select disabled={busy} value={inc.assignee_id ?? ""} onChange={(e) => patch({ assignee_id: e.target.value || null })}
-              className="rounded border border-zinc-700 bg-black px-2 py-1 text-zinc-200">
-              <option value="">Nobody</option>
-              {data.members.map((m) => <option key={m.user_id} value={m.user_id}>{m.name}</option>)}
-            </select>
-          </label>
         </div>
       )}
-      {!canWrite && inc.assignee_name && <p className="mb-6 text-sm text-zinc-400">Assigned to {inc.assignee_name}</p>}
+
+      <Section title="Fix workflow">
+        <p className="mb-4 text-sm text-zinc-400">ThreatCrush catalogs the incident. Assigned agents or people do the remediation and report progress here or through MCP. Closing requires a recorded outcome and verification.</p>
+        <div className="mb-5">
+          <h3 className="mb-2 text-sm font-medium text-white">Assigned people</h3>
+          <p className="mb-2 text-xs text-zinc-500">Assignment gives each selected person write access to this incident so they can update the fix record.</p>
+          {canWrite ? data.members.length ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {data.members.map((m) => (
+                <label key={m.user_id} className="flex items-start gap-2 rounded border border-zinc-800 p-2 text-sm text-zinc-200">
+                  <input type="checkbox" checked={selectedAssigneeIds.includes(m.user_id)} disabled={busy}
+                    onChange={(e) => setSelectedAssigneeIds((current) => e.target.checked ? [...current, m.user_id] : current.filter((id) => id !== m.user_id))}
+                    className="mt-1 accent-purple-500" />
+                  <span>{m.name}{m.email && <span className="block text-xs text-zinc-500">{m.email}</span>}</span>
+                </label>
+              ))}
+            </div>
+          ) : <p className="text-sm text-zinc-500">No active team members are available to assign.</p> : (
+            <p className="text-sm text-zinc-300">{inc.assignees.length ? inc.assignees.map((a) => a.email || a.name).join(", ") : "Nobody assigned"}</p>
+          )}
+        </div>
+
+        {canWrite ? (
+          <form className="space-y-3" onSubmit={(e) => {
+            e.preventDefault();
+            void patch({ assignee_ids: selectedAssigneeIds, fix_work: fixWork });
+          }}>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm text-zinc-300">Fix status
+                <select value={fixWork.status} disabled={busy} onChange={(e) => setFixWork({ ...fixWork, status: e.target.value as FixStatus })} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2">
+                  {Object.entries(FIX_STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label className="block text-sm text-zinc-300">Pull request
+                <input type="url" inputMode="url" maxLength={2000} placeholder="https://github.com/org/repo/pull/123" value={fixWork.pr_url} disabled={busy} onChange={(e) => setFixWork({ ...fixWork, pr_url: e.target.value })} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2" />
+              </label>
+              <label className="block text-sm text-zinc-300">Test status
+                <select value={fixWork.test_status} disabled={busy} onChange={(e) => setFixWork({ ...fixWork, test_status: e.target.value as FixTestStatus })} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2">
+                  {Object.entries(TEST_STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label className="block text-sm text-zinc-300">Test run URL (optional)
+                <input type="url" inputMode="url" maxLength={2000} placeholder="CI run or test report" value={fixWork.test_url} disabled={busy} onChange={(e) => setFixWork({ ...fixWork, test_url: e.target.value })} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2" />
+              </label>
+            </div>
+            <label className="block text-sm text-zinc-300">Test evidence
+              <textarea maxLength={4000} value={fixWork.test_summary} disabled={busy} onChange={(e) => setFixWork({ ...fixWork, test_summary: e.target.value })} placeholder="What ran and what passed or failed? Required for passed, failed or skipped." rows={2} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2" />
+            </label>
+            {fixWork.status === "blocked" && <label className="block text-sm text-zinc-300">What is blocking the fix?
+              <textarea required maxLength={2000} value={fixWork.blocked_reason} disabled={busy} onChange={(e) => setFixWork({ ...fixWork, blocked_reason: e.target.value })} rows={2} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2" />
+            </label>}
+            <label className="block text-sm text-zinc-300">Verification
+              <textarea maxLength={2000} value={fixWork.verification} disabled={busy} onChange={(e) => setFixWork({ ...fixWork, verification: e.target.value })} placeholder="Observed result after the fix, or why this is a false positive" rows={2} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2" />
+            </label>
+            <button disabled={busy} className="rounded bg-purple-600 px-3 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50">Save assignments and progress</button>
+          </form>
+        ) : (
+          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <div><dt className="text-zinc-500">Fix status</dt><dd className="text-zinc-200">{FIX_STATUS_LABEL[inc.fix_status]}</dd></div>
+            <div><dt className="text-zinc-500">Tests</dt><dd className="text-zinc-200">{TEST_STATUS_LABEL[inc.fix_test_status]}</dd></div>
+            {inc.fix_pr_url && <div><dt className="text-zinc-500">Pull request</dt><dd><a className="break-all text-purple-300 underline" href={inc.fix_pr_url} target="_blank" rel="noreferrer">{inc.fix_pr_url}</a></dd></div>}
+            {inc.fix_test_url && <div><dt className="text-zinc-500">Test run</dt><dd><a className="break-all text-purple-300 underline" href={inc.fix_test_url} target="_blank" rel="noreferrer">{inc.fix_test_url}</a></dd></div>}
+            {inc.fix_test_summary && <div className="sm:col-span-2"><dt className="text-zinc-500">Test evidence</dt><dd className="whitespace-pre-wrap text-zinc-200">{inc.fix_test_summary}</dd></div>}
+            {inc.fix_blocked_reason && <div className="sm:col-span-2"><dt className="text-zinc-500">Blocker</dt><dd className="whitespace-pre-wrap text-zinc-200">{inc.fix_blocked_reason}</dd></div>}
+            {inc.fix_verification && <div className="sm:col-span-2"><dt className="text-zinc-500">Verification</dt><dd className="whitespace-pre-wrap text-zinc-200">{inc.fix_verification}</dd></div>}
+          </dl>
+        )}
+
+        <div className="mt-5 border-t border-zinc-800 pt-4">
+          <h3 className="mb-2 text-sm font-medium text-white">Progress history</h3>
+          {data.fix_events.length ? <ol className="space-y-2">
+            {data.fix_events.map((event) => <li key={event.id} className="rounded border border-zinc-800 p-2 text-sm">
+              <p className="text-xs text-zinc-500">{event.actor_label} · {when(event.created_at)}</p>
+              <p className="break-words text-zinc-300">{eventSummary(event)}</p>
+            </li>)}
+          </ol> : <p className="text-sm text-zinc-500">No fix progress recorded yet.</p>}
+        </div>
+        {inc.fix_updated_at && <p className="mt-3 text-xs text-zinc-600">Last progress update {when(inc.fix_updated_at)}</p>}
+      </Section>
 
       {closing && canWrite && inc.status !== "resolved" && (
         <Section title="Record resolution">
-          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void patch({ status: "resolved", resolution }).then((ok) => { if (ok) setClosing(false); }); }}>
-            <p className="text-sm text-zinc-400">Describe what happened, what you did (or why no action was needed), and how you checked the outcome. Resolving records your assessment; it does not run a fix.</p>
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void patch({ status: "resolved", resolution, fix_work: { ...fixWork, verification: fixWork.verification || resolution.verification } }).then((ok) => { if (ok) setClosing(false); }); }}>
+            <p className="text-sm text-zinc-400">Choose Fixed with passing tests and verification, or False positive with a reason. The incident cannot close until the recorded fix state is verified. Resolving records your assessment; it does not run a fix.</p>
             {([ ["reason", "Conclusion and reason for closing"], ["action", "Action taken or reason no action was needed"], ["verification", "Verification and observed outcome"] ] as const).map(([key, label]) => (
               <label key={key} className="block text-sm text-zinc-300">{label}
                 <textarea required maxLength={2000} value={resolution[key]} onChange={(e) => setResolution({ ...resolution, [key]: e.target.value })} className="mt-1 block w-full rounded border border-zinc-700 bg-black p-2" />

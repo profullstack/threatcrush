@@ -51,6 +51,16 @@ export interface IncidentRow {
   recommendations: Recommendation[];
   raise_count: number;
   assignee_id: string | null;
+  fix_status: FixStatus;
+  fix_pr_url: string | null;
+  fix_test_status: FixTestStatus;
+  fix_test_summary: string | null;
+  fix_test_url: string | null;
+  fix_verification: string | null;
+  fix_blocked_reason: string | null;
+  fix_updated_at: string | null;
+  fix_updated_by_user: string | null;
+  fix_updated_by_agent_key: string | null;
   created_by_user: string | null;
   created_by_agent_key: string | null;
   first_seen_at: string;
@@ -63,6 +73,13 @@ export interface IncidentRow {
   updated_at: string;
 }
 
+export type FixStatus = "unassigned" | "assigned" | "in_progress" | "blocked" | "pr_open" | "testing" | "tested" | "fixed" | "false_positive";
+export type FixTestStatus = "not_run" | "running" | "passed" | "failed" | "skipped";
+type FixWorkValues = { status: FixStatus; pr_url: string | null; test_status: FixTestStatus; test_summary: string | null; test_url: string | null; verification: string | null; blocked_reason: string | null };
+
+const FIX_STATUSES: FixStatus[] = ["unassigned", "assigned", "in_progress", "blocked", "pr_open", "testing", "tested", "fixed", "false_positive"];
+const FIX_TEST_STATUSES: FixTestStatus[] = ["not_run", "running", "passed", "failed", "skipped"];
+
 /** What the caller should do after a raise: page (new, or escalated to critical) or not. */
 export interface RaiseOutcome {
   incident: IncidentRow;
@@ -71,8 +88,18 @@ export interface RaiseOutcome {
 }
 
 const SUMMARY_COLUMNS =
-  "id, short_code, human_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
+  "id, short_code, human_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, fix_status, fix_test_status, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
 const MAX_NOTE = 4000;
+const FIX_WORK_FIELDS = new Set(["status", "pr_url", "test_status", "test_summary", "test_url", "verification", "blocked_reason"]);
+
+function validHttpsUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
 
 function incidentShortCode(title: string, id: string): string {
   const prefix = title.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 16) || "incident";
@@ -267,10 +294,32 @@ export async function listIncidents(
     const { data: t } = await admin.from("teams").select("id, name").in("id", teamIds);
     for (const team of (t ?? []) as Array<{ id: string; name: string }>) teams.set(team.id, team.name);
   }
+  const rowIds = rows.map((r) => r.id);
+  const { data: assignmentRows, error: assignmentError } = rowIds.length
+    ? await admin.from("incident_fix_assignees").select("incident_id, user_id, sort_order").in("incident_id", rowIds).order("sort_order", { ascending: true })
+    : { data: [], error: null };
+  if (assignmentError) throw new Error(`incidents assignees: ${assignmentError.message}`);
+  const assigneeIds = [...new Set(((assignmentRows ?? []) as Array<{ user_id: string }>).map((a) => a.user_id))];
+  const memberNames = new Map<string, { name: string; email: string | null }>();
+  if (assigneeIds.length) {
+    const { data: profiles, error: profileError } = await admin.from("user_profiles").select("id, email, display_name").in("id", assigneeIds);
+    if (profileError) throw new Error(`incidents assignee profiles: ${profileError.message}`);
+    for (const profile of (profiles ?? []) as Array<{ id: string; email: string | null; display_name: string | null }>) {
+      memberNames.set(profile.id, { name: profile.display_name || profile.email || profile.id.slice(0, 8), email: profile.email });
+    }
+  }
+  const assigneesByIncident = new Map<string, Array<{ user_id: string; name: string; email: string | null }>>();
+  for (const a of (assignmentRows ?? []) as Array<{ incident_id: string; user_id: string }>) {
+    const profile = memberNames.get(a.user_id);
+    const list = assigneesByIncident.get(a.incident_id) ?? [];
+    list.push({ user_id: a.user_id, name: profile?.name ?? a.user_id.slice(0, 8), email: profile?.email ?? null });
+    assigneesByIncident.set(a.incident_id, list);
+  }
   return {
     incidents: rows.map(({ findings, ...r }) => ({
       ...r,
       team_name: r.team_id ? teams.get(r.team_id) ?? null : null,
+      assignees: assigneesByIncident.get(r.id) ?? [],
       findings_count: Array.isArray(findings) ? findings.length : 0,
     })),
     counts,
@@ -289,7 +338,7 @@ async function loadWithRole(admin: SupabaseClient, p: Principal, orgId: string, 
 
 export async function getIncident(admin: SupabaseClient, p: Principal, orgId: string, id: string) {
   const { row, role } = await loadWithRole(admin, p, orgId, id, "read");
-  const [notes, notifications, team] = await Promise.all([
+  const [notes, notifications, team, assignedRows, fixEvents] = await Promise.all([
     admin.from("incident_notes").select("id, author_id, body, created_at").eq("incident_id", id).order("created_at", { ascending: true }),
     admin
       .from("incident_notifications")
@@ -298,10 +347,15 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
       .order("created_at", { ascending: false })
       .limit(200),
     row.team_id ? admin.from("teams").select("id, name").eq("id", row.team_id).maybeSingle() : Promise.resolve({ data: null }),
+    admin.from("incident_fix_assignees").select("user_id, assigned_at, sort_order").eq("incident_id", id).order("sort_order", { ascending: true }).order("assigned_at", { ascending: true }),
+    admin.from("incident_fix_events").select("id, actor_label, event_type, details, created_at").eq("incident_id", id).order("created_at", { ascending: false }).limit(100),
   ]);
+  if (assignedRows.error) throw new Error(`incident assignees: ${assignedRows.error.message}`);
+  if (fixEvents.error) throw new Error(`incident fix history: ${fixEvents.error.message}`);
   const people = new Set<string>();
   for (const n of (notes.data ?? []) as Array<{ author_id: string | null }>) if (n.author_id) people.add(n.author_id);
   for (const n of (notifications.data ?? []) as Array<{ user_id: string }>) people.add(n.user_id);
+  for (const a of (assignedRows.data ?? []) as Array<{ user_id: string }>) people.add(a.user_id);
   if (row.assignee_id) people.add(row.assignee_id);
   const members = await assignableMembers(admin, row);
   for (const m of members) people.delete(m.user_id);
@@ -329,12 +383,20 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
     });
   }
   const nameOf = (id: string | null) => (id ? names.get(id) ?? null : null);
+  const memberById = new Map(members.map((m) => [m.user_id, m]));
+  const assignees = ((assignedRows.data ?? []) as Array<{ user_id: string; assigned_at: string }>).map((a) => ({
+    user_id: a.user_id,
+    name: memberById.get(a.user_id)?.name ?? nameOf(a.user_id) ?? a.user_id.slice(0, 8),
+    email: memberById.get(a.user_id)?.email ?? null,
+    assigned_at: a.assigned_at,
+  }));
   return {
-    incident: { ...row, team_name: (team.data as { name?: string } | null)?.name ?? null, assignee_name: nameOf(row.assignee_id) },
+    incident: { ...row, team_name: (team.data as { name?: string } | null)?.name ?? null, assignee_name: nameOf(row.assignee_id), assignees },
     role,
     forensics,
     resolution_actor_name: nameOf(row.resolution?.actor_user_id ?? null),
     members,
+    fix_events: fixEvents.data ?? [],
     notes: ((notes.data ?? []) as Array<{ author_id: string | null }>).map((n) => ({ ...n, author_name: nameOf(n.author_id) })),
     notifications: ((notifications.data ?? []) as Array<{ user_id: string }>).map((n) => ({ ...n, user_name: nameOf(n.user_id) })),
   };
@@ -342,26 +404,225 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
 
 /** Who an incident can be assigned to: its team's members, or the org's members when it has no team. */
 async function assignableMembers(admin: SupabaseClient, row: { org_id: string; team_id: string | null }) {
-  const { data } = row.team_id
-    ? await admin.from("team_members").select("user_id").eq("team_id", row.team_id)
-    : await admin.from("organization_members").select("user_id").eq("org_id", row.org_id).in("role", ["owner", "admin", "member"]);
-  const ids = ((data ?? []) as Array<{ user_id: string }>).map((m) => m.user_id);
+  let ids: string[];
+  if (row.team_id) {
+    const { data } = await admin.from("team_members").select("user_id").eq("team_id", row.team_id);
+    ids = ((data ?? []) as Array<{ user_id: string }>).map((m) => m.user_id);
+  } else {
+    const [orgMembers, teamMembers] = await Promise.all([
+      admin.from("organization_members").select("user_id").eq("org_id", row.org_id).in("role", ["owner", "admin", "member"]),
+      admin.from("team_members").select("user_id, teams!inner(org_id)").eq("teams.org_id", row.org_id),
+    ]);
+    ids = [...new Set([
+      ...((orgMembers.data ?? []) as Array<{ user_id: string }>).map((m) => m.user_id),
+      ...((teamMembers.data ?? []) as Array<{ user_id: string }>).map((m) => m.user_id),
+    ])];
+  }
   if (!ids.length) return [];
   const { data: prof } = await admin.from("user_profiles").select("id, email, display_name").in("id", ids);
   const byId = new Map(((prof ?? []) as Array<{ id: string; email: string | null; display_name: string | null }>).map((x) => [x.id, x]));
-  return ids.map((id) => ({ user_id: id, name: byId.get(id)?.display_name || byId.get(id)?.email || id.slice(0, 8) }));
+  return ids.map((id) => ({ user_id: id, name: byId.get(id)?.display_name || byId.get(id)?.email || id.slice(0, 8), email: byId.get(id)?.email ?? null }));
 }
 
 export async function updateIncident(admin: SupabaseClient, p: Principal, orgId: string, id: string, body: Record<string, unknown>) {
   const { row } = await loadWithRole(admin, p, orgId, id, "write");
   const now = new Date().toISOString();
   const patch: Record<string, unknown> = {};
+  if (body.status !== undefined && !isStatus(body.status)) throw new IncidentError(400, "status must be open, acknowledged or resolved");
+  const actorLabel = p.kind === "agent" ? p.name : p.email || "team member";
+  const actorUserId = p.kind === "user" ? p.userId : null;
+  const actorAgentKeyId = p.kind === "agent" ? p.keyId : null;
+
+  const fixInput = body.fix_work;
+  if (fixInput !== undefined && (!fixInput || typeof fixInput !== "object" || Array.isArray(fixInput))) {
+    throw new IncidentError(400, "fix_work must be an object");
+  }
+  const fixWork = (fixInput ?? {}) as Record<string, unknown>;
+  for (const key of Object.keys(fixWork)) if (!FIX_WORK_FIELDS.has(key)) throw new IncidentError(400, `fix_work.${key} is not supported`);
+  const fixPatch: Record<string, unknown> = {};
+  const nextFix: FixWorkValues = {
+    status: row.fix_status,
+    pr_url: row.fix_pr_url,
+    test_status: row.fix_test_status,
+    test_summary: row.fix_test_summary,
+    test_url: row.fix_test_url,
+    verification: row.fix_verification,
+    blocked_reason: row.fix_blocked_reason,
+  };
+  type FixChange = { from: unknown; to: unknown };
+  const fixChanges: Partial<Record<keyof FixWorkValues, FixChange>> = {};
+  const recordFixChange = (key: keyof FixWorkValues, change: FixChange) => {
+    switch (key) {
+      case "status": fixChanges.status = change; break;
+      case "pr_url": fixChanges.pr_url = change; break;
+      case "test_status": fixChanges.test_status = change; break;
+      case "test_summary": fixChanges.test_summary = change; break;
+      case "test_url": fixChanges.test_url = change; break;
+      case "verification": fixChanges.verification = change; break;
+      case "blocked_reason": fixChanges.blocked_reason = change; break;
+    }
+  };
+  for (const [key, value] of Object.entries(fixWork)) {
+    if (key === "status") {
+      if (typeof value !== "string" || !FIX_STATUSES.includes(value as FixStatus)) {
+        throw new IncidentError(400, `fix_work.status must be one of ${FIX_STATUSES.join(", ")}`);
+      }
+      nextFix.status = value as FixStatus;
+    } else if (key === "test_status") {
+      if (typeof value !== "string" || !FIX_TEST_STATUSES.includes(value as FixTestStatus)) {
+        throw new IncidentError(400, `fix_work.test_status must be one of ${FIX_TEST_STATUSES.join(", ")}`);
+      }
+      nextFix.test_status = value as FixTestStatus;
+    } else {
+      if (value !== null && typeof value !== "string") throw new IncidentError(400, `fix_work.${key} must be a string or null`);
+      const textValue = typeof value === "string" ? value.trim() : null;
+      const max = key === "test_summary" ? 4000 : 2000;
+      if (textValue && textValue.length > max) throw new IncidentError(400, `fix_work.${key} is longer than ${max} characters`);
+      if ((key === "pr_url" || key === "test_url") && textValue && !validHttpsUrl(textValue)) {
+        throw new IncidentError(400, `fix_work.${key} must be a public https URL`);
+      }
+      if (textValue && findSecret(textValue, `fix_work.${key}`)) throw new IncidentError(422, "Fix progress must not contain secret material");
+      switch (key) {
+        case "pr_url": nextFix.pr_url = textValue; break;
+        case "test_summary": nextFix.test_summary = textValue; break;
+        case "test_url": nextFix.test_url = textValue; break;
+        case "verification": nextFix.verification = textValue; break;
+        case "blocked_reason": nextFix.blocked_reason = textValue; break;
+        default: throw new IncidentError(400, `fix_work.${key} is not supported`);
+      }
+    }
+  }
+  if (Object.keys(fixWork).length) {
+    if (nextFix.status === "blocked" && !(nextFix.blocked_reason as string | null)?.trim()) {
+      throw new IncidentError(400, "A blocked incident needs fix_work.blocked_reason");
+    }
+    if (nextFix.status === "tested" && nextFix.test_status !== "passed") {
+      throw new IncidentError(400, "Mark the fix tested only after fix_work.test_status is passed");
+    }
+    if (["passed", "failed", "skipped"].includes(String(nextFix.test_status)) && !(nextFix.test_summary as string | null)?.trim()) {
+      throw new IncidentError(400, "Record a short fix_work.test_summary for passed, failed or skipped tests");
+    }
+    if (nextFix.status !== row.fix_status) {
+      fixPatch.fix_status = nextFix.status;
+      recordFixChange("status", { from: row.fix_status ?? null, to: nextFix.status });
+    }
+    if (nextFix.pr_url !== row.fix_pr_url) {
+      fixPatch.fix_pr_url = nextFix.pr_url;
+      recordFixChange("pr_url", { from: row.fix_pr_url ?? null, to: nextFix.pr_url });
+    }
+    if (nextFix.test_status !== row.fix_test_status) {
+      fixPatch.fix_test_status = nextFix.test_status;
+      recordFixChange("test_status", { from: row.fix_test_status ?? null, to: nextFix.test_status });
+    }
+    if (nextFix.test_summary !== row.fix_test_summary) {
+      fixPatch.fix_test_summary = nextFix.test_summary;
+      recordFixChange("test_summary", { from: row.fix_test_summary ?? null, to: nextFix.test_summary });
+    }
+    if (nextFix.test_url !== row.fix_test_url) {
+      fixPatch.fix_test_url = nextFix.test_url;
+      recordFixChange("test_url", { from: row.fix_test_url ?? null, to: nextFix.test_url });
+    }
+    if (nextFix.verification !== row.fix_verification) {
+      fixPatch.fix_verification = nextFix.verification;
+      recordFixChange("verification", { from: row.fix_verification ?? null, to: nextFix.verification });
+    }
+    if (nextFix.blocked_reason !== row.fix_blocked_reason) {
+      fixPatch.fix_blocked_reason = nextFix.blocked_reason;
+      recordFixChange("blocked_reason", { from: row.fix_blocked_reason ?? null, to: nextFix.blocked_reason });
+    }
+    if (Object.keys(fixPatch).length) {
+      patch.fix_updated_at = now;
+      patch.fix_updated_by_user = actorUserId;
+      patch.fix_updated_by_agent_key = actorAgentKeyId;
+      Object.assign(patch, fixPatch);
+    }
+  }
+
+  let requestedAssigneeIds: string[] | null = null;
+  if (body.assignee_ids !== undefined && body.assignee_id !== undefined) {
+    throw new IncidentError(400, "Pass assignee_ids or the legacy assignee_id, not both");
+  }
+  if (body.assignee_ids !== undefined) {
+    if (!Array.isArray(body.assignee_ids) || body.assignee_ids.length > 50 || body.assignee_ids.some((x) => !isUuid(x))) {
+      throw new IncidentError(400, "assignee_ids must be an array of at most 50 user UUIDs");
+    }
+    requestedAssigneeIds = [...new Set(body.assignee_ids as string[])];
+  } else if (body.assignee_id !== undefined) {
+    if (body.assignee_id === null) requestedAssigneeIds = [];
+    else if (!isUuid(body.assignee_id)) throw new IncidentError(400, "assignee_id must be a uuid or null");
+    else requestedAssigneeIds = [body.assignee_id];
+  }
+  let assigneeChanges: { added: Array<{ user_id: string; name: string; email: string | null }>; removed: Array<{ user_id: string; name: string; email: string | null }> } | null = null;
+  let pendingAssigneeWrite: { added: Array<Record<string, unknown>>; reordered: Array<{ user_id: string; sort_order: number }>; removed: string[] } | null = null;
+  if (requestedAssigneeIds !== null) {
+    const members = await assignableMembers(admin, row);
+    const memberById = new Map(members.map((m) => [m.user_id, m]));
+    if (requestedAssigneeIds.some((userId) => !memberById.has(userId))) {
+      throw new IncidentError(400, row.team_id ? "Every assignee must be on the incident's team" : "Every assignee must be a member of the org");
+    }
+    const { data: prior, error } = await admin.from("incident_fix_assignees").select("user_id").eq("incident_id", id);
+    if (error) throw new Error(`incident assignees: ${error.message}`);
+    const priorIds = ((prior ?? []) as Array<{ user_id: string }>).map((a) => a.user_id);
+    const priorSet = new Set(priorIds);
+    const requestedSet = new Set(requestedAssigneeIds);
+    const added = requestedAssigneeIds.filter((userId) => !priorSet.has(userId));
+    const removed = priorIds.filter((userId) => !requestedSet.has(userId));
+    const addedRows = requestedAssigneeIds.filter((userId) => !priorSet.has(userId)).map((userId) => ({
+      incident_id: id,
+      user_id: userId,
+      sort_order: requestedAssigneeIds!.indexOf(userId),
+      assigned_by_user: actorUserId,
+      assigned_by_agent_key: actorAgentKeyId,
+      assigned_at: now,
+    }));
+    const reordered = requestedAssigneeIds.filter((userId) => priorSet.has(userId)).map((userId) => ({
+      user_id: userId,
+      sort_order: requestedAssigneeIds!.indexOf(userId),
+    }));
+    pendingAssigneeWrite = { added: addedRows, reordered, removed };
+    patch.assignee_id = requestedAssigneeIds[0] ?? null;
+    if (requestedAssigneeIds.length && nextFix.status === "unassigned") {
+      nextFix.status = "assigned";
+      patch.fix_status = "assigned";
+      fixChanges.status = { from: row.fix_status, to: "assigned" };
+    } else if (!requestedAssigneeIds.length && nextFix.status === "assigned") {
+      nextFix.status = "unassigned";
+      patch.fix_status = "unassigned";
+      fixChanges.status = { from: row.fix_status, to: "unassigned" };
+    }
+    assigneeChanges = {
+      added: added.map((user_id) => ({ user_id, name: memberById.get(user_id)!.name, email: memberById.get(user_id)!.email })),
+      removed: removed.map((user_id) => ({ user_id, name: memberById.get(user_id)?.name ?? user_id.slice(0, 8), email: memberById.get(user_id)?.email ?? null })),
+    };
+    if (added.length || removed.length) {
+      patch.fix_updated_at = now;
+      patch.fix_updated_by_user = actorUserId;
+      patch.fix_updated_by_agent_key = actorAgentKeyId;
+    }
+  }
 
   if (body.status !== undefined) {
-    if (!isStatus(body.status)) throw new IncidentError(400, "status must be open, acknowledged or resolved");
     patch.status = body.status;
     if (body.status === "acknowledged") patch.acknowledged_at = row.acknowledged_at ?? now;
     if (body.status === "resolved" && row.status !== "resolved") {
+      const finalFixStatus = (nextFix.status ?? row.fix_status) as FixStatus;
+      const finalTestStatus = (nextFix.test_status ?? row.fix_test_status) as FixTestStatus;
+      const verification = (nextFix.verification ?? row.fix_verification) as string | null;
+      const closure = body.resolution;
+      const closeFields = closure && typeof closure === "object" && !Array.isArray(closure) ? closure as Record<string, unknown> : {};
+      // Old schemas and legacy clients have no structured fix fields. Keep their
+      // closure path compatible until the incident workflow migration is present.
+      if (typeof row.fix_status === "string") {
+        if (finalFixStatus === "fixed" && (finalTestStatus !== "passed" || !verification?.trim())) {
+          throw new IncidentError(409, "Before closing a fixed incident, record passing tests and fix_work.verification");
+        }
+        if (finalFixStatus !== "fixed" && finalFixStatus !== "false_positive") {
+          throw new IncidentError(409, "Before closing, mark the fix fixed or false_positive and record verification");
+        }
+        if (!verification?.trim() && !(typeof closeFields.verification === "string" && closeFields.verification.trim())) {
+          throw new IncidentError(409, "Record fix_work.verification before closing");
+      }
+      }
       const r = body.resolution;
       if (!r || typeof r !== "object" || Array.isArray(r)) throw new IncidentError(400, "Record the resolution reason, action taken and verification before resolving");
       const input = r as Record<string, unknown>;
@@ -371,8 +632,15 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
         fields[key] = input[key].trim();
       }
       if (findSecret(fields)) throw new IncidentError(422, "Resolution must not contain secret material");
+      if (finalFixStatus === "false_positive" && !verification?.trim()) {
+        patch.fix_verification = fields.verification;
+        patch.fix_updated_at = now;
+        patch.fix_updated_by_user = actorUserId;
+        patch.fix_updated_by_agent_key = actorAgentKeyId;
+        fixChanges.verification = { from: null, to: fields.verification };
+      }
       patch.resolved_at = now;
-      patch.resolution = { ...fields, actor_user_id: p.kind === "user" ? p.userId : null, actor_agent_key_id: p.kind === "agent" ? p.keyId : null, at: now };
+      patch.resolution = { ...fields, actor_user_id: actorUserId, actor_agent_key_id: actorAgentKeyId, at: now };
     }
     if (body.status === "open") patch.resolved_at = null;
     if (body.status === "open" && row.status === "resolved") {
@@ -382,17 +650,6 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
       if (clash) throw new IncidentError(409, "A newer open incident has the same key; work on that one");
     }
   }
-  if (body.assignee_id !== undefined) {
-    if (body.assignee_id === null) patch.assignee_id = null;
-    else {
-      if (!isUuid(body.assignee_id)) throw new IncidentError(400, "assignee_id must be a uuid or null");
-      const members = await assignableMembers(admin, row);
-      if (!members.some((m) => m.user_id === body.assignee_id)) {
-        throw new IncidentError(400, row.team_id ? "The assignee must be on the incident's team" : "The assignee must be a member of the org");
-      }
-      patch.assignee_id = body.assignee_id;
-    }
-  }
   let note: string | null = null;
   if (body.note !== undefined) {
     if (typeof body.note !== "string" || !body.note.trim()) throw new IncidentError(400, "note must be a non-empty string");
@@ -400,7 +657,20 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     note = body.note.trim();
     if (findSecret({ note })) throw new IncidentError(422, "Notes must not contain secret material");
   }
-  if (!Object.keys(patch).length && note === null) throw new IncidentError(400, "Nothing to change: pass status, assignee_id or note");
+  if (!Object.keys(patch).length && note === null && requestedAssigneeIds === null && !Object.keys(fixWork).length) throw new IncidentError(400, "Nothing to change: pass status, assignee_ids, fix_work or note");
+
+  if (pendingAssigneeWrite?.added.length) {
+    const { error } = await admin.from("incident_fix_assignees").insert(pendingAssigneeWrite.added);
+    if (error) throw new Error(`incident assignees: ${error.message}`);
+  }
+  for (const a of pendingAssigneeWrite?.reordered ?? []) {
+    const { error } = await admin.from("incident_fix_assignees").update({ sort_order: a.sort_order }).eq("incident_id", id).eq("user_id", a.user_id);
+    if (error) throw new Error(`incident assignees: ${error.message}`);
+  }
+  if (pendingAssigneeWrite?.removed.length) {
+    const { error } = await admin.from("incident_fix_assignees").delete().eq("incident_id", id).in("user_id", pendingAssigneeWrite.removed);
+    if (error) throw new Error(`incident assignees: ${error.message}`);
+  }
 
   let incident = row;
   if (Object.keys(patch).length) {
@@ -414,6 +684,30 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
   if (note !== null) {
     const { error } = await admin.from("incident_notes").insert({ incident_id: id, author_id: p.kind === "user" ? p.userId : null, body: note });
     if (error) throw new Error(`incident note: ${error.message}`);
+  }
+  if (assigneeChanges && (assigneeChanges.added.length || assigneeChanges.removed.length)) {
+    const { error } = await admin.from("incident_fix_events").insert({
+      incident_id: id,
+      actor_user_id: actorUserId,
+      actor_agent_key_id: actorAgentKeyId,
+      actor_label: actorLabel,
+      event_type: "assignees_changed",
+      details: assigneeChanges,
+      created_at: now,
+    });
+    if (error) throw new Error(`incident fix history: ${error.message}`);
+  }
+  if (Object.keys(fixChanges).length) {
+    const { error } = await admin.from("incident_fix_events").insert({
+      incident_id: id,
+      actor_user_id: actorUserId,
+      actor_agent_key_id: actorAgentKeyId,
+      actor_label: actorLabel,
+      event_type: "work_updated",
+      details: { changes: fixChanges },
+      created_at: now,
+    });
+    if (error) throw new Error(`incident fix history: ${error.message}`);
   }
   return { incident };
 }

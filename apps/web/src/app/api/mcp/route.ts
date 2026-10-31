@@ -127,12 +127,12 @@ const TOOLS = [
   },
   {
     name: "incidents_get",
-    description: "One incident: linked forensic evidence, attribution limits, recorded resolution/operator, findings, timeline, notes and who was paged.",
+    description: "One incident: linked forensic evidence, multi-person assignees, fix and test progress, work history, recorded resolution/operator, findings, timeline, notes and who was paged.",
     inputSchema: { type: "object", properties: { org_id: { type: "string" }, id: { type: "string", description: "Incident id" } }, required: ["id"] },
   },
   {
     name: "incidents_update",
-    description: "Acknowledge, resolve or reopen an incident, assign it, and/or add a note. Resolving requires resolution.reason, resolution.action and resolution.verification. Records the authenticated operator; does not execute remediation. Needs write.",
+    description: "Update fix work performed by your assigned agent or human: set multiple assignees, fix status, PR URL, test status and evidence, verification or blocker, and/or add a note. ThreatCrush catalogs the incident and does not execute remediation. Closing requires status fixed with passing tests and verification, or false_positive with a reason and verification, plus resolution.reason/action/verification. Needs write.",
     inputSchema: {
       type: "object",
       properties: {
@@ -140,7 +140,20 @@ const TOOLS = [
         id: { type: "string" },
         status: { type: "string", enum: ["open", "acknowledged", "resolved"] },
         assignee_id: { type: ["string", "null"] },
+        assignee_ids: { type: "array", maxItems: 50, items: { type: "string", format: "uuid" }, description: "Replace the assignee list with these active org/team member user IDs; [] clears it. An assignee receives write access to this incident. Use incidents_get to find member IDs and emails." },
         note: { type: "string" },
+        fix_work: {
+          type: "object", additionalProperties: false,
+          properties: {
+            status: { type: "string", enum: ["unassigned", "assigned", "in_progress", "blocked", "pr_open", "testing", "tested", "fixed", "false_positive"] },
+            pr_url: { type: ["string", "null"], format: "uri", description: "HTTPS URL to the remediation PR" },
+            test_status: { type: "string", enum: ["not_run", "running", "passed", "failed", "skipped"] },
+            test_summary: { type: ["string", "null"], maxLength: 4000 },
+            test_url: { type: ["string", "null"], format: "uri", description: "HTTPS URL to the CI run or test report" },
+            verification: { type: ["string", "null"], maxLength: 2000 },
+            blocked_reason: { type: ["string", "null"], maxLength: 2000 },
+          },
+        },
         resolution: {
           type: "object", additionalProperties: false,
           properties: {
