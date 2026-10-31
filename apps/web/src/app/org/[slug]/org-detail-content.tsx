@@ -107,6 +107,12 @@ export default function OrgDetailContent({ slug }: { slug: string }) {
           </div>
           <div className="flex items-center gap-3">
             <Link
+              href={`/org/${org.slug}/action-center`}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-black bg-green-500 hover:bg-green-400 transition-colors"
+            >
+              Action Center
+            </Link>
+            <Link
               href={`/org/${org.slug}/settings`}
               className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-300 bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 transition-colors"
             >
