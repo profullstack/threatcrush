@@ -510,7 +510,7 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     else requestedAssigneeIds = [body.assignee_id];
   }
   let assigneeChanges: { added: Array<{ user_id: string; name: string; email: string | null }>; removed: Array<{ user_id: string; name: string; email: string | null }> } | null = null;
-  let pendingAssigneeWrite: { stamped: Array<Record<string, unknown>>; removed: string[] } | null = null;
+  let pendingAssigneeWrite: { added: Array<Record<string, unknown>>; reordered: Array<{ user_id: string; sort_order: number }>; removed: string[] } | null = null;
   if (requestedAssigneeIds !== null) {
     const members = await assignableMembers(admin, row);
     const memberById = new Map(members.map((m) => [m.user_id, m]));
@@ -524,17 +524,19 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     const requestedSet = new Set(requestedAssigneeIds);
     const added = requestedAssigneeIds.filter((userId) => !priorSet.has(userId));
     const removed = priorIds.filter((userId) => !requestedSet.has(userId));
-    const stamped = requestedAssigneeIds.map((userId, index) => priorSet.has(userId)
-      ? { incident_id: id, user_id: userId, sort_order: index }
-      : {
-        incident_id: id,
-        user_id: userId,
-        sort_order: index,
-        assigned_by_user: actorUserId,
-        assigned_by_agent_key: actorAgentKeyId,
-        assigned_at: now,
-      });
-    pendingAssigneeWrite = { stamped, removed };
+    const addedRows = requestedAssigneeIds.filter((userId) => !priorSet.has(userId)).map((userId) => ({
+      incident_id: id,
+      user_id: userId,
+      sort_order: requestedAssigneeIds!.indexOf(userId),
+      assigned_by_user: actorUserId,
+      assigned_by_agent_key: actorAgentKeyId,
+      assigned_at: now,
+    }));
+    const reordered = requestedAssigneeIds.filter((userId) => priorSet.has(userId)).map((userId) => ({
+      user_id: userId,
+      sort_order: requestedAssigneeIds!.indexOf(userId),
+    }));
+    pendingAssigneeWrite = { added: addedRows, reordered, removed };
     patch.assignee_id = requestedAssigneeIds[0] ?? null;
     if (requestedAssigneeIds.length && nextFix.status === "unassigned") {
       nextFix.status = "assigned";
@@ -565,14 +567,18 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
       const verification = (nextFix.verification ?? row.fix_verification) as string | null;
       const closure = body.resolution;
       const closeFields = closure && typeof closure === "object" && !Array.isArray(closure) ? closure as Record<string, unknown> : {};
-      if (finalFixStatus === "fixed" && (finalTestStatus !== "passed" || !verification?.trim())) {
-        throw new IncidentError(409, "Before closing a fixed incident, record passing tests and fix_work.verification");
+      // Old schemas and legacy clients have no structured fix fields. Keep their
+      // closure path compatible until the incident workflow migration is present.
+      if (typeof row.fix_status === "string") {
+        if (finalFixStatus === "fixed" && (finalTestStatus !== "passed" || !verification?.trim())) {
+          throw new IncidentError(409, "Before closing a fixed incident, record passing tests and fix_work.verification");
+        }
+        if (finalFixStatus !== "fixed" && finalFixStatus !== "false_positive") {
+          throw new IncidentError(409, "Before closing, mark the fix fixed or false_positive and record verification");
+        }
+        if (!verification?.trim() && !(typeof closeFields.verification === "string" && closeFields.verification.trim())) {
+          throw new IncidentError(409, "Record fix_work.verification before closing");
       }
-      if (finalFixStatus !== "fixed" && finalFixStatus !== "false_positive") {
-        throw new IncidentError(409, "Before closing, mark the fix fixed or false_positive and record verification");
-      }
-      if (!verification?.trim() && !(typeof closeFields.verification === "string" && closeFields.verification.trim())) {
-        throw new IncidentError(409, "Record fix_work.verification before closing");
       }
       const r = body.resolution;
       if (!r || typeof r !== "object" || Array.isArray(r)) throw new IncidentError(400, "Record the resolution reason, action taken and verification before resolving");
@@ -610,8 +616,12 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
   }
   if (!Object.keys(patch).length && note === null && requestedAssigneeIds === null && !Object.keys(fixWork).length) throw new IncidentError(400, "Nothing to change: pass status, assignee_ids, fix_work or note");
 
-  if (pendingAssigneeWrite?.stamped.length) {
-    const { error } = await admin.from("incident_fix_assignees").upsert(pendingAssigneeWrite.stamped, { onConflict: "incident_id,user_id" });
+  if (pendingAssigneeWrite?.added.length) {
+    const { error } = await admin.from("incident_fix_assignees").insert(pendingAssigneeWrite.added);
+    if (error) throw new Error(`incident assignees: ${error.message}`);
+  }
+  for (const a of pendingAssigneeWrite?.reordered ?? []) {
+    const { error } = await admin.from("incident_fix_assignees").update({ sort_order: a.sort_order }).eq("incident_id", id).eq("user_id", a.user_id);
     if (error) throw new Error(`incident assignees: ${error.message}`);
   }
   if (pendingAssigneeWrite?.removed.length) {
