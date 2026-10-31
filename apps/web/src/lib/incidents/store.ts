@@ -75,6 +75,7 @@ export interface IncidentRow {
 
 export type FixStatus = "unassigned" | "assigned" | "in_progress" | "blocked" | "pr_open" | "testing" | "tested" | "fixed" | "false_positive";
 export type FixTestStatus = "not_run" | "running" | "passed" | "failed" | "skipped";
+type FixWorkValues = { status: FixStatus; pr_url: string | null; test_status: FixTestStatus; test_summary: string | null; test_url: string | null; verification: string | null; blocked_reason: string | null };
 
 const FIX_STATUSES: FixStatus[] = ["unassigned", "assigned", "in_progress", "blocked", "pr_open", "testing", "tested", "fixed", "false_positive"];
 const FIX_TEST_STATUSES: FixTestStatus[] = ["not_run", "running", "passed", "failed", "skipped"];
@@ -439,7 +440,7 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
   const fixWork = (fixInput ?? {}) as Record<string, unknown>;
   for (const key of Object.keys(fixWork)) if (!FIX_WORK_FIELDS.has(key)) throw new IncidentError(400, `fix_work.${key} is not supported`);
   const fixPatch: Record<string, unknown> = {};
-  const nextFix = {
+  const nextFix: FixWorkValues = {
     status: row.fix_status,
     pr_url: row.fix_pr_url,
     test_status: row.fix_test_status,
@@ -447,8 +448,8 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     test_url: row.fix_test_url,
     verification: row.fix_verification,
     blocked_reason: row.fix_blocked_reason,
-  } as Record<string, unknown>;
-  const fixColumns: Record<string, string> = {
+  };
+  const fixColumns: Record<keyof FixWorkValues, string> = {
     status: "fix_status",
     pr_url: "fix_pr_url",
     test_status: "fix_test_status",
@@ -463,12 +464,12 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
       if (typeof value !== "string" || !FIX_STATUSES.includes(value as FixStatus)) {
         throw new IncidentError(400, `fix_work.status must be one of ${FIX_STATUSES.join(", ")}`);
       }
-      nextFix[key] = value;
+      nextFix.status = value as FixStatus;
     } else if (key === "test_status") {
       if (typeof value !== "string" || !FIX_TEST_STATUSES.includes(value as FixTestStatus)) {
         throw new IncidentError(400, `fix_work.test_status must be one of ${FIX_TEST_STATUSES.join(", ")}`);
       }
-      nextFix[key] = value;
+      nextFix.test_status = value as FixTestStatus;
     } else {
       if (value !== null && typeof value !== "string") throw new IncidentError(400, `fix_work.${key} must be a string or null`);
       const textValue = typeof value === "string" ? value.trim() : null;
@@ -478,7 +479,14 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
         throw new IncidentError(400, `fix_work.${key} must be a public https URL`);
       }
       if (textValue && findSecret({ [key]: textValue })) throw new IncidentError(422, "Fix progress must not contain secret material");
-      nextFix[key] = textValue || null;
+      switch (key) {
+        case "pr_url": nextFix.pr_url = textValue; break;
+        case "test_summary": nextFix.test_summary = textValue; break;
+        case "test_url": nextFix.test_url = textValue; break;
+        case "verification": nextFix.verification = textValue; break;
+        case "blocked_reason": nextFix.blocked_reason = textValue; break;
+        default: throw new IncidentError(400, `fix_work.${key} is not supported`);
+      }
     }
   }
   if (Object.keys(fixWork).length) {
@@ -491,10 +499,13 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     if (["passed", "failed", "skipped"].includes(String(nextFix.test_status)) && !(nextFix.test_summary as string | null)?.trim()) {
       throw new IncidentError(400, "Record a short fix_work.test_summary for passed, failed or skipped tests");
     }
-    for (const [key, value] of Object.entries(nextFix)) {
-      if (value !== (row as unknown as Record<string, unknown>)[fixColumns[key]]) {
-        fixPatch[fixColumns[key]] = value;
-        fixChanges[key] = { from: (row as unknown as Record<string, unknown>)[fixColumns[key]] ?? null, to: value };
+    for (const key of Object.keys(fixColumns) as Array<keyof FixWorkValues>) {
+      const value = nextFix[key];
+      const column = fixColumns[key];
+      const previous = (row as unknown as Record<string, unknown>)[column];
+      if (value !== previous) {
+        fixPatch[column] = value;
+        fixChanges[key] = { from: previous ?? null, to: value };
       }
     }
     if (Object.keys(fixPatch).length) {
