@@ -8,6 +8,7 @@ vi.mock('../../core/state.js', () => ({ insertEvent: () => {} }));
 
 const { LogWatcher } = await import('../watchers/log-watcher.js');
 const SOURCE = { path: '/var/log/nginx/access.log', module: 'log-watcher', category: 'web' as const };
+const CADDY_SOURCE = { path: '/var/log/caddy/agent.database.pit.world.access.log', module: 'log-watcher', category: 'web' as const };
 
 function daemonEvent(
   status: number,
@@ -41,7 +42,7 @@ function firedRulesForEvents(events: ThreatEvent[]): string[] {
   return fired;
 }
 
-describe('AgentDB activity detection from Nginx access logs', () => {
+describe('AgentDB activity detection from reverse-proxy access logs', () => {
   it('records only API path and response size as AgentDB context', () => {
     const event = daemonEvent(200, 1_040_000)!;
     expect(event.details).toMatchObject({
@@ -87,5 +88,34 @@ describe('AgentDB activity detection from Nginx access logs', () => {
 
   it('does not label a similarly shaped API on another virtual host as AgentDB', () => {
     expect(daemonEvent(200, 600, 'other.example')).toBeUndefined();
+  });
+
+  it('reads Caddy JSON access records for the production AgentDB vhost', () => {
+    let published: ThreatEvent | undefined;
+    const bus = { publish: (event: ThreatEvent) => { published = event; } } as unknown as EventBus;
+    const watcher = new LogWatcher(bus, []) as unknown as { process(line: string, src: typeof CADDY_SOURCE): void };
+    watcher.process(JSON.stringify({
+      level: 'info', ts: 1793438369, logger: 'http.log.access', msg: 'handled request',
+      request: { remote_ip: '203.0.113.9', method: 'POST', host: 'agent.database.pit.world', uri: '/v1/query_readonly', proto: 'HTTP/2.0' },
+      status: 200, size: 1_040_000,
+    }), CADDY_SOURCE);
+    expect(published).toMatchObject({
+      module: 'log-watcher', source_ip: '203.0.113.9',
+      details: { service: 'agentdb', path: '/v1/query_readonly', status: 200, response_bytes: 1_040_000 },
+    });
+    expect(firedRules(published!, 3)).toContain('agentdb-large-query-exports');
+  });
+
+  it('keeps query parameters out of AgentDB Caddy events', () => {
+    let published: ThreatEvent | undefined;
+    const bus = { publish: (event: ThreatEvent) => { published = event; } } as unknown as EventBus;
+    const watcher = new LogWatcher(bus, []) as unknown as { process(line: string, src: typeof CADDY_SOURCE): void };
+    watcher.process(JSON.stringify({
+      logger: 'http.log.access',
+      request: { remote_ip: '203.0.113.9', method: 'POST', host: 'agent.database.pit.world', uri: '/v1/query_readonly?access_token=do-not-copy' },
+      status: 200, size: 500,
+    }), CADDY_SOURCE);
+    expect(JSON.stringify(published)).not.toContain('do-not-copy');
+    expect(published?.details?.url).toBe('/v1/query_readonly');
   });
 });

@@ -1,7 +1,7 @@
 import { existsSync, accessSync, constants } from 'node:fs';
 import { LogTail } from '../../core/log-tail.js';
 import type { EventBus } from '../event-bus.js';
-import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, isSshdProcess, parseAuthLog, parseNginxLog, sshdPeerIp } from '../../core/log-parser.js';
+import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, isSshdProcess, parseAuthLog, parseCaddyAccessLog, parseNginxLog, sshdPeerIp } from '../../core/log-parser.js';
 import { insertEvent } from '../../core/state.js';
 import type { ThreatEvent, EventCategory, EventSeverity } from '../../types/events.js';
 
@@ -15,6 +15,7 @@ export const DEFAULT_SOURCES: LogSource[] = [
   { path: '/var/log/auth.log', module: 'ssh-guard', category: 'auth' },
   { path: '/var/log/secure', module: 'ssh-guard', category: 'auth' },
   { path: '/var/log/nginx/access.log', module: 'log-watcher', category: 'web' },
+  { path: '/var/log/caddy/agent.database.pit.world.access.log', module: 'log-watcher', category: 'web' },
   { path: '/var/log/syslog', module: 'log-watcher', category: 'system' },
 ];
 
@@ -82,7 +83,8 @@ export class LogWatcher {
   }
 
   private process(line: string, src: LogSource): void {
-    const parsed = autoDetectParser(line);
+    const caddy = parseCaddyAccessLog(line);
+    const parsed = caddy ?? autoDetectParser(line);
     if (!parsed) return;
 
     let severity: EventSeverity = 'info';
@@ -102,7 +104,7 @@ export class LogWatcher {
       ({ severity, message, source_ip: sourceIp } = verdict);
       if (verdict.details) Object.assign(details, verdict.details);
     } else if (parsed.source === 'nginx') {
-      const entry = parseNginxLog(line);
+      const entry = caddy ?? parseNginxLog(line);
       if (!entry) return;
       sourceIp = entry.fields.ip;
       const status = parseInt(entry.fields.status, 10);
