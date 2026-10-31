@@ -62,7 +62,7 @@ export function parseCaddyAccessLog(line: string): NginxLogEntry | null {
   let entry: Record<string, unknown>;
   try { entry = JSON.parse(line) as Record<string, unknown>; }
   catch { return null; }
-  if (entry.logger !== 'http.log.access') return null;
+  if (typeof entry.logger !== 'string' || !/^http\.log\.access(?:\.log\d+)?$/.test(entry.logger)) return null;
   const request = entry.request;
   if (!request || typeof request !== 'object' || Array.isArray(request)) return null;
   const req = request as Record<string, unknown>;
