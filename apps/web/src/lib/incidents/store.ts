@@ -458,7 +458,19 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     verification: "fix_verification",
     blocked_reason: "fix_blocked_reason",
   };
-  const fixChanges: Record<string, { from: unknown; to: unknown }> = {};
+  type FixChange = { from: unknown; to: unknown };
+  const fixChanges: Partial<Record<keyof FixWorkValues, FixChange>> = {};
+  const recordFixChange = (key: keyof FixWorkValues, change: FixChange) => {
+    switch (key) {
+      case "status": fixChanges.status = change; break;
+      case "pr_url": fixChanges.pr_url = change; break;
+      case "test_status": fixChanges.test_status = change; break;
+      case "test_summary": fixChanges.test_summary = change; break;
+      case "test_url": fixChanges.test_url = change; break;
+      case "verification": fixChanges.verification = change; break;
+      case "blocked_reason": fixChanges.blocked_reason = change; break;
+    }
+  };
   for (const [key, value] of Object.entries(fixWork)) {
     if (key === "status") {
       if (typeof value !== "string" || !FIX_STATUSES.includes(value as FixStatus)) {
@@ -505,7 +517,7 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
       const previous = (row as unknown as Record<string, unknown>)[column];
       if (value !== previous) {
         fixPatch[column] = value;
-        fixChanges[key] = { from: previous ?? null, to: value };
+        recordFixChange(key, { from: previous ?? null, to: value });
       }
     }
     if (Object.keys(fixPatch).length) {
