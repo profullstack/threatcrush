@@ -42,6 +42,8 @@ export default function FindingsContent({ slug }: { slug: string }) {
   const [org, setOrg] = useState<Organization | null>(null);
   const [serverFindings, setServerFindings] = useState<ServerFindings[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   useEffect(() => {
     if (!signedIn || authLoading) return;
@@ -89,6 +91,26 @@ export default function FindingsContent({ slug }: { slug: string }) {
     }
   };
 
+  const exportHardening = async (format: "md" | "json") => {
+    if (!org) return;
+    setExporting(true); setReportError("");
+    try {
+      const response = await fetch(`/api/orgs/${org.id}/hardening-report?format=${format}`, { headers: authHeaders() });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || `Export failed (${response.status})`);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `threatcrush-hardening-evidence.${format}`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setReportError((cause as Error).message || "Could not export hardening evidence");
+    } finally { setExporting(false); }
+  };
+
   if (authLoading || loading) {
     return <div className="min-h-screen bg-black flex items-center justify-center"><div className="text-zinc-400">Loading...</div></div>;
   }
@@ -117,7 +139,11 @@ export default function FindingsContent({ slug }: { slug: string }) {
             </div>
           </div>
           <div className="flex items-start gap-6">
-            <FixReportActions orgId={org.id} canManage={org.user_role === "owner" || org.user_role === "admin"} />
+            <div className="flex flex-wrap gap-2">
+              <button disabled={exporting} onClick={() => void exportHardening("md")} className="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50">{exporting ? "Exporting…" : "Export evidence MD"}</button>
+              <button disabled={exporting} onClick={() => void exportHardening("json")} className="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50">Export JSON</button>
+              <FixReportActions orgId={org.id} canManage={org.user_role === "owner" || org.user_role === "admin"} />
+            </div>
             <div className="text-right">
               <p className="text-sm text-zinc-500">Fleet Score</p>
               <p className={`text-3xl font-bold ${avgScore >= 80 ? "text-green-400" : avgScore >= 60 ? "text-yellow-400" : "text-red-400"}`}>
@@ -126,6 +152,8 @@ export default function FindingsContent({ slug }: { slug: string }) {
             </div>
           </div>
         </div>
+
+        {reportError && <p role="alert" className="mb-4 text-sm text-red-400">{reportError}</p>}
 
         <ScanFindingsPanel orgId={org.id} canTriage={["owner", "admin", "member"].includes(org.user_role ?? "")} />
 
