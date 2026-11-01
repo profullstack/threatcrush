@@ -99,6 +99,7 @@ bun add -g @profullstack/threatcrush
 threatcrush              # Get started
 threatcrush monitor      # Watch nginx, auth & syslog for attacks (foreground)
 threatcrush tui          # Interactive dashboard (htop for security)
+threatcrush action-center # Fleet-wide detections, host health and queued actions (login required)
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush pentest URL  # Quick web security checks against a URL
 threatcrush harden       # Check the host's SSH, firewall, updates and exposed ports
