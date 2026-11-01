@@ -12,6 +12,8 @@ const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_SCAN_BYTES = 512 * 1024 * 1024;
 const MAX_CHANGES_PER_EVENT = 100;
 const MAX_WATCH_DIRECTORIES = 2048;
+const WATCH_DEBOUNCE_MS = 500;
+const WATCH_MAX_DELAY_MS = 5000;
 const MASS_CHANGE_COUNT = 25;
 const MASS_CHANGE_ENTROPY_RISE_BITS = 0.5;
 const READ_CHUNK_BYTES = 64 * 1024;
@@ -325,6 +327,8 @@ export class FileIntegrityWatch {
   private readonly canaries: Set<string>;
   private readonly watchers = new Map<string, FSWatcher>();
   private eventTimer: NodeJS.Timeout | null = null;
+  private eventFirstAt = 0;
+  private eventScanPending = false;
   private watcherLimitLogged = false;
 
   constructor(private readonly opts: FileIntegrityOptions) {
@@ -371,6 +375,8 @@ export class FileIntegrityWatch {
     this.timer = null;
     if (this.eventTimer) clearTimeout(this.eventTimer);
     this.eventTimer = null;
+    this.eventFirstAt = 0;
+    this.eventScanPending = false;
     for (const watcher of this.watchers.values()) watcher.close();
     this.watchers.clear();
   }
@@ -386,9 +392,7 @@ export class FileIntegrityWatch {
       if (this.watchers.has(path)) continue;
       try {
         const watcher = watch(path, { persistent: false }, () => {
-          if (this.eventTimer) clearTimeout(this.eventTimer);
-          this.eventTimer = setTimeout(() => { this.eventTimer = null; void this.scanOnce(); }, 500);
-          this.eventTimer.unref?.();
+          this.scheduleEventScan();
         });
         watcher.on('error', (error) => {
           this.opts.log(`[file-integrity] inotify watch unavailable for ${path}: ${error.message}`);
@@ -404,6 +408,23 @@ export class FileIntegrityWatch {
       this.watcherLimitLogged = true;
       this.opts.log(`[file-integrity] watching the first ${MAX_WATCH_DIRECTORIES} directories; polling remains the fallback for the rest`);
     }
+  }
+
+  /** Debounce bursts, but cap the delay so continuous writes still get scanned. */
+  private scheduleEventScan(): void {
+    this.eventScanPending = true;
+    if (this.eventFirstAt === 0) this.eventFirstAt = Date.now();
+    if (this.running) return;
+    if (this.eventTimer) clearTimeout(this.eventTimer);
+    const dueAt = Math.min(Date.now() + WATCH_DEBOUNCE_MS, this.eventFirstAt + WATCH_MAX_DELAY_MS);
+    this.eventTimer = setTimeout(() => {
+      this.eventTimer = null;
+      if (this.running) return;
+      this.eventScanPending = false;
+      this.eventFirstAt = 0;
+      void this.scanOnce();
+    }, Math.max(0, dueAt - Date.now()));
+    this.eventTimer.unref?.();
   }
 
   async rebaseline(): Promise<{ ok: boolean; files: number; reason?: string }> {
@@ -526,6 +547,7 @@ export class FileIntegrityWatch {
       this.opts.log(`[file-integrity] scan failed: ${(error as Error).message.split('\n')[0]}`);
     } finally {
       this.running = false;
+      if (this.eventScanPending && !this.eventTimer) this.scheduleEventScan();
     }
   }
 
