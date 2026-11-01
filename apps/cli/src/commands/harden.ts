@@ -5,7 +5,7 @@ import ora from 'ora';
 import { banner, logger } from '../core/logger.js';
 import { cloudFetch } from '../core/cli-config.js';
 import { currentLink, findingEvents, type IngestResponse } from '../core/cloud-events.js';
-import { buildCisEvidenceReport, renderCisMarkdown, writeCisReport } from './cis-report.js';
+import { buildCisEvidenceReport, renderCisMarkdown, tagCisMappings, writeCisReport } from './cis-report.js';
 
 export interface HardeningResult {
   key: string;
@@ -16,6 +16,10 @@ export interface HardeningResult {
   recommendation?: string;
   /** Structured data the dashboard reads (the os-patches package list). */
   details?: Record<string, unknown>;
+  cis_control_ids?: string[];
+  cis_mapping_status?: 'verified' | 'unverified';
+  cis_mapping_source?: string;
+  cis_mapping_benchmark?: string;
 }
 
 function tryExec(cmd: string): string | null {
@@ -57,28 +61,36 @@ function checkSshPasswordAuth(): HardeningResult {
 }
 
 function checkSshRootLogin(): HardeningResult {
-  const config = tryRead('/etc/ssh/sshd_config');
-  if (!config) {
+  const effective = tryExec('sshd -T 2>/dev/null');
+  if (!effective) {
     return {
       key: 'ssh-root-login', status: 'warn', severity: 'high',
       title: 'SSH Root Login',
-      explanation: 'Could not read sshd_config.',
+      explanation: 'Could not read the effective sshd configuration with `sshd -T`.',
       recommendation: 'Set "PermitRootLogin no" in /etc/ssh/sshd_config.',
     };
   }
-  const match = config.match(/^\s*PermitRootLogin\s+(\S+)/mi);
-  if (!match || match[1] === 'yes') {
+  const match = effective.match(/^permitrootlogin\s+(\S+)/mi);
+  if (!match) {
+    return {
+      key: 'ssh-root-login', status: 'warn', severity: 'high',
+      title: 'SSH Root Login',
+      explanation: 'The effective sshd output did not include PermitRootLogin.',
+      recommendation: 'Set "PermitRootLogin no" in the effective SSH server configuration.',
+    };
+  }
+  if (match[1].toLowerCase() !== 'no') {
     return {
       key: 'ssh-root-login', status: 'fail', severity: 'high',
-      title: 'Root SSH Login Enabled',
-      explanation: 'Direct root login via SSH is permitted. Attackers frequently target root.',
-      recommendation: 'Set "PermitRootLogin no" or "PermitRootLogin prohibit-password" in /etc/ssh/sshd_config.',
+      title: 'Root SSH Login Not Fully Disabled',
+      explanation: `The effective PermitRootLogin value is "${match[1]}"; CIS requires it to be "no".`,
+      recommendation: 'Set "PermitRootLogin no" in the effective SSH server configuration.',
     };
   }
   return {
     key: 'ssh-root-login', status: 'pass', severity: 'high',
-    title: 'Root SSH Login Restricted',
-    explanation: `PermitRootLogin is set to "${match[1]}".`,
+    title: 'Root SSH Login Disabled',
+    explanation: 'The effective PermitRootLogin value is "no".',
   };
 }
 
@@ -327,6 +339,12 @@ function computeScore(results: HardeningResult[]): number {
   return Math.max(0, Math.round(((maxScore - deductions) / maxScore) * 100));
 }
 
+function cisLabel(result: HardeningResult): string {
+  return result.cis_control_ids?.length
+    ? `CIS ${result.cis_mapping_benchmark ?? 'mapping'}: ${result.cis_control_ids.join(', ')}`
+    : 'CIS: mapping unverified';
+}
+
 /**
  * Send the findings to the dashboard as `hardening_finding` events. Output goes
  * to stderr in JSON mode so `--json` stays machine-readable.
@@ -379,7 +397,7 @@ export async function hardenCommand(opts: {
 
   const spinner = opts.json || opts.report ? null : ora({ text: 'Scanning system configuration...', color: 'green' }).start();
 
-  const results = runAllChecks();
+  const results = tagCisMappings(runAllChecks());
   const score = computeScore(results);
 
   if (spinner) spinner.succeed('Hardening scan complete\n');
@@ -435,6 +453,7 @@ export async function hardenCommand(opts: {
     for (const r of fails) {
       console.log(`  ${chalk.red('✗')} ${chalk.white.bold(r.title)}`);
       console.log(`    ${chalk.gray(r.explanation)}`);
+      console.log(`    ${chalk.gray(cisLabel(r))}`);
       if (r.recommendation) console.log(`    ${chalk.yellow('Fix:')} ${r.recommendation}`);
       console.log();
     }
@@ -445,6 +464,7 @@ export async function hardenCommand(opts: {
     for (const r of warns) {
       console.log(`  ${chalk.yellow('!')} ${chalk.white.bold(r.title)}`);
       console.log(`    ${chalk.gray(r.explanation)}`);
+      console.log(`    ${chalk.gray(cisLabel(r))}`);
       if (r.recommendation) console.log(`    ${chalk.yellow('Fix:')} ${r.recommendation}`);
       console.log();
     }
@@ -454,6 +474,7 @@ export async function hardenCommand(opts: {
     console.log(chalk.green.bold('  PASS'));
     for (const r of passes) {
       console.log(`  ${chalk.green('✓')} ${chalk.white(r.title)}`);
+      console.log(`    ${chalk.gray(cisLabel(r))}`);
     }
     console.log();
   }

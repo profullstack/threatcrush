@@ -9,15 +9,16 @@ export interface CisEvidenceReport {
   host: { hostname: string; os_id: string | null; os_version: string | null; pretty_name: string | null };
   benchmark: { name: string; version: string; source: string } | null;
   assessment: 'partial';
-  mapped_controls: 0;
+  mapped_controls: number;
   total_checks: number;
   hardening_score: number;
-  checks: Array<HardeningResult & { cis_control_ids: string[]; mapping_status: 'unverified' }>;
+  checks: Array<HardeningResult & { cis_control_ids: string[]; mapping_status: 'verified' | 'unverified'; mapping_source?: string; mapping_benchmark?: string }>;
   limitations: string[];
 }
 
 const CIS_UBUNTU_URL = 'https://www.cisecurity.org/benchmark/ubuntu_linux';
 const CIS_DEBIAN_URL = 'https://www.cisecurity.org/benchmark/debian_linux';
+const UBUNTU_2404_CIS_CONTROL_SOURCE = 'https://github.com/ComplianceAsCode/content/blob/v0.1.78/controls/cis_ubuntu2404.yml';
 // Release numbers and titles are taken from the official CIS product pages.
 // Keep the check-to-control crosswalk separate; IDs must be verified against
 // each edition before being added to a report.
@@ -48,11 +49,69 @@ function osRelease(): Record<string, string> {
   return fields;
 }
 
+type CisMapping = { ids: string[]; source: string; osId: string; osVersion: string; benchmarkName: string; benchmarkVersion: string };
+
+// This crosswalk follows Canonical USG's pinned ComplianceAsCode v0.1.78
+// implementation of CIS Ubuntu 24.04 LTS v1.0.0. The current SSH check uses
+// `sshd -T` and requires the exact benchmark value before claiming a match.
+const VERIFIED_CHECK_MAPPINGS: Record<string, Record<string, Record<string, CisMapping>>> = {
+  ubuntu: {
+    '24.04': {
+      'ssh-root-login': {
+        ids: ['5.1.20'],
+        source: UBUNTU_2404_CIS_CONTROL_SOURCE,
+        osId: 'ubuntu',
+        osVersion: '24.04',
+        benchmarkName: 'CIS Ubuntu Linux 24.04 LTS',
+        benchmarkVersion: '1.0.0',
+      },
+    },
+  },
+};
+
+export function tagCisMappings(findings: HardeningResult[], os = osRelease()): HardeningResult[] {
+  const distro = os.ID?.toLowerCase() ?? '';
+  const version = os.VERSION_ID ?? '';
+  const checkMappings = VERIFIED_CHECK_MAPPINGS[distro]?.[version] ?? {};
+  return findings.map((finding) => {
+    const mapping = checkMappings[finding.key];
+    const ids = mapping?.ids ?? [];
+    const status = mapping ? 'verified' as const : 'unverified' as const;
+    return {
+      ...finding,
+      cis_control_ids: ids,
+      cis_mapping_status: status,
+      ...(mapping ? { cis_mapping_source: mapping.source } : {}),
+      ...(mapping ? { cis_mapping_benchmark: `${mapping.benchmarkName} v${mapping.benchmarkVersion}` } : {}),
+      details: {
+        ...(finding.details ?? {}),
+        cis_control_ids: ids,
+        cis_mapping_status: status,
+        ...(mapping ? { cis_mapping_source: mapping.source } : {}),
+        ...(mapping ? {
+          cis_profile_os_id: mapping.osId,
+          cis_profile_os_version: mapping.osVersion,
+          cis_profile_name: mapping.benchmarkName,
+          cis_profile_version: mapping.benchmarkVersion,
+        } : {}),
+      },
+    };
+  });
+}
+
 export function buildCisEvidenceReport(findings: HardeningResult[], score: number, now = new Date()): CisEvidenceReport {
   const os = osRelease();
   const id = os.ID?.toLowerCase() ?? null;
   const version = os.VERSION_ID ?? null;
   const edition = id && version ? EDITIONS[id]?.[version] : undefined;
+  const checks = tagCisMappings(findings, os).map((finding) => ({
+    ...finding,
+    cis_control_ids: finding.cis_control_ids ?? [],
+    mapping_status: finding.cis_mapping_status ?? 'unverified' as const,
+    ...(finding.cis_mapping_source ? { mapping_source: finding.cis_mapping_source } : {}),
+    ...(finding.cis_mapping_benchmark ? { mapping_benchmark: finding.cis_mapping_benchmark } : {}),
+  }));
+  const mappedControls = new Set(checks.flatMap((check) => check.mapping_status === 'verified' ? check.cis_control_ids : []));
   return {
     schema_version: 1,
     generated_at: now.toISOString(),
@@ -60,13 +119,13 @@ export function buildCisEvidenceReport(findings: HardeningResult[], score: numbe
     host: { hostname: hostname(), os_id: id, os_version: version, pretty_name: os.PRETTY_NAME ?? null },
     benchmark: edition ? { name: edition.name, version: edition.version, source: edition.source } : null,
     assessment: 'partial',
-    mapped_controls: 0,
+    mapped_controls: mappedControls.size,
     total_checks: findings.length,
     hardening_score: score,
-    checks: findings.map((finding) => ({ ...finding, cis_control_ids: [], mapping_status: 'unverified' })),
+    checks,
     limitations: [
       'This report contains ThreatCrush hardening checks only; it does not assess a CIS Benchmark profile.',
-      'No check-to-control crosswalk has been verified against the selected CIS Benchmark edition, so no CIS control IDs are claimed.',
+      'The verified SSH mapping uses the CIS Ubuntu 24.04 LTS v1.0.0 implementation. The current CIS catalog lists v2.0.0; no mapping to v2.0.0 is claimed. Other checks remain unverified.',
       'A PASS is a result for the named ThreatCrush check, not a CIS control pass or a certification claim.',
     ],
   };
@@ -80,7 +139,10 @@ export function renderCisMarkdown(report: CisEvidenceReport): string {
     const facts = check.details ? ` Observed data: ${JSON.stringify(check.details)}` : '';
     const evidence = `${check.explanation}${facts}`.replace(/[|\r\n]+/g, ' ').trim();
     const recommendation = check.recommendation?.replace(/[|\r\n]+/g, ' ').trim() ?? '—';
-    return `| ${check.key} | ${check.status.toUpperCase()} | Unverified | ${evidence} | ${recommendation} |`;
+    const mapping = check.cis_control_ids.length ? check.cis_control_ids.join(', ') : 'Unverified';
+    const reference = [check.mapping_benchmark, check.mapping_source].filter(Boolean).join('; ');
+    const source = reference ? ` (${reference})` : '';
+    return `| ${check.key} | ${check.status.toUpperCase()} | ${mapping}${source} | ${evidence} | ${recommendation} |`;
   });
   return [
     '# CIS benchmark evidence report',

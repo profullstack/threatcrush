@@ -120,10 +120,12 @@ threatcrush harden --report cis --format json --no-upload
 threatcrush harden --report cis --format pdf --output ./cis-evidence.pdf --no-upload
 ```
 
-The report identifies the host's CIS benchmark edition when known and includes
-the `harden` evidence and timestamp. Its check-to-control mappings are currently
-unverified and are labeled that way; the report explicitly does not claim a CIS
-assessment or certification.
+The report identifies the host's current CIS benchmark edition when known and
+includes the `harden` evidence and timestamp. The one verified SSH root-login
+crosswalk is against the CIS Ubuntu 24.04 LTS v1.0.0 implementation; the current
+catalog lists v2.0.0, so the report names the v1.0.0 mapping reference and does
+not claim that mapping applies to v2.0.0. Other checks remain unverified. The
+report does not claim a CIS assessment or certification.
 
 ## Features
 
