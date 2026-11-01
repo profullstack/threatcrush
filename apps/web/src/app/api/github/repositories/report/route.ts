@@ -6,6 +6,7 @@ import { classifyRepositoryFindings, parseRepositoryFindings } from "@/lib/repos
 import { parseIncidentReport } from "@/lib/incidents/report";
 import { pageable, upsertIncident } from "@/lib/incidents/store";
 import { notifyIncident } from "@/lib/incidents/notify";
+import { syncPsaIncident } from "@/lib/psa/halo";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -51,7 +52,10 @@ export async function POST(req: NextRequest) {
       });
       const outcome = await upsertIncident(admin, policy.org_id, policy.team_id, report, { userId: null, agentKeyId: null });
       incidentId = outcome.incident.id;
-      if (outcome.page) after(async () => { await notifyIncident(pageable(outcome.incident), admin); });
+      if (outcome.page) after(async () => {
+        await notifyIncident(pageable(outcome.incident), admin);
+        await syncPsaIncident(admin, outcome.incident.id);
+      });
     }
     const saved = await admin.from("github_repository_policies").update({ last_report_at: new Date().toISOString(), last_counts: classified.counts }).eq("id", policy.id);
     if (saved.error) throw new Error("Could not record report");

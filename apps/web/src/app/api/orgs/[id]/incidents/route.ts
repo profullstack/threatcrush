@@ -4,6 +4,7 @@ import { getPrincipal } from "@/lib/access";
 import { IncidentError, listIncidents, pageable, raiseIncident } from "@/lib/incidents/store";
 import { notifyIncident, reachable, recipientsFor } from "@/lib/incidents/notify";
 import { INCIDENT_MAX_BODY_BYTES } from "@/lib/incidents/http";
+import { syncPsaIncident } from "@/lib/psa/halo";
 
 export const runtime = "nodejs";
 
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const incident = pageable(out.incident);
       after(() => notifyIncident(incident).then(() => undefined));
     }
+    after(() => syncPsaIncident(admin, out.incident.id));
     return NextResponse.json(
       { incident: out.incident, created: out.created, paged: out.page, notified: { ...queued, queued: out.page } },
       { status: out.created ? 201 : 200 },

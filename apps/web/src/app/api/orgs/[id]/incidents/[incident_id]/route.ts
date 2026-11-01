@@ -1,7 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { getPrincipal } from "@/lib/access";
 import { getIncident, IncidentError, updateIncident } from "@/lib/incidents/store";
+import { syncPsaIncident } from "@/lib/psa/halo";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "Body must be a JSON object" }, { status: 400 });
   try {
-    return NextResponse.json(await updateIncident(admin, p, orgId, incident_id, body));
+    const result = await updateIncident(admin, p, orgId, incident_id, body);
+    after(() => syncPsaIncident(admin, incident_id));
+    return NextResponse.json(result);
   } catch (e) {
     if (e instanceof IncidentError) return NextResponse.json({ error: e.message }, { status: e.status });
     console.error("[incidents] update", (e as Error).message);

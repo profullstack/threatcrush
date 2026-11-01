@@ -2,6 +2,7 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifyIncident } from "./notify";
 import { pageable, raiseDetectionIncidents, type CriticalDetection } from "./store";
+import { syncPsaIncident } from "@/lib/psa/halo";
 
 /** After ingest: critical detections -> incidents -> one page per new incident. Never throws. */
 export async function pageCriticalDetections(
@@ -13,6 +14,7 @@ export async function pageCriticalDetections(
     const outcomes = await raiseDetectionIncidents(admin, detections, servers);
     const paged = new Set<string>();
     for (const o of outcomes) {
+      await syncPsaIncident(admin, o.incident.id);
       if (!o.page || paged.has(o.incident.id)) continue;
       paged.add(o.incident.id);
       await notifyIncident(pageable(o.incident), admin);
