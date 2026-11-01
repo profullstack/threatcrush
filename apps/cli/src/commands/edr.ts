@@ -44,6 +44,9 @@ export async function edrCommand(action = 'status', opts: { json?: boolean; limi
     audit_log_readable: readable,
     web_service_users: settings.webServiceUsers,
     temp_exec_paths: settings.tempExecPaths,
+    watch_network_syscalls: settings.watchNetworkSyscalls,
+    network_baseline_seconds: settings.networkBaselineMs / 1000,
+    watch_unknown_temp_cpu: settings.watchUnknownTempCpu,
     poll_interval_seconds: settings.pollMs / 1000,
     state_note: stateNote,
     events,
@@ -56,6 +59,8 @@ export async function edrCommand(action = 'status', opts: { json?: boolean; limi
   console.log(`  Audit log: ${settings.auditLogPath} (${readable ? chalk.green('readable') : chalk.yellow('unavailable')})`);
   console.log(`  Service accounts: ${settings.webServiceUsers.join(', ') || 'none configured'}`);
   console.log(`  Temporary execution paths: ${settings.tempExecPaths.join(', ') || 'none configured'}`);
+  console.log(`  Network syscalls: ${settings.watchNetworkSyscalls ? `enabled (learn ${settings.networkBaselineMs / 1000}s)` : 'disabled'}`);
+  console.log(`  Temporary-path CPU watch: ${settings.watchUnknownTempCpu ? 'enabled' : 'disabled'}`);
   console.log(`  Recent EDR events: ${events.length}`);
   if (stateNote) console.log(chalk.gray(`  ${stateNote}`));
   if (!settings.enabled) console.log(chalk.gray('  Enable [edr] only after reviewing `threatcrush edr rules` and loading them in auditd.'));

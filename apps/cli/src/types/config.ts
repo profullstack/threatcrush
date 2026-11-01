@@ -209,6 +209,12 @@ export interface EdrSection {
   web_service_users?: string[];
   /** Directories where executing a binary should raise an alert. */
   temp_exec_paths?: string[];
+  /** Audit successful connect/listen syscalls; can create substantial audit volume. Default false. */
+  watch_network_syscalls?: boolean;
+  /** Seconds to learn known outbound executables before alerting on newly seen ones (default 60). */
+  network_baseline_seconds?: number;
+  /** Watch sustained high CPU from binaries running in temporary directories. Default true when EDR is enabled. */
+  watch_unknown_temp_cpu?: boolean;
   /** Polling frequency in seconds, clamped to 1–60 (default 2). */
   poll_interval_seconds?: number;
 }

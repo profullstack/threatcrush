@@ -5,6 +5,8 @@ import type { EdrSettings } from '../workers/edr.js';
 
 const WEB_TOOLS = ['sh', 'bash', 'dash', 'zsh', 'curl', 'wget'];
 const MINER_NAMES = ['xmrig', 'minerd', 'cpuminer', 'cpuminer-multi', 'kdevtmpfsi', 'kinsing', 'cryptonight'];
+const CONNECT_KEY = 'threatcrush_edr_connect';
+const LISTEN_KEY = 'threatcrush_edr_listen';
 
 function passwdByName(): Map<string, number> {
   let raw = '';
@@ -44,7 +46,8 @@ function existingDirectories(paths: string[]): string[] {
 }
 
 /**
- * Narrow auditd rules for the three first-pass detections. The generated rules
+ * Narrow auditd rules for execution detections. Optional network syscall rules
+ * are broader and generated only after an explicit opt-in. The generated rules
  * observe only shell/downloader execution by selected service accounts,
  * execution from selected writable trees, and known miner process names.
  */
@@ -60,7 +63,7 @@ export function generateAuditRules(settings: EdrSettings): { rules: string[]; wa
   if (missingUsers.length) warnings.push(`service account(s) not found in /etc/passwd: ${missingUsers.join(', ')}`);
   if (serviceIds.length === 0) warnings.push('no web-service account UIDs resolved; web child-process rules were not generated');
 
-  const architectures = process.arch === 'x64' ? ['b64', 'b32'] : ['b64'];
+  const architectures = process.arch === 'x64' ? ['b64', 'b32'] : process.arch === 'ia32' ? ['b32'] : ['b64'];
   const tools = existingExecutables(WEB_TOOLS);
   for (const arch of architectures) {
     for (const uid of serviceIds) {
@@ -74,8 +77,13 @@ export function generateAuditRules(settings: EdrSettings): { rules: string[]; wa
     for (const comm of MINER_NAMES) {
       rules.add(`-a always,exit -F arch=${arch} -S execve,execveat -F success=1 -F comm=${comm} -k threatcrush_edr_miner`);
     }
+    if (settings.watchNetworkSyscalls) {
+      rules.add(`-a always,exit -F arch=${arch} -S connect -F success=1 -k ${CONNECT_KEY}`);
+      rules.add(`-a always,exit -F arch=${arch} -S listen -F success=1 -k ${LISTEN_KEY}`);
+    }
   }
   if (tools.length === 0) warnings.push('no configured shell or downloader executables were found');
   if (existingDirectories(settings.tempExecPaths).length === 0) warnings.push('no configured temporary execution directories exist');
+  if (settings.watchNetworkSyscalls) warnings.push('network syscall rules can generate substantial audit volume; review host capacity and retention before loading');
   return { rules: [...rules], warnings };
 }
