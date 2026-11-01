@@ -73,6 +73,7 @@ export default function ProfileFieldsCard() {
           onChange={setValues}
           errors={errors}
           disabled={!loaded}
+                  importOpenProfile
         />
         {error && <p className="text-sm text-red-400">{error}</p>}
         <div className="flex items-center gap-3">
