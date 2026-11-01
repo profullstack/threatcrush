@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireOrgScope, visibleServerIds } from "@/lib/route-access";
 
 export const runtime = "nodejs";
+const UBUNTU_2404_CIS_CONTROL_SOURCE = "https://github.com/ComplianceAsCode/content/blob/v0.1.78/controls/cis_ubuntu2404.yml";
 
 // GET /api/orgs/:id/hardening-report?format=md|json
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -41,6 +42,21 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     checks: (findings ?? []).map((finding) => {
       const server = serverMap.get(finding.server_id);
       const fleet = server?.fleet_id ? fleetMap.get(server.fleet_id) : null;
+      const details = finding.details && typeof finding.details === "object" && !Array.isArray(finding.details)
+        ? finding.details as Record<string, unknown>
+        : {};
+      const cisIds = Array.isArray(details.cis_control_ids)
+        ? details.cis_control_ids.filter((value): value is string => typeof value === "string" && /^\d+(?:\.\d+)*$/.test(value))
+        : [];
+      const verifiedRootLoginMapping = finding.finding_key === "ssh-root-login" &&
+        details.cis_mapping_status === "verified" &&
+        details.cis_profile_os_id === "ubuntu" &&
+        details.cis_profile_os_version === "24.04" &&
+        details.cis_profile_name === "CIS Ubuntu Linux 24.04 LTS" &&
+        details.cis_profile_version === "1.0.0" &&
+        details.cis_mapping_source === UBUNTU_2404_CIS_CONTROL_SOURCE &&
+        cisIds.length === 1 && cisIds[0] === "5.1.20";
+      const mappingStatus = verifiedRootLoginMapping ? "verified" as const : "unverified" as const;
       return {
         finding_key: finding.finding_key,
         status: finding.status,
@@ -51,16 +67,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         observed_at: finding.observed_at,
         server: server?.name || server?.hostname || finding.server_id,
         fleet: fleet?.name ?? null,
-        cis_control_ids: [] as string[],
-        mapping_status: "unverified" as const,
+        cis_control_ids: mappingStatus === "verified" ? ["5.1.20"] : [],
+        mapping_status: mappingStatus,
+        mapping_benchmark: mappingStatus === "verified" ? "CIS Ubuntu Linux 24.04 LTS v1.0.0" : undefined,
+        mapping_source: mappingStatus === "verified" ? UBUNTU_2404_CIS_CONTROL_SOURCE : undefined,
       };
     }),
     limitations: [
       "This export contains ThreatCrush hardening evidence only; it does not assess a CIS Benchmark profile.",
-      "No check-to-control crosswalk has been verified against the installed host benchmark edition, so no CIS control IDs are claimed.",
+      "The verified SSH mapping uses the CIS Ubuntu 24.04 LTS v1.0.0 implementation. The current CIS catalog lists v2.0.0; no mapping to v2.0.0 is claimed. Older findings without mapping metadata remain unverified.",
       "PASS, FAIL, and WARN are ThreatCrush check results, not CIS control results or a certification claim.",
     ],
   };
+  const mappedControls = new Set(report.checks.flatMap((check) => check.mapping_status === "verified" ? check.cis_control_ids : []));
+  report.mapped_controls = mappedControls.size;
 
   if (format === "json") {
     return new NextResponse(`${JSON.stringify(report, null, 2)}\n`, {
@@ -70,7 +90,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const rows = report.checks.map((check) => {
     const evidence = `${check.status.toUpperCase()}: ${check.title}${check.evidence ? ` — ${JSON.stringify(check.evidence)}` : ""}`.replace(/[|\r\n]+/g, " ");
     const recommendation = (check.recommendation ?? "—").replace(/[|\r\n]+/g, " ");
-    return `| ${check.fleet ?? "—"} | ${check.server} | ${check.finding_key} | ${check.status.toUpperCase()} | Unverified | ${evidence} | ${recommendation} |`;
+    const reference = [check.mapping_benchmark, check.mapping_source].filter(Boolean).join("; ");
+    const mapping = check.cis_control_ids.length ? `${check.cis_control_ids.join(", ")}${reference ? ` (${reference})` : ""}` : "Unverified";
+    return `| ${check.fleet ?? "—"} | ${check.server} | ${check.finding_key} | ${check.status.toUpperCase()} | ${mapping} | ${evidence} | ${recommendation} |`;
   });
   const markdown = [
     `# ThreatCrush hardening evidence — ${report.organization}`,
