@@ -397,6 +397,15 @@ program
   });
 
 program
+  .command("action-center")
+  .description("Fleet-wide terminal view of detections, server health, and queued actions")
+  .alias("actions")
+  .action(async () => {
+    const { startActionCenter } = await import("./tui/action-center.js");
+    await startActionCenter();
+  });
+
+program
   .command("map")
   .description("Live world map of where attacks on this server come from")
   .option("--demo", "Show canned attacks instead of connecting to the daemon")
