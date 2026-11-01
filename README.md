@@ -103,6 +103,7 @@ threatcrush action-center # Fleet-wide detections, host health and queued action
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush pentest URL  # Quick web security checks against a URL
 threatcrush harden       # Check the host's SSH, firewall, updates and exposed ports
+threatcrush harden --report cis --format md --no-upload # Export local hardening evidence
 threatcrush patches      # OS packages with a security update waiting, and the CVEs it fixes
 threatcrush feeds        # The abuse.ch C2/malware list; `feeds check <ip|domain>` looks one up
 threatcrush privileged   # Who can become root (uid 0, sudo groups, sudoers, SSH keys) and the sudo ledger

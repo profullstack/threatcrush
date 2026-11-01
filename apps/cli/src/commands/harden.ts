@@ -5,8 +5,9 @@ import ora from 'ora';
 import { banner, logger } from '../core/logger.js';
 import { cloudFetch } from '../core/cli-config.js';
 import { currentLink, findingEvents, type IngestResponse } from '../core/cloud-events.js';
+import { buildCisEvidenceReport, renderCisMarkdown, writeCisReport } from './cis-report.js';
 
-interface HardeningResult {
+export interface HardeningResult {
   key: string;
   status: 'pass' | 'warn' | 'fail';
   severity: 'info' | 'low' | 'medium' | 'high' | 'critical';
@@ -364,18 +365,53 @@ export async function uploadFindings(results: HardeningResult[], json: boolean):
   say('');
 }
 
-export async function hardenCommand(opts: { json?: boolean; upload?: boolean }): Promise<void> {
-  if (!opts.json) {
+export async function hardenCommand(opts: {
+  json?: boolean;
+  upload?: boolean;
+  report?: string;
+  format?: string;
+  output?: string;
+}): Promise<void> {
+  if (!opts.json && !opts.report) {
     banner();
     logger.info('Running hardening scan...\n');
   }
 
-  const spinner = opts.json ? null : ora({ text: 'Scanning system configuration...', color: 'green' }).start();
+  const spinner = opts.json || opts.report ? null : ora({ text: 'Scanning system configuration...', color: 'green' }).start();
 
   const results = runAllChecks();
   const score = computeScore(results);
 
   if (spinner) spinner.succeed('Hardening scan complete\n');
+
+  if (opts.report) {
+    if (opts.report !== 'cis') {
+      console.error(chalk.red(`  Unknown report framework "${opts.report}". Use cis.`));
+      process.exitCode = 1;
+      return;
+    }
+    const format = opts.format ?? (opts.json ? 'json' : 'md');
+    if (format !== 'md' && format !== 'pdf' && format !== 'json') {
+      console.error(chalk.red(`  Unknown report format "${format}". Use md, pdf, or json.`));
+      process.exitCode = 1;
+      return;
+    }
+    if (format === 'pdf' && !opts.output) {
+      console.error(chalk.red('  PDF output requires --output <path>.'));
+      process.exitCode = 1;
+      return;
+    }
+    const report = buildCisEvidenceReport(results, score);
+    if (opts.output) {
+      writeCisReport(opts.output, format, report);
+      console.error(chalk.green(`  Wrote partial CIS evidence report to ${opts.output}`));
+    } else {
+      const markdown = renderCisMarkdown(report);
+      console.log(format === 'json' ? JSON.stringify(report, null, 2) : markdown);
+    }
+    if (opts.upload !== false) await uploadFindings(results, true);
+    return;
+  }
 
   if (opts.json) {
     console.log(JSON.stringify({ score, findings: results }, null, 2));
@@ -431,4 +467,3 @@ export async function hardenCommand(opts: { json?: boolean; upload?: boolean }):
 
 // Export for daemon use
 export { runAllChecks, computeScore };
-export type { HardeningResult };
