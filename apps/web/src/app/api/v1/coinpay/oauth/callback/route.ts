@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       clientSecret: config.clientSecret,
       redirectUri: config.redirectUri,
     });
-    who = { sub: result.sub, email: result.email, name: result.name, ...(typeof result.userinfo.openprofile_url === "string" ? { openprofile_url: result.userinfo.openprofile_url } : {}) };
+    who = { sub: result.sub, email: result.email, name: result.name, ...(typeof result.userinfo?.openprofile_url === "string" ? { openprofile_url: result.userinfo.openprofile_url } : {}) };
   } catch (err) {
     console.error("[coinpay] sign-in failed:", (err as Error).message);
     return done(`${back}failed`);
