@@ -1,6 +1,6 @@
-/** Top-ups are available unless an operator explicitly pauses them. */
+/** Top-ups fail closed unless an operator explicitly enables the CoinPay flow. */
 export function usageTopupsEnabled(): boolean {
-  return !["false", "0", "off"].includes((process.env.USAGE_TOPUPS_ENABLED || "").toLowerCase());
+  return process.env.USAGE_TOPUPS_ENABLED === "true";
 }
 
 export const USAGE_TOPUPS_PAUSED_MESSAGE =
