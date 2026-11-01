@@ -35,15 +35,36 @@ interface Remediation {
   created_at: string;
 }
 
+interface IncidentAiSummary {
+  id: string;
+  short_code: string;
+  title: string;
+  severity: string;
+  source: string;
+  host: string | null;
+  role?: "read" | "write" | "admin";
+  last_seen_at: string;
+  ai_triage: {
+    disposition: "likely_benign" | "likely_real" | "unclear";
+    confidence: number;
+    summary: string;
+    recommended_action: string;
+    action: "block_source_ip" | "acknowledge" | "review" | "none";
+    evidence_ids: string[];
+    triaged_at: string;
+  } | null;
+}
+
 interface Fleet { id: string; name: string; }
 interface BoardData {
   servers: ActionServer[];
   detections: Detection[];
   actions: Remediation[];
   fleets: Fleet[];
+  incidents: IncidentAiSummary[];
 }
 
-const EMPTY: BoardData = { servers: [], detections: [], actions: [], fleets: [] };
+const EMPTY: BoardData = { servers: [], detections: [], actions: [], fleets: [], incidents: [] };
 const severities = ["critical", "high", "medium", "low", "info"];
 
 async function getJson<T>(path: string): Promise<T> {
@@ -62,25 +83,66 @@ export default function ActionCenterContent({ slug }: { slug: string }) {
   const [fleetId, setFleetId] = useState("all");
   const [serverId, setServerId] = useState("all");
   const [ipQuery, setIpQuery] = useState("");
+  const [aiActionBusy, setAiActionBusy] = useState<string | null>(null);
+  const [aiActionState, setAiActionState] = useState<{ incidentId: string; message: string; error: boolean } | null>(null);
 
   const load = useCallback(async () => {
     if (!org) return;
-    const [serverResult, detectionResult, actionResult, fleetResult] = await Promise.allSettled([
+    const [serverResult, detectionResult, actionResult, fleetResult, incidentResult] = await Promise.allSettled([
       listServers(org.id),
       getJson<{ detections?: Detection[] }>(`/api/orgs/${org.id}/detections?limit=200`),
       getJson<{ remediations?: Remediation[] }>(`/api/orgs/${org.id}/remediations?limit=200`),
       getJson<{ fleets?: Fleet[] }>(`/api/orgs/${org.id}/fleets`),
+      getJson<{ incidents?: IncidentAiSummary[] }>(`/api/orgs/${org.id}/incidents?status=open,acknowledged&limit=100`),
     ]);
-    const failures = [serverResult, detectionResult, actionResult, fleetResult].filter((r) => r.status === "rejected");
+    const failures = [serverResult, detectionResult, actionResult, fleetResult, incidentResult].filter((r) => r.status === "rejected");
     setData({
       servers: serverResult.status === "fulfilled" ? serverResult.value.servers as unknown as ActionServer[] : [],
       detections: detectionResult.status === "fulfilled" ? detectionResult.value.detections ?? [] : [],
       actions: actionResult.status === "fulfilled" ? actionResult.value.remediations ?? [] : [],
       fleets: fleetResult.status === "fulfilled" ? fleetResult.value.fleets ?? [] : [],
+      incidents: incidentResult.status === "fulfilled" ? incidentResult.value.incidents ?? [] : [],
     });
     setError(failures.length ? "Some Action Center data could not be loaded. Try refreshing." : "");
     setLoading(false);
   }, [org]);
+
+  const applyAiSuggestion = async (incident: IncidentAiSummary) => {
+    if (!org || !incident.ai_triage) return;
+    setAiActionBusy(incident.id);
+    setAiActionState(null);
+    try {
+      let response: Response;
+      let successMessage: string;
+      if (incident.ai_triage.action === "acknowledge") {
+        response = await fetch(`/api/orgs/${org.id}/incidents/${incident.id}`, {
+          method: "PATCH", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ status: "acknowledged" }),
+        });
+        successMessage = "Incident acknowledged. It remains open for investigation.";
+      } else if (incident.ai_triage.action === "block_source_ip") {
+        const evidenceIds = new Set(incident.ai_triage.evidence_ids);
+        const linked = data.detections.filter((detection) => evidenceIds.has(detection.id));
+        const sourceIps = [...new Set(linked.map((detection) => detection.source_ip).filter((value): value is string => Boolean(value)))];
+        const serverIds = [...new Set(linked.map((detection) => detection.server_id))];
+        if (!linked.length || sourceIps.length !== 1 || serverIds.length !== 1) throw new Error("The Action Center does not have one unambiguous IP and server from the linked evidence. Open the incident to review it.");
+        response = await fetch(`/api/orgs/${org.id}/remediations`, {
+          method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ server_id: serverIds[0], action_type: "block", target_value: sourceIps[0], ttl_seconds: 3600, detection_id: linked[0].id }),
+        });
+        successMessage = `Queued a one-hour block for ${sourceIps[0]}.`;
+      } else {
+        throw new Error("This AI assessment has no action to apply. Review the incident details.");
+      }
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `Could not apply suggestion (HTTP ${response.status}).`);
+      setAiActionState({ incidentId: incident.id, message: successMessage, error: false });
+      await load();
+    } catch (cause) {
+      setAiActionState({ incidentId: incident.id, message: (cause as Error).message || "Could not apply suggestion.", error: true });
+    } finally {
+      setAiActionBusy(null);
+    }
+  };
 
   useEffect(() => { void load(); }, [load]);
   useVisiblePolling(load, 30_000, !!org);
@@ -96,6 +158,7 @@ export default function ActionCenterContent({ slug }: { slug: string }) {
   const online = data.servers.filter((server) => serverConnectionState(server.last_seen) === "online").length;
   const activeDetections = data.detections.filter((detection) => detection.status === "new").length;
   const queuedActions = data.actions.filter((action) => action.status === "pending" || action.status === "executing");
+  const aiTriaged = data.incidents.filter((incident) => incident.source === "watchdog" && ["high", "critical"].includes(incident.severity) && incident.ai_triage);
   const fleetNames = new Map(data.fleets.map((fleet) => [fleet.id, fleet.name]));
 
   return (
@@ -130,6 +193,28 @@ export default function ActionCenterContent({ slug }: { slug: string }) {
       <div className="mb-6">
         <AttackMap source="account" orgId={org.id} title={`Live attacks on ${org.name}`} refreshMs={10_000} compact />
       </div>
+
+      <section className="mb-6 rounded-xl border border-purple-500/30 bg-purple-950/10 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="text-lg font-semibold text-white">AI triage</h2><p className="text-sm text-zinc-500">Operator-requested assessments for high and critical watchdog incidents.</p></div>
+          <Link href={`/org/${slug}/incidents`} className="text-xs text-zinc-400 hover:text-white">All incidents →</Link>
+        </div>
+        {aiTriaged.length === 0 ? <p className="rounded-lg border border-zinc-800 p-5 text-center text-sm text-zinc-500">No active watchdog incidents have an AI assessment yet. Run triage from a high or critical incident after reviewing the data disclosure and credit use.</p> : (
+          <ul className="space-y-2">
+            {aiTriaged.slice(0, 10).map((incident) => <li key={incident.id} className="rounded-lg border border-zinc-800 bg-black/40 p-4">
+              <div className="flex flex-wrap items-center gap-2"><SeverityBadge severity={incident.severity} /><span className="rounded border border-zinc-700 px-2 py-0.5 text-xs text-purple-200">{incident.ai_triage!.disposition.replaceAll("_", " ")}</span><span className="text-xs text-zinc-500">{Math.round(incident.ai_triage!.confidence * 100)}% confidence · {incident.host ?? "host unknown"}</span></div>
+              <Link href={`/org/${slug}/incidents/${incident.id}`} className="mt-2 block font-medium text-white hover:text-purple-200">{incident.title}</Link>
+              <p className="mt-1 text-sm text-zinc-300">{incident.ai_triage!.summary}</p>
+              <p className="mt-1 text-sm text-zinc-400">Recommended: {incident.ai_triage!.recommended_action}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {incident.role !== "read" && (incident.ai_triage!.action === "acknowledge" || incident.ai_triage!.action === "block_source_ip") && <button disabled={aiActionBusy === incident.id} onClick={() => void applyAiSuggestion(incident)} className="rounded bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-50">{aiActionBusy === incident.id ? "Applying…" : incident.ai_triage!.action === "acknowledge" ? "Acknowledge incident" : "Queue one-hour block"}</button>}
+                <Link href={`/org/${slug}/incidents/${incident.id}`} className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800">Review incident</Link>
+              </div>
+              {aiActionState?.incidentId === incident.id && <p role={aiActionState.error ? "alert" : "status"} className={`mt-2 text-sm ${aiActionState.error ? "text-red-400" : "text-green-400"}`}>{aiActionState.message}</p>}
+            </li>)}
+          </ul>
+        )}
+      </section>
 
       <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
