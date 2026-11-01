@@ -110,6 +110,21 @@ threatcrush store        # Browse the module marketplace
 threatcrush update       # Upgrade the CLI using the supported path
 ```
 
+### CIS evidence report export
+
+Export the current `harden` findings as Markdown, JSON, or PDF:
+
+```bash
+threatcrush harden --report cis --format md --no-upload
+threatcrush harden --report cis --format json --no-upload
+threatcrush harden --report cis --format pdf --output ./cis-evidence.pdf --no-upload
+```
+
+The report identifies the host's CIS benchmark edition when known and includes
+the `harden` evidence and timestamp. Its check-to-control mappings are currently
+unverified and are labeled that way; the report explicitly does not claim a CIS
+assessment or certification.
+
 ## Features
 
 | Feature | Description |

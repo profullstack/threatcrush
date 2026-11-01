@@ -774,8 +774,11 @@ program
   .command("harden")
   .description("Run hardening security scan")
   .option("--json", "Output results as JSON")
+  .option("--report <framework>", "Export evidence report (cis)")
+  .option("--format <format>", "Report format: md, pdf, or json")
+  .option("--output <path>", "Write the report to a file (PDF requires this)")
   .option("--no-upload", "Do not upload findings to the dashboard (uploaded when this machine is linked)")
-  .action(async (opts: { json?: boolean; upload?: boolean }) => {
+  .action(async (opts: { json?: boolean; upload?: boolean; report?: string; format?: string; output?: string }) => {
     await hardenCommand(opts);
   });
 
