@@ -62,6 +62,10 @@ export default function FleetContent() {
           ThreatCrush installs are on the{" "}
           <Link href="/dashboard" className="text-tc-green hover:underline">dashboard</Link>.
         </p>
+        <p className="mt-2 text-sm text-tc-text-dim">
+          Fleet checks require a CrawlProof account using the same email as ThreatCrush. If this panel says no account was found,
+          <a href="https://crawlproof.com" className="ml-1 text-tc-green hover:underline">create or sign in to CrawlProof</a> first.
+        </p>
         {profile && !profile.email_verified && (
           <p className="mt-2 text-sm text-yellow-400">
             Verify your email address on your <Link href="/account" className="underline">account</Link> to manage

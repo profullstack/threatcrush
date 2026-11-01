@@ -142,6 +142,7 @@ export default function PrivacyPage() {
             </p>
             <ul className={ul}>
               <li><span className="text-tc-text">CoinPayPortal and PayPal</span> — payments (amount, currency, your email, and what you enter on their checkout).</li>
+              <li><span className="text-tc-text">OpenAI</span> — text sent to the metered AI endpoint to generate a response; ThreatCrush stores token counts and the resulting charge in your usage history. Requests are sent with response storage disabled.</li>
               <li><span className="text-tc-text">Telnyx</span> — sends phone verification codes (your phone number and the code).</li>
               <li><span className="text-tc-text">Resend</span> — delivers the email we send, such as contact-form notifications and guide downloads.</li>
               <li><span className="text-tc-text">GitHub</span> — sign-in with GitHub and the GitHub App.</li>
@@ -162,8 +163,8 @@ export default function PrivacyPage() {
               <li><span className="text-tc-text">Google Fonts</span> (fonts.googleapis.com) — web fonts; your browser requests them from Google.</li>
             </ul>
             <p className={p}>
-              These providers receive your IP address and browser details when your browser loads
-              them, and may set their own cookies or identifiers.
+              Website analytics and third-party scripts receive your IP address and browser details
+              when your browser loads them, and may set their own cookies or identifiers.
             </p>
           </section>
 

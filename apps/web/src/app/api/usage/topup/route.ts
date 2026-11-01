@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     // false, so it slipped through and was sent to CoinPay / stored on the
     // credit_deposits row as a garbage amount.
     const amount_usd = Number(body.amount_usd);
-    if (!Number.isFinite(amount_usd) || amount_usd < 1 || amount_usd > 10000) {
+    if (!Number.isFinite(amount_usd) || amount_usd < 1 || amount_usd > 10000 || Math.abs(amount_usd * 100 - Math.round(amount_usd * 100)) > 1e-8) {
       return NextResponse.json({ error: "Amount must be between $1 and $10,000" }, { status: 400 });
     }
 
@@ -63,15 +63,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "CoinPay did not return a payment id" }, { status: 502 });
     }
 
+    if (!checkoutUrl && !paymentAddress) {
+      console.error("[topup] CoinPay returned no checkout URL or payment address");
+      return NextResponse.json({ error: "CoinPay did not return payment instructions" }, { status: 502 });
+    }
+
     // Store pending credit deposit locally
     const admin = getSupabaseAdmin();
-    await admin.from("credit_deposits").insert({
+    const { error: insertError } = await admin.from("credit_deposits").insert({
       user_id: user.id,
       email: user.email,
       coinpay_payment_id: paymentId,
       amount_usd,
       status: "pending",
     });
+    if (insertError) {
+      console.error("[topup] Could not persist pending CoinPay deposit:", paymentId, insertError.message);
+      return NextResponse.json({ error: "Could not save this payment. Contact support before paying." }, { status: 500 });
+    }
 
     return NextResponse.json({
       success: true,

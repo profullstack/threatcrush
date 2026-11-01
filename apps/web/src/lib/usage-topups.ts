@@ -1,12 +1,7 @@
-/**
- * AI usage-credit top-ups are paused by default. Nothing records AI usage into
- * `usage_events` yet, so a credit bought today could never be spent. Setting
- * `USAGE_TOPUPS_ENABLED=true` turns the top-up route and the /usage buy
- * controls back on; balances and payment history stay visible either way.
- */
+/** Top-ups are available unless an operator explicitly pauses them. */
 export function usageTopupsEnabled(): boolean {
-  return process.env.USAGE_TOPUPS_ENABLED === "true";
+  return !["false", "0", "off"].includes((process.env.USAGE_TOPUPS_ENABLED || "").toLowerCase());
 }
 
 export const USAGE_TOPUPS_PAUSED_MESSAGE =
-  "AI usage credit top-ups are paused. Your existing balance and payment history are unchanged.";
+  "AI usage credit top-ups are temporarily disabled. Your existing balance and payment history are unchanged.";

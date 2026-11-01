@@ -214,7 +214,10 @@ export default function UsageContent({ topupsEnabled }: { topupsEnabled: boolean
               AI Usage <span className="text-tc-green glow-green">Dashboard</span>
             </h1>
             <p className="text-tc-text-dim mt-2">
-              Track your AI module spending and manage credits.
+              Track metered AI spending and manage credits. Requests through the ThreatCrush AI endpoint are charged at provider cost plus a flat 20% margin.
+            </p>
+            <p className="mt-2 text-xs text-tc-text-dim">
+              API: <code className="text-tc-green">/api/usage/v1/responses</code> · Model <code className="text-tc-green">gpt-5.6-luna</code> · Only requests through this endpoint use credits.
             </p>
           </div>
         </ScrollReveal>
@@ -223,8 +226,7 @@ export default function UsageContent({ topupsEnabled }: { topupsEnabled: boolean
           <div className="rounded-xl border border-yellow-400/30 bg-yellow-400/5 p-5 mb-8">
             <p className="text-sm font-bold text-yellow-400 mb-1">Credit top-ups are paused</p>
             <p className="text-sm text-tc-text-dim">
-              AI usage isn&apos;t charged against credits yet, so new credits couldn&apos;t be spent.
-              Your balance and payment history below are unchanged. Questions about a past payment?
+              New credit purchases are temporarily disabled. Your balance and payment history below are unchanged. Questions about a past payment?
               Email{" "}
               <a href="mailto:hello@threatcrush.com" className="text-tc-green hover:underline">
                 hello@threatcrush.com
@@ -494,7 +496,8 @@ export default function UsageContent({ topupsEnabled }: { topupsEnabled: boolean
           <div className="relative rounded-2xl border border-tc-green/30 bg-tc-darker p-8 max-w-md w-full mx-4 glow-box" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setShowTopup(false)} className="absolute top-4 right-4 text-tc-text-dim hover:text-tc-text">✕</button>
             <h2 className="text-xl font-bold text-white mb-2">Top Up Credits</h2>
-            <p className="text-sm text-tc-text-dim mb-6">Add AI usage credits via crypto.</p>
+            <p className="text-sm text-tc-text-dim mb-2">Add AI usage credits via CoinPay.</p>
+            <p className="text-xs text-tc-text-dim mb-6">Metered AI requests are charged at OpenAI provider cost plus a flat 20% margin.</p>
 
             {paymentError && <p className="text-red-400 text-sm mb-4">{paymentError}</p>}
 
