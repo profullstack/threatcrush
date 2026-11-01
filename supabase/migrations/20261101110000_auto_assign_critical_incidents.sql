@@ -73,16 +73,10 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Match the incident assignment rules: team incidents require team
-  -- membership; incidents without a team require an org member or team seat.
-  IF NEW.team_id IS NOT NULL THEN
-    IF NOT EXISTS (
-      SELECT 1 FROM public.team_members AS tm
-      WHERE tm.team_id = NEW.team_id AND tm.user_id = target_user_id
-    ) THEN
-      RETURN NEW;
-    END IF;
-  ELSIF NOT EXISTS (
+  -- The configured responder can be assigned across all teams in this org.
+  -- Assignment grants access to this incident only. Stop routing if they are
+  -- no longer an active organization or team member.
+  IF NOT EXISTS (
     SELECT 1 FROM public.organization_members AS om
     WHERE om.org_id = NEW.org_id AND om.user_id = target_user_id
       AND om.role IN ('owner', 'admin', 'member')
