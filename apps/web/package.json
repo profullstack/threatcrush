@@ -18,7 +18,7 @@
     "@profullstack/fleetbar": "0.2.0",
     "@profullstack/footer": "latest",
     "@profullstack/pluginstore": "^0.1.2",
-    "@profullstack/profile": "0.1.6",
+    "@profullstack/profile": "0.1.7",
     "@profullstack/redeem-credits": "^0.2.0",
     "@profullstack/throttle": "^0.4.0",
     "@profullstack/webhooks": "0.2.1",

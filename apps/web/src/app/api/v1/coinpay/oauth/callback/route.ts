@@ -1,6 +1,8 @@
 import { randomInt } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { finishSignIn, sameState } from "@profullstack/coinpay-onboard/oauth";
+import { saveOpenProfileContact } from "@profullstack/profile";
+import { profileStore } from "@/lib/profile";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { mintSession } from "@/lib/cli-login";
 import { clearInviteCookie, inviteCookie, onSignedIn } from "@/lib/credit-codes";
@@ -49,7 +51,7 @@ export async function GET(request: NextRequest) {
   const code = params.get("code");
   if (!code) return done(`${back}failed`);
 
-  let who: { sub: string; email: string | null; name: string | null };
+  let who: { sub: string; email: string | null; name: string | null; openprofile_url?: string };
   try {
     const result = await finishSignIn({
       code,
@@ -59,7 +61,7 @@ export async function GET(request: NextRequest) {
       clientSecret: config.clientSecret,
       redirectUri: config.redirectUri,
     });
-    who = { sub: result.sub, email: result.email, name: result.name };
+    who = { sub: result.sub, email: result.email, name: result.name, ...(typeof result.userinfo?.openprofile_url === "string" ? { openprofile_url: result.userinfo.openprofile_url } : {}) };
   } catch (err) {
     console.error("[coinpay] sign-in failed:", (err as Error).message);
     return done(`${back}failed`);
@@ -69,6 +71,10 @@ export async function GET(request: NextRequest) {
 
   if (pending.mode === "link") {
     const outcome = await linkIdentity(admin, pending.userId as string, who);
+    if ((outcome === "linked" || outcome === "already_linked") && who.openprofile_url) {
+      try { await saveOpenProfileContact(profileStore(), pending.userId as string, who.openprofile_url); }
+      catch { console.warn("[coinpay] OpenProfile import skipped"); }
+    }
     return done(`/account?coinpay=${outcome}`);
   }
 
