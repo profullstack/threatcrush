@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPrincipal, orgRoleOf } from "@/lib/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { settingsCryptoConfigured } from "@/lib/settings-crypto";
-import { testHaloIntegration } from "@/lib/psa/halo";
+import { testPsaIntegration } from "@/lib/psa/halo";
 
 export const runtime = "nodejs";
 
@@ -18,9 +18,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { data, error } = await admin.from("psa_integrations").select("*").eq("id", integrationId).eq("organization_id", orgId).maybeSingle();
   if (error || !data) return NextResponse.json({ error: "PSA integration not found" }, { status: 404 });
   try {
-    await testHaloIntegration(data);
-    return NextResponse.json({ success: true, message: "Halo credentials and API access are working." });
+    await testPsaIntegration(data);
+    return NextResponse.json({ success: true, message: "PSA credentials and API access are working." });
   } catch (cause) {
-    return NextResponse.json({ error: `Halo test failed: ${(cause as Error).message}` }, { status: 502 });
+    return NextResponse.json({ error: `PSA test failed: ${(cause as Error).message}` }, { status: 502 });
   }
 }

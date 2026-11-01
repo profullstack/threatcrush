@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPrincipal, orgRoleOf } from "@/lib/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { decryptSettingsSecret, encryptSettingsSecret, settingsCryptoConfigured } from "@/lib/settings-crypto";
-import { parseHaloConfig } from "@/lib/psa/halo";
+import { normalizePsaCredentials, parsePsaConfig, type PsaProvider } from "@/lib/psa/halo";
 
 export const runtime = "nodejs";
 type Ctx = { params: Promise<{ id: string; integration_id: string }> };
@@ -34,16 +34,15 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
   if (body.enabled !== undefined) patch.enabled = body.enabled === true;
   if (body.config !== undefined) {
-    try { patch.config = await parseHaloConfig(body.config); }
+    try { patch.config = await parsePsaConfig(existing.provider as PsaProvider, body.config); }
     catch (error) { return NextResponse.json({ error: (error as Error).message }, { status: 400 }); }
   }
   if (body.credentials !== undefined) {
-    const incoming = body.credentials && typeof body.credentials === "object" && !Array.isArray(body.credentials) ? body.credentials as Record<string, unknown> : {};
     const current = decryptSettingsSecret({ ciphertext: existing.credential_ciphertext, iv: existing.credential_iv, tag: existing.credential_tag });
-    const clientId = typeof incoming.client_id === "string" && incoming.client_id.trim() ? incoming.client_id.trim() : current.client_id;
-    const clientSecret = typeof incoming.client_secret === "string" && incoming.client_secret.trim() ? incoming.client_secret.trim() : current.client_secret;
-    if (!clientId || !clientSecret || clientId.length > 250 || clientSecret.length > 1000) return NextResponse.json({ error: "Invalid Halo API credentials" }, { status: 400 });
-    const encrypted = encryptSettingsSecret({ client_id: clientId, client_secret: clientSecret });
+    let credentials: Record<string, string>;
+    try { credentials = normalizePsaCredentials(existing.provider as PsaProvider, body.credentials, current); }
+    catch (cause) { return NextResponse.json({ error: (cause as Error).message }, { status: 400 }); }
+    const encrypted = encryptSettingsSecret(credentials);
     patch.credential_ciphertext = encrypted.ciphertext;
     patch.credential_iv = encrypted.iv;
     patch.credential_tag = encrypted.tag;
