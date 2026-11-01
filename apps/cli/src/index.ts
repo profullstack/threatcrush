@@ -47,6 +47,7 @@ import { torCommand } from "./commands/tor.js";
 import { reputationLookupCommand, reputationSubscribeCommand, reputationWatchCommand } from "./commands/reputation.js";
 import { privilegedCommand } from "./commands/privileged.js";
 import { integrityCommand } from "./commands/integrity.js";
+import { edrCommand } from "./commands/edr.js";
 import { blockCommand, unblockCommand, blocklistCommand, allowlistCommand } from "./commands/firewall.js";
 import {
   abuseHistoryCommand,
@@ -855,6 +856,15 @@ program
   .option("--json", "Output as JSON")
   .action(async (action: string | undefined, opts: { json?: boolean }) => {
     await integrityCommand(action, opts);
+  });
+
+program
+  .command("edr [action]")
+  .description("Auditd-backed process detection status or narrowly scoped rule template (status | rules)")
+  .option("--json", "Output status as JSON")
+  .option("--limit <n>", "How many recent events to show", "25")
+  .action(async (action: string | undefined, opts: { json?: boolean; limit?: string }) => {
+    await edrCommand(action, opts);
   });
 
 // ─── Firewall Commands (PRD 02) ───

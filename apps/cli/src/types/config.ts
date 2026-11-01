@@ -195,6 +195,23 @@ export interface FileIntegritySection {
 }
 
 /**
+ * `[edr]` consumes selected Linux auditd execution events. It is disabled by
+ * default; the operator installs the generated, narrowly scoped audit rules.
+ */
+export interface EdrSection {
+  /** Default false. */
+  enabled?: boolean;
+  /** Default `/var/log/audit/audit.log`. */
+  audit_log_path?: string;
+  /** Account names whose shell or downloader execution is suspicious. */
+  web_service_users?: string[];
+  /** Directories where executing a binary should raise an alert. */
+  temp_exec_paths?: string[];
+  /** Polling frequency in seconds, clamped to 1–60 (default 2). */
+  poll_interval_seconds?: number;
+}
+
+/**
  * `[abuse-reporter]` (PRD 0015) — report confirmed attack sources to shared
  * reputation feeds (AbuseIPDB, StopForumSpam) so compromised hosts get cleaned
  * up, not merely blocked here.
@@ -264,6 +281,7 @@ export interface ThreatCrushConfig {
   privileged?: PrivilegedSection;
   command_history?: CommandHistorySection;
   file_integrity?: FileIntegritySection;
+  edr?: EdrSection;
   /** How long the events table keeps history; see core/state.ts pruneEvents. */
   storage?: {
     /** e.g. "14d" (default). Older events are deleted. */
