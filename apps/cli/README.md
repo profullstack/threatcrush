@@ -179,6 +179,33 @@ The system daemon checks Bash, Zsh, Fish, and Ksh history files every minute, ke
 
 Snapshots contain only commands the shell has flushed to its history file. Bash commonly writes its in-memory history when the shell exits, so these backups are an audit trail, not a real-time activity clock or proof of hours worked. Use OS command auditing when you need complete per-command records.
 
+### File integrity monitoring
+
+Hash selected system or application paths locally and alert when a file is added,
+removed, or changes. It is opt-in because walking large directories reads every
+regular file. Symlinks are skipped, each file is opened without following a
+symlink, and file contents are never stored or uploaded. SHA-256 hashes remain
+in the local root-owned state directory; events include changed paths but not
+hashes. A first complete scan records the baseline without generating alerts;
+an incomplete scan never replaces it. To keep daemon work bounded, scans stop
+at 50,000 visited paths, 64 MiB per file, or 512 MiB total; choose narrower
+paths if a scan reaches one of those limits.
+
+```toml
+[file_integrity]
+enabled = true
+paths = ["/etc", "/usr/local/bin", "/var/www"]
+canaries = ["/var/www/.customer-export-decoy"] # existing decoy file; any change/removal is critical
+poll_interval_seconds = 900
+```
+
+Use `threatcrush integrity` to inspect the local baseline and
+`sudo threatcrush integrity rebaseline` after reviewing expected system or
+application changes. A single changed file is high severity; a burst of 25 or
+more changes in one scan is grouped into one critical alert. Canaries are
+operator-provisioned existing files. Process killing and automatic canary
+placement are not enabled by this first phase.
+
 ### Findings in the cloud
 
 Signed in (`threatcrush login`), every `scan`, `pentest` and `ai-scan` result is

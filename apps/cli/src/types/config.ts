@@ -179,6 +179,22 @@ export interface CommandHistorySection {
 }
 
 /**
+ * `[file_integrity]` hashes configured paths locally and reports changes.
+ * Keep disabled until an operator selects paths: a baseline scan reads every
+ * regular file under those roots and can add noticeable disk I/O.
+ */
+export interface FileIntegritySection {
+  /** Default false. */
+  enabled?: boolean;
+  /** Absolute files or directories to baseline and monitor. Symlinks are skipped. */
+  paths?: string[];
+  /** Existing decoy files to watch; any change or removal is critical. */
+  canaries?: string[];
+  /** Polling interval in seconds, clamped to 60–86400 (default 900). */
+  poll_interval_seconds?: number;
+}
+
+/**
  * `[abuse-reporter]` (PRD 0015) — report confirmed attack sources to shared
  * reputation feeds (AbuseIPDB, StopForumSpam) so compromised hosts get cleaned
  * up, not merely blocked here.
@@ -247,6 +263,7 @@ export interface ThreatCrushConfig {
   threat_feeds?: ThreatFeedsSection;
   privileged?: PrivilegedSection;
   command_history?: CommandHistorySection;
+  file_integrity?: FileIntegritySection;
   /** How long the events table keeps history; see core/state.ts pruneEvents. */
   storage?: {
     /** e.g. "14d" (default). Older events are deleted. */

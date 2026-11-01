@@ -17,6 +17,7 @@ import { AutoUpdate, updateSettings } from './workers/auto-update.js';
 import { ThreatFeeds, threatFeedSettings } from './workers/threat-feeds.js';
 import { PrivilegeWatch, privilegeSettings } from './workers/privilege-watch.js';
 import { CommandHistoryWatcher, commandHistorySettings } from './workers/command-history.js';
+import { FileIntegrityWatch, fileIntegritySettings } from './workers/file-integrity.js';
 import { SshIntrusionWatch } from './workers/ssh-intrusion.js';
 import { LightningWatch } from './workers/lightning-watch.js';
 import { TorExitList } from '../core/tor-exits.js';
@@ -245,6 +246,17 @@ export async function runDaemon(): Promise<void> {
   });
   commandHistory.start();
 
+  // Optional file integrity monitoring. Content stays local; only hashes and
+  // changed paths are emitted as ordinary system events.
+  const fileIntegrity = new FileIntegrityWatch({
+    bus,
+    settings: fileIntegritySettings(config.file_integrity),
+    baselinePath: join(PATHS.stateDir, 'file-integrity-baseline.json'),
+    observedPath: join(PATHS.stateDir, 'file-integrity-observed.json'),
+    log: logLine,
+  });
+  fileIntegrity.start();
+
   // SSH from Tor exits (banned at once, even in dry_run), keys logging in from
   // new addresses and people's keys from hosting/VPN networks.
   const torExits = new TorExitList({
@@ -380,6 +392,7 @@ export async function runDaemon(): Promise<void> {
     try { threatFeeds.stop(); } catch {}
     try { privilegeWatch.stop(); } catch {}
     try { commandHistory.stop(); } catch {}
+    try { fileIntegrity.stop(); } catch {}
     try { sshIntrusion.stop(); } catch {}
     try { lightningWatch.stop(); } catch {}
     try { await ipc.stop(); } catch {}
