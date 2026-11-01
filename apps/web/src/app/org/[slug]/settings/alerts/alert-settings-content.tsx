@@ -7,6 +7,7 @@ import { authHeaders } from "@/lib/auth-client";
 import Link from "next/link";
 import BrowserNotifications from "./browser-notifications";
 import WebhookEndpoints from "./webhook-endpoints";
+import PsaIntegrations from "./psa-integrations";
 
 interface AlertDestination {
   id: string;
@@ -248,6 +249,7 @@ export default function AlertSettingsContent({ slug }: { slug: string }) {
         )}
 
         {tab === "destinations" && <WebhookEndpoints orgId={org.id} />}
+        {tab === "destinations" && <PsaIntegrations orgId={org.id} />}
 
         {/* Rules */}
         {tab === "rules" && (

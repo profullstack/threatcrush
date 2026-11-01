@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { takeLookupShared } from "@/lib/reputation";
 import { reputationCaller, type ReputationCaller } from "@/lib/reputation-auth";
 import { lookupIndicator, parseIndicator } from "@/lib/reputation-service";
@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getFinding, listFindings, triageFindings, TriageError } from "@/lib/scan-findings";
 import { getIncident, IncidentError, listIncidents, pageable, raiseIncident, updateIncident } from "@/lib/incidents/store";
 import { notifyIncident } from "@/lib/incidents/notify";
+import { syncPsaIncident } from "@/lib/psa/halo";
 import { WebhookError } from "@profullstack/webhooks";
 import { getHooks } from "@/lib/webhooks/hub";
 import { webhookOrgFor } from "@/lib/webhooks/owner";
@@ -291,10 +292,14 @@ async function callIncidentTool(req: NextRequest, name: string, args: Record<str
     if (name === "incidents_get") return text(await getIncident(admin, p, orgId, String(args.id ?? "")));
     if (name === "incidents_update") {
       const { org_id: _o, id, ...body } = args;
-      return text(await updateIncident(admin, p, orgId, String(id ?? ""), body));
+      const incidentId = String(id ?? "");
+      const result = await updateIncident(admin, p, orgId, incidentId, body);
+      after(() => syncPsaIncident(admin, incidentId));
+      return text(result);
     }
     const out = await raiseIncident(admin, p, orgId, args.report);
     const notified = out.page ? await notifyIncident(pageable(out.incident), admin) : null;
+    after(() => syncPsaIncident(admin, out.incident.id));
     return text({ incident: out.incident, created: out.created, paged: out.page, notified });
   } catch (err) {
     if (err instanceof IncidentError) return text(err.message, true);
