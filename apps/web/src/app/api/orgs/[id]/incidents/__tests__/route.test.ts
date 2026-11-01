@@ -220,6 +220,29 @@ describe("GET + PATCH", () => {
     expect((await GET(req(undefined, "GET"), ctx)).status).toBe(403);
   });
 
+  it("shows triage counts and sorts the active queue by triage priority", async () => {
+    const first = await (await POST(req(report({ title: "P2 candidate", dedupe_key: "triage:p2" })), ctx)).json();
+    const second = await (await POST(req(report({ title: "P1 candidate", dedupe_key: "triage:p1" })), ctx)).json();
+    const resolved = await (await POST(req(report({ title: "Resolved candidate", dedupe_key: "triage:resolved" })), ctx)).json();
+
+    const setTriage = (id: string, priority: "P1" | "P2" | "P3") => {
+      const row = h.db.tables.incidents.find((incident) => incident.id === id)!;
+      row.triage = { priority, category: "security_review", summary: `${priority} summary`, next_action: "Review evidence", confidence: 0.8, needs_human_review: true };
+    };
+    setTriage(first.incident.id, "P2");
+    setTriage(second.incident.id, "P1");
+    setTriage(resolved.incident.id, "P3");
+    const resolvedRow = h.db.tables.incidents.find((incident) => incident.id === resolved.incident.id)!;
+    resolvedRow.status = "resolved";
+
+    h.principal = user(U.writer);
+    const activeRequest = new Request(`http://x/api/orgs/${ORG}/incidents?status=open,acknowledged`, { method: "GET" }) as never;
+    const response = await (await GET(activeRequest, ctx)).json();
+    expect(response.incidents.map((incident: { id: string }) => incident.id)).toEqual([second.incident.id, first.incident.id]);
+    expect(response.incidents[0].triage).toMatchObject({ priority: "P1", category: "security_review" });
+    expect(response.triage_counts).toEqual({ P1: 1, P2: 1, P3: 0, untriaged: 0 });
+  });
+
   it("acknowledge, assign to a team member, note, resolve; readers cannot", async () => {
     const { incident } = await (await POST(req(report()), ctx)).json();
     const c = { params: Promise.resolve({ id: ORG, incident_id: incident.id }) };

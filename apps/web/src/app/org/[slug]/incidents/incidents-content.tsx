@@ -24,6 +24,14 @@ interface IncidentSummary {
   raise_count: number;
   fix_status: string;
   fix_test_status: string;
+  triage?: {
+    category: string;
+    priority: "P1" | "P2" | "P3";
+    summary: string;
+    next_action: string;
+    confidence: number;
+    needs_human_review: boolean;
+  } | null;
   assignees: Array<{ user_id: string; name: string; email: string | null }>;
   last_seen_at: string;
   first_seen_at: string;
@@ -39,12 +47,20 @@ const TABS = [
 const SOURCE_LABEL: Record<string, string> = { investigate: "investigate", watchdog: "watchdog", daemon: "daemon", manual: "manual" };
 const FIX_LABEL: Record<string, string> = { unassigned: "Unassigned", assigned: "Assigned", in_progress: "In progress", blocked: "Blocked", pr_open: "PR open", testing: "Testing", tested: "Tested", fixed: "Fixed", false_positive: "False positive" };
 const TEST_LABEL: Record<string, string> = { not_run: "not run", running: "running", passed: "passed", failed: "failed", skipped: "skipped" };
+const TRIAGE_LABEL: Record<string, string> = {
+  self_test: "Self-test", intentional_test_corpus: "Test corpus", ssh_key_change: "SSH key change",
+  ssh_login: "SSH login", system_error: "System error", credential_exposure: "Credential exposure",
+  supply_chain: "Supply chain", authentication: "Authentication", sql_injection: "SQL injection",
+  unsafe_deserialization: "Unsafe deserialization", code_execution: "Code execution", security_review: "Security review",
+};
+const TRIAGE_PRIORITY_CLS: Record<string, string> = { P1: "text-red-400", P2: "text-amber-300", P3: "text-zinc-400" };
 
 export default function IncidentsContent({ slug }: { slug: string }) {
   const { org, ready } = useOrg(slug);
   const [tab, setTab] = useState("open,acknowledged");
   const [rows, setRows] = useState<IncidentSummary[]>([]);
   const [counts, setCounts] = useState({ open: 0, acknowledged: 0, resolved: 0 });
+  const [triageCounts, setTriageCounts] = useState({ P1: 0, P2: 0, P3: 0, untriaged: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,6 +72,7 @@ export default function IncidentsContent({ slug }: { slug: string }) {
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setRows(data.incidents ?? []);
       setCounts(data.counts ?? { open: 0, acknowledged: 0, resolved: 0 });
+      setTriageCounts(data.triage_counts ?? { P1: 0, P2: 0, P3: 0, untriaged: 0 });
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -82,7 +99,7 @@ export default function IncidentsContent({ slug }: { slug: string }) {
         </Link>
         <div>
           <h1 className="text-2xl font-bold text-white">Incidents</h1>
-          <p className="text-sm text-zinc-500">{org.name}: raised by <code className="text-zinc-400">threatcrush investigate --raise</code> and critical daemon detections. Each new one pages its team by SMS and email.</p>
+          <p className="text-sm text-zinc-500">{org.name}: raised by <code className="text-zinc-400">threatcrush investigate --raise</code> and critical daemon detections. Automatic triage ranks incidents and suggests a first check; P1 is urgent, P2 needs investigation, and P3 is a likely test or lower-priority signal. It preserves severity and does not remediate or close incidents.</p>
         </div>
       </div>
 
@@ -94,6 +111,11 @@ export default function IncidentsContent({ slug }: { slug: string }) {
           </button>
         ))}
       </div>
+
+      <p className="mb-4 text-xs text-zinc-500" aria-live="polite">
+        Active triage: <span className="text-red-400">{triageCounts.P1} P1</span> · <span className="text-amber-300">{triageCounts.P2} P2</span> · {triageCounts.P3} P3
+        {triageCounts.untriaged ? ` · ${triageCounts.untriaged} not triaged` : ""}
+      </p>
 
       {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
       {loading ? (
@@ -117,6 +139,10 @@ export default function IncidentsContent({ slug }: { slug: string }) {
                     {r.host ? `${r.host} · ` : ""}{r.team_name ?? "no team"} · {SOURCE_LABEL[r.source] ?? r.source} · {r.findings_count} finding{r.findings_count === 1 ? "" : "s"}
                     {r.raise_count > 1 ? ` · raised ${r.raise_count}×` : ""}
                   </p>
+                  {r.triage && <p className="mt-1 text-xs text-zinc-400" title={r.triage.next_action}>
+                    <span className={`mr-1 font-semibold ${TRIAGE_PRIORITY_CLS[r.triage.priority] ?? "text-zinc-400"}`}>{r.triage.priority}</span>
+                    · {TRIAGE_LABEL[r.triage.category] ?? r.triage.category} · {r.triage.summary}
+                  </p>}
                   <p className="mt-1 text-xs text-zinc-400">
                     Fix: {FIX_LABEL[r.fix_status] ?? r.fix_status} · tests {TEST_LABEL[r.fix_test_status] ?? r.fix_test_status}
                     {r.assignees.length ? ` · ${r.assignees.map((a) => a.email || a.name).join(", ")}` : " · unassigned"}

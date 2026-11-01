@@ -45,6 +45,7 @@ export interface IncidentRow {
   dedupe_key: string;
   summary: string;
   verdict: string | null;
+  triage?: IncidentTriage | null;
   host: string | null;
   findings: ReportFinding[];
   timeline: TimelineEntry[];
@@ -75,6 +76,19 @@ export interface IncidentRow {
 
 export type FixStatus = "unassigned" | "assigned" | "in_progress" | "blocked" | "pr_open" | "testing" | "tested" | "fixed" | "false_positive";
 export type FixTestStatus = "not_run" | "running" | "passed" | "failed" | "skipped";
+export interface IncidentTriage {
+  version: number;
+  engine: string;
+  category: string;
+  priority: "P1" | "P2" | "P3";
+  confidence: number;
+  disposition: string;
+  needs_human_review: boolean;
+  summary: string;
+  next_action: string;
+  severity_preserved: boolean;
+  triaged_at: string;
+}
 type FixWorkValues = { status: FixStatus; pr_url: string | null; test_status: FixTestStatus; test_summary: string | null; test_url: string | null; verification: string | null; blocked_reason: string | null };
 
 const FIX_STATUSES: FixStatus[] = ["unassigned", "assigned", "in_progress", "blocked", "pr_open", "testing", "tested", "fixed", "false_positive"];
@@ -88,7 +102,7 @@ export interface RaiseOutcome {
 }
 
 const SUMMARY_COLUMNS =
-  "id, short_code, human_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, fix_status, fix_test_status, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
+  "id, short_code, human_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, fix_status, fix_test_status, triage, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
 const MAX_NOTE = 4000;
 const FIX_WORK_FIELDS = new Set(["status", "pr_url", "test_status", "test_summary", "test_url", "verification", "blocked_reason"]);
 
@@ -262,23 +276,45 @@ export async function listIncidents(
   p: Principal,
   orgId: string,
   q: { status?: unknown; team_id?: unknown; limit?: unknown },
-): Promise<{ incidents: Array<Record<string, unknown>>; counts: Record<"open" | "acknowledged" | "resolved", number> }> {
+): Promise<{
+  incidents: Array<Record<string, unknown>>;
+  counts: Record<"open" | "acknowledged" | "resolved", number>;
+  triage_counts: { P1: number; P2: number; P3: number; untriaged: number };
+}> {
   const scope = await incidentScopeIn(admin, p, orgId);
   if (!scope) throw new IncidentError(403, "Not a member of this organization");
   const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
 
   // Everything the caller can see (counts), then the page they asked for.
-  const { data, error } = await admin
+  const query = await admin
     .from("incidents")
     .select(`${SUMMARY_COLUMNS}, findings`)
     .eq("org_id", orgId)
     .order("last_seen_at", { ascending: false })
     .limit(2000);
+  let data = query.data as unknown as IncidentRow[] | null;
+  let error: typeof query.error = query.error;
+  // The app may deploy just before the separately applied schema migration.
+  // Keep incident reads available during that short rollout window.
+  if (error && (error as { code?: string }).code === "42703" && error.message.includes("triage")) {
+    const legacyColumns = SUMMARY_COLUMNS.replace(", triage", "");
+    const legacy = await admin.from("incidents").select(`${legacyColumns}, findings`).eq("org_id", orgId)
+      .order("last_seen_at", { ascending: false }).limit(2000);
+    data = legacy.data as unknown as IncidentRow[] | null;
+    error = legacy.error;
+  }
   if (error) throw new Error(`incidents list: ${error.message}`);
   const visible = ((data ?? []) as Array<IncidentRow>).filter((r) => incidentRoleInScope(scope, r) !== null);
 
   const counts = { open: 0, acknowledged: 0, resolved: 0 };
+  const triageCounts = { P1: 0, P2: 0, P3: 0, untriaged: 0 };
   for (const r of visible) counts[r.status]++;
+  for (const r of visible) {
+    if (r.status === "resolved") continue;
+    const priority = r.triage?.priority;
+    if (priority === "P1" || priority === "P2" || priority === "P3") triageCounts[priority]++;
+    else triageCounts.untriaged++;
+  }
 
   const statuses = typeof q.status === "string" && q.status && q.status !== "all"
     ? q.status.split(",").filter(isStatus)
@@ -286,6 +322,10 @@ export async function listIncidents(
   const teamFilter = typeof q.team_id === "string" && q.team_id ? q.team_id : null;
   const rows = visible
     .filter((r) => (!statuses || statuses.includes(r.status)) && (!teamFilter || r.team_id === teamFilter))
+    .sort((a, b) => {
+      const rank = (r: IncidentRow) => r.triage?.priority === "P1" ? 1 : r.triage?.priority === "P2" ? 2 : r.triage?.priority === "P3" ? 3 : 4;
+      return rank(a) - rank(b) || b.last_seen_at.localeCompare(a.last_seen_at);
+    })
     .slice(0, limit);
 
   const teamIds = [...new Set(rows.map((r) => r.team_id).filter(Boolean))] as string[];
@@ -323,6 +363,7 @@ export async function listIncidents(
       findings_count: Array.isArray(findings) ? findings.length : 0,
     })),
     counts,
+    triage_counts: triageCounts,
   };
 }
 
