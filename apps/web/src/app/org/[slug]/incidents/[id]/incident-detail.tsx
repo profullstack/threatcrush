@@ -19,6 +19,11 @@ interface Incident {
   assignees: Array<{ user_id: string; name: string; email: string | null; assigned_at: string }>;
   fix_status: FixStatus; fix_pr_url: string | null; fix_test_status: FixTestStatus; fix_test_summary: string | null;
   fix_test_url: string | null; fix_verification: string | null; fix_blocked_reason: string | null; fix_updated_at: string | null;
+  triage?: {
+    engine: string; category: string; priority: "P1" | "P2" | "P3"; confidence: number;
+    disposition: string; needs_human_review: boolean; summary: string; next_action: string;
+    severity_preserved: boolean; triaged_at: string;
+  } | null;
   findings: Finding[]; timeline: TimelineEntry[]; recommendations: Recommendation[];
   resolution?: { reason: string; action: string; verification: string; actor_user_id: string | null; actor_agent_key_id: string | null; at: string } | null;
   first_seen_at: string; last_seen_at: string; acknowledged_at: string | null; resolved_at: string | null;
@@ -40,6 +45,12 @@ const FIX_STATUS_LABEL: Record<FixStatus, string> = {
   testing: "Testing", tested: "Tested", fixed: "Fixed", false_positive: "False positive",
 };
 const TEST_STATUS_LABEL: Record<FixTestStatus, string> = { not_run: "Not run", running: "Running", passed: "Passed", failed: "Failed", skipped: "Skipped" };
+const TRIAGE_LABEL: Record<string, string> = {
+  self_test: "Self-test", intentional_test_corpus: "Intentional test corpus", ssh_key_change: "SSH key change",
+  ssh_login: "SSH login", system_error: "System error", credential_exposure: "Credential exposure",
+  supply_chain: "Supply chain", authentication: "Authentication", sql_injection: "SQL injection",
+  unsafe_deserialization: "Unsafe deserialization", code_execution: "Code execution", security_review: "Security review",
+};
 
 function eventSummary(event: Detail["fix_events"][number]): string {
   if (event.event_type === "assignees_changed") {
@@ -190,6 +201,20 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
           )}
         </div>
       )}
+
+      {inc.triage && <Section title="Automatic triage">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className={`rounded border border-zinc-700 px-2 py-0.5 font-semibold ${inc.triage.priority === "P1" ? "text-red-400" : inc.triage.priority === "P2" ? "text-amber-300" : "text-zinc-400"}`}>{inc.triage.priority}</span>
+          <span className="text-white">{TRIAGE_LABEL[inc.triage.category] ?? inc.triage.category}</span>
+          <span className="text-zinc-500">{Math.round(inc.triage.confidence * 100)}% classification confidence · {inc.triage.engine}</span>
+        </div>
+        <p className="mt-3 text-sm text-zinc-300">{inc.triage.summary}</p>
+        <p className="mt-2 text-sm text-zinc-300"><strong>Suggested first check:</strong> {inc.triage.next_action}</p>
+        <p className="mt-2 text-xs text-zinc-500">
+          {inc.triage.needs_human_review ? "Review the evidence before changing severity or resolving this incident." : "This is likely test noise; confirm the test was intentional."}
+          {inc.triage.severity_preserved ? " The incident severity and status were left unchanged by triage." : ""}
+        </p>
+      </Section>}
 
       <Section title="Fix workflow">
         <p className="mb-4 text-sm text-zinc-400">ThreatCrush catalogs the incident. Assigned agents or people do the remediation and report progress here or through MCP. Closing requires a recorded outcome and verification.</p>
