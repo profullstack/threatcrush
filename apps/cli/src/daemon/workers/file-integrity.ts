@@ -111,6 +111,29 @@ async function hashFile(path: string, handle: FileHandle, size: number): Promise
   return hash.digest('hex');
 }
 
+const OPEN_FILE_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0);
+const OPEN_DIR_FLAGS = OPEN_FILE_FLAGS | constants.O_DIRECTORY;
+
+/** Open an absolute path one no-follow directory descriptor at a time. */
+async function openAbsoluteTarget(path: string): Promise<FileHandle> {
+  const parts = path.split(sep).filter((part) => part && part !== '.');
+  if (parts.length === 0 || parts.includes('..')) throw new Error('invalid file integrity path');
+  let directory = await open('/', OPEN_DIR_FLAGS);
+  try {
+    for (const part of parts.slice(0, -1)) {
+      const next = await open(`/proc/self/fd/${directory.fd}/${part}`, OPEN_DIR_FLAGS);
+      await directory.close();
+      directory = next;
+    }
+    const target = await open(`/proc/self/fd/${directory.fd}/${parts.at(-1)}`, OPEN_FILE_FLAGS);
+    await directory.close();
+    return target;
+  } catch (error) {
+    await directory.close().catch(() => undefined);
+    throw error;
+  }
+}
+
 async function scanTargets(targets: string[], canaries: Set<string>): Promise<ScanResult> {
   const files: Record<string, FileState> = {};
   const visited = new Set<string>();
@@ -119,7 +142,7 @@ async function scanTargets(targets: string[], canaries: Set<string>): Promise<Sc
   let skipped = 0;
   let bytes = 0;
 
-  const walk = async (path: string): Promise<void> => {
+  const walk = async (path: string, parent?: FileHandle): Promise<void> => {
     if (visited.has(path) || !complete) return;
     visited.add(path);
     if (visited.size > MAX_FILES) {
@@ -128,100 +151,80 @@ async function scanTargets(targets: string[], canaries: Set<string>): Promise<Sc
       return;
     }
 
-    let stat;
+    let handle: FileHandle | undefined;
     try {
-      stat = await lstat(path);
-    } catch (error) {
-      // An absent explicitly configured canary is a meaningful state. Other
-      // disappearing files can be a race during an update, so don't baseline
-      // from an incomplete traversal.
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT' && targets.includes(path)) files[path] = 'missing';
-      else {
-        complete = false;
-        errors.add(path);
+      // Keep the containing directory open while resolving a child. The path
+      // passed to open is therefore rooted at that descriptor, and O_NOFOLLOW
+      // rejects a symlink substituted for the final component.
+      handle = parent
+        ? await open(`/proc/self/fd/${parent.fd}/${path.slice(path.lastIndexOf(sep) + 1)}`, OPEN_FILE_FLAGS)
+        : await openAbsoluteTarget(path);
+      const stat = await handle.stat();
+      if (stat.isDirectory()) {
+        if (canaries.has(path)) {
+          complete = false;
+          errors.add(path);
+          return;
+        }
+        let entries;
+        try {
+          entries = await readdir(`/proc/self/fd/${handle.fd}`, { withFileTypes: true });
+        } catch {
+          complete = false;
+          errors.add(path);
+          return;
+        }
+        for (const entry of entries) {
+          await walk(join(path, entry.name), handle);
+          if (!complete) return;
+        }
+        return;
       }
-      return;
-    }
-    if (stat.isSymbolicLink()) {
-      skipped++;
-      return;
-    }
-    if (stat.isDirectory()) {
-      let entries;
-      try {
-        entries = await readdir(path, { withFileTypes: true });
-      } catch {
+      if (!stat.isFile()) {
+        skipped++;
+        return;
+      }
+      if (stat.size > MAX_FILE_BYTES || bytes + stat.size > MAX_SCAN_BYTES) {
         complete = false;
         errors.add(path);
         return;
       }
-      for (const entry of entries) {
-        await walk(join(path, entry.name));
-        if (!complete) return;
-      }
-      return;
-    }
-    if (!stat.isFile()) {
-      skipped++;
-      return;
-    }
-    if (stat.size > MAX_FILE_BYTES || bytes + stat.size > MAX_SCAN_BYTES) {
-      complete = false;
-      errors.add(path);
-      return;
-    }
 
-    let handle: FileHandle | undefined;
-    try {
-      // O_NOFOLLOW closes the lstat/open race for the file itself. No file
-      // content is retained; each descriptor is read only to compute SHA-256.
-      handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-      const opened = await handle.stat();
-      if (!opened.isFile() || opened.size !== stat.size) throw new Error('file changed while opening');
-      const sha256 = await hashFile(path, handle, opened.size);
-      bytes += opened.size;
+      const sha256 = await hashFile(path, handle, stat.size);
+      const afterRead = await handle.stat();
+      if (afterRead.size !== stat.size || afterRead.mtimeMs !== stat.mtimeMs || afterRead.ctimeMs !== stat.ctimeMs) {
+        throw new Error('file changed while reading');
+      }
+      bytes += stat.size;
       files[path] = signature({
         sha256,
-        size: opened.size,
-        mode: opened.mode & 0o7777,
-        uid: opened.uid,
-        gid: opened.gid,
+        size: stat.size,
+        mode: stat.mode & 0o7777,
+        uid: stat.uid,
+        gid: stat.gid,
       });
-    } catch {
-      complete = false;
-      errors.add(path);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      // A missing explicit target is an observable state. A missing child
+      // during traversal means the directory changed mid-scan, so don't use
+      // this partial inventory.
+      if (code === 'ENOENT' && targets.includes(path)) files[path] = 'missing';
+      else if (code === 'ELOOP' && !canaries.has(path)) skipped++;
+      else if (code === 'ENOENT' || code === 'ELOOP') {
+        complete = false;
+        errors.add(path);
+      }
+      else {
+        complete = false;
+        errors.add(path);
+      }
     } finally {
       await handle?.close().catch(() => undefined);
     }
   };
 
   for (const target of targets) {
-    let targetStat;
-    try {
-      targetStat = await lstat(target);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') files[target] = 'missing';
-      else {
-        complete = false;
-        errors.add(target);
-      }
-      continue;
-    }
-    if (targetStat.isSymbolicLink()) {
-      if (canaries.has(target)) {
-        complete = false;
-        errors.add(target);
-      } else skipped++;
-      continue;
-    }
-    if (targetStat.isDirectory() && canaries.has(target)) {
-      complete = false;
-      errors.add(target);
-    } else if (visited.has(target)) {
-      continue;
-    } else if (targetStat.isDirectory()) await walk(target);
-    else if (targetStat.isFile()) await walk(target);
-    else skipped++;
+    await walk(target);
     if (!complete) break;
   }
 
