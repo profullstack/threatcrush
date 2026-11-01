@@ -231,7 +231,7 @@ async function syncOneIntegration(admin: SupabaseClient, row: StoredIntegration,
   } catch (error) {
     const detail = (error as Error).message || "Halo ticket sync failed";
     await save({ sync_status: "failed", last_error: detail.slice(0, 500) });
-    console.error(`[psa] Halo sync failed for incident ${incidentId}:`, detail);
+    console.error("[psa] Halo ticket sync failed");
   }
 }
 
@@ -249,6 +249,6 @@ export async function syncPsaIncident(admin: SupabaseClient, incidentId: string,
     if (error) throw new Error(`PSA integrations lookup failed: ${error.message}`);
     for (const row of (integrations ?? []) as StoredIntegration[]) await syncOneIntegration(admin, row, incident as Record<string, unknown>);
   } catch (error) {
-    console.error(`[psa] Incident sync failed for ${incidentId}:`, (error as Error).message);
+    console.error("[psa] Incident sync failed");
   }
 }
