@@ -206,6 +206,37 @@ more changes in one scan is grouped into one critical alert. Canaries are
 operator-provisioned existing files. Process killing and automatic canary
 placement are not enabled by this first phase.
 
+### Auditd process detections
+
+The first EDR phase reads selected execution records from Linux auditd. It
+detects shells or downloaders started by configured web-service accounts,
+execution from configured temporary or world-writable paths, and known miner
+process names. It is disabled until you install the generated rules and opt in:
+
+```toml
+[edr]
+enabled = true
+audit_log_path = "/var/log/audit/audit.log"
+web_service_users = ["www-data", "nginx", "caddy"]
+temp_exec_paths = ["/tmp", "/var/tmp", "/dev/shm"]
+```
+
+Review the host-specific rules before loading them:
+
+```bash
+sudo threatcrush edr rules | sudo tee /etc/audit/rules.d/90-threatcrush.rules
+sudo augenrules --load
+sudo threatcrush edr status
+```
+
+Some auditd 4.x distributions use `audit-rules.service` instead of
+`augenrules`; use the rule loader supported by the host. Loading rules changes
+kernel audit behavior, so ThreatCrush prints them for review and never installs
+or reloads them itself. Auditd records arguments for selected executions in
+its root-protected log; ThreatCrush discards those arguments and stores only
+the executable path, account, and process IDs. This first phase does not yet
+identify reverse shells or unknown miners, and does not kill processes.
+
 ### Findings in the cloud
 
 Signed in (`threatcrush login`), every `scan`, `pentest` and `ai-scan` result is
