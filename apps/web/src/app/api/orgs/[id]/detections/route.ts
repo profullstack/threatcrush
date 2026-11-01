@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { parsePaginationParam } from "@/lib/pagination";
 import { atLeast } from "@/lib/access";
 import { requireOrgScope, serverRolesIn, visibleServerIds } from "@/lib/route-access";
 import { detectionUsername } from "@/lib/detection-display";
+import { syncPsaDetections } from "@/lib/psa/halo";
 
 // GET /api/orgs/[id]/detections — detections on the servers the caller can see
 export async function GET(
@@ -149,6 +150,11 @@ export async function PATCH(
     if (error) {
       return NextResponse.json({ error: "Failed to update" }, { status: 500 });
     }
+
+    const { data: updatedDetections } = await admin.from("detections")
+      .select("id, organization_id, server_id, severity, title, description, status")
+      .eq("organization_id", orgId).in("id", ids);
+    if (updatedDetections?.length) after(() => syncPsaDetections(admin, updatedDetections));
 
     return NextResponse.json({ success: true, updated: ids.length });
   } catch (err) {

@@ -1,6 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { dispatchDetectionAlerts } from "@/lib/alerts/dispatch";
 import { pageCriticalDetections } from "@/lib/incidents/detections";
+import { syncPsaDetections } from "@/lib/psa/halo";
 import { unauthorized } from "@/lib/api-auth";
 import { atLeast, getPrincipal, roleInScope, serverScopeIn, type ServerScope } from "@/lib/access";
 import {
@@ -173,6 +174,7 @@ export async function POST(req: NextRequest) {
     if (newDetections.length > 0) {
       const alertable = newDetections;
       after(() => dispatchDetectionAlerts(alertable));
+      after(() => syncPsaDetections(admin, alertable));
       // Critical ones also become incidents that page the server's team (once
       // per open incident, not per detection).
       const critical = alertable.filter((d) => d.severity === "critical");
