@@ -7,7 +7,7 @@ import { INCIDENT_MAX_BODY_BYTES } from "@/lib/incidents/http";
 
 export const runtime = "nodejs";
 
-// GET /api/orgs/[id]/incidents?status=open,acknowledged&team_id=…&limit=100
+// GET /api/orgs/[id]/incidents?status=open,acknowledged&team_id=…&since=…&host=…&limit=100
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const admin = getSupabaseAdmin();
   const p = await getPrincipal(req, admin);
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const { id: orgId } = await params;
   const s = new URL(req.url).searchParams;
   try {
-    return NextResponse.json(await listIncidents(admin, p, orgId, { status: s.get("status"), team_id: s.get("team_id"), limit: s.get("limit") }));
+    return NextResponse.json(await listIncidents(admin, p, orgId, { status: s.get("status"), team_id: s.get("team_id"), since: s.get("since"), host: s.get("host"), limit: s.get("limit") }));
   } catch (e) {
     if (e instanceof IncidentError) return NextResponse.json({ error: e.message }, { status: e.status });
     console.error("[incidents] list", (e as Error).message);

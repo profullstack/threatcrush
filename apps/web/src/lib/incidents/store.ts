@@ -1,5 +1,6 @@
 import "server-only";
 import { randomInt, randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   atLeast,
@@ -46,6 +47,7 @@ export interface IncidentRow {
   summary: string;
   verdict: string | null;
   triage?: IncidentTriage | null;
+  ai_triage?: IncidentAiTriage | null;
   host: string | null;
   findings: ReportFinding[];
   timeline: TimelineEntry[];
@@ -89,6 +91,18 @@ export interface IncidentTriage {
   severity_preserved: boolean;
   triaged_at: string;
 }
+export interface IncidentAiTriage {
+  version: 1;
+  engine: 'openai/gpt-5.6-luna';
+  disposition: 'likely_benign' | 'likely_real' | 'unclear';
+  confidence: number;
+  summary: string;
+  recommended_action: string;
+  action: 'block_source_ip' | 'acknowledge' | 'review' | 'none';
+  evidence_ids: string[];
+  triaged_at: string;
+  triaged_by_user: string;
+}
 type FixWorkValues = { status: FixStatus; pr_url: string | null; test_status: FixTestStatus; test_summary: string | null; test_url: string | null; verification: string | null; blocked_reason: string | null };
 
 const FIX_STATUSES: FixStatus[] = ["unassigned", "assigned", "in_progress", "blocked", "pr_open", "testing", "tested", "fixed", "false_positive"];
@@ -102,7 +116,7 @@ export interface RaiseOutcome {
 }
 
 const SUMMARY_COLUMNS =
-  "id, short_code, human_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, fix_status, fix_test_status, triage, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
+  "id, short_code, human_code, org_id, team_id, server_id, title, severity, source, status, host, raise_count, assignee_id, fix_status, fix_test_status, triage, ai_triage, first_seen_at, last_seen_at, acknowledged_at, resolved_at, last_notified_at, created_at, updated_at";
 const MAX_NOTE = 4000;
 const FIX_WORK_FIELDS = new Set(["status", "pr_url", "test_status", "test_summary", "test_url", "verification", "blocked_reason"]);
 
@@ -275,7 +289,7 @@ export async function listIncidents(
   admin: SupabaseClient,
   p: Principal,
   orgId: string,
-  q: { status?: unknown; team_id?: unknown; limit?: unknown },
+  q: { status?: unknown; team_id?: unknown; limit?: unknown; since?: unknown; host?: unknown },
 ): Promise<{
   incidents: Array<Record<string, unknown>>;
   counts: Record<"open" | "acknowledged" | "resolved", number>;
@@ -286,20 +300,25 @@ export async function listIncidents(
   const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
 
   // Everything the caller can see (counts), then the page they asked for.
-  const query = await admin
+  const since = typeof q.since === "string" && q.since ? new Date(q.since) : null;
+  if (since && !Number.isFinite(since.getTime())) throw new IncidentError(400, "since must be a valid date or timestamp");
+  const hostFilter = typeof q.host === "string" ? q.host.trim().toLocaleLowerCase() : "";
+  const incidentQuery = admin
     .from("incidents")
     .select(`${SUMMARY_COLUMNS}, findings`)
     .eq("org_id", orgId)
-    .order("last_seen_at", { ascending: false })
-    .limit(2000);
+    .order("last_seen_at", { ascending: false });
+  if (since) incidentQuery.gte("last_seen_at", since.toISOString());
+  const query = await incidentQuery.limit(2000);
   let data = query.data as unknown as IncidentRow[] | null;
   let error: typeof query.error = query.error;
   // The app may deploy just before the separately applied schema migration.
   // Keep incident reads available during that short rollout window.
   if (error && (error as { code?: string }).code === "42703" && error.message.includes("triage")) {
-    const legacyColumns = SUMMARY_COLUMNS.replace(", triage", "");
-    const legacy = await admin.from("incidents").select(`${legacyColumns}, findings`).eq("org_id", orgId)
-      .order("last_seen_at", { ascending: false }).limit(2000);
+    const legacyColumns = SUMMARY_COLUMNS.replace(", ai_triage", "").replace(", triage", "");
+    const legacyQuery = admin.from("incidents").select(`${legacyColumns}, findings`).eq("org_id", orgId).order("last_seen_at", { ascending: false });
+    if (since) legacyQuery.gte("last_seen_at", since.toISOString());
+    const legacy = await legacyQuery.limit(2000);
     data = legacy.data as unknown as IncidentRow[] | null;
     error = legacy.error;
   }
@@ -321,7 +340,8 @@ export async function listIncidents(
     : null;
   const teamFilter = typeof q.team_id === "string" && q.team_id ? q.team_id : null;
   const rows = visible
-    .filter((r) => (!statuses || statuses.includes(r.status)) && (!teamFilter || r.team_id === teamFilter))
+    .filter((r) => (!statuses || statuses.includes(r.status)) && (!teamFilter || r.team_id === teamFilter)
+      && (!hostFilter || (r.host ?? "").toLocaleLowerCase().includes(hostFilter)))
     .sort((a, b) => {
       const rank = (r: IncidentRow) => r.triage?.priority === "P1" ? 1 : r.triage?.priority === "P2" ? 2 : r.triage?.priority === "P3" ? 3 : 4;
       return rank(a) - rank(b) || b.last_seen_at.localeCompare(a.last_seen_at);
@@ -358,6 +378,7 @@ export async function listIncidents(
   return {
     incidents: rows.map(({ findings, ...r }) => ({
       ...r,
+      role: incidentRoleInScope(scope, r),
       team_name: r.team_id ? teams.get(r.team_id) ?? null : null,
       assignees: assigneesByIncident.get(r.id) ?? [],
       findings_count: Array.isArray(findings) ? findings.length : 0,
@@ -423,6 +444,32 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
       return Object.fromEntries(Object.entries(e).map(([k, v]) => [k, typeof v === "string" && findSecret({ [k]: v }) ? "[redacted secret material]" : v])) as ReturnType<typeof forensicEvidence>;
     });
   }
+  let ipContext: { source_ip: string; recent_events: Array<Record<string, unknown>>; ban_history: Array<Record<string, unknown>> } | null = null;
+  const sourceIps = [...new Set(forensics.map((event) => event.source_ip).filter((value): value is string => !!value && isIP(value) !== 0))];
+  if (sourceIps.length === 1 && row.server_id) {
+    const sourceIp = sourceIps[0];
+    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const [recentResult, banResult] = await Promise.all([
+      admin.from("detections")
+        .select("id, server_id, rule_id, detected_at, source_ip, username, raw_metadata, severity, title, description, status")
+        .eq("organization_id", orgId).eq("server_id", row.server_id).eq("source_ip", sourceIp)
+        .gte("detected_at", since).order("detected_at", { ascending: false }).limit(20),
+      admin.from("remediation_actions")
+        .select("id, detection_id, action_type, target_value, status, created_at, executed_at, expires_at")
+        .eq("organization_id", orgId).eq("server_id", row.server_id).eq("action_type", "block").eq("target_value", sourceIp)
+        .order("created_at", { ascending: false }).limit(20),
+    ]);
+    if (recentResult.error) throw new Error(`recent IP evidence: ${recentResult.error.message}`);
+    if (banResult.error) throw new Error(`IP ban history: ${banResult.error.message}`);
+    const recentEvents = ((recentResult.data ?? []) as Array<DetectionEvidence & { severity: string; title: string; description: string | null; status: string }>).map((item) => {
+      const safe = { ...forensicEvidence(item), severity: item.severity, title: item.title, description: item.description, status: item.status };
+      return Object.fromEntries(Object.entries(safe).map(([key, value]) => [key, typeof value === "string" && findSecret({ [key]: value }) ? "[redacted secret material]" : value]));
+    });
+    const banHistory = ((banResult.data ?? []) as Array<Record<string, unknown>>).map((item) =>
+      Object.fromEntries(Object.entries(item).map(([key, value]) => [key, typeof value === "string" && findSecret({ [key]: value }) ? "[redacted secret material]" : value])),
+    );
+    ipContext = { source_ip: sourceIp, recent_events: recentEvents, ban_history: banHistory };
+  }
   const nameOf = (id: string | null) => (id ? names.get(id) ?? null : null);
   const memberById = new Map(members.map((m) => [m.user_id, m]));
   const assignees = ((assignedRows.data ?? []) as Array<{ user_id: string; assigned_at: string }>).map((a) => ({
@@ -435,6 +482,7 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
     incident: { ...row, team_name: (team.data as { name?: string } | null)?.name ?? null, assignee_name: nameOf(row.assignee_id), assignees },
     role,
     forensics,
+    ip_context: ipContext,
     resolution_actor_name: nameOf(row.resolution?.actor_user_id ?? null),
     members,
     fix_events: fixEvents.data ?? [],
@@ -751,6 +799,70 @@ export async function updateIncident(admin: SupabaseClient, p: Principal, orgId:
     if (error) throw new Error(`incident fix history: ${error.message}`);
   }
   return { incident };
+}
+
+/** Save an operator-requested, paid AI assessment without replacing rule triage. */
+export async function saveIncidentAiTriage(
+  admin: SupabaseClient,
+  p: Principal,
+  orgId: string,
+  id: string,
+  raw: unknown,
+) {
+  if (p.kind !== 'user') throw new IncidentError(403, 'AI triage must be saved by a signed-in user');
+  const { row } = await loadWithRole(admin, p, orgId, id, 'write');
+  if (row.source !== 'watchdog' || !['high', 'critical'].includes(row.severity)) {
+    throw new IncidentError(409, 'AI triage is available for high and critical watchdog incidents');
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new IncidentError(400, 'AI triage result must be an object');
+  const input = raw as Record<string, unknown>;
+  const dispositions = ['likely_benign', 'likely_real', 'unclear'];
+  const actions = ['block_source_ip', 'acknowledge', 'review', 'none'];
+  if (!dispositions.includes(String(input.disposition))) throw new IncidentError(400, 'Invalid AI triage disposition');
+  if (!actions.includes(String(input.action))) throw new IncidentError(400, 'Invalid AI triage action');
+  if (typeof input.confidence !== 'number' || !Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) {
+    throw new IncidentError(400, 'AI triage confidence must be from 0 to 1');
+  }
+  if (typeof input.summary !== 'string' || !input.summary.trim() || input.summary.length > 1600) throw new IncidentError(400, 'AI triage summary must be 1–1600 characters');
+  if (typeof input.recommended_action !== 'string' || !input.recommended_action.trim() || input.recommended_action.length > 800) {
+    throw new IncidentError(400, 'AI recommended action must be 1–800 characters');
+  }
+  const content = { summary: input.summary.trim(), recommended_action: input.recommended_action.trim() };
+  if (findSecret(content)) throw new IncidentError(422, 'AI triage must not store secret material');
+  const linkedIds = [...new Set((row.timeline ?? []).map((entry) => /^detection:([0-9a-f-]{36})$/i.exec(entry.ref ?? "")?.[1]).filter((value): value is string => !!value && isUuid(value)))];
+  const suppliedIds = Array.isArray(input.evidence_ids)
+    ? [...new Set(input.evidence_ids.filter((value): value is string => typeof value === 'string' && isUuid(value)))].slice(0, 50)
+    : [];
+  const evidenceIds = suppliedIds.filter((value) => linkedIds.includes(value));
+  let action = input.action as IncidentAiTriage['action'];
+  if (action === 'acknowledge' && input.disposition !== 'likely_benign') action = 'review';
+  if (action === 'block_source_ip') {
+    const verifiedIds = linkedIds.slice(-100);
+    if (!row.server_id || verifiedIds.length === 0) action = 'review';
+    else {
+      const { data: linkedEvidence, error: evidenceError } = await admin.from('detections')
+        .select('id, source_ip').eq('organization_id', orgId).eq('server_id', row.server_id).in('id', verifiedIds);
+      if (evidenceError) throw new Error(`incident AI evidence check: ${evidenceError.message}`);
+      const linkedRows = (linkedEvidence ?? []) as Array<{ id: string; source_ip: string | null }>;
+      const observedIps = [...new Set(linkedRows.map((item) => item.source_ip).filter((value): value is string => !!value && isIP(value) !== 0))];
+      if (linkedRows.length !== verifiedIds.length || linkedRows.some((item) => !item.source_ip || isIP(item.source_ip) === 0) || observedIps.length !== 1) action = 'review';
+    }
+  }
+  const triage: IncidentAiTriage = {
+    version: 1,
+    engine: 'openai/gpt-5.6-luna',
+    disposition: input.disposition as IncidentAiTriage['disposition'],
+    confidence: input.confidence,
+    ...content,
+    action,
+    evidence_ids: evidenceIds,
+    triaged_at: new Date().toISOString(),
+    triaged_by_user: p.userId,
+  };
+  const { data, error } = await admin.from('incidents').update({ ai_triage: triage, updated_at: triage.triaged_at })
+    .eq('id', id).eq('org_id', orgId).select('*').single();
+  if (error || !data) throw new Error(`incident AI triage save: ${error?.message}`);
+  return { incident: data as IncidentRow };
 }
 
 /** A critical detection from ingest becomes (or bumps) an incident for the server's team. */

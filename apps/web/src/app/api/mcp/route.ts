@@ -114,20 +114,22 @@ const TOOLS = [
   {
     name: "incidents_list",
     description:
-      "Your org's incidents: what `threatcrush investigate --raise`, the daemon (critical detections) and people raised to humans. Only the teams you can see. Session token or tc_agent_ key.",
+      "Your org's incidents: what `threatcrush investigate --raise`, the daemon (critical detections) and people raised to humans. Filter by host and explicit since timestamp; only teams you can see. Session token or tc_agent_ key.",
     inputSchema: {
       type: "object",
       properties: {
         org_id: { type: "string", description: "Organization id (default: the key's org, or your first org)" },
         status: { type: "string", description: "Comma list of open, acknowledged, resolved, or all (default all)" },
         team_id: { type: "string" },
+        host: { type: "string", description: "Filter incidents whose recorded host contains this value (for example dev2)" },
+        since: { type: "string", format: "date-time", description: "Only incidents last seen at or after this timestamp; pass an explicit timezone when interpreting phrases such as last night" },
         limit: { type: "number", description: "Max 500, default 100" },
       },
     },
   },
   {
     name: "incidents_get",
-    description: "One incident: linked forensic evidence, multi-person assignees, fix and test progress, work history, recorded resolution/operator, findings, timeline, notes and who was paged.",
+    description: "One incident: linked forensic evidence, recent events from the same observed source IP on its server, block history for that IP, saved AI assessment, multi-person assignees, fix and test progress, work history, recorded resolution/operator, findings, timeline, notes and who was paged.",
     inputSchema: { type: "object", properties: { org_id: { type: "string" }, id: { type: "string", description: "Incident id" } }, required: ["id"] },
   },
   {
@@ -396,7 +398,7 @@ async function handle(req: NextRequest, msg: Rpc) {
         capabilities: { tools: {} },
         serverInfo: { name: "ThreatCrush", version: "0.13" },
         instructions:
-          "IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), incidents raised to your team (incidents_list, incidents_get, incidents_update, incidents_raise), and your org's webhook endpoints (webhooks_list, webhooks_create, webhooks_update, webhooks_delete, webhooks_test, webhooks_rotate_secret, webhooks_deliveries). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
+          "IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), incidents raised to your team with host/time filtering, linked event and block context, saved AI triage and fix tracking (incidents_list, incidents_get, incidents_update, incidents_raise), and your org's webhook endpoints (webhooks_list, webhooks_create, webhooks_update, webhooks_delete, webhooks_test, webhooks_rotate_secret, webhooks_deliveries). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
       });
     case "notifications/initialized":
       return null;
