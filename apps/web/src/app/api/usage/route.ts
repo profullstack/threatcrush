@@ -117,7 +117,19 @@ export async function GET(request: NextRequest) {
     if (!usageAggErr && Number.isFinite(allTimeUsage)) {
       totalUsage = allTimeUsage;
     }
-    const balanceUsd = +(totalCredits - totalUsage).toFixed(2);
+    const { data: reservations, error: reservationErr } = await admin
+      .from("usage_reservations")
+      .select("amount_usd")
+      .eq("user_id", user.id)
+      .eq("status", "reserved")
+      .gt("expires_at", now.toISOString());
+
+    if (reservationErr) {
+      console.error("[usage] reservation query error:", reservationErr);
+      return NextResponse.json({ error: "Could not calculate available credits" }, { status: 503 });
+    }
+    const activeReservations = (reservations || []).reduce((sum, r) => sum + Number(r.amount_usd || 0), 0);
+    const balanceUsd = +(totalCredits - totalUsage - activeReservations).toFixed(2);
 
     // Transform events to the expected format
     const history: UsageEvent[] = (events || []).map((e) => ({
