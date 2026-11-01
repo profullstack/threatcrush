@@ -242,6 +242,9 @@ enabled = true
 audit_log_path = "/var/log/audit/audit.log"
 web_service_users = ["www-data", "nginx", "caddy"]
 temp_exec_paths = ["/tmp", "/var/tmp", "/dev/shm"]
+watch_network_syscalls = false # opt in; successful connect/listen rules can produce high audit volume
+network_baseline_seconds = 60 # learn outbound executables before alerting on new ones
+watch_unknown_temp_cpu = true # alert after 80% CPU sustained for 60 seconds
 ```
 
 Review the host-specific rules before loading them:
@@ -255,10 +258,15 @@ sudo threatcrush edr status
 Some auditd 4.x distributions use `audit-rules.service` instead of
 `augenrules`; use the rule loader supported by the host. Loading rules changes
 kernel audit behavior, so ThreatCrush prints them for review and never installs
-or reloads them itself. Auditd records arguments for selected executions in
-its root-protected log; ThreatCrush discards those arguments and stores only
-the executable path, account, and process IDs. This first phase does not yet
-identify reverse shells or unknown miners, and does not kill processes.
+or reloads them itself. Auditd may record arguments for selected executions in
+its root-protected log; ThreatCrush discards those arguments and remote
+addresses. The opt-in network rules identify shell connect behavior, first-seen
+outbound executables after a learning window, and processes that begin
+listening. A root-owned local file remembers learned executable paths.
+Temporary-path executables that sustain at least 80% of one CPU core for 60
+seconds raise a critical event, including when auditd is unavailable. These
+signals are not proof of compromise; the agent does not kill processes or
+automatically ban them.
 
 ### Findings in the cloud
 

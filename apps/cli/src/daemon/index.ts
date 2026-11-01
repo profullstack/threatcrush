@@ -260,7 +260,12 @@ export async function runDaemon(): Promise<void> {
 
   // Auditd-backed process detections are opt-in and consume only the
   // narrowly keyed records documented by `threatcrush edr rules`.
-  const edr = new EdrWatch({ bus, settings: edrSettings(config.edr), log: logLine });
+  const edr = new EdrWatch({
+    bus,
+    settings: edrSettings(config.edr),
+    networkBaselinePath: join(PATHS.stateDir, 'edr-outbound-executables.json'),
+    log: logLine,
+  });
   edr.start();
 
   // SSH from Tor exits (banned at once, even in dry_run), keys logging in from
