@@ -100,7 +100,7 @@ async function writeState(path: string, state: IntegrityState): Promise<void> {
 
 async function hashFile(path: string, handle: FileHandle, size: number): Promise<string> {
   const hash = createHash('sha256');
-  const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+  const buffer = Buffer.alloc(READ_CHUNK_BYTES);
   let position = 0;
   while (position < size) {
     const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, size - position), position);
