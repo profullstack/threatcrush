@@ -24,7 +24,7 @@ export default function GitHubMonitoringCard(){
  },[currentOrgId]);
  useEffect(()=>{if(!signedIn)return;load().catch(e=>setError(e.message));const id=setInterval(()=>load().catch(()=>{}),30000);return()=>clearInterval(id);},[signedIn,load]);
  useEffect(()=>{if(!orgId)return;setInstalled([]);fetch("/api/github/monitoring",{method:"POST",headers:authHeaders({"Content-Type":"application/json"}),body:JSON.stringify({org_id:orgId,action:"discover"})}).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not discover installations");setInstalled(d.installations);setApp(d.app??null);}).catch(e=>setError(e.message));},[orgId,data?.accounts.length]);
- useEffect(()=>{if(!signedIn)return;const value=new URLSearchParams(location.search).get("github");if(value==="connected")setNotice("GitHub account connected. Enable monitoring for an account or organization below.");else if(value)setError(value);if(location.hash==="#github-monitoring")document.getElementById("github-monitoring")?.scrollIntoView({block:"start"});},[signedIn,data?.accounts.length]);
+ useEffect(()=>{if(!signedIn)return;const value=new URLSearchParams(location.search).get("github");if(value==="connected")setNotice("GitHub access refreshed. New organizations you administer are listed below.");else if(value)setError(value);if(location.hash==="#github-monitoring")document.getElementById("github-monitoring")?.scrollIntoView({block:"start"});},[signedIn,data?.accounts.length]);
  async function action(body:Record<string,unknown>){
   if(busy)return;setBusy(true);setError(null);setNotice(null);
   try{
@@ -43,7 +43,8 @@ export default function GitHubMonitoringCard(){
  const allInstalled=installed.filter(i=>!i.suspended&&i.contents_read!==false&&available.some(o=>o.id===i.account_id)).map(i=>i.account_id);
  return <section id="github-monitoring" className="scroll-mt-24 rounded-xl border border-tc-green/40 bg-tc-card p-4 sm:p-6 space-y-4">
   <h2 className="text-xl font-semibold text-white">GitHub accounts &amp; organizations</h2>
-  <p className="text-sm text-tc-text-dim">Monitor all repositories in an account or organization with one action. New repositories are included automatically. No per-repository checkboxes, workflow edits or connection secrets.</p>
+  <p className="text-sm text-tc-text-dim">To add an organization: click <strong>Add another GitHub org</strong>, authorize a GitHub account that is an owner/admin there, then install the ThreatCrush GitHub App for that org and choose <strong>All repositories</strong>. Come back here and click <strong>Monitor all repositories</strong>. New repositories are included automatically.</p>
+  {data && !data.oauth_configured && <p className="text-sm text-amber-300">GitHub OAuth is unavailable. Open “Connect using a GitHub token instead” below to verify your GitHub access.</p>}
   <div className="rounded border border-tc-green/20 bg-tc-green/5 p-3 text-sm text-white">Defaults: test, documentation and example warnings silenced. <strong>Critical findings always page Owners + Admins</strong> through existing email/SMS/call preferences, with duplicate protection.</div>
   {app?.contents_read===false&&<div role="alert" className="rounded border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-200"><strong>GitHub App cannot read private repository code yet.</strong><p className="mt-2">Its current permissions cover metadata and pull requests only. The app owner must enable <strong>Repository permissions → Contents → Read-only</strong>, then approve the updated installation. Public scans can run; private scans remain blocked until GitHub grants access.</p><a className="mt-2 inline-block underline" href={app.permissions_url}>Open GitHub App permissions</a></div>}
   {error&&<p role="alert" className="break-words text-red-400">{error}</p>}
@@ -52,7 +53,7 @@ export default function GitHubMonitoringCard(){
   {!data?<p className="text-tc-text-dim">Loading GitHub monitoring…</p>:!data.organizations.length?<p className="text-tc-text-dim">Your account needs an organization owner or admin role to manage monitoring.</p>:<>
    <label className="block text-sm text-white">ThreatCrush organization<select className={field} value={orgId} disabled={busy} onChange={e=>setOrgId(e.target.value)}>{data.organizations.map(o=><option key={o.id} value={o.id}>{o.name}</option>)}</select></label>
    <div className="flex flex-wrap gap-2">
-    <button className={button} disabled={busy||!data.oauth_configured} onClick={()=>action({action:"connect"})}>{accounts.length?"Connect another GitHub account":"Connect GitHub account"}</button>
+    <button className={button} disabled={busy||!data.oauth_configured} onClick={()=>action({action:"connect"})}>{accounts.length?"Add another GitHub org":"Add a GitHub org"}</button>
     <button className={button} disabled={busy||!allInstalled.length} onClick={()=>action({action:"enable",owner_ids:allInstalled})}>Monitor all installed accounts &amp; orgs</button>
     <button className={button} disabled={busy} onClick={()=>action({action:"defaults"})}>Silence test/docs/example warnings everywhere</button>
    </div>
