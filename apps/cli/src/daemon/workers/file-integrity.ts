@@ -1,6 +1,7 @@
+import { watch, type FSWatcher } from 'node:fs';
 import { constants, type FileHandle, lstat, open, readdir, readFile, rename, mkdir, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
-import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
 import type { ThreatEvent } from '../../types/events.js';
 import type { FileIntegritySection } from '../../types/config.js';
 import { insertEvent } from '../../core/state.js';
@@ -10,11 +11,15 @@ const MAX_FILES = 50_000;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const MAX_SCAN_BYTES = 512 * 1024 * 1024;
 const MAX_CHANGES_PER_EVENT = 100;
+const MAX_WATCH_DIRECTORIES = 2048;
 const MASS_CHANGE_COUNT = 25;
+const MASS_CHANGE_ENTROPY_RISE_BITS = 0.5;
 const READ_CHUNK_BYTES = 64 * 1024;
+const CANARY_CONTENT = 'ThreatCrush file integrity canary v1\n';
 
 interface FileSignature {
   sha256: string;
+  entropy: number;
   size: number;
   mode: number;
   uid: number;
@@ -32,6 +37,7 @@ interface IntegrityState {
 
 interface ScanResult {
   files: Record<string, FileState>;
+  directories: string[];
   complete: boolean;
   skipped: number;
   bytes: number;
@@ -42,6 +48,7 @@ export interface FileIntegritySettings {
   enabled: boolean;
   paths: string[];
   canaries: string[];
+  canaryDirectories: string[];
   pollMs: number;
 }
 
@@ -64,6 +71,7 @@ export function fileIntegritySettings(section: FileIntegritySection | undefined)
     enabled: section?.enabled === true,
     paths: strings(section?.paths),
     canaries: strings(section?.canaries),
+    canaryDirectories: strings(section?.canary_directories),
     pollMs,
   };
 }
@@ -78,7 +86,7 @@ export interface FileIntegrityOptions {
 }
 
 function signature(value: FileSignature): string {
-  return `${value.sha256};size=${value.size};mode=${value.mode.toString(8)};uid=${value.uid};gid=${value.gid}`;
+  return `${value.sha256};size=${value.size};mode=${value.mode.toString(8)};uid=${value.uid};gid=${value.gid};entropy=${value.entropy.toFixed(3)}`;
 }
 
 async function readState(path: string): Promise<IntegrityState | null> {
@@ -98,21 +106,75 @@ async function writeState(path: string, state: IntegrityState): Promise<void> {
   await rename(temp, path);
 }
 
-async function hashFile(path: string, handle: FileHandle, size: number): Promise<string> {
+async function hashFile(path: string, handle: FileHandle, size: number): Promise<{ sha256: string; entropy: number }> {
   const hash = createHash('sha256');
   const buffer = Buffer.alloc(READ_CHUNK_BYTES);
+  const counts = new Uint32Array(256);
   let position = 0;
   while (position < size) {
     const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, size - position), position);
     if (bytesRead === 0) throw new Error(`file changed while reading: ${path}`);
-    hash.update(buffer.subarray(0, bytesRead));
+    const chunk = buffer.subarray(0, bytesRead);
+    hash.update(chunk);
+    for (const byte of chunk) counts[byte]++;
     position += bytesRead;
   }
-  return hash.digest('hex');
+  let entropy = 0;
+  if (size > 0) for (const count of counts) {
+    if (count === 0) continue;
+    const probability = count / size;
+    entropy -= probability * Math.log2(probability);
+  }
+  return { sha256: hash.digest('hex'), entropy };
 }
 
 const OPEN_FILE_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0);
 const OPEN_DIR_FLAGS = OPEN_FILE_FLAGS | constants.O_DIRECTORY;
+const CREATE_FILE_FLAGS = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+
+export function autoCanaryPath(directory: string): string {
+  return join(directory, '.threatcrush-canary');
+}
+
+async function openAbsoluteDirectory(path: string): Promise<FileHandle> {
+  const parts = path.split(sep).filter((part) => part && part !== '.');
+  if (parts.includes('..')) throw new Error('invalid canary directory');
+  let directory = await open('/', OPEN_DIR_FLAGS);
+  try {
+    for (const part of parts) {
+      const next = await open(`/proc/self/fd/${directory.fd}/${part}`, OPEN_DIR_FLAGS);
+      await directory.close();
+      directory = next;
+    }
+    return directory;
+  } catch (error) {
+    await directory.close().catch(() => undefined);
+    throw error;
+  }
+}
+
+/** Create a harmless decoy without following symlinks or replacing existing data. */
+async function createAutoCanary(path: string): Promise<boolean> {
+  try {
+    const existing = await openAbsoluteTarget(path);
+    await existing.close();
+    return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false;
+  }
+  const directory = await openAbsoluteDirectory(dirname(path));
+  try {
+    const file = await open(`/proc/self/fd/${directory.fd}/${basename(path)}`, CREATE_FILE_FLAGS, 0o666);
+    try { await file.chmod(0o666); await file.writeFile(CANARY_CONTENT); await file.sync(); }
+    finally { await file.close(); }
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw error;
+  } finally {
+    await directory.close();
+  }
+}
 
 /** Open an absolute path one no-follow directory descriptor at a time. */
 async function openAbsoluteTarget(path: string): Promise<FileHandle> {
@@ -136,6 +198,7 @@ async function openAbsoluteTarget(path: string): Promise<FileHandle> {
 
 async function scanTargets(targets: string[], canaries: Set<string>): Promise<ScanResult> {
   const files: Record<string, FileState> = {};
+  const directories: string[] = [];
   const visited = new Set<string>();
   const errors = new Set<string>();
   let complete = true;
@@ -161,6 +224,7 @@ async function scanTargets(targets: string[], canaries: Set<string>): Promise<Sc
         : await openAbsoluteTarget(path);
       const stat = await handle.stat();
       if (stat.isDirectory()) {
+        directories.push(path);
         if (canaries.has(path)) {
           complete = false;
           errors.add(path);
@@ -190,7 +254,7 @@ async function scanTargets(targets: string[], canaries: Set<string>): Promise<Sc
         return;
       }
 
-      const sha256 = await hashFile(path, handle, stat.size);
+      const { sha256, entropy } = await hashFile(path, handle, stat.size);
       const afterRead = await handle.stat();
       if (afterRead.size !== stat.size || afterRead.mtimeMs !== stat.mtimeMs || afterRead.ctimeMs !== stat.ctimeMs) {
         throw new Error('file changed while reading');
@@ -198,6 +262,7 @@ async function scanTargets(targets: string[], canaries: Set<string>): Promise<Sc
       bytes += stat.size;
       files[path] = signature({
         sha256,
+        entropy,
         size: stat.size,
         mode: stat.mode & 0o7777,
         uid: stat.uid,
@@ -228,7 +293,7 @@ async function scanTargets(targets: string[], canaries: Set<string>): Promise<Sc
     if (!complete) break;
   }
 
-  return { files, complete, skipped, bytes, errorPaths: [...errors].slice(0, 20) };
+  return { files, directories, complete, skipped, bytes, errorPaths: [...errors].slice(0, 20) };
 }
 
 function changedPaths(before: Record<string, FileState>, after: Record<string, FileState>): Array<{ path: string; state: FileState }> {
@@ -237,9 +302,20 @@ function changedPaths(before: Record<string, FileState>, after: Record<string, F
   for (const path of paths) {
     const previous = before[path] ?? 'missing';
     const current = after[path] ?? 'missing';
-    if (previous !== current) changed.push({ path, state: current });
+    const normalized = (value: FileState) => typeof value === 'string' ? value.replace(/;entropy=\d+(?:\.\d+)?$/, '') : value;
+    if (normalized(previous) !== normalized(current)) changed.push({ path, state: current });
   }
   return changed;
+}
+
+function meanEntropy(paths: string[], files: Record<string, FileState>): number | null {
+  const values = paths.flatMap((path) => {
+    const signature = files[path];
+    if (typeof signature !== 'string') return [];
+    const match = /;entropy=(\d+(?:\.\d+)?)$/.exec(signature);
+    return match ? [Number(match[1])] : [];
+  });
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
 export class FileIntegrityWatch {
@@ -247,10 +323,31 @@ export class FileIntegrityWatch {
   private running = false;
   private readonly now: () => Date;
   private readonly canaries: Set<string>;
+  private readonly watchers = new Map<string, FSWatcher>();
+  private eventTimer: NodeJS.Timeout | null = null;
+  private watcherLimitLogged = false;
 
   constructor(private readonly opts: FileIntegrityOptions) {
     this.now = opts.now ?? (() => new Date());
-    this.canaries = new Set(opts.settings.canaries);
+    this.canaries = new Set([
+      ...opts.settings.canaries,
+      ...opts.settings.canaryDirectories.map(autoCanaryPath),
+    ]);
+  }
+
+  private get autoCanaries(): string[] {
+    return this.opts.settings.canaryDirectories.map(autoCanaryPath);
+  }
+
+  private async ensureAutoCanaries(allowed: Set<string>): Promise<void> {
+    for (const path of this.autoCanaries) {
+      if (!allowed.has(path)) continue;
+      try {
+        if (await createAutoCanary(path)) this.opts.log(`[file-integrity] placed a canary at ${path}`);
+      } catch (error) {
+        this.opts.log(`[file-integrity] could not place canary at ${path}: ${(error as Error).message.split('\n')[0]}`);
+      }
+    }
   }
 
   start(): void {
@@ -258,7 +355,7 @@ export class FileIntegrityWatch {
       this.opts.log('[file-integrity] disabled; set [file_integrity] enabled = true to monitor configured paths');
       return;
     }
-    const targets = [...new Set([...this.opts.settings.paths, ...this.opts.settings.canaries])];
+    const targets = [...new Set([...this.opts.settings.paths, ...this.opts.settings.canaries, ...this.autoCanaries])];
     if (targets.length === 0) {
       this.opts.log('[file-integrity] enabled with no paths; configure [file_integrity] paths or canaries');
       return;
@@ -272,11 +369,47 @@ export class FileIntegrityWatch {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    if (this.eventTimer) clearTimeout(this.eventTimer);
+    this.eventTimer = null;
+    for (const watcher of this.watchers.values()) watcher.close();
+    this.watchers.clear();
+  }
+
+  private refreshWatchers(directories: string[]): void {
+    const wanted = new Set(directories.slice(0, MAX_WATCH_DIRECTORIES));
+    for (const [path, watcher] of this.watchers) {
+      if (wanted.has(path)) continue;
+      watcher.close();
+      this.watchers.delete(path);
+    }
+    for (const path of wanted) {
+      if (this.watchers.has(path)) continue;
+      try {
+        const watcher = watch(path, { persistent: false }, () => {
+          if (this.eventTimer) clearTimeout(this.eventTimer);
+          this.eventTimer = setTimeout(() => { this.eventTimer = null; void this.scanOnce(); }, 500);
+          this.eventTimer.unref?.();
+        });
+        watcher.on('error', (error) => {
+          this.opts.log(`[file-integrity] inotify watch unavailable for ${path}: ${error.message}`);
+          watcher.close();
+          this.watchers.delete(path);
+        });
+        this.watchers.set(path, watcher);
+      } catch (error) {
+        this.opts.log(`[file-integrity] inotify watch unavailable for ${path}: ${(error as Error).message.split('\n')[0]}`);
+      }
+    }
+    if (directories.length > MAX_WATCH_DIRECTORIES && !this.watcherLimitLogged) {
+      this.watcherLimitLogged = true;
+      this.opts.log(`[file-integrity] watching the first ${MAX_WATCH_DIRECTORIES} directories; polling remains the fallback for the rest`);
+    }
   }
 
   async rebaseline(): Promise<{ ok: boolean; files: number; reason?: string }> {
-    const targets = [...new Set([...this.opts.settings.paths, ...this.opts.settings.canaries])];
+    const targets = [...new Set([...this.opts.settings.paths, ...this.opts.settings.canaries, ...this.autoCanaries])];
     if (!this.opts.settings.enabled || targets.length === 0) return { ok: false, files: 0, reason: 'file integrity monitoring is disabled or has no configured paths' };
+    await this.ensureAutoCanaries(new Set(this.autoCanaries));
     const scan = await scanTargets(targets, this.canaries);
     if (!scan.complete) return { ok: false, files: Object.keys(scan.files).length, reason: `scan incomplete at ${scan.errorPaths.join(', ') || 'configured size limit'}` };
     const missingCanary = [...this.canaries].find((path) => scan.files[path] === 'missing');
@@ -291,25 +424,40 @@ export class FileIntegrityWatch {
     if (this.running) return;
     this.running = true;
     try {
-      const targets = [...new Set([...this.opts.settings.paths, ...this.opts.settings.canaries])];
-      const current = await scanTargets(targets, this.canaries);
-      if (!current.complete) {
-        this.opts.log(`[file-integrity] scan incomplete; no baseline or change state updated (${current.errorPaths.join(', ') || 'configured scan limits reached'})`);
-        return;
-      }
-
       const baseline = await readState(this.opts.baselinePath);
+      const previousObserved = await readState(this.opts.observedPath);
+      let baselineFilePresent = false;
       if (!baseline) {
-        // A missing state file means first enrollment. A present but unreadable
-        // or malformed baseline must never be silently replaced: that would
-        // turn tampering into the new expected state.
-        let baselineFilePresent = false;
         try {
           await lstat(this.opts.baselinePath);
           baselineFilePresent = true;
         } catch (error) {
           baselineFilePresent = (error as NodeJS.ErrnoException).code !== 'ENOENT';
         }
+      }
+      const canCreate = this.autoCanaries.filter((path) => {
+        if (!baseline && !baselineFilePresent) return true;
+        return !!baseline && !baseline.targets.includes(path) && !previousObserved?.targets.includes(path);
+      });
+      await this.ensureAutoCanaries(new Set(canCreate));
+      const targets = [...new Set([...this.opts.settings.paths, ...this.opts.settings.canaries, ...this.autoCanaries])];
+      const current = await scanTargets(targets, this.canaries);
+      if (current.complete) {
+        const directories = new Set(current.directories);
+        for (const path of Object.keys(current.files)) {
+          if (!directories.has(path)) directories.add(dirname(path));
+        }
+        this.refreshWatchers([...directories]);
+      }
+      if (!current.complete) {
+        this.opts.log(`[file-integrity] scan incomplete; no baseline or change state updated (${current.errorPaths.join(', ') || 'configured scan limits reached'})`);
+        return;
+      }
+
+      if (!baseline) {
+        // A missing state file means first enrollment. A present but unreadable
+        // or malformed baseline must never be silently replaced: that would
+        // turn tampering into the new expected state.
         if (baselineFilePresent) {
           this.emit('critical', 'File integrity baseline is unreadable; monitoring paused', 'file-integrity-baseline-invalid', [
             { path: this.opts.baselinePath, state: 'unreadable' },
@@ -329,13 +477,18 @@ export class FileIntegrityWatch {
         return;
       }
 
-      const observed = await readState(this.opts.observedPath) ?? baseline;
+      const observed = previousObserved ?? baseline;
       const sameTargets = (left: string[], right: string[]) => {
         const sortedLeft = [...left].sort();
         const sortedRight = [...right].sort();
         return sortedLeft.length === sortedRight.length && sortedLeft.every((path, index) => path === sortedRight[index]);
       };
       if (!sameTargets(baseline.targets, targets)) {
+        const removedCanaries = changedPaths(observed.files, current.files)
+          .filter((change) => this.canaries.has(change.path) && observed.targets.includes(change.path));
+        if (removedCanaries.length) {
+          this.emit('critical', 'A file integrity canary changed or disappeared', 'file-integrity-canary', removedCanaries);
+        }
         if (!sameTargets(observed.targets, targets)) {
           this.emit('medium', 'File integrity monitoring paths changed; review them and rebaseline', 'file-integrity-scope-changed',
             targets.map((path) => ({ path, state: 'scope-changed' })));
@@ -349,8 +502,13 @@ export class FileIntegrityWatch {
         this.emit('critical', 'A file integrity canary changed or disappeared', 'file-integrity-canary', canaryChanges);
       }
       const ordinary = changes.filter((change) => !this.canaries.has(change.path));
-      if (ordinary.length >= MASS_CHANGE_COUNT) {
-        this.emit('critical', `${ordinary.length} monitored files changed in one scan`, 'file-integrity-mass-change', ordinary);
+      const paths = ordinary.map((change) => change.path);
+      const beforeEntropy = meanEntropy(paths, observed.files);
+      const afterEntropy = meanEntropy(paths, current.files);
+      const entropyRose = beforeEntropy !== null && afterEntropy !== null && afterEntropy - beforeEntropy >= MASS_CHANGE_ENTROPY_RISE_BITS;
+      if (ordinary.length >= MASS_CHANGE_COUNT || (ordinary.length >= 10 && entropyRose)) {
+        const entropyDetail = entropyRose ? `; mean changed-file entropy rose from ${beforeEntropy?.toFixed(2)} to ${afterEntropy?.toFixed(2)} bits` : '';
+        this.emit('critical', `${ordinary.length} monitored files changed in one scan${entropyDetail}`, 'file-integrity-mass-change', ordinary);
       } else {
         for (const change of ordinary) {
           const expected = baseline.files[change.path] ?? 'missing';

@@ -201,8 +201,10 @@ removed, or changes. It is opt-in because walking large directories reads every
 regular file. Symlinks are skipped, each file is opened without following a
 symlink, and file contents are never stored or uploaded. SHA-256 hashes remain
 in the local root-owned state directory; events include changed paths but not
-hashes. A first complete scan records the baseline without generating alerts;
-an incomplete scan never replaces it. To keep daemon work bounded, scans stop
+hashes. Linux inotify events trigger prompt scans for watched directories; the
+periodic rehash remains a fallback (up to 2,048 directories are watched). A
+first complete scan records the baseline without generating alerts; an
+incomplete scan never replaces it. To keep daemon work bounded, scans stop
 at 50,000 visited paths, 64 MiB per file, or 512 MiB total; choose narrower
 paths if a scan reaches one of those limits.
 
@@ -211,15 +213,21 @@ paths if a scan reaches one of those limits.
 enabled = true
 paths = ["/etc", "/usr/local/bin", "/var/www"]
 canaries = ["/var/www/.customer-export-decoy"] # existing decoy file; any change/removal is critical
+canary_directories = ["/srv/customer-data"] # place a hidden canary without overwriting existing files
 poll_interval_seconds = 900
 ```
 
 Use `threatcrush integrity` to inspect the local baseline and
 `sudo threatcrush integrity rebaseline` after reviewing expected system or
 application changes. A single changed file is high severity; a burst of 25 or
-more changes in one scan is grouped into one critical alert. Canaries are
-operator-provisioned existing files. Process killing and automatic canary
-placement are not enabled by this first phase.
+more changes in one scan is grouped into one critical alert. A burst of at
+least 10 changed files with a 0.5-bit average entropy increase is also critical.
+Each configured
+`canary_directories` entry gets a hidden, writable `.threatcrush-canary` file
+on its first baseline; existing files are never replaced, and the canary is
+not recreated after a baseline exists if it is deleted. Process killing
+remains unavailable; the entropy signal is a mass-change heuristic, not a
+content classifier.
 
 ### Auditd process detections
 

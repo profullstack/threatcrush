@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { loadConfig } from '../core/config.js';
-import { fileIntegritySettings, FileIntegrityWatch } from '../daemon/workers/file-integrity.js';
+import { autoCanaryPath, fileIntegritySettings, FileIntegrityWatch } from '../daemon/workers/file-integrity.js';
 import { PATHS, SYSTEM_PATHS, systemDaemonPresent } from '../daemon/paths.js';
 
 interface IntegrityStateFile {
@@ -21,7 +21,10 @@ function changedCount(baseline: IntegrityStateFile | null, observed: IntegritySt
   const paths = new Set([...Object.keys(baseline.files), ...Object.keys(observed.files)]);
   let changed = 0;
   for (const path of paths) {
-    if ((baseline.files[path] ?? 'missing') !== (observed.files[path] ?? 'missing')) changed++;
+    const normalizeSignature = (value: string) => value.replace(/;entropy=\d+(?:\.\d+)?$/, '');
+    const before = baseline.files[path] ?? 'missing';
+    const after = observed.files[path] ?? 'missing';
+    if (normalizeSignature(before) !== normalizeSignature(after)) changed++;
   }
   return changed;
 }
@@ -65,13 +68,14 @@ export async function integrityCommand(action = 'status', opts: { json?: boolean
 
   const baseline = readState(baselinePath);
   const observed = readState(observedPath);
-  const configuredTargets = [...new Set([...settings.paths, ...settings.canaries])];
+  const configuredTargets = [...new Set([...settings.paths, ...settings.canaries, ...settings.canaryDirectories.map(autoCanaryPath)])];
   const scopeMatches = !baseline?.targets || (baseline.targets.length === configuredTargets.length &&
     [...baseline.targets].sort().every((path, index) => path === [...configuredTargets].sort()[index]));
   const report = {
     enabled: settings.enabled,
     paths: settings.paths,
     canaries: settings.canaries,
+    canary_directories: settings.canaryDirectories,
     poll_interval_seconds: settings.pollMs / 1000,
     baseline_at: baseline?.created_at ?? null,
     files_monitored: Object.keys(baseline?.files ?? {}).length,
@@ -88,6 +92,7 @@ export async function integrityCommand(action = 'status', opts: { json?: boolean
   console.log(`  ${chalk.white.bold('File integrity')} ${report.enabled ? chalk.green('enabled') : chalk.gray('disabled')}`);
   if (report.paths.length) console.log(`  Paths: ${report.paths.join(', ')}`);
   if (report.canaries.length) console.log(`  Canary files: ${report.canaries.join(', ')}`);
+  if (settings.canaryDirectories.length) console.log(`  Canary directories: ${settings.canaryDirectories.join(', ')}`);
   console.log(`  Poll interval: ${report.poll_interval_seconds}s`);
   if (!baseline) {
     console.log(chalk.gray(`  No baseline at ${baselinePath}. Enable monitoring and start the daemon to record one.`));

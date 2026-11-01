@@ -190,6 +190,8 @@ export interface FileIntegritySection {
   paths?: string[];
   /** Existing decoy files to watch; any change or removal is critical. */
   canaries?: string[];
+  /** Directories where ThreatCrush should create a hidden canary on first baseline. */
+  canary_directories?: string[];
   /** Polling interval in seconds, clamped to 60–86400 (default 900). */
   poll_interval_seconds?: number;
 }
