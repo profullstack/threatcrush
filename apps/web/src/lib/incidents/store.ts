@@ -29,6 +29,7 @@ import {
 import type { PageableIncident } from "./notify";
 import { forensicEvidence, type DetectionEvidence } from "./forensics";
 import { findSecret } from "./secret-guard";
+import { describeOrigins, detectionSourceIp } from "./origin";
 
 export { IncidentError } from "./report";
 
@@ -901,6 +902,22 @@ export async function raiseDetectionIncidents(
       if (ev) evidence.set(r.id, { ...ev, username: r.username ?? undefined });
     }
   }
+  // Where it came from, said first: "From dev2 (…), one of your own servers"
+  // reads as your automation, "From … in <country>, NOT one of your servers"
+  // as a possible compromise. Without this the page named no source at all.
+  const sourceOf = new Map<string, string>();
+  const ipsByOrg = new Map<string, string[]>();
+  for (const d of detections) {
+    if (d.severity !== "critical") continue;
+    const ip = detectionSourceIp(d.source_ip, evidence.get(d.id));
+    if (!ip) continue;
+    sourceOf.set(d.id, ip);
+    ipsByOrg.set(d.organization_id, [...(ipsByOrg.get(d.organization_id) ?? []), ip]);
+  }
+  const originByOrg = new Map<string, Map<string, string>>();
+  for (const [orgId, ips] of ipsByOrg) {
+    originByOrg.set(orgId, await describeOrigins(admin, orgId, ips).catch(() => new Map<string, string>()));
+  }
   for (const d of detections) {
     if (d.severity !== "critical") continue;
     try {
@@ -928,9 +945,11 @@ export async function raiseDetectionIncidents(
           ? `SSH key: ${[ev.key_type, ev.fingerprint].filter((x) => typeof x === "string").join(" ")}`
           : null,
       ].filter((x): x is string => Boolean(x));
+      const sourceIp = sourceOf.get(d.id);
+      const origin = sourceIp ? (originByOrg.get(d.organization_id)?.get(sourceIp) ?? `From ${sourceIp}`) : null;
       const summaryAccounts = accountLines.filter((entry) => entry.startsWith("Target account:") || entry.startsWith("System account"));
-      const summary = [...summaryAccounts, line ?? `${d.title}${d.source_ip ? ` from ${d.source_ip}` : ""}`].filter(Boolean).join(" — ").slice(0, 1000);
-      const details = [line, d.description, ...accountLines].filter(Boolean).join("\n\n").slice(0, 4000);
+      const summary = [origin, ...summaryAccounts, line ?? d.title].filter(Boolean).join(" — ").slice(0, 1000);
+      const details = [line, origin, d.description, ...accountLines].filter(Boolean).join("\n\n").slice(0, 4000);
       out.push(
         await upsertIncident(
           admin,
