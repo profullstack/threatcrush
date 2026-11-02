@@ -137,6 +137,14 @@ describe("SSH logins and attempts page again (2026-11-02: 1,246 raises, one page
     expect(again.incident.summary).toContain("From 20.171.2.194 in Des Moines");
   });
 
+  it("pages once when several batches race on one incident (spool flush after an outage)", async () => {
+    const db = setup();
+    await raiseDetectionIncidents(db as never, [det("a", "91.240.118.9")], servers);
+    notifiedAgo(db, 60 * 60_000);
+    const results = await Promise.all(["b", "c", "d", "e"].map((id, n) => raiseDetectionIncidents(db as never, [det(id, `20.171.2.19${n}`)], servers)));
+    expect(results.flat().filter((o) => o.page)).toHaveLength(1);
+  });
+
   it("never re-pages a login from one of our own servers", async () => {
     const db = setup();
     const [first] = await raiseDetectionIncidents(db as never, [det("a", "45.79.1.2")], servers);
