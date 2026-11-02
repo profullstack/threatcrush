@@ -29,7 +29,7 @@ import {
 import type { PageableIncident } from "./notify";
 import { forensicEvidence, type DetectionEvidence } from "./forensics";
 import { findSecret } from "./secret-guard";
-import { describeOrigins, detectionSourceIp } from "./origin";
+import { deployKeyOf, describeOrigin, describeOriginsDetailed, detectionSourceIp, isKnownAutomationOrigin, type AddressFacts } from "./origin";
 
 export { IncidentError } from "./report";
 
@@ -912,7 +912,7 @@ export async function claimRepage(admin: SupabaseClient, incidentId: string): Pr
 
 /** Whether an origin line names an address outside the org (worth a fresh page). */
 export function isOutsideOrigin(origin: string | null): boolean {
-  return !!origin && !/one of your own servers|a private or local address/.test(origin);
+  return !!origin && !isKnownAutomationOrigin(origin) && !/one of your own servers|a private or local address/.test(origin);
 }
 
 /** A paged detection from ingest becomes (or bumps) an incident for the server's team. */
@@ -963,9 +963,9 @@ export async function raiseDetectionIncidents(
     sourceOf.set(d.id, ip);
     ipsByOrg.set(d.organization_id, [...(ipsByOrg.get(d.organization_id) ?? []), ip]);
   }
-  const originByOrg = new Map<string, Map<string, string>>();
+  const originByOrg = new Map<string, Map<string, AddressFacts>>();
   for (const [orgId, ips] of ipsByOrg) {
-    originByOrg.set(orgId, await describeOrigins(admin, orgId, ips).catch(() => new Map<string, string>()));
+    originByOrg.set(orgId, await describeOriginsDetailed(admin, orgId, ips).catch(() => new Map<string, AddressFacts>()));
   }
   for (const d of detections) {
     if (!isPagedDetection(d)) continue;
@@ -995,7 +995,12 @@ export async function raiseDetectionIncidents(
           : null,
       ].filter((x): x is string => Boolean(x));
       const sourceIp = sourceOf.get(d.id);
-      const origin = sourceIp ? (originByOrg.get(d.organization_id)?.get(sourceIp) ?? `From ${sourceIp}`) : null;
+      // A GitHub Actions runner address plus one of our deploy keys (the
+      // daemon names the key from authorized_keys) is a CI deploy: tagged
+      // known automation and never paged.
+      const facts = sourceIp ? originByOrg.get(d.organization_id)?.get(sourceIp) : undefined;
+      const origin = sourceIp ? (facts ? describeOrigin({ ...facts, deployKey: deployKeyOf(ev) }) : `From ${sourceIp}`) : null;
+      const knownAutomation = isKnownAutomationOrigin(origin);
       const summaryAccounts = accountLines.filter((entry) => entry.startsWith("Target account:") || entry.startsWith("System account"));
       const summary = [origin, ...summaryAccounts, line ?? d.title].filter(Boolean).join(" — ").slice(0, 1000);
       const details = [line, origin, d.description, ...accountLines].filter(Boolean).join("\n\n").slice(0, 4000);
@@ -1020,7 +1025,8 @@ export async function raiseDetectionIncidents(
           },
           { userId: null, agentKeyId: null },
       );
-      if (!outcome.page && isOutsideOrigin(origin)) outcome.page = await claimRepage(admin, outcome.incident.id);
+      if (knownAutomation) outcome.page = false;
+      else if (!outcome.page && isOutsideOrigin(origin)) outcome.page = await claimRepage(admin, outcome.incident.id);
       out.push(outcome);
     } catch (err) {
       console.error(`[incidents] detection ${d.id} -> incident failed:`, (err as Error).message);

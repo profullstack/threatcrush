@@ -20,6 +20,7 @@ import { CommandHistoryWatcher, commandHistorySettings } from './workers/command
 import { FileIntegrityWatch, fileIntegritySettings } from './workers/file-integrity.js';
 import { EdrWatch, edrSettings } from './workers/edr.js';
 import { SshIntrusionWatch } from './workers/ssh-intrusion.js';
+import { KeyDirectory, enrichLoginEvent } from './key-directory.js';
 import { LightningWatch } from './workers/lightning-watch.js';
 import { TorExitList } from '../core/tor-exits.js';
 import { RuleEngine } from './rules/engine.js';
@@ -185,8 +186,13 @@ export async function runDaemon(): Promise<void> {
     bus.publish(event);
   });
   ruleEngine.loadRules(loadAllRules());
+  // Name the key behind each accepted SSH login (its authorized_keys comment),
+  // so the dashboard can tell a GitHub Actions deploy from a person.
+  const keyDirectory = new KeyDirectory();
   bus.on('event', (event) => {
-    if (event.module !== 'rule-engine') ruleEngine.evaluate(event);
+    if (event.module === 'rule-engine') return;
+    enrichLoginEvent(event, keyDirectory);
+    ruleEngine.evaluate(event);
   });
   logLine(`[daemon] rule engine loaded ${ruleEngine.getRules().length} rules`);
   // Every minute: a window whose source never returns is dropped once it

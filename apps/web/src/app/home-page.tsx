@@ -460,6 +460,67 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ─── KNOWN CI LOGINS ─── */}
+        <section id="github-actions-logins" className="py-24 sm:py-32 border-t border-tc-border">
+          <div className="mx-auto max-w-6xl px-6">
+            <ScrollReveal>
+              <div className="text-center mb-12">
+                <p className="font-mono text-sm text-tc-green mb-3 tracking-wider">// KNOWN CI LOGINS</p>
+                <h2 className="text-3xl sm:text-4xl font-bold text-white">
+                  Why is <span className="text-tc-green glow-green">Microsoft</span> logging into my server?
+                </h2>
+                <p className="mt-4 max-w-3xl mx-auto text-tc-text-dim leading-relaxed">
+                  Usually it is your own deploy. GitHub Actions runners are virtual machines on Microsoft Azure. When a
+                  workflow ssh-es into your box, the login comes from a Microsoft address, and a new one every run.
+                  ThreatCrush checks whether that login is your CI before it wakes you up.
+                </p>
+              </div>
+            </ScrollReveal>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+              {[
+                {
+                  tag: "HOW",
+                  title: "How the runner gets in",
+                  desc: "Each repo that deploys keeps a private SSH key in its GitHub secrets. The matching public key sits in authorized_keys on your server. Every run, a fresh Azure VM loads that key and logs in.",
+                },
+                {
+                  tag: "KNOWN",
+                  title: "Tagged as known automation",
+                  desc: "The daemon reads the authorized_keys comment of the key that logged in. When the address is in GitHub's published Actions ranges and the key is a deploy key, the login is tagged known automation and nobody gets paged.",
+                },
+                {
+                  tag: "STILL PAGED",
+                  title: "What still pages you",
+                  desc: "Anyone can rent a GitHub runner, so the address alone proves nothing. A person's key used from a runner, a deploy key from anywhere else, or a key ThreatCrush cannot name still pages at once.",
+                },
+              ].map((c, i) => (
+                <ScrollReveal key={c.tag} delay={i * 120}>
+                  <div className="rounded-xl border border-tc-border bg-tc-card p-6 h-full transition-all hover:border-tc-green/30 glow-box-hover">
+                    <div className="inline-block rounded-md border border-tc-green/30 bg-tc-green/10 px-2.5 py-0.5 text-xs font-mono text-tc-green tracking-wider mb-3">
+                      {c.tag}
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">{c.title}</h3>
+                    <p className="text-sm text-tc-text-dim leading-relaxed">{c.desc}</p>
+                  </div>
+                </ScrollReveal>
+              ))}
+            </div>
+
+            <ScrollReveal delay={400}>
+              <div className="rounded-xl border border-tc-border bg-tc-card/40 p-5 text-center">
+                <p className="text-sm text-tc-text-dim">
+                  <span className="text-tc-green font-semibold">Make your deploy keys easy to recognize.</span>{" "}
+                  Put the repo in the key comment, for example{" "}
+                  <code className="rounded bg-tc-darker px-1.5 py-0.5 text-tc-green">github-actions-deploy@org/repo</code>, and lock the
+                  key to one command with <code className="rounded bg-tc-darker px-1.5 py-0.5 text-tc-green">restrict,command=&quot;…&quot;</code>.
+                  A deploy key that can open a shell is a shell key in somebody else&apos;s cloud.
+                </p>
+              </div>
+            </ScrollReveal>
+          </div>
+        </section>
+
         {/* ─── FREE GUIDE ─── */}
         <section id="guide" className="py-16 sm:py-20 border-t border-tc-border">
           <div className="mx-auto max-w-6xl px-6">

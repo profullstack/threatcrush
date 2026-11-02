@@ -82,7 +82,7 @@ const EVIDENCE_MESSAGE_CHARS = 500;
 const EVIDENCE_FIELD_CHARS = 200;
 const EVIDENCE_FIELDS = [
   'unit', 'identifier', 'process', 'comm', 'pid', 'user', 'ssh_user', 'username', 'account', 'runas', 'command',
-  'system_account', 'system_uid', 'fingerprint', 'key_type', 'auth_method', 'port',
+  'system_account', 'system_uid', 'fingerprint', 'key_type', 'key_comment', 'key_kind', 'key_account', 'auth_method', 'port',
   'path', 'method', 'status', 'host', 'priority',
   'boot_id', 'journal_cursor', 'audit_session', 'login_uid', 'source_ip_basis',
 ] as const;
