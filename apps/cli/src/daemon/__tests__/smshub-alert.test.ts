@@ -34,4 +34,10 @@ describe('[alerts.smshub]', () => {
     expect(smshubText(tor, 'dev2')).toContain('ThreatCrush CRITICAL on dev2: SSH from Tor exit 185.129.61.4');
     expect(smshubText(tor, 'dev2')).toContain('Accepted publickey');
   });
+
+  it('names the source address of a login page that did not already (2026-11-02)', () => {
+    const login = { ...tor, message: '[DETECTION] SSH Login Accepted', source_ip: '40.76.239.105', details: { evidence: { message: 'SSH login accepted for anthony' } } };
+    expect(smshubText(login, 'dev2')).toBe('ThreatCrush CRITICAL on dev2: [DETECTION] SSH Login Accepted | SSH login accepted for anthony from 40.76.239.105');
+    expect(smshubText(tor, 'dev2').match(/185\.129\.61\.4/g)?.length).toBe(smshubText({ ...tor, source_ip: undefined }, 'dev2').match(/185\.129\.61\.4/g)?.length);
+  });
 });

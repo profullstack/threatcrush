@@ -30,7 +30,10 @@ const MAX_PER_HOUR = 6;
 
 export function smshubText(event: ThreatEvent, host = hostname()): string {
   const evidence = (event.details?.evidence as { message?: string } | undefined)?.message;
-  const text = `ThreatCrush ${event.severity.toUpperCase()} on ${host}: ${event.message}${evidence && !event.message.includes(evidence) ? ` | ${evidence}` : ''}`;
+  // The source address is what tells our own automation from an intruder on
+  // the phone; the cloud page adds city and network, this fallback says the IP.
+  const ip = event.source_ip && ![event.message, evidence ?? ''].some((t) => t.includes(event.source_ip!)) ? ` from ${event.source_ip}` : '';
+  const text = `ThreatCrush ${event.severity.toUpperCase()} on ${host}: ${event.message}${evidence && !event.message.includes(evidence) ? ` | ${evidence}` : ''}${ip}`;
   return text.replace(/\s+/g, ' ').slice(0, 600);
 }
 
