@@ -2,7 +2,9 @@ import { afterEach, describe, it, expect } from 'vitest';
 import {
   assessNginxRequest,
   attackSeverity,
+  classifySshAuth,
   configureAttackDetection,
+  parseAuthMessage,
   detectAttackPattern,
   parseAuthLog,
   parseNginxLog,
@@ -42,6 +44,41 @@ describe('parseAuthLog', () => {
 
   it('returns null on a line that is not auth-shaped', () => {
     expect(parseAuthLog('this is not a log line')).toBeNull();
+  });
+});
+
+describe('SSH attempts carry the attacker address (dev2, 2026-11-02: "Invalid SSH user: unknown from unknown")', () => {
+  const now = new Date('2026-11-02T16:45:15Z');
+
+  it('reads user and ip from the follow-up lines that have no "from <ip>"', () => {
+    const closed = parseAuthMessage('sshd-session', 'Connection closed by invalid user oracle 91.240.118.9 port 51234 [preauth]', now);
+    expect(closed.fields.ip).toBe('91.240.118.9');
+    expect(closed.fields.user).toBe('oracle');
+    const v6 = parseAuthMessage('sshd', 'Invalid user admin from 2001:db8::7 port 4444', now);
+    expect(v6.fields.ip).toBe('2001:db8::7');
+    expect(v6.fields.user).toBe('admin');
+  });
+
+  it('names the address in the attempt it reports', () => {
+    const verdict = classifySshAuth(parseAuthMessage('sshd-session', 'Invalid user ubnt from 91.240.118.9 port 5', now));
+    expect(verdict?.message).toBe('Invalid SSH user: ubnt from 91.240.118.9');
+    expect(verdict?.source_ip).toBe('91.240.118.9');
+  });
+
+  it('counts one attempt once, not once per follow-up line', () => {
+    for (const m of [
+      'Connection closed by invalid user ubnt 91.240.118.9 port 5 [preauth]',
+      'Disconnected from invalid user ubnt 91.240.118.9 port 5 [preauth]',
+    ]) expect(classifySshAuth(parseAuthMessage('sshd-session', m, now))).toBeNull();
+  });
+
+  it('keeps a failed password for an invalid user', () => {
+    const verdict = classifySshAuth(parseAuthMessage('sshd', 'Failed password for invalid user test from 45.33.22.11 port 22 ssh2', now));
+    expect(verdict?.message).toBe('Failed SSH login for test from 45.33.22.11');
+  });
+
+  it('never takes an address from a non-sshd line', () => {
+    expect(parseAuthMessage('sudo', 'anthony : TTY=pts/0 ; PWD=/ ; COMMAND=/bin/ping 8.8.8.8', now).fields.ip).toBeUndefined();
   });
 });
 

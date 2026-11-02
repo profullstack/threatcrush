@@ -1,6 +1,7 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import { dispatchDetectionAlerts } from "@/lib/alerts/dispatch";
 import { pageCriticalDetections } from "@/lib/incidents/detections";
+import { isPagedDetection } from "@/lib/incidents/store";
 import { syncPsaDetections } from "@/lib/psa/halo";
 import { unauthorized } from "@/lib/api-auth";
 import { atLeast, getPrincipal, roleInScope, serverScopeIn, type ServerScope } from "@/lib/access";
@@ -175,9 +176,10 @@ export async function POST(req: NextRequest) {
       const alertable = newDetections;
       after(() => dispatchDetectionAlerts(alertable));
       after(() => syncPsaDetections(admin, alertable));
-      // Critical ones also become incidents that page the server's team (once
-      // per open incident, not per detection).
-      const critical = alertable.filter((d) => d.severity === "critical");
+      // Critical ones and failed SSH attempts also become incidents that page
+      // the server's team (on open, then again for a new outside address at
+      // most every 15 minutes; see REPAGE_MS).
+      const critical = alertable.filter(isPagedDetection);
       if (critical.length > 0) after(() => pageCriticalDetections(critical, serverInfo));
     }
 

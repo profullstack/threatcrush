@@ -29,7 +29,9 @@ const SYSLOG_REGEX = new RegExp(`^${TIMESTAMP}\\s+\\S+\\s+(\\S+?)(?:\\[\\d+\\])?
 
 // Extract IP from auth messages
 const IP_REGEX = /(?:from|FROM)\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/;
-const INVALID_USER_REGEX = /(?:for\s+invalid\s+user)\s+(\S+?)(?:\s+from|\s*$)/;
+// "Invalid user U from IP", "Failed password for invalid user U from IP", and
+// the follow-ups that name no "from": "Disconnected from invalid user U IP port N".
+const INVALID_USER_REGEX = /\binvalid\s+user\s+(\S+?)(?:\s+from\s|\s+\[?[0-9a-fA-F:.]+\]?\s+port\b|\s*$)/i;
 const USER_REGEX = /(?:for|user)\s+(\S+?)(?:\s+from|\s*$)/;
 
 export function parseNginxLog(line: string): NginxLogEntry | null {
@@ -104,6 +106,12 @@ export function parseAuthLog(line: string): AuthLogEntry | null {
 export function parseAuthMessage(process: string, message: string, timestamp: Date, raw = message): AuthLogEntry {
   const ipMatch = message.match(IP_REGEX);
   const userMatch = message.match(INVALID_USER_REGEX) || message.match(USER_REGEX);
+  // IP_REGEX only knows "from <ipv4>". sshd's follow-up lines ("Connection
+  // closed by invalid user U 1.2.3.4 port N") and IPv6 peers left the address
+  // empty, so attempts read "unknown from unknown", the rules grouped every
+  // attacker into one bucket, and the block action had no address to ban.
+  const ip = ipMatch?.[1] ?? (isSshdProcess(process) ? sshdPeerIp(message) ?? undefined : undefined);
+  const user = userMatch?.[1] && userMatch[1].toLowerCase() !== 'from' ? userMatch[1] : undefined;
 
   return {
     timestamp,
@@ -112,8 +120,8 @@ export function parseAuthMessage(process: string, message: string, timestamp: Da
     fields: {
       process,
       message,
-      ip: ipMatch?.[1],
-      user: userMatch?.[1],
+      ip,
+      user,
     },
   };
 }
@@ -188,6 +196,11 @@ export function classifySshAuth(entry: AuthLogEntry): SshAuthVerdict | null {
       ...(user ? { details: { user } } : {}),
     };
   }
+  // sshd logs one attempt by an unknown user up to three times: "Invalid user U
+  // from IP", then "Connection closed by invalid user U IP port N [preauth]"
+  // and/or "Disconnected from invalid user U IP ...". Count the first only, or
+  // the enumeration threshold (3 in 120s) trips on a single try.
+  if (/^(?:Disconnected from|Connection closed by|Received disconnect from)\s+(?:invalid|authenticating)\s+user\b/i.test(message)) return null;
   if (/invalid user/i.test(message)) {
     return {
       severity: 'high',
