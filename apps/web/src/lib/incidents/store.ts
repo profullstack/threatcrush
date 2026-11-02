@@ -888,6 +888,28 @@ export function isPagedDetection(d: { severity: string; rule_id: string | null }
  */
 export const REPAGE_MS = 15 * 60 * 1000;
 
+/**
+ * Take the re-page slot for an incident: one conditional UPDATE that only
+ * matches when the last page is older than REPAGE_MS (or never happened).
+ * Postgres re-checks the WHERE after the row lock, so of N ingest batches
+ * racing on the same incident exactly one wins. A read-then-decide check let a
+ * daemon flushing its spool after an outage (dev2, 2026-11-02 17:59:18) page
+ * the same incident four times in one second.
+ */
+export async function claimRepage(admin: SupabaseClient, incidentId: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  const cutoff = new Date(Date.now() - REPAGE_MS).toISOString();
+  try {
+    const older = await admin.from("incidents").update({ last_notified_at: now }).eq("id", incidentId).lt("last_notified_at", cutoff).select("id");
+    if ((older.data ?? []).length > 0) return true;
+    const never = await admin.from("incidents").update({ last_notified_at: now }).eq("id", incidentId).is("last_notified_at", null).select("id");
+    return (never.data ?? []).length > 0;
+  } catch (err) {
+    console.error(`[incidents] re-page claim failed for ${incidentId}:`, (err as Error).message);
+    return false;
+  }
+}
+
 /** Whether an origin line names an address outside the org (worth a fresh page). */
 export function isOutsideOrigin(origin: string | null): boolean {
   return !!origin && !/one of your own servers|a private or local address/.test(origin);
@@ -998,10 +1020,7 @@ export async function raiseDetectionIncidents(
           },
           { userId: null, agentKeyId: null },
       );
-      if (!outcome.page && isOutsideOrigin(origin)) {
-        const last = outcome.incident.last_notified_at ? Date.parse(outcome.incident.last_notified_at) : 0;
-        if (!Number.isFinite(last) || Date.now() - last >= REPAGE_MS) outcome.page = true;
-      }
+      if (!outcome.page && isOutsideOrigin(origin)) outcome.page = await claimRepage(admin, outcome.incident.id);
       out.push(outcome);
     } catch (err) {
       console.error(`[incidents] detection ${d.id} -> incident failed:`, (err as Error).message);
