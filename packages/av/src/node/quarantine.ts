@@ -84,10 +84,15 @@ async function entryOf(id: string, dir: string): Promise<QuarantineEntry> {
 export async function restoreQuarantined(id: string, to?: string, dir = quarantineDir()): Promise<string> {
   const entry = await entryOf(id, dir);
   const dest = to ?? entry.originalPath;
-  if (existsSync(dest)) throw new Error(`${dest} already exists; pass another destination`);
   const data = xor(await readFile(join(dir, `${id}.bin`)));
   await mkdir(dirname(dest), { recursive: true });
-  await writeFile(dest, data);
+  // 'wx' creates exclusively: the existence check and the write are one atomic step.
+  try {
+    await writeFile(dest, data, { flag: 'wx' });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error(`${dest} already exists; pass another destination`);
+    throw e;
+  }
   await rm(join(dir, `${id}.bin`), { force: true });
   await rm(join(dir, `${id}.json`), { force: true });
   return dest;

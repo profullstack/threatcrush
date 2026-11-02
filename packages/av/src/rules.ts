@@ -57,7 +57,6 @@ const isWindowsScriptContext = (c: RuleContext) =>
 const NON_RUNNABLE_SOURCE_EXTS = new Set(['ts', 'tsx', 'mts', 'cts', 'md', 'markdown', 'rst', 'go', 'rs', 'c', 'h', 'cc', 'cpp', 'hpp', 'java', 'kt', 'cs', 'swift', 'scala']);
 /** Ransom notes are plain text or HTML, usually with no other extension. */
 const NOTE_EXTS = new Set(['txt', 'html', 'htm', 'hta', 'rtf', '']);
-const isRunnable = (c: RuleContext) => EXECUTABLE_KINDS.has(c.kind) || isScript(c) || c.kind === 'lnk';
 const allText = (c: RuleContext) => (c.wide ? `${c.text}\n${c.wide}` : c.text);
 
 const RANSOM_COMMANDS = [
@@ -255,7 +254,7 @@ export const RULES: AvRule[] = [
       if (!SERVER_SCRIPT_EXTS.has(c.ext)) return false;
       const t = c.text;
       return (
-        /\b(?:eval|assert|system|passthru|shell_exec|exec|popen|proc_open|create_function)\s*\(\s*(?:@?\s*(?:base64_decode|gzinflate|str_rot13|gzuncompress|stripslashes)\s*\(\s*)*@?\$_(?:POST|GET|REQUEST|COOKIE)\b/i.test(t) ||
+        /\b(?:eval|assert|system|passthru|shell_exec|exec|popen|proc_open|create_function)\s*\(\s*@?(?:(?:base64_decode|gzinflate|str_rot13|gzuncompress|stripslashes)\s{0,4}\(\s{0,4}@?){0,4}\$_(?:POST|GET|REQUEST|COOKIE)\b/i.test(t) ||
         /\beval\s*\(\s*gz(?:inflate|uncompress)\s*\(\s*base64_decode\s*\(/i.test(t) ||
         /Runtime\.getRuntime\(\)\.exec\(\s*request\.getParameter/.test(t) ||
         /Request\.(?:Form|QueryString|Item)\[[^\]]+\][\s\S]{0,120}?(?:Process\.Start|eval\s*\()/i.test(t)

