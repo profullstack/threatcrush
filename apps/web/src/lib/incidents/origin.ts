@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseInventory } from "@profullstack/fleet";
 import { isPublicIp, lookupAsn, lookupIps, type AsnHit, type GeoHit } from "@/lib/geoip";
+import { githubActionsChecker } from "@/lib/github-actions-ranges";
 
 /**
  * Where a login (or any detection with a source address) came from, in words
@@ -23,18 +24,37 @@ export interface OriginFacts {
   own?: string | null;
   geo?: GeoHit | null;
   asn?: AsnHit | null;
+  /** The address is in GitHub's published Actions runner ranges (api.github.com/meta). */
+  githubActions?: boolean;
+  /**
+   * The authorized_keys comment of the deploy key the login used, when the
+   * daemon found the key and its comment marks automation.
+   */
+  deployKey?: string | null;
 }
 
 /** Microsoft's network, where GitHub-hosted Actions runners live. */
 const MICROSOFT_ASN = 8075;
 
+/** The suffix that marks a login as known automation: never paged. */
+export const KNOWN_AUTOMATION = "known automation, not paged";
+
+const NOT_DEPLOY_KEY = "a GitHub Actions runner, but the key is not a known deploy key";
+
 export function describeOrigin(o: OriginFacts): string {
   if (o.own) return `From ${o.own} (${o.ip}), one of your own servers`;
   if (!isPublicIp(o.ip)) return `From ${o.ip}, a private or local address`;
+  // Known only with both: GitHub's own published runner range AND one of our
+  // deploy keys. Either alone still pages: anyone can rent a GitHub runner,
+  // and a person's key used from a runner is the stolen-key pattern.
+  if (o.githubActions && o.deployKey) {
+    return `From ${o.ip}, a GitHub Actions runner deploying with the key "${o.deployKey}", ${KNOWN_AUTOMATION}`;
+  }
   const place = [o.geo?.city, o.geo?.country].filter(Boolean).join(", ");
+  const ghNote = o.githubActions ? `, ${NOT_DEPLOY_KEY}` : o.asn?.asn === MICROSOFT_ASN ? ", may be GitHub Actions" : "";
   const net = o.asn
-    ? `${o.asn.org ?? "unknown network"}, AS${o.asn.asn}${o.asn.asn === MICROSOFT_ASN ? ", may be GitHub Actions" : ""}`
-    : null;
+    ? `${o.asn.org ?? "unknown network"}, AS${o.asn.asn}${ghNote}`
+    : o.githubActions ? NOT_DEPLOY_KEY : null;
   const where = [place ? `in ${place}` : null, net ? `(${net})` : null].filter(Boolean).join(" ");
   return `From ${o.ip}${where ? ` ${where}` : ""}, NOT one of your servers`;
 }
@@ -92,9 +112,12 @@ export async function ownAddresses(admin: SupabaseClient, orgId: string): Promis
   return own;
 }
 
-/** Describe each address for one org. Lookups wait a few seconds at most on a cold start. */
-export async function describeOrigins(admin: SupabaseClient, orgId: string, ips: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/** The facts behind one address's origin line, so a caller can add the login's key. */
+export type AddressFacts = OriginFacts & { label: string };
+
+/** Each address for one org, with its facts. Lookups wait a few seconds at most on a cold start. */
+export async function describeOriginsDetailed(admin: SupabaseClient, orgId: string, ips: string[]): Promise<Map<string, AddressFacts>> {
+  const out = new Map<string, AddressFacts>();
   const unique = [...new Set(ips.filter((ip) => isIP(ip) !== 0))];
   if (unique.length === 0) return out;
   const own = await ownAddresses(admin, orgId);
@@ -105,10 +128,30 @@ export async function describeOrigins(admin: SupabaseClient, orgId: string, ips:
   } catch {
     // no city database: say less
   }
+  const isRunner = outside.length ? await githubActionsChecker().catch(() => () => false) : () => false;
   for (const ip of unique) {
     let asn: AsnHit | null = null;
     if (outside.includes(ip)) asn = await lookupAsn(ip, 3000).catch(() => null);
-    out.set(ip, describeOrigin({ ip, own: own.get(ip) ?? null, geo: geo.get(ip) ?? null, asn }));
+    const facts: OriginFacts = { ip, own: own.get(ip) ?? null, geo: geo.get(ip) ?? null, asn, githubActions: outside.includes(ip) && isRunner(ip) };
+    out.set(ip, { ...facts, label: describeOrigin(facts) });
   }
   return out;
+}
+
+/** Describe each address for one org. Lookups wait a few seconds at most on a cold start. */
+export async function describeOrigins(admin: SupabaseClient, orgId: string, ips: string[]): Promise<Map<string, string>> {
+  const detailed = await describeOriginsDetailed(admin, orgId, ips);
+  return new Map([...detailed].map(([ip, o]) => [ip, o.label]));
+}
+
+/** The deploy key's comment from a login's evidence, when the daemon marked the key automation. */
+export function deployKeyOf(evidence?: Record<string, unknown> | null): string | null {
+  if (evidence?.key_kind !== "automation") return null;
+  const c = typeof evidence.key_comment === "string" ? evidence.key_comment.trim() : "";
+  return c || null;
+}
+
+/** Whether an origin line marks known automation (never paged). */
+export function isKnownAutomationOrigin(origin: string | null): boolean {
+  return !!origin && origin.endsWith(KNOWN_AUTOMATION);
 }

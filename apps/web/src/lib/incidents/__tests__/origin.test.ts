@@ -15,6 +15,11 @@ vi.mock("@/lib/geoip", async (orig) => {
   };
 });
 
+// 172.182.202.193: a real GitHub Actions runner that deployed watchnews.now to dev2 (2026-11-02).
+vi.mock("@/lib/github-actions-ranges", () => ({
+  githubActionsChecker: vi.fn(async () => (ip: string) => ip.startsWith("172.182.")),
+}));
+
 import { describeOrigin, describeOrigins, detectionSourceIp } from "../origin";
 import { raiseDetectionIncidents } from "../store";
 import { buildPage } from "../notify";
@@ -165,5 +170,52 @@ describe("SSH logins and attempts page again (2026-11-02: 1,246 raises, one page
   it("does not page other high detections", async () => {
     const out = await raiseDetectionIncidents(setup() as never, [det("a", "91.240.118.9", "sudo-abuse", "high")], servers);
     expect(out).toHaveLength(0);
+  });
+});
+
+describe("GitHub Actions deploys are known automation (2026-11-02: Microsoft IPs on dev2 were our own deploys)", () => {
+  const RUNNER = "172.182.202.193";
+  const DEPLOY_KEY = "github-actions-deploy@profullstack/watchnews.now-2026-10-28";
+  const servers = new Map([["s2", { fleet_id: null, name: "dev2.profullstack.com" }]]);
+  const login = (id: string, ip: string, evidence: Record<string, unknown>) => ({
+    det: {
+      id, organization_id: ORG, server_id: "s2", severity: "critical" as const, title: "SSH Login Accepted",
+      description: null, source_ip: ip, rule_id: "ssh-success-after-failures", detected_at: new Date().toISOString(),
+    },
+    row: { id, username: "anthony", raw_metadata: { evidence: { message: "SSH login accepted for anthony", source_ip: ip, ...evidence } } },
+  });
+  const raise = async (...ls: ReturnType<typeof login>[]) => {
+    const db = fakeDb({ servers: [], detections: ls.map((l) => l.row) });
+    return raiseDetectionIncidents(db as never, ls.map((l) => l.det), servers);
+  };
+
+  it("needs both a GitHub runner address and a deploy key", () => {
+    expect(describeOrigin({ ip: RUNNER, githubActions: true, deployKey: DEPLOY_KEY }))
+      .toBe(`From ${RUNNER}, a GitHub Actions runner deploying with the key "${DEPLOY_KEY}", known automation, not paged`);
+    expect(describeOrigin({ ip: RUNNER, githubActions: true }))
+      .toBe(`From ${RUNNER} (a GitHub Actions runner, but the key is not a known deploy key), NOT one of your servers`);
+    expect(describeOrigin({ ip: "91.240.118.9", githubActions: false, deployKey: DEPLOY_KEY })).toContain("NOT one of your servers");
+  });
+
+  it("does not page a deploy key from a GitHub runner", async () => {
+    const [o] = await raise(login("a", RUNNER, { key_kind: "automation", key_comment: DEPLOY_KEY, fingerprint: "SHA256:C/U4kJ3k" }));
+    expect(o.page).toBe(false);
+    expect(o.incident.summary).toContain("known automation, not paged");
+  });
+
+  it("pages a person's key from a GitHub runner (stolen-key pattern)", async () => {
+    const [o] = await raise(login("a", RUNNER, { key_kind: "person", key_comment: "anthony@laptop" }));
+    expect(o.page).toBe(true);
+    expect(o.incident.summary).toContain("not a known deploy key");
+  });
+
+  it("pages a runner login from an old daemon that sends no key comment", async () => {
+    const [o] = await raise(login("a", RUNNER, { fingerprint: "SHA256:C/U4kJ3k" }));
+    expect(o.page).toBe(true);
+  });
+
+  it("pages a deploy key used from outside GitHub's runner ranges", async () => {
+    const [o] = await raise(login("a", "91.240.118.9", { key_kind: "automation", key_comment: DEPLOY_KEY }));
+    expect(o.page).toBe(true);
   });
 });
