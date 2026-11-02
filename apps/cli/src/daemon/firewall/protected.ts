@@ -15,6 +15,12 @@ export const DEFAULT_PROTECTED: string[] = [
   '172.16.0.0/12',
   '192.168.0.0/16',
   '169.254.0.0/16',
+  // RFC 6598 shared address space. Never routed on the public internet, so a
+  // source here is a tailnet peer (Tailscale hands out 100.64.0.0/10) or the
+  // carrier's own NAT, not an attacker. 2026-11-02: dev3's port-scan detector
+  // banned a Tailscale peer four times for dialling several c0mpute ports.
+  // Tailscale's IPv6 range (fd7a:115c:a1e0::/48) is already inside fc00::/7.
+  '100.64.0.0/10',
   'fc00::/7',
   'fe80::/10',
 ];
