@@ -111,3 +111,51 @@ describe("root SSH login page", () => {
     expect(sms.length).toBeLessThanOrEqual(320);
   });
 });
+
+describe("SSH logins and attempts page again (2026-11-02: 1,246 raises, one page)", () => {
+  const det = (id: string, ip: string, rule = "ssh-success-after-failures", severity: "critical" | "high" = "critical") => ({
+    id, organization_id: ORG, server_id: "s2", severity, title: rule === "ssh-success-after-failures" ? "SSH Login Accepted" : "SSH User Enumeration",
+    description: null, source_ip: ip, rule_id: rule, detected_at: new Date().toISOString(),
+  });
+  const servers = new Map([["s2", { fleet_id: null, name: "dev2.profullstack.com" }]]);
+  const setup = () => fakeDb({ servers: [{ org_id: ORG, name: "dev3.profullstack.com", public_ip: "45.79.1.2" }], detections: [] });
+  const notifiedAgo = (db: ReturnType<typeof setup>, ms: number) => {
+    for (const r of db.tables.incidents) r.last_notified_at = new Date(Date.now() - ms).toISOString();
+  };
+
+  it("pages a new outside address on an open incident once the 15-minute window passed", async () => {
+    const db = setup();
+    const [first] = await raiseDetectionIncidents(db as never, [det("a", "91.240.118.9")], servers);
+    expect(first.page).toBe(true);
+    notifiedAgo(db, 0);
+    const [quiet] = await raiseDetectionIncidents(db as never, [det("b", "20.171.2.194")], servers);
+    expect(quiet.page).toBe(false);
+    notifiedAgo(db, 16 * 60_000);
+    const [again] = await raiseDetectionIncidents(db as never, [det("c", "20.171.2.194")], servers);
+    expect(again.page).toBe(true);
+    expect(again.incident.id).toBe(first.incident.id);
+    expect(again.incident.summary).toContain("From 20.171.2.194 in Des Moines");
+  });
+
+  it("never re-pages a login from one of our own servers", async () => {
+    const db = setup();
+    const [first] = await raiseDetectionIncidents(db as never, [det("a", "45.79.1.2")], servers);
+    expect(first.page).toBe(true);
+    notifiedAgo(db, 60 * 60_000);
+    const [again] = await raiseDetectionIncidents(db as never, [det("b", "45.79.1.2")], servers);
+    expect(again.page).toBe(false);
+  });
+
+  it("pages failed-attempt rules at high, with where they came from", async () => {
+    const [o] = await raiseDetectionIncidents(setup() as never, [det("a", "91.240.118.9", "ssh-user-enumeration", "high")], servers);
+    expect(o.page).toBe(true);
+    expect(o.incident.severity).toBe("high");
+    expect(buildPage({ ...o.incident, findings_count: 1 } as never, "profullstack").sms)
+      .toContain("[ThreatCrush HIGH] SSH User Enumeration on dev2.profullstack.com: From 91.240.118.9 (OOO Network, AS49505), NOT one of your servers");
+  });
+
+  it("does not page other high detections", async () => {
+    const out = await raiseDetectionIncidents(setup() as never, [det("a", "91.240.118.9", "sudo-abuse", "high")], servers);
+    expect(out).toHaveLength(0);
+  });
+});

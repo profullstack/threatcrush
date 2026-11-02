@@ -866,7 +866,34 @@ export async function saveIncidentAiTriage(
   return { incident: data as IncidentRow };
 }
 
-/** A critical detection from ingest becomes (or bumps) an incident for the server's team. */
+/**
+ * Failed SSH attempts page too, not only critical detections (Anthony,
+ * 2026-11-02: "let's enable attempt notifications until its too much"). They
+ * keep their own severity (high), which still texts and rings.
+ */
+export const PAGED_ATTEMPT_RULES: ReadonlySet<string> = new Set(["ssh-brute-force", "ssh-user-enumeration", "ssh-root-login"]);
+
+/** Whether an ingested detection becomes an incident that pages. */
+export function isPagedDetection(d: { severity: string; rule_id: string | null }): boolean {
+  return d.severity === "critical" || (!!d.rule_id && PAGED_ATTEMPT_RULES.has(d.rule_id));
+}
+
+/**
+ * An open detection incident pages once when it opens. Without more, every
+ * later login or attempt only bumped raise_count: dev2's "SSH Login Accepted"
+ * was raised 1,246 times over five days and paged once. It now pages again
+ * when the newest event comes from an outside address (not one of the org's
+ * servers, not private), at most once per this window, so the call names
+ * where the latest one came from.
+ */
+export const REPAGE_MS = 15 * 60 * 1000;
+
+/** Whether an origin line names an address outside the org (worth a fresh page). */
+export function isOutsideOrigin(origin: string | null): boolean {
+  return !!origin && !/one of your own servers|a private or local address/.test(origin);
+}
+
+/** A paged detection from ingest becomes (or bumps) an incident for the server's team. */
 export interface CriticalDetection {
   id: string;
   organization_id: string;
@@ -890,7 +917,7 @@ export async function raiseDetectionIncidents(
   // raw_metadata.evidence. Without it an incident could only repeat the rule's
   // description ("a critical log message"), which is what got paged.
   const evidence = new Map<string, Record<string, unknown> & { message?: string; at?: string; module?: string }>();
-  const ids = detections.filter((d) => d.severity === "critical").map((d) => d.id);
+  const ids = detections.filter(isPagedDetection).map((d) => d.id);
   if (ids.length) {
     const { data } = await admin.from("detections").select("id, username, raw_metadata").in("id", ids);
     for (const r of (data ?? []) as Array<{
@@ -908,7 +935,7 @@ export async function raiseDetectionIncidents(
   const sourceOf = new Map<string, string>();
   const ipsByOrg = new Map<string, string[]>();
   for (const d of detections) {
-    if (d.severity !== "critical") continue;
+    if (!isPagedDetection(d)) continue;
     const ip = detectionSourceIp(d.source_ip, evidence.get(d.id));
     if (!ip) continue;
     sourceOf.set(d.id, ip);
@@ -919,7 +946,7 @@ export async function raiseDetectionIncidents(
     originByOrg.set(orgId, await describeOrigins(admin, orgId, ips).catch(() => new Map<string, string>()));
   }
   for (const d of detections) {
-    if (d.severity !== "critical") continue;
+    if (!isPagedDetection(d)) continue;
     try {
       const server = servers.get(d.server_id);
       let teamId: string | null = null;
@@ -950,8 +977,8 @@ export async function raiseDetectionIncidents(
       const summaryAccounts = accountLines.filter((entry) => entry.startsWith("Target account:") || entry.startsWith("System account"));
       const summary = [origin, ...summaryAccounts, line ?? d.title].filter(Boolean).join(" — ").slice(0, 1000);
       const details = [line, origin, d.description, ...accountLines].filter(Boolean).join("\n\n").slice(0, 4000);
-      out.push(
-        await upsertIncident(
+      const severity: Severity = d.severity === "critical" ? "critical" : "high";
+      const outcome = await upsertIncident(
           admin,
           d.organization_id,
           teamId,
@@ -959,19 +986,23 @@ export async function raiseDetectionIncidents(
             team_id: teamId,
             server_id: d.server_id,
             title: d.title.slice(0, 300),
-            severity: "critical",
+            severity,
             source: "daemon",
             dedupe_key: key,
             summary: [summary, d.description].filter(Boolean).join("\n\n").slice(0, 4000),
             verdict: null,
             host: server?.name ?? null,
-            findings: [{ id: `detection:${d.rule_id || d.title}`.slice(0, 120), module: "daemon", severity: "critical", title: d.title.slice(0, 300), ...(details ? { detail: details } : {}), evidence: "evidence", at }],
+            findings: [{ id: `detection:${d.rule_id || d.title}`.slice(0, 120), module: "daemon", severity, title: d.title.slice(0, 300), ...(details ? { detail: details } : {}), evidence: "evidence", at }],
             timeline: [{ at, module: "daemon", summary, evidence: true, ref: `detection:${d.id}` }],
             recommendations: [],
           },
           { userId: null, agentKeyId: null },
-        ),
       );
+      if (!outcome.page && isOutsideOrigin(origin)) {
+        const last = outcome.incident.last_notified_at ? Date.parse(outcome.incident.last_notified_at) : 0;
+        if (!Number.isFinite(last) || Date.now() - last >= REPAGE_MS) outcome.page = true;
+      }
+      out.push(outcome);
     } catch (err) {
       console.error(`[incidents] detection ${d.id} -> incident failed:`, (err as Error).message);
     }
