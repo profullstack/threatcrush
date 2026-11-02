@@ -26,6 +26,7 @@
     "@sentry/node": "^11.9.0",
     "@supabase/supabase-js": "^2.118.0",
     "@threatcrush/attack-map": "workspace:*",
+    "@threatcrush/av": "workspace:*",
     "@threatcrush/scan": "workspace:*",
     "mmdb-lib": "^3.0.3",
     "next": "16.4.3",

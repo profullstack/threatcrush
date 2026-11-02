@@ -5,6 +5,9 @@ import { hostname } from 'os'
 import { DaemonClient, resolveDaemonPaths } from './daemon-client'
 import { CloudClient } from './cloud'
 import { fileSessionStore } from './session-store'
+import { registerAvHandlers, stopAv } from './av'
+
+registerAvHandlers()
 
 let daemon: DaemonClient | null = null
 let daemonUnsub: (() => void) | null = null
@@ -233,6 +236,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  stopAv()
   if (daemon) {
     try { daemon.close() } catch {}
     daemon = null

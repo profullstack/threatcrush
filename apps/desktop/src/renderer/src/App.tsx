@@ -6,6 +6,7 @@ import Monitor from './pages/Monitor'
 import Modules from './pages/Modules'
 import Settings from './pages/Settings'
 import Findings from './pages/Findings'
+import VirusScan from './pages/VirusScan'
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
             <Route path="/monitor" element={<Monitor />} />
             <Route path="/modules" element={<Modules />} />
             <Route path="/findings" element={<Findings />} />
+            <Route path="/antivirus" element={<VirusScan />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

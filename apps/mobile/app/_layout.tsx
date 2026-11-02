@@ -36,6 +36,7 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: theme.bg } }}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="login" />
+          <Stack.Screen name="antivirus" options={{ headerShown: true, title: 'Virus scan', headerStyle: { backgroundColor: theme.bg }, headerTintColor: theme.text }} />
         </Stack>
       )}
     </SafeAreaProvider>

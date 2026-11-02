@@ -1,4 +1,6 @@
 import { after, NextResponse, type NextRequest } from "next/server";
+import { LOOKUP_BATCH, SHA256_RE } from "@threatcrush/av";
+import { lookupReputations } from "@/lib/av-reputation";
 import { takeLookupShared } from "@/lib/reputation";
 import { reputationCaller, type ReputationCaller } from "@/lib/reputation-auth";
 import { lookupIndicator, parseIndicator } from "@/lib/reputation-service";
@@ -36,6 +38,16 @@ const PROTOCOL = "2025-06-18";
 const MAX_BULK = { free: 100, pro: 1000 } as const;
 
 const TOOLS = [
+  {
+    name: "av_hash_lookup",
+    description:
+      "CrushAV file reputation, no key needed: look up up to 100 SHA-256 file hashes. For each hash something is known about, returns `knownMalicious` (the source listing it as malware), `malwareName`, `trust` (0-100: how sure CIRCL hashlookup is that this is a published, known-good file from NSRL or a major OS/package repo) and a `fileName` it was seen as. Unknown hashes are omitted. Send hashes only, never file contents.",
+    inputSchema: {
+      type: "object",
+      properties: { hashes: { type: "array", items: { type: "string" }, description: "Lower-case hex SHA-256 hashes (max 100)" } },
+      required: ["hashes"],
+    },
+  },
   {
     name: "reputation_lookup",
     description:
@@ -403,7 +415,7 @@ async function handle(req: NextRequest, msg: Rpc) {
         capabilities: { tools: {} },
         serverInfo: { name: "ThreatCrush", version: "0.13" },
         instructions:
-          "IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), incidents raised to your team with host/time filtering, linked event and block context, saved AI triage and fix tracking (incidents_list, incidents_get, incidents_update, incidents_raise), and your org's webhook endpoints (webhooks_list, webhooks_create, webhooks_update, webhooks_delete, webhooks_test, webhooks_rotate_secret, webhooks_deliveries). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
+          "CrushAV file-hash reputation with no key (av_hash_lookup), IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), incidents raised to your team with host/time filtering, linked event and block context, saved AI triage and fix tracking (incidents_list, incidents_get, incidents_update, incidents_raise), and your org's webhook endpoints (webhooks_list, webhooks_create, webhooks_update, webhooks_delete, webhooks_test, webhooks_rotate_secret, webhooks_deliveries). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
       });
     case "notifications/initialized":
       return null;
@@ -413,6 +425,16 @@ async function handle(req: NextRequest, msg: Rpc) {
       return ok(id, { tools: TOOLS });
     case "tools/call": {
       const toolName = String(msg.params?.name ?? "");
+      if (toolName === "av_hash_lookup") {
+        const args = (msg.params?.arguments as Record<string, unknown>) ?? {};
+        const hashes = [
+          ...new Set((Array.isArray(args.hashes) ? args.hashes : []).map((h) => String(h).trim().toLowerCase()).filter((h) => SHA256_RE.test(h))),
+        ];
+        if (!hashes.length) return ok(id, text("hashes must be a non-empty array of SHA-256 hex strings", true));
+        if (hashes.length > LOOKUP_BATCH) return ok(id, text(`At most ${LOOKUP_BATCH} hashes per call.`, true));
+        const found = await lookupReputations(hashes);
+        return ok(id, text({ checked: hashes.length, known: found.size, results: Object.fromEntries(found) }));
+      }
       if (FINDING_TOOLS.has(toolName)) {
         return ok(id, await callFindingsTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
       }

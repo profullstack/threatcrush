@@ -20,6 +20,7 @@ import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { modulesCommand } from "./commands/modules.js";
 import { pentestCommand } from "./commands/pentest.js";
+import { avQuarantineCommand, avScanCommand, avStatusCommand, avTestCommand, avWatchCommand } from "./commands/av.js";
 import { aiScanCommand, aiScanMoshCommand } from "./commands/ai-scan.js";
 import { orgsCommand } from "./commands/orgs.js";
 import { invitesCommand, redeemCommand } from "./commands/credits.js";
@@ -627,6 +628,50 @@ program
       await uploadResult(result, { source: "scan", target: repo.target, kind: "repo", scope, upload: opts.upload, machineReadable: format !== "text" });
     }
   });
+
+// ─── CrushAV: free open-source antivirus for your own computer ───
+
+const av = program
+  .command("av")
+  .alias("antivirus")
+  .description("CrushAV: free open-source antivirus (heuristics + ClamAV + hash reputation), Windows/macOS/Linux");
+
+av.command("scan")
+  .description("Scan files or folders for malware; no paths = quick scan of downloads, desktop, temp and startup items")
+  .argument("[paths...]", "files or folders to scan")
+  .option("--full", "scan the whole home folder plus system startup and temp locations")
+  .option("--no-clamav", "do not use ClamAV even when it is installed")
+  .option("--require-clamav", "fail if ClamAV is not installed")
+  .option("--offline", "do not send file hashes to threatcrush.com for reputation lookups")
+  .option("--quarantine", "move malware into quarantine (reversible with `av quarantine restore`)")
+  .option("--max-size <mb>", "skip files larger than this many MB (default 1024)")
+  .option("--json", "emit JSON")
+  .action(async (paths: string[], opts) => {
+    await avScanCommand(paths, opts);
+  });
+
+av.command("watch")
+  .description("Real-time protection: scan new and changed files as they land (default: downloads, desktop, temp, startup)")
+  .argument("[paths...]", "folders to watch instead of the defaults")
+  .option("--quarantine", "quarantine malware the moment it is detected")
+  .option("--offline", "do not send file hashes to threatcrush.com")
+  .option("--json", "one JSON line per scanned file")
+  .action(async (paths: string[], opts) => avWatchCommand(paths, opts));
+
+av.command("status")
+  .description("Show engines (ClamAV version, rule count), reputation endpoint and quarantine")
+  .option("--json", "emit JSON")
+  .action(async (opts) => avStatusCommand(opts));
+
+av.command("quarantine [action] [id]")
+  .description("list | add <file> | restore <id> | delete <id>")
+  .option("--to <path>", "restore to this path instead of the original location")
+  .option("--json", "emit JSON")
+  .action(async (action: string | undefined, id: string | undefined, opts) => avQuarantineCommand(action, id, opts));
+
+av.command("test")
+  .description("Check the scanner works using the harmless EICAR test file (in memory, nothing written)")
+  .action(async () => avTestCommand());
 
 program
   .command("pentest")

@@ -37,6 +37,7 @@
   },
   "devDependencies": {
     "@threatcrush/attack-map": "workspace:*",
+    "@threatcrush/av": "workspace:*",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@types/react": "^19.3.0",
