@@ -64,13 +64,13 @@ describe('ipMatches', () => {
 
 describe('isProtected with the built-in set', () => {
   it('protects loopback, private ranges and link-local', () => {
-    for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.0.5', '172.20.0.1', '169.254.1.1', '::1', 'fe80::1']) {
+    for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.0.5', '172.20.0.1', '169.254.1.1', '::1', 'fe80::1', '100.114.250.26', '100.64.0.1', '100.127.255.254', 'fd7a:115c:a1e0::1']) {
       expect(isProtected(ip, DEFAULT_PROTECTED), ip).toBe(true);
     }
   });
 
   it('leaves public addresses bannable', () => {
-    for (const ip of ['45.33.22.11', '185.220.101.44', '2001:db8::1']) {
+    for (const ip of ['45.33.22.11', '185.220.101.44', '2001:db8::1', '100.63.255.255', '100.128.0.1']) {
       expect(isProtected(ip, DEFAULT_PROTECTED), ip).toBe(false);
     }
   });
