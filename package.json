@@ -1,7 +1,7 @@
 {
   "name": "threatcrush",
   "packageManager": "pnpm@10.33.0",
-  "version": "0.7.63",
+  "version": "0.7.64",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @profullstack/threatcrush-web dev",
