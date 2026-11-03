@@ -498,11 +498,12 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
           <div key={f.detection_id} className="mb-3 rounded border border-zinc-800 p-3 text-sm">
             <p className="mb-3 text-amber-300">{f.attribution}</p>
             <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {Object.entries({ "Observed at": f.at, "Remote address": f.source_ip, "Address evidence": f.source_ip_basis, "Target account": f.target_account, "Logging account": f.logging_account ?? f.logging_uid, "Process / PID": [f.process, f.pid].filter(Boolean).join(" / ") || null, "Service": f.unit, "SSH key fingerprint": f.key_fingerprint, "Recorded command": f.command, "Journal boot": f.boot_id, "Journal cursor": f.journal_cursor }).map(([label, value]) => (
+              {Object.entries({ "Observed at": f.at, "Remote address": f.source_ip, "Remote source port": f.remote_port, "Address evidence": f.source_ip_basis, "Target account": f.target_account, "Logging account": f.logging_account ?? f.logging_uid, "Process / PID": [f.process, f.pid].filter(Boolean).join(" / ") || null, "Service": f.unit, "SSH key fingerprint": f.key_fingerprint, "Recorded command": f.command, "Journal boot": f.boot_id, "Journal cursor": f.journal_cursor }).map(([label, value]) => (
                 <div key={label} className="min-w-0"><dt className="text-zinc-500">{label}</dt><dd className="break-all text-zinc-200">{value || "Not captured"}</dd></div>
               ))}
             </dl>
             {f.message && <pre className="mt-3 whitespace-pre-wrap break-all text-xs text-zinc-300">{f.message}</pre>}
+            {f.remote_port && <p className="mt-1 text-xs text-zinc-500">&quot;port {f.remote_port}&quot; in this line is the remote client&apos;s own source port, picked at random by their machine. It is not a port on your server; the connection came in on your SSH port.</p>}
             <p className="mt-2 break-all text-xs text-zinc-500">Evidence: {f.detection_id} · rule {f.rule_id ?? "unknown"}</p>
             <h3 className="mb-1 mt-4 font-medium text-white">Investigation and remediation</h3>
             <ol className="list-decimal space-y-1 pl-5 text-zinc-400">{f.next_steps.map((step) => <li key={step}>{step}</li>)}</ol>
