@@ -81,7 +81,15 @@ export const DEFAULT_RULES: DetectionRule[] = [
       operator: 'regex',
       // Attempts only. Matching `accepted` here meant a successful root login
       // banned the administrator who had just made it.
-      value: 'failed.*\\broot\\b',
+      //
+      // Anchored to the start of an sshd failure ("Failed SSH login for root
+      // from …" from classifySshAuth, or a raw "[sshd] Failed password for
+      // root …" journal line). Unanchored, `failed.*\broot\b` matched any auth
+      // event that said "failed" anywhere before "root": privilege-watch logs
+      // every sudo as "sudo: <user> ran <command> as root", so a backup script
+      // whose text read "the copy failed its integrity check" paged a
+      // high-severity "Root SSH Login Attempt" against the admin's own account.
+      value: '^(?:\\[[^\\]]*\\] )?failed (?:ssh login|password|publickey|keyboard-interactive\\S*|none) for (?:invalid user )?root\\b',
     },
     threshold: 1,
     window_seconds: 60,
