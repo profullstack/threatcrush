@@ -10,13 +10,22 @@ export function forensicEvidence(d: DetectionEvidence) {
   const ev = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   const text = (v: unknown, max = 200) => typeof v === "string" || typeof v === "number" ? String(v).slice(0, max) : null;
   const message = text(ev.message, 500);
-  const preauth = !!message && /\[preauth\]/i.test(message);
+  // sshd names the *client's* address and source port ("from|by <ip> port N"):
+  // a random port on the remote machine, not a port on this server.
+  const remotePort = message?.match(/\b(?:from|by)\s+(?:(?:authenticating|invalid)\s+user\s+\S+\s+)?\S+\s+port\s+(\d{1,5})\b/i)?.[1] ?? null;
+  // Newer OpenSSH drops the [preauth] tag; a close/reset with no user named
+  // still happened before any authentication attempt.
+  const preauth = !!message && (
+    /\[preauth\]/i.test(message)
+    || /\b(?:Connection (?:closed|reset) by|Disconnected from)\s+(?!authenticating user|invalid user|user\s)\S+\s+port\s+\d+/i.test(message)
+  );
   const acceptedSshLogin = ev.module === "ssh-guard" && !!message && /^SSH login accepted for\s+/i.test(message);
   return {
     detection_id: d.id, server_id: d.server_id, rule_id: d.rule_id, at: text(ev.at) ?? d.detected_at,
     source_ip: text(d.source_ip) ?? text(ev.source_ip), source_ip_basis: text(ev.source_ip_basis), target_account: text(detectionUsername(d)),
     logging_account: text(ev.system_account), logging_uid: text(ev.system_uid), process: text(ev.process), pid: text(ev.pid),
     unit: text(ev.unit), boot_id: text(ev.boot_id), journal_cursor: text(ev.journal_cursor, 300),
+    remote_port: remotePort,
     auth_method: text(ev.auth_method), key_fingerprint: text(ev.fingerprint), command: text(ev.command), message,
     attribution: preauth
       ? "This record occurred before authentication. It does not establish a successful login, an executed command, or the identity of a person."
