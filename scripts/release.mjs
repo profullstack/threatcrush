@@ -183,6 +183,8 @@ function main() {
     'packages/scan/package.json',
     // Also bundled into the CLI (the TUI attack map).
     'packages/attack-map/package.json',
+    // CrushAV engine, bundled into the CLI and the desktop app.
+    'packages/av/package.json',
     'apps/desktop/package.json',
     'apps/mobile/package.json',
     'apps/extension/package.json',

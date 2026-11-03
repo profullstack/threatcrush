@@ -62,6 +62,25 @@ const api = {
     triage: (ids: string[], status: string | null, note?: string) => ipcRenderer.invoke('cloud-triage', ids, status, note),
   },
 
+  /** CrushAV: free antivirus. The engine runs in the main process. */
+  av: {
+    status: () => ipcRenderer.invoke('av-status'),
+    pick: () => ipcRenderer.invoke('av-pick'),
+    scan: (mode: 'quick' | 'full' | 'paths', paths?: string[], offline?: boolean) => ipcRenderer.invoke('av-scan', mode, paths, offline),
+    cancel: () => ipcRenderer.invoke('av-cancel'),
+    quarantine: (path: string) => ipcRenderer.invoke('av-quarantine', path),
+    quarantineList: () => ipcRenderer.invoke('av-quarantine-list'),
+    restore: (id: string) => ipcRenderer.invoke('av-restore', id),
+    remove: (id: string) => ipcRenderer.invoke('av-delete', id),
+    reveal: (path: string) => ipcRenderer.invoke('av-reveal', path),
+    watch: (on: boolean, offline?: boolean) => ipcRenderer.invoke('av-watch', on, offline),
+    onEvent: (callback: (event: unknown) => void): (() => void) => {
+      const handler = (_: unknown, data: unknown): void => callback(data)
+      ipcRenderer.on('av-event', handler)
+      return () => ipcRenderer.removeListener('av-event', handler)
+    },
+  },
+
   /** Subscribe to pushed frames from the daemon (events, module status, etc.) */
   onEvent: (callback: (event: unknown) => void): (() => void) => {
     const handler = (_: unknown, data: unknown): void => callback(data)

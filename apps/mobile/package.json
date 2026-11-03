@@ -19,6 +19,7 @@
     "expo": "~52.0.0",
     "expo-constants": "~17.0.0",
     "expo-dev-client": "~5.0.0",
+    "expo-file-system": "~18.0.12",
     "expo-font": "~13.0.0",
     "expo-linking": "~7.0.0",
     "expo-notifications": "~0.29.14",
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@threatcrush/attack-map": "workspace:*",
+    "@threatcrush/av": "workspace:*",
     "@babel/core": "^7.25.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

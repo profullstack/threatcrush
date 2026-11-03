@@ -54,6 +54,7 @@
   },
   "devDependencies": {
     "@threatcrush/attack-map": "workspace:*",
+    "@threatcrush/av": "workspace:*",
     "@threatcrush/scan": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",

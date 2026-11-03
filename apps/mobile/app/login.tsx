@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
-import { Redirect } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { config, theme } from '../src/config';
 import { ApiError } from '../src/lib/api';
@@ -88,6 +88,11 @@ export default function LoginScreen() {
             <Text style={styles.dim}>No account? Accounts are created on the web.</Text>
             <LinkText label="Create an account" url={`${config.apiUrl}/auth/signup`} />
             <LinkText label="Forgot password" url={`${config.apiUrl}/auth/login`} />
+          </View>
+
+          <View style={{ gap: 8, marginTop: 24 }}>
+            <Text style={styles.dim}>Just want to check your phone for malware? No account needed.</Text>
+            <Button label="Free virus scan" variant="outline" onPress={() => router.push('/antivirus')} />
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

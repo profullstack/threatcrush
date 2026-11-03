@@ -17,6 +17,51 @@ export interface CloudFinding {
   details?: Record<string, unknown>
 }
 
+export interface AvDetectionView {
+  engine: string
+  id: string
+  name: string
+  severity: string
+  impact: 'malicious' | 'suspicious' | 'info'
+  description: string
+}
+export interface AvFileView {
+  path: string
+  size: number
+  sha256: string | null
+  kind: string
+  verdict: 'clean' | 'suspicious' | 'malicious' | 'error'
+  detections: AvDetectionView[]
+  note?: string
+}
+export interface AvStatus {
+  rules: number
+  clamav: { available: boolean; version: string | null; mode: string | null; signaturesDate: string | null }
+  clamavHint: string
+  quarantined: number
+  watching: boolean
+  quickTargets: string[]
+}
+export interface AvScanResult {
+  summary: { scanned: number; malicious: number; suspicious: number; errors: number; skipped: number; engines: string[] }
+  flagged: AvFileView[]
+  clamavError: string | null
+  cancelled: boolean
+}
+export interface AvQuarantineEntry {
+  id: string
+  originalPath: string
+  sha256: string
+  size: number
+  detections: Array<{ name: string; id: string }>
+  quarantinedAt: string
+}
+export type AvEvent =
+  | { type: 'phase'; phase: string; detail?: string }
+  | { type: 'progress'; scanned: number; path: string }
+  | { type: 'hit'; result: AvFileView }
+  | { type: 'watch'; result: AvFileView }
+
 export type ConnectResult = {
   connected: boolean
   pid?: number
@@ -37,6 +82,19 @@ declare global {
       ): Promise<{ ok: true; result: T } | { ok: false; error: string }>
       /** Pushed frames: { type: 'event' | 'module' | 'connected', data }. */
       onEvent(callback: (frame: unknown) => void): () => void
+      av: {
+        status(): Promise<Res<AvStatus>>
+        pick(): Promise<Res<string[]>>
+        scan(mode: 'quick' | 'full' | 'paths', paths?: string[], offline?: boolean): Promise<Res<AvScanResult>>
+        cancel(): Promise<Res<void>>
+        quarantine(path: string): Promise<Res<AvQuarantineEntry>>
+        quarantineList(): Promise<Res<AvQuarantineEntry[]>>
+        restore(id: string): Promise<Res<string>>
+        remove(id: string): Promise<Res<void>>
+        reveal(path: string): Promise<Res<void>>
+        watch(on: boolean, offline?: boolean): Promise<Res<{ watching: boolean }>>
+        onEvent(callback: (event: AvEvent) => void): () => void
+      }
       cloud: {
         status(): Promise<Res<{ signedIn: boolean; email?: string; org_slug?: string; api: string }>>
         login(): Promise<Res<{ user_code: string; verification_url: string }>>

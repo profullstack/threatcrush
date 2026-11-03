@@ -2,6 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@/lib/reputation-auth", () => ({ reputationCaller: vi.fn().mockResolvedValue(null) }));
 vi.mock("@/lib/feed-auth", () => ({ feedPrincipal: vi.fn().mockResolvedValue(null) }));
+vi.mock("@/lib/av-reputation", () => ({
+  lookupReputations: vi.fn(async (hashes: string[]) =>
+    new Map(hashes.map((h) => [h, { sha256: h, knownMalicious: "malshare.com", malwareName: null, trust: 0, fileName: "eicar.com" }])),
+  ),
+}));
 
 import { POST } from "@/app/api/mcp/route";
 
@@ -19,7 +24,20 @@ describe("/api/mcp", () => {
     const init = await (await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).json();
     expect(init.result.serverInfo.name).toBe("ThreatCrush");
     const list = await (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
-    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite", "findings_list", "findings_get", "findings_triage", "incidents_list", "incidents_get", "incidents_update", "incidents_raise", "webhooks_list", "webhooks_create", "webhooks_update", "webhooks_delete", "webhooks_test", "webhooks_rotate_secret", "webhooks_deliveries"]);
+    expect(list.result.tools.map((t: { name: string }) => t.name)).toEqual(["av_hash_lookup", "reputation_lookup", "reputation_bulk", "redeem_credit_code", "list_invites", "create_invite", "findings_list", "findings_get", "findings_triage", "incidents_list", "incidents_get", "incidents_update", "incidents_raise", "webhooks_list", "webhooks_create", "webhooks_update", "webhooks_delete", "webhooks_test", "webhooks_rotate_secret", "webhooks_deliveries"]);
+  });
+
+  it("av_hash_lookup answers without a key", async () => {
+    const h = "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f";
+    const res = await (
+      await call({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "av_hash_lookup", arguments: { hashes: [h.toUpperCase(), "nope"] } } })
+    ).json();
+    expect(res.result.isError).toBeUndefined();
+    const body = JSON.parse(res.result.content[0].text);
+    expect(body).toMatchObject({ checked: 1, known: 1 });
+    expect(body.results[h].knownMalicious).toBe("malshare.com");
+    const bad = await (await call({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "av_hash_lookup", arguments: { hashes: [] } } })).json();
+    expect(bad.result.isError).toBe(true);
   });
 
   it("a tool call without a key is a tool error the model can read", async () => {

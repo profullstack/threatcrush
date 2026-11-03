@@ -58,6 +58,8 @@ const RATE_RULES: RateRule[] = [
   // and the homepage live map (polled every 5s while visible).
   { prefix: "/api/geo", limit: 30, windowMs: 60_000 },
   { prefix: "/api/attack-map/public", limit: 60, windowMs: 60_000 },
+  // Public CrushAV hash reputation; each call carries up to 100 hashes, each a CIRCL request on a cache miss.
+  { prefix: "/api/av/lookup", limit: 30, windowMs: 60_000 },
   { prefix: "/api/", limit: 300, windowMs: 60_000 },
 ];
 
