@@ -198,6 +198,26 @@ export class CloudClient {
     return this.call(`/api/orgs/${this.orgId()}/scan-findings?${qs}`)
   }
 
+  /** The org's servers (the fleet), as `threatcrush servers` lists them. */
+  async servers(): Promise<unknown> {
+    return this.call(`/api/orgs/${this.orgId()}/servers`)
+  }
+
+  /** Attack map for every server the user can see (the web /dashboard map). */
+  async attackMap(windowMinutes = 60): Promise<unknown> {
+    const w = Number.isInteger(windowMinutes) && windowMinutes > 0 && windowMinutes <= 10_080 ? windowMinutes : 60
+    return this.call(`/api/attack-map?window=${w}`)
+  }
+
+  /** Newest detections across the fleet (or one server). */
+  async detections(q: { server_id?: string; since?: string; limit?: number } = {}): Promise<unknown> {
+    const limit = Number(q.limit)
+    const qs = new URLSearchParams({ limit: String(Number.isInteger(limit) && limit > 0 && limit <= 200 ? limit : 100) })
+    if (typeof q.server_id === 'string' && UUID.test(q.server_id)) qs.set('server_id', q.server_id)
+    if (typeof q.since === 'string' && !Number.isNaN(Date.parse(q.since))) qs.set('since', new Date(q.since).toISOString())
+    return this.call(`/api/orgs/${this.orgId()}/detections?${qs}`)
+  }
+
   async finding(id: string): Promise<unknown> {
     if (!UUID.test(id)) throw new Error('bad id')
     return this.call(`/api/orgs/${this.orgId()}/scan-findings/${id}`)

@@ -21,7 +21,7 @@ type ConnectResult = {
 type RequestResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string }
 
 const api = {
-  getVersion: (): string => '0.1.16',
+  getVersion: (): string => ipcRenderer.sendSync('app-version') as string,
 
   /**
    * Connect to a locally-running threatcrushd over its unix socket.
@@ -59,6 +59,9 @@ const api = {
     useOrg: (id: string, slug: string) => ipcRenderer.invoke('cloud-use-org', id, slug),
     findings: (q?: { status?: string; severity?: string; source?: string; offset?: number }) => ipcRenderer.invoke('cloud-findings', q),
     finding: (id: string) => ipcRenderer.invoke('cloud-finding', id),
+    servers: () => ipcRenderer.invoke('cloud-servers'),
+    attackMap: (windowMinutes?: number) => ipcRenderer.invoke('cloud-attack-map', windowMinutes),
+    detections: (q?: { server_id?: string; since?: string; limit?: number }) => ipcRenderer.invoke('cloud-detections', q),
     triage: (ids: string[], status: string | null, note?: string) => ipcRenderer.invoke('cloud-triage', ids, status, note),
   },
 

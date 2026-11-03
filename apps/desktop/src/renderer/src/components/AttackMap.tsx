@@ -4,7 +4,6 @@ import {
   type AttackOrigin,
   type Severity,
   MAP_ASPECT,
-  demoMapData,
   maxSeverity,
   severityColor,
   topCountries,
@@ -14,7 +13,8 @@ import { type AttackMapRenderer, type MapHit, createAttackMap } from '@threatcru
 /**
  * Where attacks on this machine come from, live: events from the local
  * threatcrushd (pushed over its socket), placed on the globe by
- * threatcrush.com/api/geo. With no daemon it shows the labelled demo map.
+ * threatcrush.com/api/geo. With no daemon it shows the signed-in fleet's map
+ * (threatcrush.com/api/attack-map), and with neither an empty, labelled map.
  */
 
 const API = 'https://threatcrush.com'
@@ -58,7 +58,8 @@ export default function AttackMap() {
   const geo = useRef(new Map<string, GeoPoint | null>())
   const self = useRef<GeoPoint | null>(null)
   const [data, setData] = useState<AttackMapData | null>(null)
-  const [live, setLive] = useState(false)
+  // What the map is showing: this machine's daemon, the signed-in fleet, or nothing.
+  const [mode, setMode] = useState<'loading' | 'local' | 'fleet' | 'none'>('loading')
   const [hover, setHover] = useState<{ hit: MapHit; x: number; y: number } | null>(null)
 
   useEffect(() => {
@@ -130,20 +131,40 @@ export default function AttackMap() {
       rendererRef.current?.setData(next)
     }
 
-    const showDemo = (): void => {
-      const demo = demoMapData()
-      setData(demo)
-      rendererRef.current?.setData(demo)
+    const show = (next: AttackMapData): void => {
+      setData(next)
+      rendererRef.current?.setData(next)
+    }
+    const empty = (): AttackMapData => ({ servers: [], origins: [], windowMinutes: 0, generatedAt: new Date().toISOString() })
+
+    // No local daemon: the signed-in fleet's map (same as the web dashboard), else empty.
+    const showFleet = async (): Promise<void> => {
+      const r = await api?.cloud.attackMap(60).catch(() => null)
+      if (stopped) return
+      if (r && r.ok) {
+        setMode('fleet')
+        show(r.result)
+      } else {
+        setMode('none')
+        show(empty())
+      }
     }
 
     let unsub: (() => void) | undefined
     let timer: ReturnType<typeof setInterval> | undefined
     ;(async () => {
-      if (!api) return showDemo()
+      if (!api) {
+        setMode('none')
+        return show(empty())
+      }
       const conn = await api.connectDaemon().catch(() => ({ connected: false }))
       if (stopped) return
-      if (!conn.connected) return showDemo()
-      setLive(true)
+      if (!conn.connected) {
+        await showFleet()
+        timer = setInterval(() => void showFleet(), 30_000)
+        return
+      }
+      setMode('local')
       const recent = await api.daemonRequest<DaemonEvent[]>('recent_events', { limit: 500 })
       if (recent.ok) recent.result.forEach(record)
       unsub = api.onEvent((frame) => {
@@ -172,9 +193,11 @@ export default function AttackMap() {
           <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
         </span>
         <span className="text-[10px] text-dim uppercase tracking-widest">Attack map</span>
-        {!live && (
-          <span className="rounded border border-warning/40 px-1 text-[9px] uppercase tracking-wider text-warning">
-            demo — start threatcrushd
+        {mode === 'local' && <span className="text-[9px] uppercase tracking-wider text-primary">this machine</span>}
+        {mode === 'fleet' && <span className="text-[9px] uppercase tracking-wider text-primary">your fleet · last hour</span>}
+        {mode === 'none' && (
+          <span className="rounded border border-border px-1 text-[9px] uppercase tracking-wider text-dim">
+            no data: start threatcrushd or sign in under Fleet
           </span>
         )}
         <span className="ml-auto text-[10px] text-dim">

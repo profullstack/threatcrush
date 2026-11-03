@@ -32,7 +32,7 @@ export default function Settings() {
     ? `Connected to threatcrushd${result?.version ? ` v${result.version}` : ''}${result?.socket ? ` at ${result.socket}` : ''}`
     : result?.error
       ? `Not connected: ${result.error}`
-      : 'Not connected — using demo data'
+      : 'Not connected'
 
   return (
     <div className="flex flex-col h-full p-4 gap-6 max-w-2xl">
@@ -45,8 +45,8 @@ export default function Settings() {
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-bold text-text mb-1">Daemon Connection</h3>
         <p className="text-[10px] text-dim mb-4">
-          Connect to the local threatcrushd over its unix socket.
-          Dashboards still show simulated data.
+          Connect to the local threatcrushd over its unix socket. The app also
+          reconnects on its own every few seconds.
         </p>
 
         <div className="flex gap-3 items-end">
