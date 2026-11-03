@@ -33,7 +33,8 @@ function EventRow({ event }: { event: SecurityEvent }) {
       >
         {levelBadge[event.level]}
       </span>
-      <span className="text-dim shrink-0 w-20">[{event.module}]</span>
+      <span className="text-dim shrink-0 w-24 truncate" title={event.origin}>{event.origin}</span>
+      <span className="text-dim shrink-0 w-28 truncate" title={event.module}>[{event.module}]</span>
       <span className={cn(
         'truncate',
         event.level === 'threat' ? 'text-threat' :
@@ -48,6 +49,9 @@ function EventRow({ event }: { event: SecurityEvent }) {
 
 export default function EventStream({ maxEvents = 200 }: { maxEvents?: number }) {
   const events = useEventStore((s) => s.events)
+  const local = useEventStore((s) => s.local)
+  const fleet = useEventStore((s) => s.fleet)
+  const noSource = local.state === 'offline' && fleet.state !== 'ok'
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -69,9 +73,18 @@ export default function EventStream({ maxEvents = 200 }: { maxEvents?: number })
           <EventRow key={event.id} event={event} />
         ))}
         {displayEvents.length === 0 && (
-          <div className="flex items-center justify-center h-full text-dim text-xs">
-            <span className="cursor-blink">▌</span>
-            <span className="ml-2">Waiting for events...</span>
+          <div className="flex flex-col items-center justify-center h-full text-dim text-xs gap-2 px-6 text-center">
+            {noSource ? (
+              <>
+                <span className="text-text">Nothing to show yet: no daemon on this machine and not signed in.</span>
+                <span>
+                  Start the daemon (<code className="text-primary">threatcrush start</code>) to watch this machine,
+                  or sign in under Fleet to see your servers.
+                </span>
+              </>
+            ) : (
+              <span><span className="cursor-blink">▌</span> Waiting for events...</span>
+            )}
           </div>
         )}
       </div>

@@ -218,6 +218,13 @@ ipcMain.handle('cloud-use-org', (_e, id: unknown, slug: unknown) =>
 ipcMain.handle('cloud-findings', (_e, q: unknown) =>
   wrap(() => cloudClient().findings((q && typeof q === 'object' ? q : {}) as { status?: string; severity?: string; source?: string; offset?: number })))
 ipcMain.handle('cloud-finding', (_e, id: unknown) => wrap(() => cloudClient().finding(String(id))))
+ipcMain.handle('cloud-attack-map', (_e, w: unknown) => wrap(() => cloudClient().attackMap(Number(w) || 60)))
+ipcMain.handle('cloud-servers', () => wrap(() => cloudClient().servers()))
+ipcMain.handle('cloud-detections', (_e, q: unknown) =>
+  wrap(() => cloudClient().detections((q && typeof q === 'object' ? q : {}) as { server_id?: string; since?: string; limit?: number })))
+
+// The real app version, for the sidebar (it used to be a hard-coded string).
+ipcMain.on('app-version', (e) => { e.returnValue = app.getVersion() })
 ipcMain.handle('cloud-triage', (_e, ids: unknown, status: unknown, note: unknown) =>
   wrap(() => cloudClient().triage(ids, status, note)))
 

@@ -17,6 +17,28 @@ export interface CloudFinding {
   details?: Record<string, unknown>
 }
 
+export interface CloudServer {
+  id: string
+  name: string
+  hostname: string | null
+  ip_address?: string | null
+  status: string
+  last_seen: string | null
+  threatcrushd_version?: string | null
+}
+
+export interface CloudDetection {
+  id: string
+  server_id: string
+  rule_id: string | null
+  severity: 'info' | 'low' | 'medium' | 'high' | 'critical'
+  title: string
+  description: string | null
+  source_ip: string | null
+  detected_at: string
+  status: string
+}
+
 export interface AvDetectionView {
   engine: string
   id: string
@@ -74,6 +96,7 @@ declare global {
   interface Window {
     /** Exposed by src/preload/index.ts; absent when the renderer runs outside Electron. */
     api?: {
+      getVersion(): string
       connectDaemon(): Promise<ConnectResult>
       daemonStatus(): Promise<{ running: boolean; pid?: number; error?: string }>
       daemonRequest<T = unknown>(
@@ -105,6 +128,9 @@ declare global {
         useOrg(id: string, slug: string): Promise<Res<void>>
         findings(q?: { status?: string; severity?: string; source?: string; offset?: number }): Promise<Res<{ findings: CloudFinding[]; total: number; counts: Record<string, number> }>>
         finding(id: string): Promise<Res<{ finding: CloudFinding }>>
+        servers(): Promise<Res<{ servers: CloudServer[] }>>
+        attackMap(windowMinutes?: number): Promise<Res<import('@threatcrush/attack-map').AttackMapData>>
+        detections(q?: { server_id?: string; since?: string; limit?: number }): Promise<Res<{ detections: CloudDetection[]; total: number }>>
         triage(ids: string[], status: string | null, note?: string): Promise<Res<{ updated: Array<{ id: string; status: string }> }>>
       }
     }

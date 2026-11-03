@@ -1,16 +1,30 @@
 import { create } from 'zustand'
-import { randomIP, randomCountry, formatTimestamp } from '../lib/utils'
+import { formatTimestamp } from '../lib/utils'
+import type { CloudDetection, CloudServer } from '../api'
+
+/**
+ * Everything the dashboards show, from two real sources:
+ *  - local: threatcrushd on this machine, over its unix socket (via the main process)
+ *  - fleet: the signed-in org's servers and detections on threatcrush.com
+ *
+ * There is no generated or demo data here. With neither source the app says so.
+ */
 
 export type EventLevel = 'info' | 'warning' | 'threat'
 
 export interface SecurityEvent {
   id: string
+  /** Display time (HH:MM:SS). */
   timestamp: string
+  /** Epoch ms, for ordering. */
+  at: number
   level: EventLevel
   module: string
   message: string
   sourceIP?: string
   country?: string
+  /** "this machine" or the fleet server's name. */
+  origin: string
 }
 
 export interface ThreatSource {
@@ -22,202 +36,264 @@ export interface ThreatSource {
 
 export interface Module {
   name: string
-  status: 'running' | 'stopped' | 'error'
+  status: string
   events: number
   description: string
 }
 
+export type LocalState =
+  | { state: 'connecting' }
+  | { state: 'connected'; version?: string; socket?: string }
+  | { state: 'offline'; error?: string }
+
+export type FleetState =
+  | { state: 'signed-out' }
+  | { state: 'loading' }
+  | { state: 'ok'; org?: string }
+  | { state: 'error'; error: string }
+
 interface EventStore {
   events: SecurityEvent[]
   threatSources: ThreatSource[]
+  /** Local daemon totals (its own database), not just what is on screen. */
   totalEvents: number
   totalThreats: number
-  connectionsPerSec: number
+  events24h: number
+  threats24h: number
   uptimeSeconds: number
   modules: Module[]
-  addEvent: (event: SecurityEvent) => void
-  incrementUptime: () => void
-  generateFakeEvent: () => void
+  local: LocalState
+  fleet: FleetState
+  servers: CloudServer[]
+  fleetDetections: number
+  start: () => void
+  refreshFleet: () => Promise<void>
+  reconnectLocal: () => Promise<void>
 }
 
-const MODULES: Module[] = [
-  { name: 'firewall', status: 'running', events: 0, description: 'iptables/nftables monitor' },
-  { name: 'ssh-guard', status: 'running', events: 0, description: 'SSH brute-force protection' },
-  { name: 'port-scan', status: 'running', events: 0, description: 'Port scan detection' },
-  { name: 'geo-block', status: 'running', events: 0, description: 'Geographic IP blocking' },
-  { name: 'dns-filter', status: 'running', events: 0, description: 'DNS query filtering' },
-  { name: 'log-watch', status: 'running', events: 0, description: 'System log analyzer' },
-  { name: 'net-flow', status: 'stopped', events: 0, description: 'Network flow analysis' },
-  { name: 'ids-engine', status: 'running', events: 0, description: 'Intrusion detection system' },
-  { name: 'web-shield', status: 'stopped', events: 0, description: 'Web application firewall' },
-  { name: 'vpn-guard', status: 'running', events: 0, description: 'VPN connection monitor' }
-]
+const MAX_EVENTS = 500
+const LOCAL_POLL_MS = 10_000
+const FLEET_POLL_MS = 30_000
 
-const EVENT_TEMPLATES: Array<{ level: EventLevel; module: string; messages: string[] }> = [
-  {
-    level: 'info',
-    module: 'firewall',
-    messages: [
-      'Allowed outbound connection to port 443',
-      'Rule updated: accept tcp dport 8080',
-      'Connection tracking table cleaned',
-      'Firewall rules reloaded successfully'
-    ]
-  },
-  {
-    level: 'info',
-    module: 'dns-filter',
-    messages: [
-      'DNS query resolved: api.github.com',
-      'Cache hit ratio: 87.3%',
-      'Upstream resolver latency: 12ms'
-    ]
-  },
-  {
-    level: 'warning',
-    module: 'ssh-guard',
-    messages: [
-      'Failed SSH login attempt from {ip} ({country})',
-      'Multiple auth failures detected from {ip}',
-      'SSH connection rate limit triggered for {ip}'
-    ]
-  },
-  {
-    level: 'warning',
-    module: 'port-scan',
-    messages: [
-      'Sequential port scan detected from {ip}',
-      'SYN flood pattern from {ip} ({country})',
-      'Unusual port probe on 8443 from {ip}'
-    ]
-  },
-  {
-    level: 'threat',
-    module: 'ids-engine',
-    messages: [
-      'BLOCKED: SQL injection attempt from {ip} ({country})',
-      'BLOCKED: XSS payload detected from {ip}',
-      'ALERT: Command injection attempt from {ip} ({country})'
-    ]
-  },
-  {
-    level: 'threat',
-    module: 'ssh-guard',
-    messages: [
-      'BLOCKED: Brute force attack from {ip} ({country}) - 50+ attempts',
-      'BANNED: {ip} added to blocklist (repeated violations)'
-    ]
-  },
-  {
-    level: 'info',
-    module: 'log-watch',
-    messages: [
-      'System log rotation completed',
-      'Auth log: successful sudo by user admin',
-      'Kernel: network interface eth0 link up'
-    ]
-  },
-  {
-    level: 'warning',
-    module: 'geo-block',
-    messages: [
-      'Blocked connection from {country} ({ip})',
-      'Geo-fence violation: {ip} from restricted region {country}'
-    ]
-  },
-  {
-    level: 'info',
-    module: 'vpn-guard',
-    messages: [
-      'WireGuard tunnel established: peer authenticated',
-      'VPN handshake completed in 45ms',
-      'Peer keepalive received'
-    ]
-  },
-  {
-    level: 'threat',
-    module: 'web-shield',
-    messages: [
-      'BLOCKED: Directory traversal attempt from {ip}',
-      'BLOCKED: Remote file inclusion from {ip} ({country})'
-    ]
+interface DaemonEvent {
+  id?: number
+  timestamp: string | number
+  module?: string
+  category?: string
+  severity?: string
+  message?: string
+  source_ip?: string
+}
+
+interface DaemonStatus {
+  version?: string
+  uptimeSeconds?: number
+  modules?: Array<{ name: string; status: string; events: number; detail?: string }>
+  counters?: Record<string, number>
+}
+
+export function levelFor(severity: string | undefined): EventLevel {
+  switch (severity) {
+    case 'critical':
+    case 'high':
+      return 'threat'
+    case 'medium':
+    case 'low':
+      return 'warning'
+    default:
+      return 'info'
   }
-]
+}
 
-let eventCounter = 0
+let localSeq = 0
+export function fromDaemon(e: DaemonEvent): SecurityEvent {
+  const at = new Date(e.timestamp).getTime() || Date.now()
+  return {
+    id: e.id != null ? `local-${e.id}` : `local-push-${++localSeq}-${at}`,
+    timestamp: formatTimestamp(new Date(at)),
+    at,
+    level: levelFor(e.severity),
+    module: e.module || e.category || 'daemon',
+    message: e.message || e.category || 'event',
+    sourceIP: e.source_ip || undefined,
+    origin: 'this machine',
+  }
+}
 
-export const useEventStore = create<EventStore>((set, get) => ({
-  events: [],
-  threatSources: [],
-  totalEvents: 0,
-  totalThreats: 0,
-  connectionsPerSec: Math.floor(Math.random() * 50) + 10,
-  uptimeSeconds: 0,
-  modules: [...MODULES],
+export function fromDetection(d: CloudDetection, serverName: string): SecurityEvent {
+  const at = Date.parse(d.detected_at) || Date.now()
+  return {
+    id: `fleet-${d.id}`,
+    timestamp: formatTimestamp(new Date(at)),
+    at,
+    level: levelFor(d.severity),
+    module: d.rule_id || 'detection',
+    message: d.title,
+    sourceIP: d.source_ip || undefined,
+    origin: serverName,
+  }
+}
 
-  addEvent: (event) =>
-    set((state) => {
-      const newEvents = [event, ...state.events].slice(0, 500)
-      const newTotalEvents = state.totalEvents + 1
-      const newTotalThreats = state.totalThreats + (event.level === 'threat' ? 1 : 0)
+/** Merge new events in, newest first, dropping ids already shown. */
+export function mergeEvents(current: SecurityEvent[], incoming: SecurityEvent[]): SecurityEvent[] {
+  if (!incoming.length) return current
+  const seen = new Set(current.map((e) => e.id))
+  const fresh = incoming.filter((e) => !seen.has(e.id) && seen.add(e.id))
+  if (!fresh.length) return current
+  return [...fresh, ...current].sort((a, b) => b.at - a.at).slice(0, MAX_EVENTS)
+}
 
-      // Update threat sources
-      let newThreatSources = [...state.threatSources]
-      if (event.sourceIP && (event.level === 'threat' || event.level === 'warning')) {
-        const existing = newThreatSources.find((t) => t.ip === event.sourceIP)
-        if (existing) {
-          existing.hits++
-          existing.lastSeen = event.timestamp
-        } else {
-          newThreatSources.push({
-            ip: event.sourceIP,
-            country: event.country || '??',
-            hits: 1,
-            lastSeen: event.timestamp
-          })
-        }
-        newThreatSources = newThreatSources.sort((a, b) => b.hits - a.hits).slice(0, 20)
-      }
+export function topSources(events: SecurityEvent[], limit = 20): ThreatSource[] {
+  const by = new Map<string, ThreatSource>()
+  for (const e of events) {
+    if (!e.sourceIP || e.level === 'info') continue
+    const t = by.get(e.sourceIP)
+    if (t) t.hits++
+    else by.set(e.sourceIP, { ip: e.sourceIP, country: e.country || '', hits: 1, lastSeen: e.timestamp })
+  }
+  return [...by.values()].sort((a, b) => b.hits - a.hits).slice(0, limit)
+}
 
-      // Update module event counts
-      const newModules = state.modules.map((m) =>
-        m.name === event.module ? { ...m, events: m.events + 1 } : m
-      )
+let started = false
+let localUnsub: (() => void) | null = null
+let lastFleetSince: string | undefined
 
-      return {
-        events: newEvents,
-        totalEvents: newTotalEvents,
-        totalThreats: newTotalThreats,
-        threatSources: newThreatSources,
-        modules: newModules,
-        connectionsPerSec: Math.floor(Math.random() * 80) + 10
-      }
-    }),
+export const useEventStore = create<EventStore>((set, get) => {
+  const add = (incoming: SecurityEvent[]): void => {
+    const events = mergeEvents(get().events, incoming)
+    if (events !== get().events) set({ events, threatSources: topSources(events) })
+  }
 
-  incrementUptime: () =>
-    set((state) => ({ uptimeSeconds: state.uptimeSeconds + 1 })),
+  const applyStatus = (s: DaemonStatus): void => {
+    set({
+      uptimeSeconds: s.uptimeSeconds ?? get().uptimeSeconds,
+      modules: (s.modules ?? []).map((m) => ({
+        name: m.name,
+        status: m.status,
+        events: m.events,
+        description: m.detail || '',
+      })),
+    })
+  }
 
-  generateFakeEvent: () => {
-    const template = EVENT_TEMPLATES[Math.floor(Math.random() * EVENT_TEMPLATES.length)]
-    // Skip events from stopped modules
-    const mod = get().modules.find((m) => m.name === template.module)
-    if (mod && mod.status === 'stopped') return
-
-    const ip = randomIP()
-    const country = randomCountry()
-    const messageTemplate = template.messages[Math.floor(Math.random() * template.messages.length)]
-    const message = messageTemplate.replace(/\{ip\}/g, ip).replace(/\{country\}/g, country)
-
-    const event: SecurityEvent = {
-      id: `evt-${++eventCounter}`,
-      timestamp: formatTimestamp(new Date()),
-      level: template.level,
-      module: template.module,
-      message,
-      sourceIP: message.includes(ip) ? ip : undefined,
-      country: message.includes(country) ? country : undefined
+  const pollLocal = async (): Promise<void> => {
+    const api = window.api
+    if (!api) return
+    if (get().local.state !== 'connected') {
+      await get().reconnectLocal()
+      return
     }
-
-    get().addEvent(event)
+    const [status, counters] = await Promise.all([
+      api.daemonRequest<DaemonStatus>('status'),
+      api.daemonRequest<{ total: number; threats: number; last24h: number; threats24h: number }>('counters'),
+    ])
+    if (!status.ok) {
+      set({ local: { state: 'offline', error: status.error } })
+      return
+    }
+    applyStatus(status.result)
+    if (counters.ok) {
+      set({
+        totalEvents: counters.result.total,
+        totalThreats: counters.result.threats,
+        events24h: counters.result.last24h,
+        threats24h: counters.result.threats24h,
+      })
+    }
   }
-}))
+
+  return {
+    events: [],
+    threatSources: [],
+    totalEvents: 0,
+    totalThreats: 0,
+    events24h: 0,
+    threats24h: 0,
+    uptimeSeconds: 0,
+    modules: [],
+    local: { state: 'connecting' },
+    fleet: { state: 'signed-out' },
+    servers: [],
+    fleetDetections: 0,
+
+    reconnectLocal: async () => {
+      const api = window.api
+      if (!api) {
+        set({ local: { state: 'offline', error: 'not running inside ThreatCrush Desktop' } })
+        return
+      }
+      const conn = await api.connectDaemon().catch((err: unknown) => ({
+        connected: false as const,
+        error: err instanceof Error ? err.message : String(err),
+        version: undefined,
+        socket: undefined,
+      }))
+      if (!conn.connected) {
+        set({ local: { state: 'offline', error: conn.error } })
+        return
+      }
+      set({ local: { state: 'connected', version: conn.version, socket: conn.socket } })
+      if (!localUnsub) {
+        localUnsub = api.onEvent((frame) => {
+          const f = frame as { type?: string; data?: unknown }
+          if (f.type === 'event' && f.data) add([fromDaemon(f.data as DaemonEvent)])
+          else if (f.type === 'disconnected') set({ local: { state: 'offline', error: 'disconnected' } })
+        })
+      }
+      const recent = await api.daemonRequest<DaemonEvent[]>('recent_events', { limit: 300 })
+      if (recent.ok) add(recent.result.map(fromDaemon))
+      await pollLocal()
+    },
+
+    refreshFleet: async () => {
+      const cloud = window.api?.cloud
+      if (!cloud) return
+      const st = await cloud.status()
+      if (!st.ok || !st.result.signedIn) {
+        set({ fleet: { state: 'signed-out' }, servers: [] })
+        return
+      }
+      if (get().fleet.state !== 'ok') set({ fleet: { state: 'loading' } })
+      // Signed in without an org picked yet: use the first one, as the CLI does.
+      let org = st.result.org_slug
+      if (!org) {
+        const orgs = await cloud.orgs()
+        if (!orgs.ok || !orgs.result.length) {
+          set({ fleet: { state: 'error', error: orgs.ok ? 'Your account has no organization yet' : orgs.error } })
+          return
+        }
+        await cloud.useOrg(orgs.result[0].id, orgs.result[0].slug)
+        org = orgs.result[0].slug
+      }
+      const servers = await cloud.servers()
+      if (!servers.ok) {
+        set({ fleet: { state: 'error', error: servers.error } })
+        return
+      }
+      const list = servers.result.servers ?? []
+      const names = new Map(list.map((s) => [s.id, s.name || s.hostname || s.id.slice(0, 8)]))
+      set({ servers: list, fleet: { state: 'ok', org } })
+
+      const det = await cloud.detections({ limit: 200, since: lastFleetSince })
+      if (det.ok) {
+        const rows = det.result.detections ?? []
+        if (rows.length) lastFleetSince = rows[0].detected_at
+        set({ fleetDetections: Math.max(get().fleetDetections, det.result.total ?? 0) })
+        add(rows.map((d) => fromDetection(d, names.get(d.server_id) ?? 'fleet server')))
+      }
+    },
+
+    start: () => {
+      if (started) return
+      started = true
+      void get().reconnectLocal()
+      void get().refreshFleet()
+      setInterval(() => void pollLocal(), LOCAL_POLL_MS)
+      setInterval(() => void get().refreshFleet(), FLEET_POLL_MS)
+      // Between polls, keep the daemon uptime ticking.
+      setInterval(() => {
+        if (get().local.state === 'connected') set({ uptimeSeconds: get().uptimeSeconds + 1 })
+      }, 1000)
+    },
+  }
+})

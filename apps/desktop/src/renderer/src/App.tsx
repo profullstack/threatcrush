@@ -7,6 +7,7 @@ import Modules from './pages/Modules'
 import Settings from './pages/Settings'
 import Findings from './pages/Findings'
 import VirusScan from './pages/VirusScan'
+import Fleet from './pages/Fleet'
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <div className="flex-1 overflow-hidden">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/fleet" element={<Fleet />} />
             <Route path="/monitor" element={<Monitor />} />
             <Route path="/modules" element={<Modules />} />
             <Route path="/findings" element={<Findings />} />

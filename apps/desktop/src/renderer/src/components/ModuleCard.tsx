@@ -1,57 +1,37 @@
 import { cn } from '../lib/utils'
 import type { Module } from '../stores/events'
 
-interface ModuleCardProps {
-  module: Module
-  onToggle: () => void
-}
+const isUp = (s: string): boolean => s === 'running' || s === 'loaded'
 
-export default function ModuleCard({ module, onToggle }: ModuleCardProps) {
+export default function ModuleCard({ module }: { module: Module }) {
   return (
     <div className={cn(
-      'bg-card border rounded-lg p-4 hover:border-primary/30 transition-colors',
-      module.status === 'running' ? 'border-border' : 'border-border/50 opacity-70'
+      'bg-card border rounded-lg p-4',
+      isUp(module.status) ? 'border-border' : 'border-border/50 opacity-70'
     )}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              'w-2 h-2 rounded-full',
-              module.status === 'running' ? 'bg-primary' :
-              module.status === 'error' ? 'bg-threat' :
-              'bg-dim'
-            )}
-          />
-          <h3 className="text-sm font-bold text-text">{module.name}</h3>
-        </div>
-        <button
-          onClick={onToggle}
+      <div className="flex items-center gap-2 mb-3">
+        <span
           className={cn(
-            'px-2 py-0.5 text-[10px] font-bold rounded border transition-colors',
-            module.status === 'running'
-              ? 'border-threat/30 text-threat hover:bg-threat/10'
-              : 'border-primary/30 text-primary hover:bg-primary/10'
+            'w-2 h-2 rounded-full',
+            isUp(module.status) ? 'bg-primary' : module.status === 'error' ? 'bg-threat' : 'bg-dim'
           )}
-        >
-          {module.status === 'running' ? 'STOP' : 'START'}
-        </button>
+        />
+        <h3 className="text-sm font-bold text-text">{module.name}</h3>
       </div>
-      <p className="text-[11px] text-dim mb-3">{module.description}</p>
+      {module.description && <p className="text-[11px] text-dim mb-3">{module.description}</p>}
       <div className="flex items-center gap-4 text-[10px]">
         <div>
           <span className="text-dim">Status: </span>
           <span className={cn(
             'font-bold uppercase',
-            module.status === 'running' ? 'text-primary' :
-            module.status === 'error' ? 'text-threat' :
-            'text-dim'
+            isUp(module.status) ? 'text-primary' : module.status === 'error' ? 'text-threat' : 'text-dim'
           )}>
             {module.status}
           </span>
         </div>
         <div>
           <span className="text-dim">Events: </span>
-          <span className="text-text font-bold">{module.events}</span>
+          <span className="text-text font-bold">{module.events.toLocaleString()}</span>
         </div>
       </div>
     </div>
