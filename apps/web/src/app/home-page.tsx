@@ -290,6 +290,39 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ─── CRUSHAV: FREE ANTIVIRUS ─── */}
+        <section id="crushav" className="py-16 sm:py-20 border-t border-tc-border">
+          <div className="mx-auto max-w-6xl px-6">
+            <ScrollReveal>
+              <div className="rounded-2xl border border-tc-green/30 bg-tc-card/60 backdrop-blur-md px-6 py-6 sm:px-8 sm:py-8">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <p className="font-mono text-xs text-tc-green tracking-wider mb-1">// NEW: CRUSHAV</p>
+                    <h3 className="text-xl sm:text-2xl font-bold text-white">
+                      Free, open-source antivirus for <span className="text-tc-green glow-green">your own computer and phone</span>
+                    </h3>
+                    <p className="text-sm text-tc-text-dim mt-1">
+                      Scan files right in your browser, with nothing uploaded and no account. Windows, Mac, Linux, iPhone and Android.
+                      Every detection explained in plain English. MIT licensed, free for good.
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:items-end">
+                    <a
+                      href="/antivirus#scan"
+                      className="rounded-xl bg-tc-green px-6 py-3 font-bold text-black transition-all hover:bg-tc-green-dim pulse-glow whitespace-nowrap"
+                    >
+                      Scan files free →
+                    </a>
+                    <a href="/antivirus#install" className="text-xs text-tc-text-dim hover:text-tc-green">
+                      Install on desktop or terminal
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </ScrollReveal>
+          </div>
+        </section>
+
         {/* ─── INVESTORS CTA ─── */}
         <section className="py-12">
           <div className="mx-auto max-w-4xl px-6">
