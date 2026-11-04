@@ -21,6 +21,17 @@ import type { DetectionRule, RuleMatch } from './engine.js';
  */
 const AT_CRS_THRESHOLD: RuleMatch = { field: 'severity', operator: 'regex', value: '^(high|critical)$' };
 
+/**
+ * journal-watcher prefixes every line it emits with its syslog identifier, so
+ * an sshd record reads "[sshd-session] fatal: userauth_pubkey: ...". That
+ * prefix is how `ssh-preauth-rejected` claims these lines and how
+ * `system-critical-error` declines them; both match on `message`, which is
+ * always set, rather than on `details.process`, which is not.
+ */
+const SSHD_IDENT = String.raw`\[sshd(?:-session|-auth)?\]`;
+export const SSHD_LINE = `^${SSHD_IDENT}`;
+export const NOT_SSHD_LINE = `^(?!${SSHD_IDENT})`;
+
 export const DEFAULT_RULES: DetectionRule[] = [
   {
     id: 'ssh-brute-force',
@@ -423,11 +434,54 @@ export const DEFAULT_RULES: DetectionRule[] = [
       field: 'severity',
       operator: 'equals',
       value: 'critical',
+      // sshd's pre-auth failures are logged at syslog priority 2, so they used
+      // to land here and every SSH bot arrived titled "Critical System Error".
+      // They belong to `ssh-preauth-rejected` below. Excluded on `message`, not
+      // on `details.process`: matchesCondition fails a condition whose field is
+      // undefined, so an `and` on `process` would stop this rule matching every
+      // critical line that has no process (the kernel's, for one).
+      and: [{ field: 'message', operator: 'regex', value: NOT_SSHD_LINE }],
     },
     threshold: 1,
     window_seconds: 60,
     cooldown_seconds: 300,
     tags: ['system', 'critical'],
+    enabled: true,
+  },
+  {
+    // Anthony, 2026-11-04, on being called for these: "it can call me when
+    // unauthorized access, i want to know" — so this stays `critical` and pages
+    // exactly as `system-critical-error` did (store.ts pages on `critical`, or
+    // on a rule in PAGED_ATTEMPT_RULES). What changes is what the page says.
+    //
+    // sshd logs a rejected handshake at priority 2 — "fatal: userauth_pubkey:
+    // parse publickey packet: incomplete message [preauth]", "banner exchange:
+    // ... invalid format" — so a bot that never authenticated used to raise
+    // "Critical System Error", and because `dedupe_key` is
+    // `detection:<server>:<rule_id>` it shared ONE incident with unrelated
+    // critical lines (a local `sudo` password typo, say). A rule of its own
+    // splits those apart and names what actually happened.
+    //
+    // No `remediation`: like the rule it came from, this one only reports. The
+    // ban for these addresses comes from the ssh-* rules that match the
+    // accompanying "Invalid user" line, which carries a source_ip to ban.
+    id: 'ssh-preauth-rejected',
+    title: 'SSH Connection Rejected Before Login',
+    description: 'A remote client failed the SSH handshake before authenticating; no session was established',
+    version: '1.0.0',
+    category: 'auth',
+    severity: 'critical',
+    source_types: ['user-journal', 'system'],
+    match: {
+      field: 'severity',
+      operator: 'equals',
+      value: 'critical',
+      and: [{ field: 'message', operator: 'regex', value: SSHD_LINE }],
+    },
+    threshold: 1,
+    window_seconds: 60,
+    cooldown_seconds: 300,
+    tags: ['ssh', 'auth', 'pre-auth', 'reconnaissance'],
     enabled: true,
   },
   {
