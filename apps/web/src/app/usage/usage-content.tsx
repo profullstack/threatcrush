@@ -549,6 +549,10 @@ export default function UsageContent({ topupsEnabled }: { topupsEnabled: boolean
                 />
               </div>
               <p className="text-[10px] text-tc-text-dim mt-1">Min $1 · Max $10,000</p>
+              <p className="text-xs text-tc-text-dim mt-2">
+                Deposit $99 in your CoinPay wallet and get a free month:{" "}
+                <a href="https://coinpayportal.com/pass" className="text-tc-green underline">CoinPay Pass</a>
+              </p>
             </div>
 
             <div className="flex gap-3">
