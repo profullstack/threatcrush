@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { finishSignIn, sameState } from "@profullstack/coinpay-onboard/oauth";
 import { saveOpenProfileContact } from "@profullstack/profile";
 import { profileStore } from "@/lib/profile";
+import { applyCoinpayPass, supabasePassStore } from "@/lib/coinpay-pass";
+import type { CoinpayPass } from "@profullstack/coinpay-onboard/pass";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { mintSession } from "@/lib/cli-login";
 import { clearInviteCookie, inviteCookie, onSignedIn } from "@/lib/credit-codes";
@@ -52,6 +54,7 @@ export async function GET(request: NextRequest) {
   if (!code) return done(`${back}failed`);
 
   let who: { sub: string; email: string | null; name: string | null; openprofile_url?: string };
+  let pass: CoinpayPass = { active: false, expiresAt: null };
   try {
     const result = await finishSignIn({
       code,
@@ -61,6 +64,7 @@ export async function GET(request: NextRequest) {
       clientSecret: config.clientSecret,
       redirectUri: config.redirectUri,
     });
+    pass = result.pass;
     who = { sub: result.sub, email: result.email, name: result.name, ...(typeof result.userinfo?.openprofile_url === "string" ? { openprofile_url: result.userinfo.openprofile_url } : {}) };
   } catch (err) {
     console.error("[coinpay] sign-in failed:", (err as Error).message);
@@ -69,8 +73,20 @@ export async function GET(request: NextRequest) {
 
   const admin = getSupabaseAdmin();
 
+  // Profullstack Pass: free credits once per pass. Never blocks the sign-in.
+  const grantPass = async (userId: string) => {
+    try {
+      if (await applyCoinpayPass(supabasePassStore(admin), userId, who.sub, pass)) {
+        console.log("[coinpay] Profullstack Pass credits granted", userId);
+      }
+    } catch (err) {
+      console.error("[coinpay] pass grant failed:", (err as Error).message);
+    }
+  };
+
   if (pending.mode === "link") {
     const outcome = await linkIdentity(admin, pending.userId as string, who);
+    if (outcome === "linked" || outcome === "already_linked") await grantPass(pending.userId as string);
     if ((outcome === "linked" || outcome === "already_linked") && who.openprofile_url) {
       try { await saveOpenProfileContact(profileStore(), pending.userId as string, who.openprofile_url); }
       catch { console.warn("[coinpay] OpenProfile import skipped"); }
@@ -88,6 +104,7 @@ export async function GET(request: NextRequest) {
     });
   });
   if (!account) return done("/auth/login?error=coinpay_failed");
+  await grantPass(account.userId);
 
   const minted = await mintSession(admin, account.authEmail);
   if (!minted) return done("/auth/login?error=coinpay_failed");
