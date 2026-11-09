@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { clearUrlHash, parseAuthRedirectHash, setAccessToken } from "@/lib/auth-client";
-import { safeRedirectPath } from "@/lib/safe-redirect";
+import { useNextPath } from "@/lib/use-next-path";
 import { githubOAuthEnabled } from "@/lib/github-oauth";
 
 const COINPAY_ERRORS: Record<string, string> = {
@@ -19,10 +19,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const nextPath = useMemo(() => {
-    if (typeof window === "undefined") return "/account";
-    return safeRedirectPath(new URLSearchParams(window.location.search).get("next"));
-  }, []);
+  const nextPath = useNextPath();
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get("reset") === "success") {
