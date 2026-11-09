@@ -33,7 +33,8 @@ const join = (...parts: string[]) => parts.join('');
 
 const FIXTURES = {
   awsKey: join('AK', 'IA', 'QRSTUVWX', 'YZ012345'),
-  privateKey: '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----', // gitleaks:allow — fabricated header, no key material
+  /** Banner and body assembled at runtime; the body is a repeated filler, not a key. */
+  privateKey: ['-----BEGIN RSA PRIVATE ' + 'KEY-----', 'MIIE' + 'owIB'.repeat(12), '-----END RSA PRIVATE ' + 'KEY-----'].join('\n'),
   slack: ['xo' + 'xb', '283948573820', 'BqrTuVwXyZ0123456789'].join('-'),
   google: join('AI', 'za', 'SyD3fGh1JkLmN0pQrStUvWxYz0123456789'),
   anthropic: join('sk-', 'ant-', 'api03-', 'aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789'),
@@ -107,10 +108,24 @@ describe('structured detection', () => {
     expect(found[0]?.line).toBe(1);
   });
 
-  it('finds a private key block from its header alone', () => {
-    // The header is conclusive; no entropy judgement is involved.
+  it('finds a private key block with a body under its header', () => {
     const found = scanText(FIXTURES.privateKey);
     expect(found.map((f) => f.ruleId)).toContain('private-key');
+  });
+
+  it('finds a private key in a JSON string with escaped newlines', () => {
+    const json = `{"private_key": "${FIXTURES.privateKey.split('\n').join('\\n')}"}`;
+    expect(scanText(json).map((f) => f.ruleId)).toContain('private-key');
+  });
+
+  it('ignores a PEM banner with no key material under it', () => {
+    const banner = '-----BEGIN PRIVATE ' + 'KEY-----';
+    const code = [
+      `const key = stdout.match(/${banner}[\\s\\S]+?-----END/)?.[0];`,
+      `const der = pem.replace('${banner}', '');`,
+      `<textarea placeholder="${banner}" />`,
+    ].join('\n');
+    expect(scanText(code).map((f) => f.ruleId)).not.toContain('private-key');
   });
 
   it('finds provider tokens', () => {

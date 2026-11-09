@@ -47,6 +47,12 @@ export interface SecretRule {
    * safe: it can never silence a vendor-issued key.
    */
   keywordShaped?: boolean;
+  /**
+   * A second look at the lines around a match, for rules whose pattern is only
+   * the *label* of a credential rather than the credential itself. Returning
+   * false drops the match: it is not key material. See `hasPemBody`.
+   */
+  confirm?: (lines: readonly string[], index: number, match: RegExpExecArray) => boolean;
 }
 
 export const SECRET_RULES: readonly SecretRule[] = [
@@ -90,6 +96,7 @@ export const SECRET_RULES: readonly SecretRule[] = [
     severity: 'critical',
     cwe: 'CWE-798',
     consequence: 'Key material, committed. Rotation is the only remediation.',
+    confirm: (lines, index, match) => hasPemBody(lines, index, match),
   },
   {
     id: 'secret-slack-token',
@@ -296,6 +303,41 @@ export function isKnownPlaceholder(text: string): boolean {
  * The noise is real and stays. It is a cost of keying on value rather than on
  * path, which remains the correct axis — see `isDocPath`.
  */
+
+/**
+ * Does a PEM banner have key material under it?
+ *
+ * `-----BEGIN PRIVATE KEY-----` is a label, not a key. Code that *handles*
+ * keys writes the label constantly and never the key:
+ *
+ *     const key = stdout.match(/-----BEGIN PRIVATE KEY-----[\s\S]+?-----END…/)?.[0];
+ *     pem.replace('-----BEGIN PRIVATE KEY-----', '')
+ *     <textarea placeholder="-----BEGIN PRIVATE KEY-----" />
+ *
+ * Each of those was a critical, and none was a leak. A committed key always
+ * carries its body, so the body is what this requires: a base64 run of at
+ * least 40 characters, either on the banner's own line (a key inside a JSON or
+ * env string, `\n`-escaped) or on its own line shortly after the banner. The
+ * look-ahead leaves room for a legacy encrypted key's `Proc-Type`/`DEK-Info`
+ * headers, PGP's `Version:` line and the blank line after them, and for body
+ * lines quoted or concatenated as string literals.
+ *
+ * A banner with no body is dropped, not softened: it is not key material in
+ * any context, the same reason `isKnownPlaceholder` drops `AKIA…EXAMPLE`.
+ */
+const PEM_BODY_LOOKAHEAD = 6;
+const PEM_BODY_RUN = /[A-Za-z0-9+/]{40,}/;
+const PEM_BODY_LINE = /^[\s'"`+(]*(?:\\n)?[A-Za-z0-9+/]{40,}={0,2}(?:\\n)?['"`,;+)\s]*$/;
+
+export function hasPemBody(lines: readonly string[], index: number, match: RegExpExecArray): boolean {
+  const rest = (lines[index] ?? '').slice(match.index + match[0].length).replace(/\\[nr]/g, ' ');
+  if (PEM_BODY_RUN.test(rest)) return true;
+  const last = Math.min(lines.length - 1, index + PEM_BODY_LOOKAHEAD);
+  for (let i = index + 1; i <= last; i++) {
+    if (PEM_BODY_LINE.test(lines[i])) return true;
+  }
+  return false;
+}
 
 /**
  * Is the value the example text an empty input field shows?
