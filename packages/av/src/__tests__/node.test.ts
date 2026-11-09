@@ -11,7 +11,9 @@ import {
   quarantineFile,
   quickScanTargets,
   restoreQuarantined,
+  scanFileSync,
   scanPaths,
+  walkFiles,
   walkTargets,
   watchTargets,
 } from '../node/index';
@@ -36,7 +38,70 @@ describe('walkTargets', () => {
   });
 });
 
+describe('walkFiles', () => {
+  const collect = async (targets: Array<{ path: string; depth: number }>) => {
+    const found: string[] = [];
+    for await (const p of walkFiles(targets, { concurrency: 3 })) found.push(p.slice(dir.length + 1));
+    return found.sort();
+  };
+
+  it('matches walkTargets on depth and skipped caches', async () => {
+    mkdirSync(join(dir, 'a', 'b', 'c'), { recursive: true });
+    mkdirSync(join(dir, 'node_modules', 'x'), { recursive: true });
+    writeFileSync(join(dir, 'top.txt'), '1');
+    writeFileSync(join(dir, 'a', 'one.txt'), '1');
+    writeFileSync(join(dir, 'a', 'b', 'c', 'deep.txt'), '1');
+    writeFileSync(join(dir, 'node_modules', 'x', 'i.js'), '1');
+    expect(await collect([{ path: dir, depth: 2 }])).toEqual([join('a', 'one.txt'), 'top.txt']);
+  });
+
+  it('lists each file once across overlapping targets of any depth order', async () => {
+    mkdirSync(join(dir, 'a', 'b', 'c'), { recursive: true });
+    writeFileSync(join(dir, 'top.txt'), '1');
+    writeFileSync(join(dir, 'a', 'one.txt'), '1');
+    writeFileSync(join(dir, 'a', 'b', 'two.txt'), '1');
+    writeFileSync(join(dir, 'a', 'b', 'c', 'deep.txt'), '1');
+    const all = [join('a', 'b', 'c', 'deep.txt'), join('a', 'b', 'two.txt'), join('a', 'one.txt'), 'top.txt'];
+    expect(await collect([{ path: join(dir, 'a'), depth: 1 }, { path: dir, depth: Infinity }, { path: join(dir, 'top.txt'), depth: 1 }])).toEqual(all);
+    // A shallow walk first, then a deeper one over the same tree: only the unseen part is added.
+    expect(await collect([{ path: dir, depth: 2 }, { path: join(dir, 'a'), depth: 3 }])).toEqual(all);
+  });
+
+  it('walks a wide tree completely', async () => {
+    for (let i = 0; i < 40; i++) {
+      mkdirSync(join(dir, `d${i}`, 'sub'), { recursive: true });
+      for (let j = 0; j < 30; j++) writeFileSync(join(dir, `d${i}`, 'sub', `f${j}`), 'x');
+    }
+    expect((await collect([{ path: dir, depth: Infinity }])).length).toBe(1200);
+  });
+});
+
+describe('scanFileSync', () => {
+  it('hashes past the heuristic cap and flags EICAR', async () => {
+    writeFileSync(join(dir, 'eicar.com'), EICAR);
+    const big = Buffer.alloc(3 * 1024 * 1024 + 7, 0x61);
+    writeFileSync(join(dir, 'big.txt'), big);
+    const opts = { cap: 1024 * 1024, maxFile: 1024 ** 3 };
+    const e = await scanFileSync(join(dir, 'eicar.com'), opts);
+    expect(e.kind === 'result' && e.result.verdict).toBe('malicious');
+    const b = await scanFileSync(join(dir, 'big.txt'), opts);
+    const { createHash } = await import('node:crypto');
+    expect(b.kind === 'result' && b.result.sha256).toBe(createHash('sha256').update(big).digest('hex'));
+    expect(b.kind === 'result' && b.result.size).toBe(big.length);
+    expect(await scanFileSync(join(dir, 'big.txt'), { cap: 1024, maxFile: 1024 })).toMatchObject({ kind: 'skip' });
+    expect(await scanFileSync(join(dir, 'missing'), opts)).toEqual({ kind: 'none' });
+  });
+});
+
 describe('scanPaths', () => {
+  it('counts clean files without keeping them when keepClean is false', async () => {
+    writeFileSync(join(dir, 'eicar.com'), EICAR);
+    for (let i = 0; i < 20; i++) writeFileSync(join(dir, `n${i}.txt`), `note ${i}`);
+    const report = await scanPaths([{ path: dir, depth: Infinity }], { clamav: 'off', reputation: false, keepClean: false });
+    expect(report.summary).toMatchObject({ scanned: 21, malicious: 1, clean: 20 });
+    expect(report.results.map((r) => r.verdict)).toEqual(['malicious']);
+  });
+
   it('finds EICAR among clean files offline', async () => {
     writeFileSync(join(dir, 'eicar.com'), EICAR);
     writeFileSync(join(dir, 'notes.txt'), 'shopping list');

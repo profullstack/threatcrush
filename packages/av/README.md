@@ -39,4 +39,21 @@ r.verdict; // 'malicious' | 'suspicious' | 'clean'
 const report = await scanPaths(quickScanTargets(), { clamav: 'auto' });
 ```
 
+Big scans: bundle a file that calls `runScanWorker()` and pass it as
+`workerScript`. Files are then read, hashed and checked in worker threads (one
+per CPU by default, `concurrency` to change) with blocking I/O, which avoids
+libuv's 4-thread file pool. Add `keepClean: false` to count clean files instead
+of keeping them, so memory stays flat on millions of files. Without a worker
+script everything runs on the calling thread with async I/O, which is what an
+Electron main process wants.
+
+```ts
+// av-worker.ts, built next to your entry
+import { runScanWorker } from '@threatcrush/av/node';
+runScanWorker();
+
+// caller
+await scanPaths(fullScanTargets(), { workerScript: join(__dirname, 'av-worker.js'), keepClean: false });
+```
+
 Custom signatures: put `sha256 Name` lines in `~/.threatcrush/av/signatures.txt`.

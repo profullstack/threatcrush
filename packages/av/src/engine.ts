@@ -42,6 +42,11 @@ export class SignatureSet {
     return this.map.get(sha256.toLowerCase());
   }
 
+  /** Every `[sha256, name]` pair, so a set can be rebuilt in a worker thread. */
+  entries(): Array<[string, string]> {
+    return [...this.map];
+  }
+
   get size(): number {
     return this.map.size;
   }

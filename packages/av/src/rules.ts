@@ -365,9 +365,17 @@ export const RULES: AvRule[] = [
 /** Build a rule context. `bytes` may be a prefix of the file. */
 export function buildContext(name: string, bytes: Uint8Array, kind: FileKind, size: number): RuleContext {
   let text = '';
-  // Latin-1 decode in chunks; String.fromCharCode on a huge array overflows the stack.
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000) as unknown as number[]);
+  // Node's native Latin-1 decode is exact ISO-8859-1 and makes one flat
+  // string; it was half the CPU of a disk scan. (TextDecoder('latin1') is
+  // windows-1252 and would change 0x80-0x9f, so browsers keep the loop.)
+  const NodeBuffer = (globalThis as { Buffer?: { from(b: ArrayBufferLike, o: number, l: number): { toString(e: string): string } } }).Buffer;
+  if (NodeBuffer) {
+    text = NodeBuffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('latin1');
+  } else {
+    // Latin-1 decode in chunks; String.fromCharCode on a huge array overflows the stack.
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      text += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000) as unknown as number[]);
+    }
   }
   let wide = '';
   if (kind === 'pe' || kind === 'lnk' || kind === 'ole') {
