@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { safeRedirectPath } from "@/lib/safe-redirect";
+import { useNextPath } from "@/lib/use-next-path";
 import { githubOAuthEnabled } from "@/lib/github-oauth";
 import { MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 import { ProfileFields } from "@profullstack/profile/react";
@@ -23,10 +23,7 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  const nextPath = useMemo(() => {
-    if (typeof window === "undefined") return "/account";
-    return safeRedirectPath(new URLSearchParams(window.location.search).get("next"));
-  }, []);
+  const nextPath = useNextPath();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
