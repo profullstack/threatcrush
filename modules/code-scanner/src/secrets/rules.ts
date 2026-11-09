@@ -87,7 +87,9 @@ export const SECRET_RULES: readonly SecretRule[] = [
   {
     id: 'private-key',
     description: 'private key block',
-    // The header alone is conclusive; no entropy judgement needed.
+    // The header is the label, not the key: code that handles keys writes it in
+    // regexes and `.replace()` calls without ever holding one. `scanText`
+    // requires a base64 body after it — see `hasPemBodyAfter`.
     pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----/g,
     severity: 'critical',
   },
@@ -256,6 +258,26 @@ export interface ScanTextOptions {
 }
 
 /**
+ * Does key material follow a PEM banner that ends at `end`?
+ *
+ * A committed key always carries its body; a banner in a regex, a
+ * `.replace()` or a `placeholder` never does. Body means a base64 run of at
+ * least 40 characters on the banner's own line (a `\n`-escaped key in a JSON
+ * or env string) or a line of nothing else within the next six, which leaves
+ * room for `Proc-Type`/`DEK-Info` and PGP `Version:` headers and for body
+ * lines quoted or concatenated as string literals. Mirrors `hasPemBody` in
+ * `@threatcrush/scan`.
+ */
+const PEM_BODY_RUN = /[A-Za-z0-9+/]{40,}/;
+const PEM_BODY_LINE = /^[\s'"`+(]*(?:\\n)?[A-Za-z0-9+/]{40,}={0,2}(?:\\n)?['"`,;+)\s]*$/;
+
+export function hasPemBodyAfter(text: string, end: number): boolean {
+  const [rest = '', ...next] = text.slice(end, end + 4096).split('\n', 7);
+  if (PEM_BODY_RUN.test(rest.replace(/\\[nr]/g, ' '))) return true;
+  return next.some((line) => PEM_BODY_LINE.test(line));
+}
+
+/**
  * Find secrets in a blob of text.
  *
  * Pure and synchronous, so the rules can be tested against fixtures — including
@@ -273,9 +295,10 @@ export function scanText(text: string, options: ScanTextOptions = {}): SecretMat
 
     while ((match = pattern.exec(text)) !== null) {
       // Capture group 1 where present; otherwise the whole match (the private
-      // key header, which is conclusive on its own).
+      // key header, which counts only with a body under it).
       const value = match[1] ?? match[0];
       if (!value) continue;
+      if (rule.id === 'private-key' && !hasPemBodyAfter(text, match.index + match[0].length)) continue;
 
       const nonSecret = isKnownNonSecret(value);
       if (nonSecret) continue;

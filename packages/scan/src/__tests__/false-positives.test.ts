@@ -104,7 +104,7 @@ describe('fixture credentials in test files', () => {
       ['secret-aws-access-key', `const testKey = '${'AKIA' + '1234567890ABCDEF'}';`],
       ['secret-github-token', `const mockToken = '${'ghp_' + 'a'.repeat(36)}';`],
       ['secret-stripe-key', `const fakeKey = '${'sk_live_' + 'a'.repeat(24)}';`],
-      ['secret-private-key', `const samplePem = '${'-----BEGIN RSA PRIVATE KEY' + '-----'}';`],
+      ['secret-private-key', `const samplePem = '${'-----BEGIN RSA PRIVATE KEY' + '-----'}\\n${'MIIE' + 'pAIB'.repeat(12)}';`],
     ];
     for (const [ruleId, line] of cases) {
       expect(ruleIds('tests/billing.test.js', line), line).toContain(ruleId);

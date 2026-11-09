@@ -132,7 +132,7 @@ describe('a credential shown as example text', () => {
 
   it('drops a PEM banner with no key material under it', () => {
     const jsx = '<textarea placeholder="-----BEGIN PRIVATE KEY-----" />';
-    expect(severityOf('src/components/certificate-import-dialog.tsx', jsx, 'secret-private-key')).toBe('low');
+    expect(severityOf('src/components/certificate-import-dialog.tsx', jsx, 'secret-private-key')).toBeUndefined();
   });
 
   it('leaves the same key at full severity when it is the value', () => {
