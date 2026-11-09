@@ -307,12 +307,14 @@ export function isKnownPlaceholder(text: string): boolean {
 /**
  * Does a PEM banner have key material under it?
  *
- * `-----BEGIN PRIVATE KEY-----` is a label, not a key. Code that *handles*
- * keys writes the label constantly and never the key:
+ * The BEGIN banner is a label, not a key. Code that *handles* keys writes the
+ * label constantly and never the key (BANNER below stands for the literal
+ * banner, which is not written out here because gitleaks' multi-line rule
+ * reads three of them in a row as a key block):
  *
- *     const key = stdout.match(/-----BEGIN PRIVATE KEY-----[\s\S]+?-----END…/)?.[0];
- *     pem.replace('-----BEGIN PRIVATE KEY-----', '')
- *     <textarea placeholder="-----BEGIN PRIVATE KEY-----" />
+ *     const key = stdout.match(/BANNER[\s\S]+?END…/)?.[0];
+ *     pem.replace('BANNER', '')
+ *     <textarea placeholder="BANNER" />
  *
  * Each of those was a critical, and none was a leak. A committed key always
  * carries its body, so the body is what this requires: a base64 run of at
