@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { forensicEvidence } from "@/lib/incidents/forensics";
+import type { BanState, IpBanSummary } from "@/lib/incidents/bans";
 import { useCallback, useEffect, useState } from "react";
 import { authHeaders } from "@/lib/auth-client";
 import { Centered, SeverityBadge, Shell, STATUS_CLS, useOrg, when } from "../shared";
@@ -37,6 +38,7 @@ interface Detail {
   incident: Incident;
   forensics?: ReturnType<typeof forensicEvidence>[];
   ip_context?: { source_ip: string; recent_events: Array<Record<string, unknown>>; ban_history: Array<Record<string, unknown>> } | null;
+  bans?: IpBanSummary[];
   resolution_actor_name?: string | null;
   role: "read" | "write" | "admin";
   members: Array<{ user_id: string; name: string; email: string | null }>;
@@ -119,6 +121,53 @@ function eventSummary(event: Detail["fix_events"][number]): string {
     const fmt = (x: unknown) => typeof x === "string" ? x : x == null ? "—" : JSON.stringify(x);
     return `${labels[key] ?? key}: ${fmt(value.from)} → ${fmt(value.to)}`;
   }).join(" · ") || "Updated fix progress";
+}
+
+const BAN_LABEL: Record<BanState, string> = {
+  active: "Banned now", expired: "Was banned (ban expired)", lifted: "Ban lifted", failed: "Ban failed", dry_run: "Would ban (dry run)", none: "Not banned",
+};
+const BAN_CLS: Record<BanState, string> = {
+  active: "border-green-500/50 bg-green-500/10 text-green-300", expired: "border-emerald-700/50 text-emerald-300",
+  lifted: "border-zinc-600 text-zinc-300", failed: "border-red-500/50 bg-red-500/10 text-red-300",
+  dry_run: "border-amber-500/50 text-amber-300", none: "border-zinc-700 text-zinc-400",
+};
+
+function duration(seconds: number | null): string {
+  if (!seconds) return "";
+  if (seconds < 90) return `${seconds}s`;
+  const m = Math.round(seconds / 60);
+  if (m < 120) return `${m} min`;
+  const h = Math.round(m / 60);
+  return h < 48 ? `${h} h` : `${Math.round(h / 24)} days`;
+}
+
+/** One headline for the whole incident: did ThreatCrush block the attacker(s)? */
+function banHeadline(bans: IpBanSummary[]): { state: BanState; text: string } | null {
+  if (!bans.length) return null;
+  const n = (s: BanState) => bans.filter((b) => b.state === s).length;
+  const banned = n("active") + n("expired") + n("lifted");
+  const of = bans.length > 1 ? ` (${banned}/${bans.length} IPs)` : "";
+  if (n("active")) return { state: "active", text: `Attacker banned${of}` };
+  if (banned) return { state: "expired", text: `Attacker was banned${of}` };
+  if (n("failed")) return { state: "failed", text: "Ban failed" };
+  if (n("dry_run")) return { state: "dry_run", text: "Not banned: dry run" };
+  return { state: "none", text: "Not banned" };
+}
+
+function banDetail(b: IpBanSummary): string {
+  const parts: string[] = [];
+  if (b.blocks) {
+    parts.push(`blocked ${when(b.first_banned_at!)}${b.blocks > 1 ? `, re-blocked ${b.blocks - 1}× as offences repeated` : ""}`);
+    if (b.longest_seconds) parts.push(`longest block ${duration(b.longest_seconds)}`);
+    if (b.state === "active") parts.push(b.banned_until ? `until ${when(b.banned_until)}` : "no expiry");
+    else if (b.state === "lifted") parts.push(`lifted ${when(b.lifted_at!)}${b.lifted_reason ? ` (${b.lifted_reason})` : ""}`);
+    else if (b.lifted_at) parts.push(`released ${when(b.lifted_at)}`);
+    else if (b.banned_until) parts.push(`expired ${when(b.banned_until)}`);
+  }
+  if (b.failed) parts.push(`${b.failed} block attempt${b.failed > 1 ? "s" : ""} failed${b.last_error ? `: ${b.last_error}` : ""}`);
+  if (b.dry_run) parts.push(`${b.dry_run} block${b.dry_run > 1 ? "s" : ""} skipped by dry run`);
+  if (!parts.length) parts.push("no block was recorded for this address on this server during the incident");
+  return parts.join(" · ");
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -323,7 +372,13 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
   const canWrite = data.role === "write" || data.role === "admin";
   const evidence = inc.findings.filter((f) => f.evidence === "evidence");
   const inference = inc.findings.filter((f) => f.evidence === "inference");
-  const timeline = [...inc.timeline].sort((a, b) => a.at.localeCompare(b.at));
+  const bans = data.bans ?? [];
+  const headline = banHeadline(bans);
+  const banEvents: TimelineEntry[] = bans.flatMap((b) => [
+    ...(b.first_banned_at ? [{ at: b.first_banned_at, module: "response", evidence: true, summary: `Blocked ${b.ip}${b.blocks > 1 ? ` (${b.blocks} blocks, escalating${b.longest_seconds ? ` to ${duration(b.longest_seconds)}` : ""})` : b.longest_seconds ? ` for ${duration(b.longest_seconds)}` : ""}` }] : []),
+    ...(b.lifted_at ? [{ at: b.lifted_at, module: "response", evidence: true, summary: `Unblocked ${b.ip}${b.lifted_reason ? `: ${b.lifted_reason}` : ""}` }] : []),
+  ]);
+  const timeline = [...inc.timeline, ...banEvents].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 
   return (
     <Shell>
@@ -335,6 +390,7 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
           <div className="flex flex-wrap items-center gap-2">
             <SeverityBadge severity={inc.severity} />
             <span className={`text-sm capitalize ${STATUS_CLS[inc.status] ?? ""}`}>{inc.status}</span>
+            {headline && <span className={`rounded border px-2 py-0.5 text-xs font-medium ${BAN_CLS[headline.state]}`}>{headline.text}</span>}
           </div>
           <h1 className="mt-1 text-2xl font-bold text-white break-words">{inc.title}</h1>
           <p className="text-xs text-zinc-500">
@@ -363,6 +419,21 @@ export default function IncidentDetail({ slug, incidentId }: { slug: string; inc
           )}
         </div>
       )}
+
+      {bans.length > 0 && <Section title="Response">
+        <ul className="space-y-2">
+          {bans.map((b) => (
+            <li key={b.ip} className="flex flex-col gap-1 rounded border border-zinc-800 p-3 text-sm sm:flex-row sm:items-start sm:gap-3">
+              <span className={`shrink-0 self-start rounded border px-2 py-0.5 text-xs font-medium ${BAN_CLS[b.state]}`}>{BAN_LABEL[b.state]}</span>
+              <span className="min-w-0">
+                <span className="font-mono text-white break-all">{b.ip}</span>
+                <span className="block text-zinc-400">{banDetail(b)}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-xs text-zinc-500">Blocks are applied by the ThreatCrush daemon on this server and escalate on repeat offences. An expired ban means the address is no longer blocked; the incident stays open until someone records a resolution.</p>
+      </Section>}
 
       {inc.triage && <Section title="Automatic triage">
         <div className="flex flex-wrap items-center gap-2 text-sm">

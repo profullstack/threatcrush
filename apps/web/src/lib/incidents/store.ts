@@ -29,6 +29,7 @@ import {
 import type { PageableIncident } from "./notify";
 import { forensicEvidence, type DetectionEvidence } from "./forensics";
 import { findSecret } from "./secret-guard";
+import { ipsInText, summarizeBans, type BanAction, type IpBanSummary } from "./bans";
 import { deployKeyOf, describeOrigin, describeOriginsDetailed, detectionSourceIp, isKnownAutomationOrigin, type AddressFacts } from "./origin";
 
 export { IncidentError } from "./report";
@@ -471,6 +472,25 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
     );
     ipContext = { source_ip: sourceIp, recent_events: recentEvents, ban_history: banHistory };
   }
+  // Several attackers share one incident (one per server+rule), so report the block state of every
+  // address it names, not only the single-IP case above. Daemon bans live in remediation_actions.
+  let bans: IpBanSummary[] = [];
+  const incidentIps = [...new Set([
+    ...forensics.map((event) => event.source_ip).filter((value): value is string => !!value && isIP(value) !== 0),
+    ...(row.timeline ?? []).flatMap((t) => ipsInText(t.summary)),
+    ...ipsInText(row.summary),
+  ])].slice(0, 50);
+  if (incidentIps.length && row.server_id) {
+    const firstSeen = Date.parse(row.first_seen_at);
+    const earliest = Math.min(Number.isNaN(firstSeen) ? Date.now() : firstSeen, ...(row.timeline ?? []).map((t) => Date.parse(t.at)).filter((n) => !Number.isNaN(n)));
+    const since = new Date(earliest - 60 * 60 * 1000).toISOString();
+    const { data, error } = await admin.from("remediation_actions")
+      .select("action_type, target_value, status, created_at, executed_at, expires_at, metadata")
+      .eq("organization_id", orgId).eq("server_id", row.server_id).in("action_type", ["block", "unblock"]).in("target_value", incidentIps)
+      .gte("created_at", since).order("created_at", { ascending: true }).limit(1000);
+    if (error) throw new Error(`incident bans: ${error.message}`);
+    bans = summarizeBans(incidentIps, (data ?? []) as BanAction[]);
+  }
   const nameOf = (id: string | null) => (id ? names.get(id) ?? null : null);
   const memberById = new Map(members.map((m) => [m.user_id, m]));
   const assignees = ((assignedRows.data ?? []) as Array<{ user_id: string; assigned_at: string }>).map((a) => ({
@@ -484,6 +504,7 @@ export async function getIncident(admin: SupabaseClient, p: Principal, orgId: st
     role,
     forensics,
     ip_context: ipContext,
+    bans,
     resolution_actor_name: nameOf(row.resolution?.actor_user_id ?? null),
     members,
     fix_events: fixEvents.data ?? [],
