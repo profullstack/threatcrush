@@ -6,6 +6,8 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     daemon: 'src/daemon-entry.ts',
+    // CrushAV scan worker thread, started by `av scan` (one per CPU).
+    'av-worker': 'src/av-worker.ts',
   },
   format: ['cjs'],
   target: 'node20',

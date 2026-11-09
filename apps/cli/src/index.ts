@@ -645,6 +645,7 @@ av.command("scan")
   .option("--offline", "do not send file hashes to threatcrush.com for reputation lookups")
   .option("--quarantine", "move malware into quarantine (reversible with `av quarantine restore`)")
   .option("--max-size <mb>", "skip files larger than this many MB (default 1024)")
+  .option("-j, --jobs <n>", "files scanned in parallel worker threads (default: one per CPU core)")
   .option("--json", "emit JSON")
   .action(async (paths: string[], opts) => {
     await avScanCommand(paths, opts);

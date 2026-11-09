@@ -38,6 +38,17 @@ export interface AvScanOptions {
   quarantine?: boolean;
   json?: boolean;
   maxSize?: string;
+  jobs?: string;
+}
+
+/**
+ * The scan worker bundled next to this CLI (dist/av-worker.js). Running from
+ * source there is none, and the scan falls back to the calling thread.
+ */
+function avWorkerScript(): string | undefined {
+  if (typeof __dirname === 'undefined') return undefined;
+  const p = join(__dirname, 'av-worker.js');
+  return existsSync(p) ? p : undefined;
 }
 
 const icon = (v: AvFileResult['verdict']) =>
@@ -65,12 +76,16 @@ export async function avScanCommand(paths: string[], opts: AvScanOptions = {}): 
 
   const spinner = opts.json ? null : ora({ text: `CrushAV ${label}`, discardStdin: false }).start();
   let lastPaint = 0;
+  const startedAt = Date.now();
   const report = await scanPaths(targets, {
     clamav: opts.requireClamav ? 'require' : opts.clamav === false ? 'off' : 'auto',
     reputation: !opts.offline,
     lookupEndpoint: `${apiUrl()}/api/av/lookup`,
     signatureFile: SIGNATURE_FILE,
     maxFileBytes: opts.maxSize ? Number(opts.maxSize) * 1048576 : undefined,
+    workerScript: avWorkerScript(),
+    concurrency: opts.jobs ? Math.max(1, Math.floor(Number(opts.jobs)) || 1) : undefined,
+    keepClean: false,
     onProgress: (e) => {
       if (!spinner) return;
       if (e.type === 'phase') {
@@ -79,7 +94,9 @@ export async function avScanCommand(paths: string[], opts: AvScanOptions = {}): 
       } else if (e.type === 'file' && Date.now() - lastPaint > 120) {
         lastPaint = Date.now();
         const short = e.path.length > 70 ? `…${e.path.slice(-69)}` : e.path;
-        spinner.text = `${e.scanned} files  ${chalk.gray(short)}`;
+        const secs = (Date.now() - startedAt) / 1000;
+        const rate = secs > 1 ? `  ${Math.round(e.scanned / secs)}/s` : '';
+        spinner.text = `${e.scanned} files${rate}  ${chalk.gray(short)}`;
       }
     },
   }).catch((e: Error) => {

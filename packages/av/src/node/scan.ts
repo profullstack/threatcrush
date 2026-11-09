@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, readFileSync, existsSync } from 'node:fs';
+import { lstat } from 'node:fs/promises';
+import { availableParallelism } from 'node:os';
+import { Worker } from 'node:worker_threads';
 import { applyReputation, DEFAULT_HEURISTIC_BYTES, scanBytes, SignatureSet } from '../engine';
 import { lookupHashes } from '../reputation';
 import { summarize } from '../summary';
@@ -7,7 +10,9 @@ import type { AvEngine, AvFileResult, AvSummary, HashReputation } from '../types
 import { verdictOf } from '../engine';
 import { clamScanFiles, detectClamAV, type ClamInfo } from './clamav';
 import type { ScanTarget } from './locations';
-import { walkTargets } from './walk';
+import type { FileOutcome } from './scan-file';
+import type { ScanWorkerInit, ScanWorkerReply } from './scan-worker';
+import { walkFiles } from './walk';
 
 export interface ScanPathsOptions {
   /** Bytes of each file the heuristics read. */
@@ -23,7 +28,23 @@ export interface ScanPathsOptions {
   signatures?: SignatureSet;
   /** Extra `sha256 name` signature file. */
   signatureFile?: string;
+  /**
+   * With `workerScript`: worker threads (default: one per CPU). Without: files
+   * read at once on the calling thread (default 4).
+   */
   concurrency?: number;
+  /**
+   * A file that calls `runScanWorker()` (bundled by the host). When set, files
+   * are read, hashed and checked in parallel worker threads with blocking I/O,
+   * which is many times faster on big trees. Without it everything runs on the
+   * calling thread with async I/O (safe for an Electron main process).
+   */
+  workerScript?: string | URL;
+  /**
+   * Keep every clean result in `report.results` (default true). Set false for
+   * big scans: clean files are only counted, so memory stays flat.
+   */
+  keepClean?: boolean;
   signal?: AbortSignal;
   onProgress?: (e: ScanProgress) => void;
 }
@@ -72,6 +93,7 @@ export async function scanPaths(targets: ScanTarget[], opts: ScanPathsOptions = 
   const started = new Date();
   const cap = opts.heuristicBytes ?? DEFAULT_HEURISTIC_BYTES;
   const maxFile = opts.maxFileBytes ?? 1024 ** 3;
+  const keepClean = opts.keepClean !== false;
   const skipped: Array<{ path: string; reason: string }> = [];
   const skip = (path: string, reason: string) => {
     skipped.push({ path, reason });
@@ -86,40 +108,70 @@ export async function scanPaths(targets: ScanTarget[], opts: ScanPathsOptions = 
 
   const clamav = opts.clamav === 'off' ? null : await detectClamAV();
   if (opts.clamav === 'require' && !clamav?.available) throw new Error('ClamAV is not installed (or clamscan is not on PATH)');
+  // ClamAV re-reads every readable file, so it needs every path, clean or not.
+  const clamFiles: string[] | null = clamav?.available ? [] : null;
 
   opts.onProgress?.({ type: 'phase', phase: 'walking' });
   const results: AvFileResult[] = [];
-  const queue: Array<Promise<void>> = [];
-  const limit = Math.max(1, opts.concurrency ?? 4);
+  let scanned = 0;
+  let droppedClean = 0;
+  let cleanLookupsKept = 0;
 
-  const scanOne = async (path: string, size: number) => {
-    try {
-      const { head, sha256 } = await readForScan(path, size, cap);
-      const r = await scanBytes({ name: path, bytes: head, size, sha256 }, { signatures });
-      results.push(r);
-      opts.onProgress?.({ type: 'file', path, scanned: results.length, result: r });
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code ?? (e as Error).message;
-      const r: AvFileResult = { path, size, sha256: null, kind: 'unknown', verdict: 'error', detections: [], note: code };
-      results.push(r);
-      opts.onProgress?.({ type: 'file', path, scanned: results.length, result: r });
-    }
+  const record = (r: AvFileResult) => {
+    scanned++;
+    if (clamFiles && r.verdict !== 'error') clamFiles.push(r.path);
+    const keep =
+      keepClean ||
+      r.verdict !== 'clean' ||
+      r.detections.length > 0 ||
+      (r.sha256 !== null && LOOKUP_KINDS.has(r.kind) && cleanLookupsKept++ < MAX_LOOKUPS);
+    if (keep) results.push(r);
+    else droppedClean++;
+    opts.onProgress?.({ type: 'file', path: r.path, scanned, result: r });
   };
+  const take = (o: FileOutcome) => {
+    if (o.kind === 'result') record(o.result);
+    else if (o.kind === 'skip') skip(o.path, o.reason);
+  };
+  const walk = () => walkFiles(targets, { signal: opts.signal, onSkip: skip });
 
-  for await (const f of walkTargets(targets, { signal: opts.signal, onSkip: skip })) {
-    if (opts.signal?.aborted) break;
-    if (f.size === 0) continue;
-    if (f.size > maxFile) {
-      skip(f.path, `larger than ${Math.round(maxFile / 1048576)} MB`);
-      continue;
-    }
-    const p = scanOne(f.path, f.size).finally(() => {
-      queue.splice(queue.indexOf(p), 1);
+  if (opts.workerScript) {
+    await scanInWorkers(walk(), {
+      script: opts.workerScript,
+      workers: Math.max(1, opts.concurrency ?? availableParallelism()),
+      init: { cap, maxFile, signatures: signatures?.entries() },
+      signal: opts.signal,
+      take,
     });
-    queue.push(p);
-    if (queue.length >= limit) await Promise.race(queue);
+  } else {
+    const queue = new Set<Promise<void>>();
+    const limit = Math.max(1, opts.concurrency ?? 4);
+    const scanOne = async (path: string) => {
+      let size: number;
+      try {
+        const st = await lstat(path);
+        if (!st.isFile() || st.size === 0) return;
+        size = st.size;
+      } catch {
+        return;
+      }
+      if (size > maxFile) return skip(path, `larger than ${Math.round(maxFile / 1048576)} MB`);
+      try {
+        const { head, sha256 } = await readForScan(path, size, cap);
+        record(await scanBytes({ name: path, bytes: head, size, sha256 }, { signatures }));
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code ?? (e as Error).message;
+        record({ path, size, sha256: null, kind: 'unknown', verdict: 'error', detections: [], note: code });
+      }
+    };
+    for await (const path of walk()) {
+      if (opts.signal?.aborted) break;
+      const p: Promise<void> = scanOne(path).finally(() => queue.delete(p));
+      queue.add(p);
+      if (queue.size >= limit) await Promise.race(queue);
+    }
+    await Promise.all(queue);
   }
-  await Promise.all(queue);
 
   const engines: AvEngine[] = ['signature', 'heuristic'];
 
@@ -136,22 +188,98 @@ export async function scanPaths(targets: ScanTarget[], opts: ScanPathsOptions = 
   }
 
   let clamavError: string | null = null;
-  if (clamav?.available && !opts.signal?.aborted) {
-    const files = results.filter((r) => r.verdict !== 'error').map((r) => r.path);
-    opts.onProgress?.({ type: 'phase', phase: 'clamav', detail: `${files.length} files via ${clamav.mode}` });
-    const { detections, error } = await clamScanFiles(clamav, files, { signal: opts.signal });
+  if (clamav?.available && clamFiles && !opts.signal?.aborted) {
+    opts.onProgress?.({ type: 'phase', phase: 'clamav', detail: `${clamFiles.length} files via ${clamav.mode}` });
+    const { detections, error } = await clamScanFiles(clamav, clamFiles, { signal: opts.signal });
     clamavError = error;
     if (!error) engines.push('clamav');
-    for (const r of results) {
-      const extra = detections.get(r.path);
-      if (!extra) continue;
+    const byPath = new Map(results.map((r) => [r.path, r]));
+    for (const [path, extra] of detections) {
+      let r = byPath.get(path);
+      if (!r) {
+        // A clean file that was only counted: bring it back as a result.
+        r = { path, size: 0, sha256: null, kind: 'unknown', verdict: 'clean', detections: [] };
+        results.push(r);
+        droppedClean--;
+      }
       r.detections.push(...extra);
       r.verdict = verdictOf(r.detections);
     }
   }
 
   opts.onProgress?.({ type: 'phase', phase: 'done' });
-  return { summary: summarize(results, engines, started, skipped.length), results, clamav, clamavError, skipped };
+  const summary = summarize(results, engines, started, skipped.length);
+  summary.scanned += droppedClean;
+  summary.clean += droppedClean;
+  return { summary, results, clamav, clamavError, skipped };
+}
+
+/** Feed walked paths to a pool of scan workers in batches. */
+async function scanInWorkers(
+  paths: AsyncIterable<string>,
+  o: { script: string | URL; workers: number; init: ScanWorkerInit; signal?: AbortSignal; take: (x: FileOutcome) => void },
+): Promise<void> {
+  const BATCH = 64;
+  const PER_WORKER = 2;
+  let failure: Error | null = null;
+  const waiting = new Map<number, { resolve: (out: FileOutcome[]) => void; reject: (e: Error) => void }>();
+  const fail = (e: Error) => {
+    failure ??= e;
+    for (const w of waiting.values()) w.reject(e);
+    waiting.clear();
+  };
+  const slots = Array.from({ length: o.workers }, () => {
+    const worker = new Worker(o.script, { workerData: o.init });
+    worker.on('message', (m: ScanWorkerReply) => {
+      const w = waiting.get(m.id);
+      waiting.delete(m.id);
+      w?.resolve(m.out);
+    });
+    worker.on('error', fail);
+    worker.on('exit', (code) => {
+      if (code !== 0) fail(new Error(`scan worker exited with code ${code}`));
+    });
+    return { worker, busy: 0 };
+  });
+
+  let nextId = 0;
+  const inflight = new Set<Promise<void>>();
+  const send = (files: string[]) => {
+    const slot = slots.reduce((a, b) => (b.busy < a.busy ? b : a));
+    slot.busy++;
+    const id = nextId++;
+    const p: Promise<void> = new Promise<FileOutcome[]>((resolve, reject) => waiting.set(id, { resolve, reject }))
+      .then((out) => {
+        for (const x of out) o.take(x);
+      })
+      .finally(() => {
+        slot.busy--;
+        inflight.delete(p);
+      });
+    inflight.add(p);
+    slot.worker.postMessage({ id, files });
+  };
+
+  try {
+    let batch: string[] = [];
+    for await (const path of paths) {
+      if (failure) throw failure;
+      if (o.signal?.aborted) break;
+      batch.push(path);
+      if (batch.length < BATCH) continue;
+      send(batch);
+      batch = [];
+      while (inflight.size >= o.workers * PER_WORKER) await Promise.race(inflight);
+    }
+    if (batch.length && !o.signal?.aborted) send(batch);
+    await Promise.all(inflight);
+    if (failure) throw failure;
+  } finally {
+    // Swallow rejections from batches we are abandoning on the way out.
+    for (const p of inflight) p.catch(() => {});
+    slots.forEach((s) => s.worker.removeAllListeners('exit'));
+    await Promise.all(slots.map((s) => s.worker.terminate()));
+  }
 }
 
 function applyAll(results: AvFileResult[], reps: Map<string, HashReputation>): void {
