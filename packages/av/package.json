@@ -1,6 +1,6 @@
 {
   "name": "@threatcrush/av",
-  "version": "0.13.74",
+  "version": "0.13.75",
   "description": "CrushAV: the free, open-source ThreatCrush antivirus engine. Heuristic rules, file-type sniffing and hash reputation that run in Node, Electron, browsers and React Native; ClamAV bridge, quarantine and scan targets under ./node.",
   "license": "MIT",
   "type": "module",
