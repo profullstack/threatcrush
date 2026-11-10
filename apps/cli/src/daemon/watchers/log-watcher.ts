@@ -1,4 +1,6 @@
-import { existsSync, accessSync, constants } from 'node:fs';
+import { existsSync, accessSync, constants, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import TOML from '@iarna/toml';
 import { LogTail } from '../../core/log-tail.js';
 import type { EventBus } from '../event-bus.js';
 import { assessNginxRequest, attackSeverity, autoDetectParser, classifySshAuth, isSshdProcess, parseAuthLog, parseCaddyAccessLog, parseNginxLog, sshdPeerIp } from '../../core/log-parser.js';
@@ -18,6 +20,51 @@ export const DEFAULT_SOURCES: LogSource[] = [
   { path: '/var/log/caddy/agent.database.pit.world.access.log', module: 'log-watcher', category: 'web' },
   { path: '/var/log/syslog', module: 'log-watcher', category: 'system' },
 ];
+
+/**
+ * Extra web access logs to tail, besides DEFAULT_SOURCES:
+ *
+ *   # threatcrushd.conf (main config)
+ *   [modules.log-watcher]
+ *   paths = ["/var/log/nginx/rssamplifier.access.log"]
+ *
+ *   # any threatcrushd.conf.d/*.conf (e.g. c0mpute.conf, written by
+ *   # `c0mpute plugin install threatcrush` for its gateway log)
+ *   [log-watcher]
+ *   paths = ["/home/me/.local/share/c0mpute/gateway/access.log"]
+ *
+ * Every file contributes its own paths: two drop-ins never overwrite each
+ * other (loadModuleConfigs keeps only the last file per section). Unreadable
+ * or malformed files are skipped. Paths are web logs (nginx combined/vhost or
+ * Caddy JSON; the parser is picked per line).
+ */
+export function configuredWebSources(configFile: string, confD: string): LogSource[] {
+  const paths: string[] = [];
+  const take = (v: unknown) => {
+    if (!Array.isArray(v)) return;
+    for (const p of v) if (typeof p === 'string' && p.startsWith('/')) paths.push(p);
+  };
+  const read = (file: string): Record<string, any> | null => {
+    try { return TOML.parse(readFileSync(file, 'utf-8')) as Record<string, any>; }
+    catch { return null; }
+  };
+  const main = existsSync(configFile) ? read(configFile) : null;
+  take(main?.modules?.['log-watcher']?.paths);
+  take(main?.['log-watcher']?.paths);
+  if (existsSync(confD)) {
+    let files: string[] = [];
+    try { files = readdirSync(confD).filter((f) => f.endsWith('.conf')).sort(); } catch { /* unreadable */ }
+    for (const f of files) take(read(join(confD, f))?.['log-watcher']?.paths);
+  }
+  const known = new Set(DEFAULT_SOURCES.map((s) => s.path));
+  const out: LogSource[] = [];
+  for (const path of paths) {
+    if (known.has(path)) continue;
+    known.add(path);
+    out.push({ path, module: 'log-watcher', category: 'web' });
+  }
+  return out;
+}
 
 const AGENTDB_API_PATH = /^\/v1\/(?:list_databases|inspect_schema|query_readonly|explain_query|cluster_health|backup_status|audit\/events|backup\/(?:create|verify)|tokens(?:\/revoke)?)$/;
 const AGENTDB_HOST = 'agent.database.pit.world';

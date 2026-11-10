@@ -5,7 +5,7 @@ import TOML from '@iarna/toml';
 import type { EventBus } from './event-bus.js';
 import { PATHS } from './paths.js';
 import { verifyModuleTrust } from './module-trust.js';
-import { LogWatcher } from './watchers/log-watcher.js';
+import { DEFAULT_SOURCES, LogWatcher, configuredWebSources } from './watchers/log-watcher.js';
 import { JournalWatcher } from './watchers/journal-watcher.js';
 import { NetworkMonitor } from '../modules/network-monitor/index.js';
 import { DnsMonitor } from '../modules/dns-monitor/index.js';
@@ -54,7 +54,12 @@ export class ModuleHost {
     this.registerBuiltins();
     await this.discoverAndStartInstalled();
 
-    this.logWatcher = new LogWatcher(this.bus);
+    // Extra web logs from [modules.log-watcher] / conf.d [log-watcher] paths
+    // (e.g. a c0mpute gateway's access log).
+    this.logWatcher = new LogWatcher(this.bus, [
+      ...DEFAULT_SOURCES,
+      ...configuredWebSources(PATHS.configFile, PATHS.confD),
+    ]);
     const watched = this.logWatcher.start();
 
     for (const modName of this.logWatcher.activeModules()) {
