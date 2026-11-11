@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { authHeaders } from "@/lib/auth-client";
 import { useAuth } from "@/lib/auth-context";
+import { replaceLocation } from "@/lib/navigate";
 
 // The OAuth authorization_endpoint for the MCP server. The session is in
 // localStorage, so this page (not a server redirect) checks sign-in, shows
@@ -13,6 +14,23 @@ import { useAuth } from "@/lib/auth-context";
 interface Info {
   client: { name: string; uri: string | null };
   redirect_host: string;
+}
+
+/**
+ * Back to the client. The server already matched this against the client's
+ * registered redirect_uris; this only refuses anything that is not https or
+ * http on loopback, the same rule registration applies.
+ */
+function returnToClient(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const loopback = u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+    if (u.protocol !== "https:" && !loopback) return false;
+    replaceLocation(u.toString());
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const PARAMS = ["response_type", "client_id", "redirect_uri", "code_challenge", "code_challenge_method", "state", "scope", "resource"];
@@ -42,8 +60,8 @@ export default function AuthorizeClient() {
       .then(async (res) => {
         const data = (await res.json().catch(() => ({}))) as Partial<Info> & { redirect?: string; error_description?: string };
         if (data.redirect) {
+          if (!returnToClient(data.redirect)) throw new Error("This connection request is not valid.");
           setLeaving(true);
-          window.location.href = data.redirect;
           return;
         }
         if (!res.ok || !data.client) throw new Error(data.error_description || "This connection request is not valid.");
@@ -71,8 +89,8 @@ export default function AuthorizeClient() {
       });
       const data = (await res.json().catch(() => ({}))) as { redirect?: string; error?: string; error_description?: string };
       if (!res.ok || !data.redirect) throw new Error(data.error_description || data.error || "Could not complete the connection");
+      if (!returnToClient(data.redirect)) throw new Error("This connection request is not valid.");
       setLeaving(true);
-      window.location.href = data.redirect;
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
