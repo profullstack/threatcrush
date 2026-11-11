@@ -1,0 +1,80 @@
+name: Extension release
+
+# Puts the browser extension on a GitHub release (extension-v<version>, the
+# Chromium and Firefox zips) whenever apps/extension changes version on master.
+# The TronBrowser store picks the Chromium zip up from there on its own
+# (profullstack/tronbrowser.dev apps/extensions/house.json + store-sync.yml),
+# so nothing here talks to the store.
+#
+# A release that already exists for the manifest's version is left alone, so
+# pushes that do not bump the version are no-ops. Not marked "latest": the
+# desktop downloads resolve releases/latest.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - apps/extension/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: extension-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Version
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .version apps/extension/src/manifest.chrome.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=extension-v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "extension-v$version" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "extension-v$version is already released"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v6
+        if: steps.v.outputs.exists == 'false'
+
+      - uses: actions/setup-node@v7
+        if: steps.v.outputs.exists == 'false'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Build
+        if: steps.v.outputs.exists == 'false'
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @profullstack/threatcrush-extension build
+          ls -l apps/extension/dist/*.zip
+          test "$(unzip -p apps/extension/dist/threatcrush-chrome.zip manifest.json | jq -r .version)" = "${{ steps.v.outputs.version }}"
+
+      - name: Release
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            apps/extension/dist/threatcrush-chrome.zip \
+            apps/extension/dist/threatcrush-firefox.zip \
+            --target "$GITHUB_SHA" --latest=false \
+            --title "ThreatCrush extension $VERSION" \
+            --notes "Browser extension $VERSION. \`threatcrush-chrome.zip\` is the Chromium bundle (also published to https://tronbrowser.dev/store/ automatically); \`threatcrush-firefox.zip\` is the Firefox build."
