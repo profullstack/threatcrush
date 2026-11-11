@@ -23,8 +23,13 @@ export interface ReputationCaller {
 export async function reputationCaller(req: NextRequest, requestedOrg?: string | null): Promise<ReputationCaller | null> {
   const principal = await feedPrincipal(req);
   if (!principal) return null;
+  return reputationCallerFor(principal, requestedOrg ?? new URL(req.url).searchParams.get("org"));
+}
+
+/** The same, for a caller already resolved (the MCP route resolves OAuth tokens itself). */
+export async function reputationCallerFor(principal: Principal, requestedOrg?: string | null): Promise<ReputationCaller> {
   const admin = getSupabaseAdmin();
-  const orgId = await readingOrgFor(admin, principal, requestedOrg ?? new URL(req.url).searchParams.get("org"));
+  const orgId = await readingOrgFor(admin, principal, requestedOrg ?? null);
   const tier = await tierFor(admin, orgId);
   const caller = orgId ?? (principal.kind === "agent" ? principal.keyId : principal.userId);
   return { admin, principal, orgId, tier, caller };
