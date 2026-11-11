@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import IncidentAlertsCard from "./incident-alerts-card";
+import ConnectedAppsCard from "./connected-apps-card";
 import CoinpayCard from "./coinpay-card";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
@@ -636,6 +637,8 @@ export default function AccountContent() {
           </div>
 
           <IncidentAlertsCard />
+
+          <ConnectedAppsCard />
 
           <PlanCard />
 

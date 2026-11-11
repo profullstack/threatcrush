@@ -2,11 +2,12 @@ import { after, NextResponse, type NextRequest } from "next/server";
 import { LOOKUP_BATCH, SHA256_RE } from "@threatcrush/av";
 import { lookupReputations } from "@/lib/av-reputation";
 import { takeLookupShared } from "@/lib/reputation";
-import { reputationCaller, type ReputationCaller } from "@/lib/reputation-auth";
+import { reputationCallerFor, type ReputationCaller } from "@/lib/reputation-auth";
 import { lookupIndicator, parseIndicator } from "@/lib/reputation-service";
 import { feedPrincipal } from "@/lib/feed-auth";
 import { atLeast, findingsRoleOf, type Principal } from "@/lib/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { ACCESS_PREFIX, resolveAccessToken, resourceMetadataUrl } from "@/lib/mcp-oauth";
 import { getFinding, listFindings, triageFindings, TriageError } from "@/lib/scan-findings";
 import { getIncident, IncidentError, listIncidents, pageable, raiseIncident, updateIncident } from "@/lib/incidents/store";
 import { notifyIncident } from "@/lib/incidents/notify";
@@ -29,8 +30,15 @@ export const dynamic = "force-dynamic";
 
 /**
  * The ThreatCrush MCP server at /api/mcp: stateless Streamable HTTP, JSON
- * responses, POST only. Tools need a ThreatCrush key (Authorization: Bearer
- * tc_agent_…); tools/list does not, so a client can discover them first.
+ * responses, POST only. Tools need a ThreatCrush credential as the Bearer
+ * token: a tc_agent_ key, a session token, or an OAuth access token (tc_oat_,
+ * issued to ChatGPT / claude.ai / Claude Code connectors by lib/mcp-oauth.ts).
+ * initialize, tools/list and av_hash_lookup do not, so a client can discover
+ * the tools first. A tools/call that needs a credential and has none, or any
+ * request with a bad one, is HTTP 401 with WWW-Authenticate pointing at the
+ * protected-resource metadata, which starts the client's OAuth flow.
+ * `/api/mcp?login` asks for sign-in on every request (the URL to paste into a
+ * connector UI that only offers OAuth when the first request is refused).
  * Pro orgs get the Pro fields, the same as the REST API.
  */
 
@@ -256,10 +264,76 @@ const TOOLS = [
   },
 ];
 
+type Hints = { title: string; readOnlyHint: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint: boolean };
+const read = (title: string, openWorldHint = false): Hints => ({ title, readOnlyHint: true, openWorldHint });
+const write = (title: string, destructiveHint: boolean, idempotentHint: boolean, openWorldHint = false): Hints => ({
+  title,
+  readOnlyHint: false,
+  destructiveHint,
+  idempotentHint,
+  openWorldHint,
+});
+
+/** MCP tool annotations (ChatGPT apps and Claude use them to decide what needs confirmation). */
+const ANNOTATIONS: Record<string, Hints> = {
+  av_hash_lookup: read("Look up file hashes (CrushAV)", true),
+  reputation_lookup: read("Look up an IP or domain", true),
+  reputation_bulk: read("Look up many IPs or domains", true),
+  redeem_credit_code: write("Redeem a credit code", false, false),
+  list_invites: read("List my invites"),
+  create_invite: write("Create an invite link", false, false),
+  findings_list: read("List findings"),
+  findings_get: read("Get a finding"),
+  findings_triage: write("Triage findings", false, true),
+  incidents_list: read("List incidents"),
+  incidents_get: read("Get an incident"),
+  incidents_update: write("Update an incident", false, true),
+  incidents_raise: write("Raise an incident (pages the team)", false, false, true),
+  webhooks_list: read("List webhook endpoints"),
+  webhooks_create: write("Add a webhook endpoint", false, false, true),
+  webhooks_update: write("Change a webhook endpoint", false, true, true),
+  webhooks_delete: write("Delete a webhook endpoint", true, true),
+  webhooks_test: write("Send a test webhook", false, false, true),
+  webhooks_rotate_secret: write("Rotate a webhook signing secret", true, false),
+  webhooks_deliveries: read("List webhook deliveries"),
+};
+
+const LISTED_TOOLS = TOOLS.map((t) => {
+  const { title, ...annotations } = ANNOTATIONS[t.name];
+  return { ...t, title, annotations: { title, ...annotations } };
+});
+
+/** Tools that answer without any credential. */
+const KEYLESS_TOOLS = new Set(["av_hash_lookup"]);
+
+// ─── Who is calling (resolved once per HTTP request) ───
+
+function bearerOf(req: NextRequest): string {
+  return (
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ||
+    req.headers.get("x-api-key")?.trim() ||
+    new URL(req.url).searchParams.get("key")?.trim() ||
+    ""
+  );
+}
+
+const principals = new WeakMap<NextRequest, Promise<Principal | null>>();
+
+/** An OAuth access token (only ever accepted here), else whatever feed-auth accepts. */
+function principalOf(req: NextRequest): Promise<Principal | null> {
+  let p = principals.get(req);
+  if (!p) {
+    const token = bearerOf(req);
+    p = !token ? Promise.resolve(null) : token.startsWith(ACCESS_PREFIX) ? resolveAccessToken(getSupabaseAdmin(), token) : feedPrincipal(req);
+    principals.set(req, p);
+  }
+  return p;
+}
+
 const WEBHOOK_TOOLS = new Set(["webhooks_list", "webhooks_create", "webhooks_update", "webhooks_delete", "webhooks_test", "webhooks_rotate_secret", "webhooks_deliveries"]);
 
 async function callWebhookTool(req: NextRequest, name: string, args: Record<string, unknown>) {
-  const p = await feedPrincipal(req);
+  const p = await principalOf(req);
   if (!p) return text("Sign in first: pass your ThreatCrush session token (`threatcrush login`) or an admin tc_agent_ key as the Bearer token.", true);
   const who = await webhookOrgFor(getSupabaseAdmin(), p, typeof args.org_id === "string" ? args.org_id : null);
   if ("error" in who) return text(who.error, true);
@@ -294,7 +368,7 @@ const FINDING_TOOLS = new Set(["findings_list", "findings_get", "findings_triage
 const INCIDENT_TOOLS = new Set(["incidents_list", "incidents_get", "incidents_update", "incidents_raise"]);
 
 async function callIncidentTool(req: NextRequest, name: string, args: Record<string, unknown>) {
-  const p = await feedPrincipal(req);
+  const p = await principalOf(req);
   if (!p) return text("Sign in first: pass your ThreatCrush session token (`threatcrush login`) or a tc_agent_ key as the Bearer token.", true);
   const admin = getSupabaseAdmin();
   const orgId = await findingsOrg(p, args.org_id);
@@ -329,7 +403,7 @@ async function findingsOrg(p: Principal, asked: unknown): Promise<string | null>
 }
 
 async function callFindingsTool(req: NextRequest, name: string, args: Record<string, unknown>) {
-  const p = await feedPrincipal(req);
+  const p = await principalOf(req);
   if (!p) return text("Sign in first: pass your ThreatCrush session token (`threatcrush login`) or a tc_agent_ key as the Bearer token.", true);
   const admin = getSupabaseAdmin();
   const orgId = await findingsOrg(p, args.org_id);
@@ -384,7 +458,7 @@ async function callTool(who: ReputationCaller, name: string, args: Record<string
 }
 
 async function callCreditTool(req: NextRequest, name: string, args: Record<string, unknown>) {
-  const p = await feedPrincipal(req);
+  const p = await principalOf(req);
   if (!p) return text("Sign in first: pass your ThreatCrush session token (`threatcrush login`) as the Bearer token.", true);
   if (p.kind !== "user") return text("Credit codes and invites belong to a person: use a session token, not a tc_agent_ key.", true);
   try {
@@ -413,16 +487,17 @@ async function handle(req: NextRequest, msg: Rpc) {
       return ok(id, {
         protocolVersion: PROTOCOL,
         capabilities: { tools: {} },
-        serverInfo: { name: "ThreatCrush", version: "0.13" },
+        serverInfo: { name: "threatcrush", title: "ThreatCrush", version: "0.13", websiteUrl: "https://threatcrush.com" },
         instructions:
-          "CrushAV file-hash reputation with no key (av_hash_lookup), IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), incidents raised to your team with host/time filtering, linked event and block context, saved AI triage and fix tracking (incidents_list, incidents_get, incidents_update, incidents_raise), and your org's webhook endpoints (webhooks_list, webhooks_create, webhooks_update, webhooks_delete, webhooks_test, webhooks_rotate_secret, webhooks_deliveries). Needs a ThreatCrush API key as a Bearer token; keyless public lookups are at nichedb.dev/mcp.",
+          "ThreatCrush security tools for your organization. CrushAV file-hash reputation with no key (av_hash_lookup), IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), incidents raised to your team with host/time filtering, linked event and block context, saved AI triage and fix tracking (incidents_list, incidents_get, incidents_update, incidents_raise), and your org's webhook endpoints (webhooks_list, webhooks_create, webhooks_update, webhooks_delete, webhooks_test, webhooks_rotate_secret, webhooks_deliveries). Everything except av_hash_lookup needs a ThreatCrush credential: connect with OAuth (sign in to threatcrush.com when asked) or send a tc_agent_ key as the Bearer token; keyless public lookups are at nichedb.dev/mcp. Read tools are safe to call freely; findings_triage, incidents_update, incidents_raise (pages humans by SMS and email) and the webhook write tools change shared state, so confirm with the user first.",
       });
     case "notifications/initialized":
       return null;
     case "ping":
       return ok(id, {});
     case "tools/list":
-      return ok(id, { tools: TOOLS });
+      // resultType/ttlMs/cacheScope: list cache metadata newer clients require.
+      return ok(id, { tools: LISTED_TOOLS, resultType: "complete", ttlMs: 3_600_000, cacheScope: "public" });
     case "tools/call": {
       const toolName = String(msg.params?.name ?? "");
       if (toolName === "av_hash_lookup") {
@@ -447,8 +522,9 @@ async function handle(req: NextRequest, msg: Rpc) {
       if (CREDIT_TOOLS.has(toolName)) {
         return ok(id, await callCreditTool(req, toolName, (msg.params?.arguments as Record<string, unknown>) ?? {}));
       }
-      const who = await reputationCaller(req);
-      if (!who) return ok(id, text("A ThreatCrush API key is required (Authorization: Bearer tc_agent_…). Create one free at threatcrush.com.", true));
+      const principal = await principalOf(req);
+      if (!principal) return ok(id, text("A ThreatCrush API key is required (Authorization: Bearer tc_agent_…). Create one free at threatcrush.com.", true));
+      const who = await reputationCallerFor(principal);
       const name = String(msg.params?.name ?? "");
       const result = await callTool(who, name, (msg.params?.arguments as Record<string, unknown>) ?? {});
       return result ? ok(id, result) : fail(id, -32602, `Unknown tool: ${name}`);
@@ -466,12 +542,45 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(fail(null, -32700, "Invalid JSON"), { status: 400 });
   }
   const headers = { "mcp-protocol-version": PROTOCOL, "cache-control": "no-store" };
+  const refused = await authGate(req, Array.isArray(payload) ? payload : [payload]);
+  if (refused) return refused;
   if (Array.isArray(payload)) {
     const answers = (await Promise.all(payload.map((m) => handle(req, m)))).filter(Boolean);
     return answers.length ? NextResponse.json(answers, { headers }) : new NextResponse(null, { status: 202, headers });
   }
   const answer = await handle(req, payload);
   return answer ? NextResponse.json(answer, { headers }) : new NextResponse(null, { status: 202, headers });
+}
+
+/**
+ * HTTP 401 + WWW-Authenticate (MCP authorization spec) when the request carries
+ * a credential that does not resolve, or needs one and has none. The body is
+ * still JSON-RPC, so a client that ignores the status reads why.
+ */
+async function authGate(req: NextRequest, messages: Rpc[]): Promise<NextResponse | null> {
+  const forceLogin = new URL(req.url).searchParams.has("login");
+  const needsAuth = messages.some(
+    (m) =>
+      (m?.method === "tools/call" && !KEYLESS_TOOLS.has(String(m.params?.name ?? ""))) ||
+      (forceLogin && typeof m?.method === "string" && !m.method.startsWith("notifications/")),
+  );
+  const presented = Boolean(bearerOf(req));
+  if (!presented && !needsAuth) return null;
+  if (await principalOf(req)) return null;
+  const invalid = presented;
+  const challenge = [
+    `Bearer resource_metadata="${resourceMetadataUrl()}"`,
+    'scope="mcp"',
+    ...(invalid ? ['error="invalid_token"', 'error_description="The access token is invalid, expired or revoked"'] : []),
+  ].join(", ");
+  const message = invalid
+    ? "The ThreatCrush credential is invalid, expired or revoked. Reconnect, or send a valid tc_agent_ key."
+    : "Sign in to ThreatCrush: connect with OAuth, or send a tc_agent_ key (Authorization: Bearer tc_agent_…). Create one free at threatcrush.com.";
+  const single = messages.length === 1 ? messages[0]?.id : null;
+  return NextResponse.json(fail(single, -32001, message), {
+    status: 401,
+    headers: { "www-authenticate": challenge, "access-control-expose-headers": "www-authenticate", "cache-control": "no-store" },
+  });
 }
 
 export function GET() {

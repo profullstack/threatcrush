@@ -66,7 +66,15 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       // Guessed and old auth URLs: sign-up and sign-in live under /auth.
-      { source: "/register", destination: "/auth/signup", permanent: true },
+      // Not for a JSON POST: an MCP client that misses the advertised
+      // registration_endpoint falls back to POST /register, and a 308 to an HTML
+      // page breaks it ("Failed to parse JSON"). It gets a JSON 404 instead.
+      {
+        source: "/register",
+        destination: "/auth/signup",
+        permanent: true,
+        missing: [{ type: "header", key: "content-type", value: ".*json.*" }],
+      },
       { source: "/signup", destination: "/auth/signup", permanent: true },
       { source: "/sign-up", destination: "/auth/signup", permanent: true },
       { source: "/login", destination: "/auth/login", permanent: true },
