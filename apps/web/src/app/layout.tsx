@@ -225,6 +225,17 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: serializeJsonForHtml(softwareApplicationJsonLd) }}
         />
+        {/* WebMCP (@profullstack/webmcp): site_info, open_page and the one keyless /api/mcp
+            tool (av_hash_lookup) for the AI agent in the visitor's browser. The rest of the
+            MCP needs a Bearer key, which a page cannot send. No-op without WebMCP. */}
+        <script
+          type="module"
+          data-webmcp=""
+          src="https://cdn.jsdelivr.net/npm/@profullstack/webmcp@0/src/embed.js"
+          data-mcp="/api/mcp"
+          data-mcp-exclude="reputation_lookup,reputation_bulk,redeem_credit_code,list_invites,create_invite,findings_list,findings_get,findings_triage,incidents_list,incidents_get,incidents_update,incidents_raise,webhooks_list,webhooks_create,webhooks_update,webhooks_delete,webhooks_test,webhooks_rotate_secret,webhooks_deliveries"
+          data-pages='{"pricing":"/pricing","docs":"/docs","reputation":"/reputation","antivirus":"/antivirus","store":"/store","security":"/security","blog":"/blog"}'
+        />
       </head>
       <body className="antialiased">
         <AuthProvider>
