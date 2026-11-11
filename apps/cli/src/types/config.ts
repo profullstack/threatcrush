@@ -294,7 +294,7 @@ export interface ThreatCrushConfig {
   storage?: {
     /** e.g. "14d" (default). Older events are deleted. */
     event_retention?: string;
-    /** Hard cap on stored events (default 2,000,000); the oldest go first. */
+    /** Hard cap on stored events (default 250,000); the oldest go first. */
     max_events?: number;
   };
   abuse_reporter?: AbuseReporterSection;

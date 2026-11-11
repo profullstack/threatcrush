@@ -159,7 +159,10 @@ export function getTopSources(limit: number = 10): Array<{ ip: string; count: nu
 }
 
 export const DEFAULT_EVENT_RETENTION_SECONDS = 14 * 86_400;
-export const DEFAULT_MAX_EVENTS = 2_000_000;
+// 2M rows (~1.6 KB each with request details) grew state.db to ~3 GB and wedged a
+// daemon in full-table scans on a modest disk (2026-11-11). 250k is hours to days of
+// events on a busy box and a few hundred MB; raise it with [storage] max_events.
+export const DEFAULT_MAX_EVENTS = 250_000;
 
 /**
  * Deletes events older than the retention, and beyond the row cap, in small
