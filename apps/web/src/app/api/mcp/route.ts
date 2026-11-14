@@ -1,4 +1,5 @@
 import { after, NextResponse, type NextRequest } from "next/server";
+import webPackage from "../../../../package.json";
 import { LOOKUP_BATCH, SHA256_RE } from "@threatcrush/av";
 import { lookupReputations } from "@/lib/av-reputation";
 import { takeLookupShared } from "@/lib/reputation";
@@ -487,7 +488,7 @@ async function handle(req: NextRequest, msg: Rpc) {
       return ok(id, {
         protocolVersion: PROTOCOL,
         capabilities: { tools: {} },
-        serverInfo: { name: "threatcrush", title: "ThreatCrush", version: "0.13", websiteUrl: "https://threatcrush.com" },
+        serverInfo: { name: "threatcrush", title: "ThreatCrush", version: webPackage.version, websiteUrl: "https://threatcrush.com" },
         instructions:
           "ThreatCrush security tools for your organization. CrushAV file-hash reputation with no key (av_hash_lookup), IP and domain reputation from the ThreatCrush community threat database (reputation_lookup, reputation_bulk), your org's tracked scan/pentest/ai-scan findings (findings_list, findings_get, findings_triage), incidents raised to your team with host/time filtering, linked event and block context, saved AI triage and fix tracking (incidents_list, incidents_get, incidents_update, incidents_raise), and your org's webhook endpoints (webhooks_list, webhooks_create, webhooks_update, webhooks_delete, webhooks_test, webhooks_rotate_secret, webhooks_deliveries). Everything except av_hash_lookup needs a ThreatCrush credential: connect with OAuth (sign in to threatcrush.com when asked) or send a tc_agent_ key as the Bearer token; keyless public lookups are at nichedb.dev/mcp. Read tools are safe to call freely; findings_triage, incidents_update, incidents_raise (pages humans by SMS and email) and the webhook write tools change shared state, so confirm with the user first.",
       });
