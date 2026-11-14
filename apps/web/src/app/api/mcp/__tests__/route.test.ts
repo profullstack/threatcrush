@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import webPackage from "../../../../../package.json";
 
 vi.mock("@/lib/reputation-auth", () => ({
   reputationCallerFor: vi.fn(async (principal: unknown) => ({ admin: {}, principal, orgId: null, tier: "free", caller: "u1" })),
@@ -37,7 +38,7 @@ const call = (body: unknown, opts: { token?: string; url?: string } = {}) =>
 describe("/api/mcp", () => {
   it("initializes and lists the tools without a key", async () => {
     const init = await (await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).json();
-    expect(init.result.serverInfo).toMatchObject({ name: "threatcrush", title: "ThreatCrush" });
+    expect(init.result.serverInfo).toMatchObject({ name: "threatcrush", title: "ThreatCrush", version: webPackage.version });
     expect(init.result.instructions).toContain("OAuth");
     const list = await (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json();
     expect(list.result).toMatchObject({ resultType: "complete", cacheScope: "public" });
