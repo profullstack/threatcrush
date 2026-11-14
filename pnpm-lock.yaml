@@ -383,14 +383,14 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@profullstack/throttle':
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.4.2
+        version: 0.4.2
       '@profullstack/webhooks':
         specifier: 0.2.1
         version: 0.2.1
       '@profullstack/x402-gateway':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.18.1
+        version: 0.18.1
       '@sentry/node':
         specifier: ^11.9.0
         version: 11.9.0(rollup@4.65.1)
@@ -2402,16 +2402,16 @@ packages:
       react:
         optional: true
 
-  '@profullstack/throttle@0.4.0':
-    resolution: {integrity: sha512-Lj+XHt51OxyaJ2FqosZDyr9Z5RFB8z+ARixpoUfrDu3YlvFlct5GbbZM/C0qLZkUgzeuFSDvtYt9f0NNfBkFqA==}
+  '@profullstack/throttle@0.4.2':
+    resolution: {integrity: sha512-2ibd5rirK5HyqYtk+XsiORpcSLHWMVCgHX+ZdED7uPkIW7iMJi1mjth3Ly1cQcpJhHWE6uyDaIIirRaeTl7/sw==}
     engines: {node: '>=20.11'}
 
   '@profullstack/webhooks@0.2.1':
     resolution: {integrity: sha512-QHeSkpu4O44oJ620qhQqxqFlD3u/OhupmXRnBHw4MGKuDTa0R+Y/727nnF7psSHxxSfnbWfNuVl15z3IXuaZiw==}
     engines: {node: '>=20'}
 
-  '@profullstack/x402-gateway@0.13.1':
-    resolution: {integrity: sha512-V7liSO0tShZRlp8dancuDuUSF/rqrr5YF3bzLoZy9wn6ixf1RIRPYTepe72s36JOdSVzi3wfuhaZFm9y0RpV4w==}
+  '@profullstack/x402-gateway@0.18.1':
+    resolution: {integrity: sha512-zc2JGLXMX8eCk7Mp4X91E175enOTNcWPZncKf3LXzoGE+XEhHDJHM1LRZkkY3x2pjLYX3AB11Vx/TP3cobSQ/g==}
     engines: {node: '>=20.11'}
 
   '@radix-ui/react-compose-refs@1.0.0':
@@ -10223,13 +10223,13 @@ snapshots:
     optionalDependencies:
       react: 19.3.1
 
-  '@profullstack/throttle@0.4.0':
+  '@profullstack/throttle@0.4.2':
     dependencies:
-      '@profullstack/x402-gateway': 0.13.1
+      '@profullstack/x402-gateway': 0.18.1
 
   '@profullstack/webhooks@0.2.1': {}
 
-  '@profullstack/x402-gateway@0.13.1':
+  '@profullstack/x402-gateway@0.18.1':
     dependencies:
       '@profullstack/keys': 0.1.0
 
