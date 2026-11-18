@@ -149,12 +149,12 @@ export default function AboutPage() {
             <li>
               <span className="font-mono text-tc-green">Schedule:</span>{" "}
               <a
-                href="https://calendly.com/chovy"
+                href="https://outreachgraph.com/calendar/chovy"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:text-tc-green"
               >
-                calendly.com/chovy
+                outreachgraph.com/calendar/chovy
               </a>
             </li>
           </ul>

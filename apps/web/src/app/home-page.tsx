@@ -964,7 +964,7 @@ export default function Home() {
                   <div className="text-2xl mb-2">🏢</div>
                   <h3 className="text-lg font-bold text-white mb-1">Enterprise</h3>
                   <p className="text-sm text-tc-text-dim mb-3">Custom modules, SLA, dedicated support, volume licensing.</p>
-                  <a href="https://calendly.com/chovy" target="_blank" rel="noopener noreferrer" className="inline-block rounded-lg border border-tc-green/30 bg-tc-green/5 px-5 py-2 text-sm font-medium text-tc-green hover:bg-tc-green/10 transition-all">
+                  <a href="https://outreachgraph.com/calendar/chovy" target="_blank" rel="noopener noreferrer" className="inline-block rounded-lg border border-tc-green/30 bg-tc-green/5 px-5 py-2 text-sm font-medium text-tc-green hover:bg-tc-green/10 transition-all">
                     📅 Schedule a Call
                   </a>
                 </div>
@@ -972,7 +972,7 @@ export default function Home() {
                   <div className="text-2xl mb-2">🏳️</div>
                   <h3 className="text-lg font-bold text-white mb-1">Government &amp; Defense</h3>
                   <p className="text-sm text-tc-text-dim mb-3">The agent runs on your own Linux servers, and detection and banning work without the cloud. Tell us your requirements.</p>
-                  <a href="https://calendly.com/chovy" target="_blank" rel="noopener noreferrer" className="inline-block rounded-lg border border-tc-green/30 bg-tc-green/5 px-5 py-2 text-sm font-medium text-tc-green hover:bg-tc-green/10 transition-all">
+                  <a href="https://outreachgraph.com/calendar/chovy" target="_blank" rel="noopener noreferrer" className="inline-block rounded-lg border border-tc-green/30 bg-tc-green/5 px-5 py-2 text-sm font-medium text-tc-green hover:bg-tc-green/10 transition-all">
                     📅 Schedule a Call
                   </a>
                 </div>
