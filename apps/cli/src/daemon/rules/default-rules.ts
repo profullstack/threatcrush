@@ -664,4 +664,31 @@ export const DEFAULT_RULES: DetectionRule[] = [
     remediation: { action: 'alert', description: 'Review AgentDB audit metadata for the token and request pattern' },
     enabled: true,
   },
+  {
+    // 2026-11-20 dev2: ~10,150 failed `postgres` logins from ~60 addresses in
+    // 72h against a Supabase Postgres published on 0.0.0.0, none banned. Fed by
+    // docker-logs (`[docker_logs]`), which already drops private, Docker-bridge
+    // and protected sources, so every event here names a public client.
+    id: 'postgres-auth-bruteforce',
+    title: 'Postgres Brute Force Detected',
+    description: 'Repeated Postgres password failures or pg_hba rejects from the same source',
+    version: '1.0.0',
+    category: 'auth',
+    severity: 'high',
+    source_types: ['postgres-guard'],
+    match: {
+      field: 'message',
+      operator: 'regex',
+      value: '^Postgres (?:password authentication failed|connection rejected by pg_hba) ',
+    },
+    threshold: 5,
+    window_seconds: 600,
+    cooldown_seconds: 600,
+    tags: ['postgres', 'database', 'brute-force', 'credential-stuffing'],
+    remediation: {
+      action: 'block',
+      description: 'Block source IP brute-forcing Postgres',
+    },
+    enabled: true,
+  },
 ];

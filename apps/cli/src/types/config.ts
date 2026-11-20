@@ -281,6 +281,8 @@ export interface ThreatCrushConfig {
   remediation?: RemediationSection;
   /** `[lightning]`: Core Lightning channel-close alerts. On when a cln.log is found. */
   lightning?: { enabled?: boolean; log_paths?: string[] };
+  /** `[docker_logs]`: Postgres auth failures from Docker container logs. On when the Docker socket exists. */
+  docker_logs?: { enabled?: boolean; socket?: string; name_pattern?: string; image_pattern?: string; poll_seconds?: number };
   detection?: DetectionSection;
   cloud?: CloudSection;
   watchdog?: WatchdogSection;

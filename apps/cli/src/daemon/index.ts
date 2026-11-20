@@ -22,6 +22,7 @@ import { EdrWatch, edrSettings } from './workers/edr.js';
 import { SshIntrusionWatch } from './workers/ssh-intrusion.js';
 import { KeyDirectory, enrichLoginEvent } from './key-directory.js';
 import { LightningWatch } from './workers/lightning-watch.js';
+import { DockerLogsWatch, dockerLogsSettings } from './workers/docker-logs.js';
 import { TorExitList } from '../core/tor-exits.js';
 import { RuleEngine } from './rules/engine.js';
 import { loadAllRules } from './rules/loader.js';
@@ -300,6 +301,16 @@ export async function runDaemon(): Promise<void> {
   });
   lightningWatch.start();
 
+  // Postgres auth failures inside Docker containers (`[docker_logs]`, on when
+  // the Docker socket exists): json-file container logs never reach journald.
+  const dockerLogs = new DockerLogsWatch({
+    bus,
+    settings: dockerLogsSettings(config.docker_logs),
+    protectedList: remediation.getAllowlist(),
+    log: logLine,
+  });
+  dockerLogs.start();
+
   let cloudSyncRef: CloudSync | null = null;
   new AlertDispatcher(bus, config, { cloudHealthy: () => cloudSyncRef?.healthy ?? false, log: logLine });
   if (loaded.error) {
@@ -413,6 +424,7 @@ export async function runDaemon(): Promise<void> {
     try { edr.stop(); } catch {}
     try { sshIntrusion.stop(); } catch {}
     try { lightningWatch.stop(); } catch {}
+    try { dockerLogs.stop(); } catch {}
     try { await ipc.stop(); } catch {}
     try { closeDB(); } catch {}
     try { await flushTelemetry(); } catch {}
