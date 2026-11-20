@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -18,10 +18,7 @@ import { join } from 'node:path';
  */
 const PATHS_SRC = readFileSync(join(__dirname, '..', 'paths.ts'), 'utf-8');
 const DAEMON_SRC = readFileSync(join(__dirname, '..', '..', 'commands', 'daemon.ts'), 'utf-8');
-const WORKFLOW = readFileSync(
-  join(__dirname, '..', '..', '..', '..', '..', '.github', 'workflows', 'unban-dev2.yml'),
-  'utf-8',
-);
+const UNBAN_WORKFLOW = join(__dirname, '..', '..', '..', '..', '..', '.github', 'workflows', 'unban-dev2.yml');
 
 describe('socket resolution', () => {
   it('honours an explicit THREATCRUSH_SOCKET override first', () => {
@@ -49,15 +46,12 @@ describe('a non-root start does not shadow the system daemon', () => {
   });
 });
 
-describe('the break-glass workflow', () => {
-  it('addresses the system socket explicitly', () => {
-    // It must never reach a user-mode daemon: that is what made the last
-    // recovery attempt report success while changing nothing.
-    expect(WORKFLOW).toMatch(/THREATCRUSH_SOCKET=\/var\/run\/threatcrush\/threatcrushd\.sock/);
-  });
-
-  it('restarts the daemon after editing the config', () => {
-    // The daemon reads its config once, at startup.
-    expect(WORKFLOW).toMatch(/threatcrush restart/);
+describe('the break-glass unban workflow', () => {
+  it('stays removed', () => {
+    // 2026-11-20: its `ips` input was spliced into a remote shell command
+    // ("IPS='$IPS' bash -s") and an attacker used it to run code on dev2.
+    // Unbanning is done on the box (`threatcrush unblock` / `threatcrush respond`)
+    // or from the provider console, never from a dispatchable workflow.
+    expect(existsSync(UNBAN_WORKFLOW)).toBe(false);
   });
 });
