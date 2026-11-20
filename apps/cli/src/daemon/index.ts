@@ -24,6 +24,7 @@ import { KeyDirectory, enrichLoginEvent } from './key-directory.js';
 import { LightningWatch } from './workers/lightning-watch.js';
 import { DockerLogsWatch, dockerLogsSettings } from './workers/docker-logs.js';
 import { TorExitList } from '../core/tor-exits.js';
+import { TorExitBlockEnforcer } from './firewall/tor-block.js';
 import { RuleEngine } from './rules/engine.js';
 import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
@@ -292,6 +293,17 @@ export async function runDaemon(): Promise<void> {
   });
   sshIntrusion.start();
 
+  // Proactively drop the whole Tor exit list on the SSH port, before any
+  // accept. Reactive banning only fires after a login, and a rotating attacker
+  // uses a fresh exit each time, so pre-blocking the list is the only defence
+  // (nftables only; nobody we operate for SSHes over Tor).
+  const torBlock = new TorExitBlockEnforcer({
+    exits: torExits,
+    enabled: () => remediation.blockTorSsh && firewallAdapter.name === 'nftables',
+    log: logLine,
+  });
+  torBlock.start();
+
   // Core Lightning channel closes (a burst = the node being drained).
   const lightningWatch = new LightningWatch({
     bus,
@@ -372,6 +384,7 @@ export async function runDaemon(): Promise<void> {
         if (torPinned || typeof block_tor_ssh !== 'boolean' || block_tor_ssh === remediation.blockTorSsh) return;
         remediation.setBlockTorSsh(block_tor_ssh);
         logLine(`[ssh-intrusion] Tor SSH ban ${block_tor_ssh ? 'ON' : 'OFF'} (org setting from the dashboard)`);
+        void torBlock.sync();
       },
     });
     allowlistSync.start();

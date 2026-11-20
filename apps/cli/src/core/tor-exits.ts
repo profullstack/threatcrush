@@ -95,6 +95,9 @@ export class TorExitList {
 
   get size(): number { return this.exits.size; }
 
+  /** Every exit address currently in memory, for the proactive firewall block. */
+  values(): string[] { return [...this.exits]; }
+
   /** When the list in memory was downloaded (ms), 0 if never. */
   get updated(): number { return this.updatedAt; }
 
