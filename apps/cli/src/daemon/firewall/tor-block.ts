@@ -49,6 +49,8 @@ export interface TorExitBlockOptions {
 export class TorExitBlockEnforcer {
   private timer: NodeJS.Timeout | null = null;
   private applied = false;
+  /** Set once if nft is not installed here; stops retrying and logging. */
+  private unavailable = false;
   private readonly runNft: NftRunner;
   private readonly log: (line: string) => void;
   private readonly intervalMs: number;
@@ -74,6 +76,7 @@ export class TorExitBlockEnforcer {
 
   /** Apply (or tear down) the block to match the current setting and list. */
   async sync(): Promise<void> {
+    if (this.unavailable) return;
     if (!this.opts.enabled()) {
       await this.teardown();
       return;
@@ -89,6 +92,13 @@ export class TorExitBlockEnforcer {
       }
       this.applied = true;
     } catch (err) {
+      // nft not installed: this host can't do a proactive block. Say so once
+      // and stop — nothing here is going to make nft appear.
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        this.unavailable = true;
+        this.log('[tor] nft is not installed; the proactive Tor exit block is unavailable on this host');
+        return;
+      }
       this.log(`[tor] could not apply the proactive Tor exit block: ${(err as Error).message}`);
     }
   }

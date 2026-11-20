@@ -68,6 +68,29 @@ describe('TorExitBlockEnforcer', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('self-disables (once) when nft is not installed', async () => {
+    let calls = 0;
+    const runNft: NftRunner = async () => {
+      calls++;
+      const err = new Error('spawn nft ENOENT') as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    };
+    const logs: string[] = [];
+    const enforcer = new TorExitBlockEnforcer({
+      exits: { values: () => ['185.220.101.55'], size: 1 },
+      enabled: () => true,
+      runNft,
+      log: (l) => logs.push(l),
+    });
+
+    await enforcer.sync();
+    await enforcer.sync(); // must not retry nft
+
+    expect(calls).toBe(1);
+    expect(logs.some((l) => l.includes('nft is not installed'))).toBe(true);
+  });
+
   it('does nothing while disabled and never applied', async () => {
     const { runNft, calls } = recorder();
     const enforcer = new TorExitBlockEnforcer({
