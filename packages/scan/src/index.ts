@@ -19,6 +19,9 @@ export { NODE_RULES } from './node-rules';
 export { evaluateTemplateRules, TEMPLATE_EXTENSIONS, TEMPLATE_RULES } from './template-rules';
 export type { TemplateMatch, TemplateRule } from './template-rules';
 
+export { evaluateWorkflowRules, isWorkflowPath, WORKFLOW_RULES } from './workflow-rules';
+export type { WorkflowMatch, WorkflowRule } from './workflow-rules';
+
 export { ControlAudit, SECURITY_CONTROLS } from './controls';
 export type { SecurityControl } from './controls';
 

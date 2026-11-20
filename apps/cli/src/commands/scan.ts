@@ -349,6 +349,9 @@ function printHuman(outcome: ScanOutcome): void {
     if (finding.consequence) {
       console.log(`    ${chalk.gray('Risk:')} ${chalk.dim(finding.consequence)}`);
     }
+    if (finding.fix) {
+      console.log(`    ${chalk.gray('Fix:')}  ${chalk.dim(finding.fix)}`);
+    }
     if (finding.excerpt) {
       console.log(`    ${chalk.gray('Code:')} ${finding.excerpt}`);
     }

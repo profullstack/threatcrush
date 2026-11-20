@@ -151,6 +151,33 @@ Run it as root. Without root, `rkhunter`, `chkrootkit` and `sshd-config` are
 skipped and listed as such, and checks that could only read part of the system
 (other users' keys, other users' processes) are marked `[partial]`.
 
+### GitHub Actions workflow rules
+
+`threatcrush scan <path>` parses every `.github/workflows/*.yml` (and Forgejo/Gitea
+`.forgejo/workflows`, `.gitea/workflows`, or any YAML with top-level `on:` and
+`jobs:`) as YAML and reads each `run:` script together with the workflow around
+it: which inputs are free text, which `env:` variables hold input or secrets, and
+what `ssh`, `sh -c` and `eval` do with their arguments. Findings carry the exact
+`file:line` inside multi-line `run: |` blocks, and a fix hint (`Fix:` in the text
+report, in the rule help in SARIF and in `fix` in JSON).
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `gha-expression-injection` | high | `${{ inputs.* }}`, `${{ github.event.inputs.* }}`, issue/PR/discussion `title`/`body`, `pull_request.head.ref`, `comment.body`, `github.head_ref`, commit messages, `client_payload` and other attacker-controllable contexts pasted directly into a `run:` script or an `actions/github-script` body. Fix: pass through `env:` and use `"$VAR"`. |
+| `gha-input-in-remote-shell` | critical | Such a value, or an env var assigned from one (step, job or workflow `env:`, an in-script assignment, or a `$GITHUB_ENV` export from an earlier step), expanded into a string another shell parses: the `ssh` remote command line (including the `"VAR='$VAR' bash -s"` pattern), a here-string, pipe or unquoted heredoc into a remote shell, `bash -c`/`sh -c`, `eval`, or an `appleboy/ssh-action` `script:`. Env keeps it data locally only. Reported at medium when the variable is checked with `[[ … =~ … ]]` or `case` in the same step. |
+| `gha-dispatch-remote-exec` | critical | A `workflow_dispatch`/`repository_dispatch` workflow that runs a free-text input as the whole remote command: `ssh host "$CMD"`, `ssh host bash -s <<<"$CMD"`, `echo "$CMD" \| ssh host bash`. |
+| `gha-ssh-key-secret` | medium | A step writes a secret to `~/.ssh/id_*` (or uses an ssh-key action) and the job runs `ssh`/`scp`/`rsync`. Whether the server-side key is limited with `restrict,command=…` cannot be verified from the repository; the finding asks you to check. |
+| `gha-pull-request-target-checkout` | high | A `pull_request_target` workflow whose `actions/checkout` `ref`/`repository` is the PR head (`github.event.pull_request.head.sha`/`ref`, `github.head_ref`). |
+| `gha-secrets-to-log` | medium | `echo`/`printf` of `${{ secrets.* }}` or of a variable holding one to the log (not to a file or a `--password-stdin` consumer), a secret piped through `base64`/`openssl enc`/`gpg --armor` and printed (masking bypass), `toJSON(secrets)`, and `set -x` in a step that uses secrets. |
+
+Not flagged: inputs used only in `with:` of other actions or in `if:` conditions,
+`boolean`/`choice`/`number` inputs, env vars used by the local shell as `"$VAR"`,
+single-quoted ssh commands (`ssh host 'echo $X'` does not expand locally), and
+input piped as data to a non-shell remote command
+(`printf '%s\n' "$IPS" | ssh host 'xargs -n1 threatcrush unblock --'`). Step
+outputs and reusable-workflow inputs are not followed. Suppress a reviewed line
+with `# threatcrush-disable-next-line <rule-id>`.
+
 ### CIS evidence report export
 
 Export the current `harden` findings as Markdown, JSON, or PDF:
@@ -201,7 +228,7 @@ threatcrush store publish https://github.com/you/my-module  # Publish your own
 | `user-journal` | journald — the systemd journal |
 | `network-monitor` | Inbound connections to your listening ports — port scans, SYN floods |
 | `dns-monitor` | Resolver logs (systemd-resolved, dnsmasq, bind, Pi-hole) — DNS tunneling, DGA detection |
-| `threatcrush scan` | Vulnerabilities, secrets, dependency CVEs (OSV.dev, with `--deps`) |
+| `threatcrush scan` | Vulnerabilities, secrets, GitHub Actions injection and remote-exec workflows, dependency CVEs (OSV.dev, with `--deps`) |
 | `threatcrush scan --host` | Rootkit / host integrity scan: package file integrity, rkhunter, chkrootkit, hidden processes and kernel modules, `ld.so.preload`, SSH keys, Docker, recent persistence, SUID outside packages |
 | `threatcrush pentest` | Header, CORS, cookie, SQL-error, path-traversal and HTTP-method checks |
 | auto-defend | Bans via fail2ban, nftables or iptables |

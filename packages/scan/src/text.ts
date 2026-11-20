@@ -26,6 +26,7 @@ import {
   SECRET_RULES,
 } from './secret-rules';
 import { evaluateTemplateRules, TEMPLATE_EXTENSIONS } from './template-rules';
+import { evaluateWorkflowRules, isWorkflowPath } from './workflow-rules';
 import type { ScanFinding, ScanLanguage, Severity } from './types';
 import { severityRank } from './types';
 
@@ -656,6 +657,39 @@ export function scanText(
       excerpt: (lines[index] ?? '').trim().slice(0, 200),
       category: 'code',
     });
+  }
+
+  // ── GitHub Actions workflows ───────────────────────────────────────────
+  //
+  // Parsed as YAML and read with the workflow around each `run:` script, so a
+  // value that is safe as an env var locally is still caught when it is
+  // pasted into an ssh command line. See `workflow-rules.ts`.
+  if (isWorkflowPath(relativePath, text)) {
+    for (const match of evaluateWorkflowRules(text)) {
+      const index = match.line - 1;
+      if (isSuppressed(suppressions, index, match.rule.id)) continue;
+
+      const soft = softening({
+        test: inTests,
+        docs: inDocs,
+        suppressed: foreignSecurityMark(lines[index] ?? ''),
+      });
+
+      findings.push({
+        ruleId: match.rule.id,
+        title: match.rule.title,
+        file: relativePath,
+        line: match.line,
+        severity: soft ? 'low' : match.severity,
+        confidence: match.rule.confidence,
+        message: soft ? `${match.message} — ${CODE_SOFTENING[soft]}` : match.message,
+        consequence: match.rule.consequence,
+        fix: match.rule.fix,
+        cwe: match.rule.cwe,
+        excerpt: (lines[index] ?? '').trim().slice(0, 200),
+        category: 'code',
+      });
+    }
   }
 
   return findings;

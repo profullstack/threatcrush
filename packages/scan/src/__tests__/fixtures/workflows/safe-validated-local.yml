@@ -1,0 +1,35 @@
+# The fixed shape: the input is validated against an allow-list regex, passed
+# through env, and only ever expanded by the local shell as data.
+name: Unban (safe)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ips:
+        description: Space-separated IPv4 addresses
+        required: false
+        type: string
+      dry_run:
+        type: boolean
+        default: true
+
+jobs:
+  unban:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.ips != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ips }}
+      - name: Validate
+        env:
+          IPS: ${{ inputs.ips }}
+        run: |
+          if [[ ! "$IPS" =~ ^[0-9.\ ]+$ ]]; then
+            echo "::error::ips must be IPv4 addresses separated by spaces"
+            exit 1
+          fi
+          for ip in $IPS; do
+            ./scripts/unblock.sh "$ip"
+          done
+          echo "dry run: ${{ inputs.dry_run }}"

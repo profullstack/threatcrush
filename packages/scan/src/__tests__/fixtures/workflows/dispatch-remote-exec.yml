@@ -1,0 +1,27 @@
+# Sanitised reproduction: a free-form `cmd` input executed on a host over ssh,
+# by design.
+name: Run on prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      cmd:
+        description: Command to run on the host
+        required: true
+
+jobs:
+  exec:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up ssh
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Run
+        env:
+          CMD: ${{ inputs.cmd }}
+          TARGET: ${{ secrets.PROD_TARGET }}
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new "$TARGET" bash -s <<<"$CMD"

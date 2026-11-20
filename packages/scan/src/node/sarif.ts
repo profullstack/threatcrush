@@ -200,10 +200,11 @@ export function buildSarif(findings: readonly ScanFinding[], options: SarifOptio
       shortDescription: { text: finding.title },
       fullDescription: { text: description },
       help: {
-        text: description,
-        markdown: finding.consequence
-          ? `**${finding.title}**\n\n${finding.consequence}`
-          : `**${finding.title}**`,
+        text: finding.fix ? `${description} Fix: ${finding.fix}` : description,
+        markdown:
+          (finding.consequence
+            ? `**${finding.title}**\n\n${finding.consequence}`
+            : `**${finding.title}**`) + (finding.fix ? `\n\n**Fix:** ${finding.fix}` : ''),
       },
       defaultConfiguration: { level: sarifLevel(finding.severity) },
       properties: {

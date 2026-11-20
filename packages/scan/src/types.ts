@@ -54,6 +54,8 @@ export interface ScanFinding {
   message: string;
   /** What happens if it is real. An operator triages on consequence. */
   consequence?: string;
+  /** How to fix it, in a sentence. Shown to the operator and in SARIF help. */
+  fix?: string;
   /** `CWE-89`. Absent for findings with no clean CWE mapping. */
   cwe?: string;
   /**
