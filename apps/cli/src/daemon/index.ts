@@ -295,11 +295,13 @@ export async function runDaemon(): Promise<void> {
 
   // Proactively drop the whole Tor exit list on the SSH port, before any
   // accept. Reactive banning only fires after a login, and a rotating attacker
-  // uses a fresh exit each time, so pre-blocking the list is the only defence
-  // (nftables only; nobody we operate for SSHes over Tor).
+  // uses a fresh exit each time, so pre-blocking the list is the only defence.
+  // It keeps its own nft table, independent of which backend handles reactive
+  // bans (fail2ban boxes included), and self-disables if nft is not installed.
+  // Nobody we operate for SSHes over Tor.
   const torBlock = new TorExitBlockEnforcer({
     exits: torExits,
-    enabled: () => remediation.blockTorSsh && firewallAdapter.name === 'nftables',
+    enabled: () => remediation.blockTorSsh,
     log: logLine,
   });
   torBlock.start();
