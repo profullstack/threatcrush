@@ -239,6 +239,42 @@ poll_seconds = 15                       # how soon new or restarted containers a
 
 Check a line without touching the firewall: `threatcrush rules test postgres-auth-bruteforce --repeat 5 --line '<log line>'`.
 
+### Postgres running a shell (COPY FROM PROGRAM)
+
+A database superuser can run OS commands with `COPY ... FROM PROGRAM`, which starts `/bin/sh -c` as a child of the backend. Every few seconds the daemon walks `/proc` (which includes processes inside containers) and raises a critical `postgres-shell-exec` alert for any shell or common LOLBin (`sh`, `bash`, `dash`, `busybox`, `curl`, `wget`, `nc`, `ncat`, `python*`, `perl`, `base64`, anything touching `/dev/tcp`) whose parent chain includes `postgres`, `postmaster` or `.postgres-wrapper`. With `[docker_logs]` on, Postgres container log lines naming `FROM PROGRAM`/`TO PROGRAM` raise `postgres-copy-program` (critical), and plain shell errors or job-control output in that log (`sh: 1: curl: not found`, `Killed`, `Terminated`) raise `postgres-shell-output` (high). A command that finishes between two polls can be missed by the process check; reverse shells, downloaders and miners cannot.
+
+```toml
+[postgres_shell]
+enabled = true          # default on (Linux)
+poll_seconds = 3
+kill = false            # SIGKILL the process tree postgres spawned; never postgres itself; not in dry_run
+allow_cmdline = []      # extra regexes (whole command line) for programs postgres may run, e.g. an archive_command
+```
+
+Supabase's `pgsodium_getkey` and plain `sh -c wal-g|pgbackrest|barman-wal-* ...` archive commands (with no shell metacharacters) are allowed by default.
+
+### Suspicious successful SSH logins
+
+A stolen key logs in without a single failure. Every accepted SSH login is classified:
+
+- `ssh-login-tor` (critical): from a Tor exit.
+- `ssh-login-sensitive` (critical for root, high otherwise): root, a `sensitive_users` entry or a member of `sensitive_groups` logged in from an address outside `trusted_login_cidrs` and the `[remediation] protected` list. With no trusted CIDRs, every public login of those users alerts.
+- `ssh-login-new-network` (medium): the user's first login from that /24 (IPv6: /48). Seen networks are kept in the state db; the first start learns the last 30 days from the journal.
+
+Alerts name the user, address, auth method and key fingerprint. Private, loopback and tailnet ranges (10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, ::1, fc00::/7) are never flagged or acted on.
+
+```toml
+[login_watch]
+enabled = true
+sensitive_users = ["root"]                            # root is always included
+sensitive_groups = ["sudo", "admin", "wheel", "docker"]
+trusted_login_cidrs = []                              # e.g. ["203.0.113.0/24"]; empty = alert on every public login of those users
+first_seen = true                                     # first login per user per /24
+auto_response = false                                 # high/critical: ban the address and kill that user's sshd sessions from it (not in dry_run)
+```
+
+`kill` and `auto_response` need `CAP_KILL`, which the unit from `threatcrush install-service` now grants; re-run it after upgrading if you turn either on.
+
 ### Local shell history protection
 
 Command-history collection is opt-in because shell histories may contain credentials or private work details:

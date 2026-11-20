@@ -4,6 +4,7 @@ import { isIP } from 'node:net';
 import type { ThreatEvent } from '../../types/events.js';
 import { insertEvent } from '../../core/state.js';
 import { DEFAULT_PROTECTED, isProtected } from '../firewall/protected.js';
+import { shellLogDetector } from './postgres-shell.js';
 
 /**
  * `[docker_logs]`: tails Docker container logs for Postgres authentication
@@ -271,6 +272,8 @@ export class DockerLogsWatch {
   private stopped = false;
   private deps: DockerLogsDeps;
   private warned = false;
+  /** `postgres-shell` signals in the same lines: COPY … PROGRAM, shell errors (cooldown per container). */
+  private shellLine = shellLogDetector();
 
   constructor(private opts: {
     bus: { publish(event: ThreatEvent): void };
@@ -369,7 +372,8 @@ export class DockerLogsWatch {
 
   /** Exposed for tests and `rules test`: one container log line through the parser. */
   line(line: string, container: string): ThreatEvent | null {
-    const event = postgresAuthEvent(line, container, this.opts.protectedList ?? []);
+    const event = postgresAuthEvent(line, container, this.opts.protectedList ?? [])
+      ?? this.shellLine(line, container);
     if (!event) return null;
     try { insertEvent(event); } catch { /* db optional */ }
     this.opts.bus.publish(event);
