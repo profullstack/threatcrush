@@ -311,6 +311,19 @@ enabled = true
 api_key_env = "SMSHUB_ALERT_API_KEY"   # or api_key = "..."
 min_severity = "critical"
 fallback_only = true          # false: page from the box as well as from the dashboard
+
+[postgres_shell]              # a shell/LOLBin under postgres (COPY FROM PROGRAM): critical alert
+enabled = true
+poll_seconds = 3
+kill = false                  # SIGKILL the spawned process tree (never postgres); needs CAP_KILL
+
+[login_watch]                 # suspicious SUCCESSFUL ssh logins: Tor, privileged user, new /24
+enabled = true
+sensitive_users = ["root"]
+sensitive_groups = ["sudo", "admin", "wheel", "docker"]
+trusted_login_cidrs = []      # empty: every public login of a sensitive user alerts
+first_seen = true
+auto_response = false         # ban the address + kill that user's sshd sessions from it
 ```
 
 If `threatcrushd.conf` stops parsing (a duplicated key, a section header with

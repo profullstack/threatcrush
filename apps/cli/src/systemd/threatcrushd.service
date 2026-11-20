@@ -59,8 +59,12 @@ StandardError=journal
 #   CAP_DAC_OVERRIDE            — same idea for the rare write that needs it
 #   CAP_CHOWN                   — chgrp the IPC socket to `adm` so non-root
 #                                 users in that group can talk to the daemon
-AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN
+#   CAP_KILL                    — opt-in responses only: `[postgres_shell] kill`
+#                                 (a shell running as the container's postgres
+#                                 uid) and `[login_watch] auto_response` (the
+#                                 intruder's sshd session). Off unless configured.
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN CAP_KILL
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN CAP_KILL
 
 
 [Install]
