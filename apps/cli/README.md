@@ -261,6 +261,8 @@ A stolen key logs in without a single failure. Every accepted SSH login is class
 - `ssh-login-sensitive` (critical for root, high otherwise): root, a `sensitive_users` entry or a member of `sensitive_groups` logged in from an address outside `trusted_login_cidrs` and the `[remediation] protected` list. With no trusted CIDRs, every public login of those users alerts.
 - `ssh-login-new-network` (medium): the user's first login from that /24 (IPv6: /48). Seen networks are kept in the state db; the first start learns the last 30 days from the journal.
 
+A key pinned to a forced command in that user's `authorized_keys` (`restrict,command="... ci-deploy owner/repo" ssh-ed25519 ...`, as CI deploy keys are) logs from any address at info as `ssh-login-forced-command`, with the command, instead of raising `ssh-login-sensitive` or `ssh-login-new-network`; from a Tor exit it still raises `ssh-login-tor`. The fingerprint-to-command map is cached per user and re-read when `~/.ssh/authorized_keys` (or `authorized_keys2`) changes. Keys named by a custom `AuthorizedKeysFile` are not read.
+
 Alerts name the user, address, auth method and key fingerprint. Private, loopback and tailnet ranges (10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, ::1, fc00::/7) are never flagged or acted on.
 
 ```toml

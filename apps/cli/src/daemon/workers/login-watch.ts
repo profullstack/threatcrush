@@ -1,10 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { isIP } from 'node:net';
 import type { ThreatEvent, EventSeverity } from '../../types/events.js';
 import { getModuleState, insertEvent, setModuleState } from '../../core/state.js';
 import { DEFAULT_PROTECTED, ipToBytes, isProtected } from '../firewall/protected.js';
 import type { RuleRemediation } from '../firewall/remediation.js';
+import { keyFingerprint } from '../../core/privileges/index.js';
 
 /**
  * `[login_watch]`: successful SSH logins worth a look.
@@ -21,6 +22,11 @@ import type { RuleRemediation } from '../firewall/remediation.js';
  *     every such public login alerts: that is the point.
  *   - `ssh-login-new-network` (medium): the first login ever for that user
  *     from that /24 (IPv6: /48). Seen networks persist in the state db.
+ *
+ * A key with a `command=` forced command in that user's authorized_keys (a CI
+ * deploy key, logging in from whatever runner GitHub hands out) is logged at
+ * info as `ssh-login-forced-command` instead of the two rules above; a Tor
+ * exit still raises `ssh-login-tor`.
  *
  * Alerts carry the user, address, auth method and key fingerprint. With
  * `auto_response = true` (default off) a high/critical one also bans the
@@ -244,6 +250,62 @@ export function killSshSessions(user: string, ip: string, deps: SessionKillDeps 
   return killed;
 }
 
+// ─── Forced-command keys ─────────────────────────────────────────────────────
+
+/** The options field of an authorized_keys line (up to the first unquoted space), or '' when it starts with the key type. */
+function splitOptions(line: string): { options: string; rest: string } {
+  if (/^(?:ssh|ecdsa|sk)-[\w@.-]+\s/.test(line)) return { options: '', rest: line };
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '\\' && inQuote) { i++; continue; }
+    if (c === '"') inQuote = !inQuote;
+    else if (!inQuote && /\s/.test(c)) return { options: line.slice(0, i), rest: line.slice(i).trim() };
+  }
+  return { options: line, rest: '' };
+}
+
+/**
+ * fingerprint → forced command for every key in an authorized_keys file that
+ * carries `command="..."` (CI deploy keys: `restrict,command="ci-deploy owner/repo" ssh-ed25519 …`).
+ */
+export function forcedCommandKeys(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const { options, rest } = splitOptions(line);
+    if (!options) continue;
+    const cmd = /(?:^|,)command="((?:[^"\\]|\\.)*)"/i.exec(options);
+    if (!cmd) continue;
+    const key = /^(?:ssh|ecdsa|sk)-[\w@.-]+\s+([A-Za-z0-9+/]+=*)(?:\s|$)/.exec(rest);
+    const fp = key ? keyFingerprint(key[1]) : null;
+    if (fp) out.set(fp, cmd[1].replace(/\\"/g, '"'));
+  }
+  return out;
+}
+
+/** How the forced-command map reads the disk; tests pass a fake. */
+export interface KeyFileIO {
+  /** mtime in ms, or null when the file does not exist or cannot be stat'd. */
+  mtime(path: string): number | null;
+  read(path: string): string | null;
+}
+
+const realKeyFileIO: KeyFileIO = {
+  mtime: (p) => { try { return statSync(p).mtimeMs; } catch { return null; } },
+  read: (p) => { try { return readFileSync(p, 'utf-8'); } catch { return null; } },
+};
+
+/** A home directory from /etc/passwd text. */
+export function homeOf(passwdText: string, user: string): string | null {
+  for (const line of passwdText.split('\n')) {
+    const f = line.split(':');
+    if (f[0] === user && f[5]) return f[5].replace(/\/$/, '') || null;
+  }
+  return null;
+}
+
 // ─── The watcher ─────────────────────────────────────────────────────────────
 
 export const LOGIN_REMEDIATION: RuleRemediation = {
@@ -273,12 +335,15 @@ export interface LoginWatchOptions {
   /** journalctl runner for the first-run baseline. */
   run?: (cmd: string, args: string[]) => string | null;
   killDeps?: SessionKillDeps;
+  keyFiles?: KeyFileIO;
   now?: () => number;
 }
 
 export class LoginWatch {
   private seen: SeenNetworks = {};
   private sensitiveCache: { at: number; users: Set<string> } = { at: -Infinity, users: new Set() };
+  /** Per user: the authorized_keys mtimes the forced-command map was read at, and the map. */
+  private forced = new Map<string, { stamp: string; byFp: Map<string, string> }>();
   private readonly now: () => number;
   private readonly store: SeenStore;
   private readonly onEvent = (event: ThreatEvent) => { this.check(event); };
@@ -341,6 +406,32 @@ export class LoginWatch {
     this.opts.log(`[login-watch] network baseline from the last 30 days: ${Object.keys(this.seen).length} user(s), ${n} login(s)`);
   }
 
+  private passwdText(): string {
+    try {
+      return this.opts.readAccounts ? this.opts.readAccounts().passwd : readFileSync('/etc/passwd', 'utf-8');
+    } catch { return ''; }
+  }
+
+  /** The forced command on `user`'s key `fp`, if any; re-read only when an authorized_keys file's mtime changes. */
+  forcedCommand(user: string, fp: string): string | undefined {
+    const home = homeOf(this.passwdText(), user);
+    if (!home) return undefined;
+    const io = this.opts.keyFiles ?? realKeyFileIO;
+    const files = [`${home}/.ssh/authorized_keys`, `${home}/.ssh/authorized_keys2`];
+    const stamp = files.map((f) => String(io.mtime(f))).join('|');
+    let cached = this.forced.get(user);
+    if (!cached || cached.stamp !== stamp) {
+      const byFp = new Map<string, string>();
+      for (const f of files) {
+        if (io.mtime(f) === null) continue;
+        for (const [k, v] of forcedCommandKeys(io.read(f) ?? '')) byFp.set(k, v);
+      }
+      cached = { stamp, byFp };
+      this.forced.set(user, cached);
+    }
+    return cached.byFp.get(fp);
+  }
+
   private trusted(ip: string): boolean {
     return isProtected(ip, this.opts.settings.trustedCidrs) || this.opts.manager.isFleetAddress(ip);
   }
@@ -374,6 +465,31 @@ export class LoginWatch {
 
     const method = typeof d.auth_method === 'string' ? d.auth_method : undefined;
     const fp = typeof d.fingerprint === 'string' ? d.fingerprint : undefined;
+    // A key pinned to a forced command (a CI deploy key) can run only that
+    // command, from wherever the runner happens to be: not a sensitive login.
+    // A Tor exit still alerts.
+    const forcedCommand = fp && method === 'publickey' ? this.forcedCommand(user, fp) : undefined;
+    if (forcedCommand !== undefined && verdict.ruleId !== 'ssh-login-tor') {
+      const info: ThreatEvent = {
+        timestamp: event.timestamp,
+        module: 'login-watch',
+        category: 'auth',
+        severity: 'info',
+        message: `SSH login: ${user} from ${ip} with forced-command key ${fp}: ${forcedCommand.slice(0, 200)}`,
+        details: {
+          rule_id: 'ssh-login-forced-command',
+          account: user,
+          login_ip: ip,
+          network: verdict.network,
+          fingerprint: fp,
+          forced_command: forcedCommand.slice(0, 500),
+          suppressed: verdict.ruleId,
+        },
+      };
+      try { insertEvent(info); } catch { /* db optional */ }
+      this.opts.bus.publish(info);
+      return info;
+    }
     const keyComment = typeof d.key_comment === 'string' ? d.key_comment : undefined;
     const how = [method, fp, keyComment ? `(${keyComment})` : ''].filter(Boolean).join(' ');
     const why = verdict.reasons.map((r) => r === 'tor_exit' ? 'Tor exit' : r === 'sensitive_user' ? 'privileged account from an untrusted address' : `first login from ${verdict.network}`).join('; ');
@@ -412,6 +528,7 @@ export class LoginWatch {
         ...(method ? { auth_method: method } : {}),
         ...(fp ? { fingerprint: fp } : {}),
         ...(keyComment ? { key_comment: keyComment } : {}),
+        ...(forcedCommand !== undefined ? { forced_command: forcedCommand.slice(0, 500) } : {}),
         auto_response: actable,
         ...(killed.length ? { killed_sessions: killed } : {}),
         ...(actable ? { remediation: LOGIN_REMEDIATION } : {}),

@@ -14,7 +14,9 @@ const {
   sshdPidsForPeer,
   killSshSessions,
   LoginWatch,
+  forcedCommandKeys,
 } = await import('../workers/login-watch.js');
+const { keyFingerprint } = await import('../../core/privileges/index.js');
 
 const TOR = '185.220.101.7';
 const PROXY = '45.86.200.12';
@@ -155,7 +157,7 @@ function accepted(user: string, ip: string, fp = 'SHA256:stolenKeyFingerprint'):
   };
 }
 
-function watch(opts: { autoResponse?: boolean; dryRun?: boolean; fleet?: string[]; seen?: Record<string, Record<string, { first: string; last: string; count: number }>> } = {}) {
+function watch(opts: { autoResponse?: boolean; dryRun?: boolean; fleet?: string[]; keyFiles?: { mtime(p: string): number | null; read(p: string): string | null }; seen?: Record<string, Record<string, { first: string; last: string; count: number }>> } = {}) {
   const bus = new EventEmitter() as EventEmitter & { publish(e: ThreatEvent): void };
   const published: ThreatEvent[] = [];
   bus.publish = (e) => published.push(e);
@@ -169,6 +171,7 @@ function watch(opts: { autoResponse?: boolean; dryRun?: boolean; fleet?: string[
     log: () => {},
     store: { load: () => opts.seen ?? null, save: (s) => { saved = JSON.parse(JSON.stringify(s)); } },
     readAccounts: () => ({ group: GROUP, passwd: PASSWD }),
+    keyFiles: opts.keyFiles ?? { mtime: () => null, read: () => null },
     run: () => '',
     killDeps: {
       run: () => `0 0 10.0.0.5:22 ${PROXY}:5555 users:(("sshd-session",pid=4100,fd=4))`,
@@ -232,5 +235,74 @@ describe('LoginWatch', () => {
     bus.emit('event', accepted('root', '10.0.0.8'));
     bus.emit('event', { ...accepted('root', PROXY), module: 'login-watch' });
     expect(published).toEqual([]);
+  });
+});
+
+// Two made-up key blobs (any base64 hashes to a fingerprint).
+const CI_BLOB = Buffer.from('ci-deploy-key-blob-for-tests').toString('base64');
+const PERSON_BLOB = Buffer.from('a-persons-key-blob-for-tests').toString('base64');
+const CI_FP = keyFingerprint(CI_BLOB)!;
+const PERSON_FP = keyFingerprint(PERSON_BLOB)!;
+const AUTH_KEYS = [
+  '# deploy keys',
+  `restrict,command="/home/anthony/.local/bin/ci-deploy profullstack/threatcrush" ssh-ed25519 ${CI_BLOB} gha-deploy`,
+  `ssh-ed25519 ${PERSON_BLOB} anthony@laptop`,
+  'from="10.0.0.0/8",command="echo \\"quoted ssh-rsa AAAA\\" x" ssh-ed25519 AAAAbad==',
+].join('\n');
+
+describe('forced-command keys (CI deploy keys)', () => {
+  it('maps fingerprints of command= keys to their command', () => {
+    const map = forcedCommandKeys(AUTH_KEYS);
+    expect(map.get(CI_FP)).toBe('/home/anthony/.local/bin/ci-deploy profullstack/threatcrush');
+    expect(map.has(PERSON_FP)).toBe(false);
+    expect(keyFingerprint('AAAAbad==') && map.get(keyFingerprint('AAAAbad==')!)).toBe('echo "quoted ssh-rsa AAAA" x');
+  });
+
+  function files(text: () => string, mtime: () => number) {
+    let reads = 0;
+    return {
+      reads: () => reads,
+      io: {
+        mtime: (p: string) => (p === '/home/anthony/.ssh/authorized_keys' ? mtime() : null),
+        read: (p: string) => { reads++; return p === '/home/anthony/.ssh/authorized_keys' ? text() : null; },
+      },
+    };
+  }
+
+  it('a CI deploy key from a runner IP logs at info instead of ssh-login-sensitive / new-network', () => {
+    const f = files(() => AUTH_KEYS, () => 1);
+    const { bus, published, killed } = watch({ autoResponse: true, keyFiles: f.io, seen: {} });
+    bus.emit('event', accepted('anthony', '20.42.11.9', CI_FP));
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ severity: 'info', details: { rule_id: 'ssh-login-forced-command', forced_command: '/home/anthony/.local/bin/ci-deploy profullstack/threatcrush', suppressed: 'ssh-login-sensitive' } });
+    expect(published[0].details?.remediation).toBeUndefined();
+    expect(killed).toEqual([]);
+    // A person's key for the same user still alerts.
+    bus.emit('event', accepted('anthony', '20.42.11.9', PERSON_FP));
+    expect(published[1]).toMatchObject({ severity: 'high', details: { rule_id: 'ssh-login-sensitive' } });
+  });
+
+  it('a forced-command key from a Tor exit still raises ssh-login-tor', () => {
+    const f = files(() => AUTH_KEYS, () => 1);
+    const { bus, published } = watch({ keyFiles: f.io });
+    bus.emit('event', accepted('anthony', TOR, CI_FP));
+    expect(published[0]).toMatchObject({ severity: 'critical', details: { rule_id: 'ssh-login-tor', forced_command: '/home/anthony/.local/bin/ci-deploy profullstack/threatcrush' } });
+  });
+
+  it('caches per user and re-reads only when authorized_keys mtime changes', () => {
+    let text = AUTH_KEYS;
+    let mtime = 1;
+    const f = files(() => text, () => mtime);
+    const { bus, published } = watch({ keyFiles: f.io });
+    bus.emit('event', accepted('anthony', '20.42.11.9', CI_FP));
+    bus.emit('event', accepted('anthony', '20.42.11.10', CI_FP));
+    expect(f.reads()).toBe(1);
+    expect(published.map((e) => e.severity)).toEqual(['info', 'info']);
+    // The deploy key is removed: the next login from it is a sensitive login again.
+    text = `ssh-ed25519 ${PERSON_BLOB} anthony@laptop`;
+    mtime = 2;
+    bus.emit('event', accepted('anthony', '20.42.11.11', CI_FP));
+    expect(f.reads()).toBe(2);
+    expect(published[2]).toMatchObject({ severity: 'high', details: { rule_id: 'ssh-login-sensitive' } });
   });
 });
