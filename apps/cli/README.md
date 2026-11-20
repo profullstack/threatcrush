@@ -102,6 +102,7 @@ threatcrush tui          # Interactive dashboard (htop for security)
 threatcrush action-center # Fleet-wide detections, host health and queued actions (login required)
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush scan . --format sarif --output out.sarif --fail-on critical,high
+sudo threatcrush scan --host   # Rootkit / host integrity scan of this machine (alias: host-scan)
 threatcrush pentest URL  # Quick web security checks against a URL
 threatcrush init         # Auto-detect services, generate config
 threatcrush status       # Show daemon status & loaded modules
@@ -109,6 +110,46 @@ threatcrush modules      # Manage security modules
 threatcrush store        # Browse the module marketplace
 threatcrush update       # Upgrade the CLI using the supported path
 ```
+
+### Host integrity / rootkit scan
+
+`threatcrush scan --host` (alias `--localhost`, or `threatcrush host-scan`) checks
+the machine it runs on instead of a code tree. It only reads: it never installs,
+deletes or fixes anything.
+
+```bash
+sudo threatcrush scan --host                        # every check, text report
+sudo threatcrush host-scan --json > host-scan.json  # machine-readable
+sudo threatcrush host-scan --since 3d --deny-keys ./stolen-keys.txt
+sudo threatcrush host-scan --checks ssh-keys,persistence,uid0-accounts
+sudo threatcrush host-scan --skip-checks rkhunter,chkrootkit,suid-sgid   # the slow ones
+```
+
+| Check | Fails when | Warns when |
+|---|---|---|
+| `package-integrity` | `dpkg --verify` / `rpm -Va` says a binary in `/bin` `/sbin` `/usr/bin` `/usr/sbin`, a PAM module (`lib*/security`) or a shared object differs from its package | other `/usr/lib` files differ, packaged binaries are missing (config files are ignored) |
+| `rkhunter` | a warning names a rootkit, trojan or backdoor | any other rkhunter warning; rkhunter is not installed (install command printed) |
+| `chkrootkit` | a command is `INFECTED` and its binary does **not** match its package | `INFECTED` but the binary verifies against its package (e.g. rust-coreutils false positives); unpackaged suspicious files; not installed |
+| `hidden-processes` | `unhide quick` finds a hidden PID, or (without unhide) a PID answers `stat()` but is missing from `/proc` or from `ps` | |
+| `kernel-modules` | a module has an initstate in `/sys/module` but is missing from `/proc/modules`, or a loaded module is not from `/lib/modules/$(uname -r)` | |
+| `ld-preload` | `/etc/ld.so.preload` exists | |
+| `suspicious-exe` | | a process runs a `(deleted)` executable or one under `/tmp`, `/dev/shm`, `/var/tmp` (deleted after a package upgrade is common, so this is a warning) |
+| `ssh-keys` | a key in any `authorized_keys` (root, every account home, `/home/*`, honouring `AuthorizedKeysFile`) matches `--deny-keys` | a key has no `command=` and no `from=`; the same key appears more than once |
+| `sshd-config` | | `sshd -T` shows `PermitRootLogin` other than `no`, or `PasswordAuthentication yes` |
+| `docker-containers` | | a running container is `--privileged`, `--pid=host`, or bind-mounts `/` or the Docker socket |
+| `docker-group` | | anyone is in the `docker` group (docker group == root) |
+| `persistence` | | a file under `/etc/cron*`, `/var/spool/cron`, `/etc/systemd/system`, `~/.config/systemd`, `/etc/pam.d`, `/etc/ssh/sshd_config.d`, `/etc/sudoers.d`, `/etc/profile.d`, `authorized_keys` and similar changed inside `--since` (default `7d`) |
+| `uid0-accounts` | an account other than `root` has uid 0 | |
+| `suid-sgid` | | a setuid/setgid file on the root filesystem is not owned by any package (container storage and snaps are skipped) |
+
+The exit code is 1 when any check fails, 2 on bad arguments, 0 otherwise.
+`--json` prints `{ host, kernel, root, summary: {pass, warn, fail, skip}, skipped, checks: [{ id, status, reason, items, partial, install }] }`.
+`--deny-keys` takes one entry per line: a full public key line, a bare base64
+key blob, or a `SHA256:` fingerprint.
+
+Run it as root. Without root, `rkhunter`, `chkrootkit` and `sshd-config` are
+skipped and listed as such, and checks that could only read part of the system
+(other users' keys, other users' processes) are marked `[partial]`.
 
 ### CIS evidence report export
 
@@ -161,6 +202,7 @@ threatcrush store publish https://github.com/you/my-module  # Publish your own
 | `network-monitor` | Inbound connections to your listening ports — port scans, SYN floods |
 | `dns-monitor` | Resolver logs (systemd-resolved, dnsmasq, bind, Pi-hole) — DNS tunneling, DGA detection |
 | `threatcrush scan` | Vulnerabilities, secrets, dependency CVEs (OSV.dev, with `--deps`) |
+| `threatcrush scan --host` | Rootkit / host integrity scan: package file integrity, rkhunter, chkrootkit, hidden processes and kernel modules, `ld.so.preload`, SSH keys, Docker, recent persistence, SUID outside packages |
 | `threatcrush pentest` | Header, CORS, cookie, SQL-error, path-traversal and HTTP-method checks |
 | auto-defend | Bans via fail2ban, nftables or iptables |
 | alerts | Slack, Discord, email, webhook, PagerDuty |

@@ -16,6 +16,7 @@ import {
   watchdogShowCommand,
 } from "./commands/watchdog.js";
 import { parseFailOn, scanCommand, type ScanFormat } from "./commands/scan.js";
+import { hostScanCommand } from "./commands/host-scan.js";
 import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { modulesCommand } from "./commands/modules.js";
@@ -352,6 +353,7 @@ ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush map              ${chalk.dim("# Live map of where attacks come from")}
   ${chalk.green("$")} threatcrush watchdog         ${chalk.dim("# Triage logged attacks: hole or not?")}
   ${chalk.green("$")} threatcrush scan ./src       ${chalk.dim("# Scan code for vulns")}
+  ${chalk.green("$")} sudo threatcrush scan --host ${chalk.dim("# Rootkit / host integrity scan of this machine")}
   ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
   ${chalk.green("$")} threatcrush ai-scan URL      ${chalk.dim("# Red-team your AI/LLM endpoint (OWASP LLM Top 10)")}
   ${chalk.green("$")} threatcrush modules install  ${chalk.dim("# Install a module")}
@@ -560,8 +562,15 @@ program
 
 program
   .command("scan")
-  .description("Scan codebase for vulnerabilities and secrets")
+  .description("Scan codebase for vulnerabilities and secrets; --host scans this machine for rootkits and tampering instead")
   .argument("[path]", "Path to scan", ".")
+  .option("--host", "scan this machine instead of code: package integrity, rkhunter/chkrootkit, hidden processes and modules, ld.so.preload, SSH keys, Docker, persistence, SUID (same as `threatcrush host-scan`)")
+  .option("--localhost", "alias for --host")
+  .option("--json", "(--host) machine-readable JSON")
+  .option("--since <duration>", "(--host) window for recently changed persistence files", "7d")
+  .option("--deny-keys <file>", "(--host) SSH keys that must not be authorized anywhere (public key lines, base64 blobs or SHA256: fingerprints)")
+  .option("--checks <ids>", "(--host) run only these checks (comma-separated)")
+  .option("--skip-checks <ids>", "(--host) skip these checks (comma-separated)")
   .option("-f, --format <format>", "output format: text, json, or sarif", "text")
   .option("-o, --output <file>", "write json/sarif output to a file instead of stdout")
   .option(
@@ -586,6 +595,13 @@ program
   .option("-v, --verbose", "list the paths that could not be read")
   .option("--no-upload", "do not save the results to your threatcrush.com org (also THREATCRUSH_UPLOAD=0)")
   .action(async (targetPath: string, opts: {
+    host?: boolean;
+    localhost?: boolean;
+    json?: boolean;
+    since?: string;
+    denyKeys?: string;
+    checks?: string;
+    skipChecks?: string;
     upload?: boolean;
     format?: string;
     output?: string;
@@ -596,6 +612,13 @@ program
     missingControls?: boolean;
     verbose?: boolean;
   }) => {
+    if (opts.host || opts.localhost) {
+      await hostScanCommand({
+        json: opts.json || (opts.format ?? "").toLowerCase() === "json",
+        since: opts.since, denyKeys: opts.denyKeys, checks: opts.checks, skipChecks: opts.skipChecks, output: opts.output,
+      });
+      return;
+    }
     const format = (opts.format ?? "text").toLowerCase();
     if (!["text", "json", "sarif"].includes(format)) {
       console.error(chalk.red(`Unknown --format "${opts.format}" (expected text, json, or sarif)`));
@@ -627,6 +650,19 @@ program
         ...(opts.exclude ?? []).map((g) => `exclude=${g}`)].filter(Boolean).join(";");
       await uploadResult(result, { source: "scan", target: repo.target, kind: "repo", scope, upload: opts.upload, machineReadable: format !== "text" });
     }
+  });
+
+program
+  .command("host-scan")
+  .description("Host integrity / rootkit scan of this machine (exit 1 on any fail); run as root for every check")
+  .option("--json", "machine-readable JSON")
+  .option("--since <duration>", "window for recently changed persistence files (e.g. 7d, 12h)", "7d")
+  .option("--deny-keys <file>", "SSH keys that must not be authorized anywhere (public key lines, base64 blobs or SHA256: fingerprints)")
+  .option("--checks <ids>", "run only these checks (comma-separated)")
+  .option("--skip-checks <ids>", "skip these checks (comma-separated)")
+  .option("-o, --output <file>", "also write the report to a file")
+  .action(async (opts: { json?: boolean; since?: string; denyKeys?: string; checks?: string; skipChecks?: string; output?: string }) => {
+    await hostScanCommand(opts);
   });
 
 // ─── CrushAV: free open-source antivirus for your own computer ───
