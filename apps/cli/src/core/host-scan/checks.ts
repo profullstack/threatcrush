@@ -14,6 +14,8 @@ import {
   parseDpkgSearch, parsePackageVerify, parsePasswd, parseProcModules, parseRkhunter, parseSshdT, parseUnhide,
   uidZeroNonRoot, type AuthorizedKey, type PasswdEntry,
 } from './parsers.js';
+import { checkNetworkExposure } from './exposure.js';
+import { checkSecretsOnDisk } from './secrets.js';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
@@ -40,6 +42,10 @@ export interface CheckResult {
 export interface HostScanOptions {
   sinceMs: number;
   denyKeysFile?: string;
+  /** secrets-on-disk: also search each git repo's history for committed private keys. */
+  deep?: boolean;
+  /** secrets-on-disk time budget (default 120 s); results past it are partial. */
+  secretsTimeoutMs?: number;
   log?: (line: string) => void;
 }
 
@@ -498,6 +504,8 @@ export const HOST_CHECKS: CheckDef[] = [
   { id: 'persistence', title: 'Persistence changed recently', needsRoot: false, run: checkPersistence },
   { id: 'uid0-accounts', title: 'uid 0 accounts', needsRoot: false, run: () => checkUidZero(read('/etc/passwd')) },
   { id: 'suid-sgid', title: 'SUID/SGID outside packages', needsRoot: false, run: checkSuid },
+  { id: 'network-exposure', title: 'Datastore ports exposed to the internet', needsRoot: false, run: checkNetworkExposure },
+  { id: 'secrets-on-disk', title: 'Plaintext secrets on disk', needsRoot: false, run: checkSecretsOnDisk },
 ];
 
 export function detectPackageManager(): HostContext['pkg'] {

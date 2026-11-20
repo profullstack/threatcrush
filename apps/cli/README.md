@@ -123,6 +123,8 @@ sudo threatcrush host-scan --json > host-scan.json  # machine-readable
 sudo threatcrush host-scan --since 3d --deny-keys ./stolen-keys.txt
 sudo threatcrush host-scan --checks ssh-keys,persistence,uid0-accounts
 sudo threatcrush host-scan --skip-checks rkhunter,chkrootkit,suid-sgid   # the slow ones
+sudo threatcrush host-scan --checks network-exposure,secrets-on-disk     # what an intruder reaches and harvests
+sudo threatcrush host-scan --checks secrets-on-disk --deep --secrets-timeout 600
 ```
 
 | Check | Fails when | Warns when |
@@ -141,9 +143,73 @@ sudo threatcrush host-scan --skip-checks rkhunter,chkrootkit,suid-sgid   # the s
 | `persistence` | | a file under `/etc/cron*`, `/var/spool/cron`, `/etc/systemd/system`, `~/.config/systemd`, `/etc/pam.d`, `/etc/ssh/sshd_config.d`, `/etc/sudoers.d`, `/etc/profile.d`, `authorized_keys` and similar changed inside `--since` (default `7d`) |
 | `uid0-accounts` | an account other than `root` has uid 0 | |
 | `suid-sgid` | | a setuid/setgid file on the root filesystem is not owned by any package (container storage and snaps are skipped) |
+| `network-exposure` | a datastore / admin port (see below) listens on a public address (`0.0.0.0`, `[::]`, a public IP) and no firewall rule blocks it | the `DOCKER-USER` chain is empty while Docker publishes ports on `0.0.0.0`; `DOCKER-USER` has live rules but nothing restores them at boot; a `DOCKER-USER` rule matches `--dport <host port>` for a mapping whose container port differs (it never fires); a sensitive port is explicitly allowed from anywhere in ufw; not root (firewall unreadable) |
+| `secrets-on-disk` | a key, token or credential file is readable by other users (world-readable with every parent directory traversable, or group-readable by a shared group); `--deep`: a private key is in a git repository's history | each plaintext secret found (inventory: path, type, owner, mode, size, age; never the value) |
+
+#### `network-exposure`
+
+Sensitive ports: postgres 5432 / pgbouncer 6432 / 6543, mysql 3306, mongodb
+27017, redis 6379, elasticsearch 9200 / 9300, clickhouse 8123 / 9000, couchdb
+5984, memcached 11211, neo4j 7687 / 7474, influxdb 8086, rabbitmq 5672 / 15672,
+kafka 9092, etcd 2379, Docker API 2375 / 2376, kubelet 10250, cups 631.
+
+Listeners come from `ss -tlnpH` (or `/proc/net/tcp{,6}` without `ss`); Docker
+port bindings from `docker ps`. A Docker mapping counts as sensitive when its
+host port **or its container port** is on the list, so `-p 5601:5432` is postgres.
+
+Docker-published ports never pass through ufw or the `INPUT` chain: only the
+`DOCKER-USER` chain can block them, and it sees packets **after** DNAT. So for
+`-p 6543:6432` the check looks for a `DROP`/`REJECT` matching `--dport 6432`
+(the container port) or `-m conntrack --ctorigdstport 6543` (the host port),
+walking the chain first-match (source-limited `ACCEPT`s are reported as an
+allowlist, source-limited `DROP`s do not count as a block). Host processes are
+judged by ufw when active, else the `INPUT` chain policy and rules, plus any
+native nftables `hook input` chains. IPv6 bindings are only considered when the
+host has a global IPv6 address.
+
+Rules added with `iptables -I DOCKER-USER ...` live only in the kernel. The
+check warns unless something restores them at boot: a file under
+`/etc/systemd/system`, `/usr/local/{s,}bin`, `/etc/network/if-*.d`, `/etc/docker`,
+a script a unit's `ExecStart` runs, `/etc/ufw/*.rules`, or `-A DOCKER-USER`
+lines in `/etc/iptables/rules.v4`.
+
+The check makes no outbound connections. To confirm from outside, from another
+machine run `nc -vz -w3 <public-ip> 5432` (or `nmap -Pn -p 5432,6432,6543,3306,6379,27017 <public-ip>`)
+for each port it lists; "Connection refused" or a timeout is what you want.
+
+#### `secrets-on-disk`
+
+Walks `/root` and `/home/*` (7 levels deep, never following symlinks; skips
+`node_modules`, `.git`, `.cache`, package-manager caches, build output and
+files over 1 MB) and `/etc` (4 levels; only world-readable findings are
+reported there). It opens only files whose name suggests a secret and looks for:
+
+- unencrypted private keys: `id_*`, `*.pem`, `*.key`, anything in `~/.ssh`
+  (OpenSSH keys with cipher `none`, PKCS#1/SEC1 without `Proc-Type: 4,ENCRYPTED`,
+  unencrypted PKCS#8; passphrase-protected keys are not reported)
+- `~/.config/gh/hosts.yml` `oauth_token`, `.npmrc` `_authToken`, `.pypirc`
+  passwords, `.git-credentials`, `.netrc`, `.vault-token`, Terraform Cloud tokens
+- `~/.docker/config.json` registries with stored `auth`, `~/.aws/credentials`,
+  `~/.config/gcloud` credentials, `~/.kube/config` with embedded tokens or keys
+- `.env`, `.env.*` and `*.env` (not `.example` / `.sample` / `.template`): the
+  count and **names** of variables that look like keys, tokens, secrets or
+  passwords, or URLs with an embedded password
+- JSON identity / service-account files holding a private key, secret or token
+- plaintext password-manager exports (Bitwarden / LastPass / 1Password /
+  browser CSV headers, unencrypted Bitwarden JSON, `.1pux` / `.1pif`)
+
+Paths under `test/`, `fixtures/`, `examples/` and similar are labelled
+`[test fixture path]` and never fail. `--deep` also runs
+`git log --all --pickaxe-regex -S '-----BEGIN [A-Z ]*PRIVATE KEY-----'` in each
+repository found (as the repository's owner when run as root, so a hostile repo
+config cannot run anything as root); worktrees sharing a leaked commit are
+reported once. The whole check is time-boxed by `--secrets-timeout <seconds>`
+(default 120); what it found before the budget ran out is reported and the check
+is marked `[partial]`.
 
 The exit code is 1 when any check fails, 2 on bad arguments, 0 otherwise.
 `--json` prints `{ host, kernel, root, summary: {pass, warn, fail, skip}, skipped, checks: [{ id, status, reason, items, partial, install }] }`.
+`--deep` and `--secrets-timeout` only affect `secrets-on-disk`.
 `--deny-keys` takes one entry per line: a full public key line, a bare base64
 key blob, or a `SHA256:` fingerprint.
 
