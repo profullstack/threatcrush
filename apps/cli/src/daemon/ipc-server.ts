@@ -256,6 +256,9 @@ export class IpcServer {
         const result = await this.remediation.ban(req.params.ip, req.params.reason || 'banned by operator', {
           ttlSeconds: ttl,
           source: 'manual',
+          // `threatcrush respond ip`: an intruder on a stolen key is a live SSH
+          // peer, and so a remembered operator. Only fleet addresses protect it.
+          ...(req.params.strict === true ? { strict: true } : {}),
         });
         if (!result.ok) {
           return this.send(client, { id: req.id, ok: false, error: result.error || 'ban failed' });

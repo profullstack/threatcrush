@@ -17,6 +17,7 @@ import {
 } from "./commands/watchdog.js";
 import { parseFailOn, scanCommand, type ScanFormat } from "./commands/scan.js";
 import { hostScanCommand } from "./commands/host-scan.js";
+import { registerRespond } from "./commands/respond.js";
 import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { modulesCommand } from "./commands/modules.js";
@@ -664,6 +665,10 @@ program
   .action(async (opts: { json?: boolean; since?: string; denyKeys?: string; checks?: string; skipChecks?: string; output?: string }) => {
     await hostScanCommand(opts);
   });
+
+// ─── Incident response: kill sessions, ban, pull stolen keys, lock sshd ───
+
+registerRespond(program);
 
 // ─── CrushAV: free open-source antivirus for your own computer ───
 

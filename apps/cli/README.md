@@ -103,6 +103,7 @@ threatcrush action-center # Fleet-wide detections, host health and queued action
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush scan . --format sarif --output out.sarif --fail-on critical,high
 sudo threatcrush scan --host   # Rootkit / host integrity scan of this machine (alias: host-scan)
+sudo threatcrush respond ...   # Incident response: kill sessions, ban, pull stolen keys, lock sshd (dry run unless --apply)
 threatcrush pentest URL  # Quick web security checks against a URL
 threatcrush init         # Auto-detect services, generate config
 threatcrush status       # Show daemon status & loaded modules
@@ -150,6 +151,73 @@ key blob, or a `SHA256:` fingerprint.
 Run it as root. Without root, `rkhunter`, `chkrootkit` and `sshd-config` are
 skipped and listed as such, and checks that could only read part of the system
 (other users' keys, other users' processes) are marked `[partial]`.
+
+### Incident response: `threatcrush respond`
+
+Containment for a box, or a fleet, after stolen SSH keys or a stolen password.
+It is a **dry run by default**: it shows what it found and what it would do.
+`--apply` acts. Every action is reported, in text or `--json`, with its status
+(`planned`, `done`, `failed`, `refused`, `needs-root`); the exit code is 1 when
+anything failed or was refused.
+
+| Subcommand | What it does |
+|---|---|
+| `respond ip <ip...>` | Lists established connections and recent sshd logins/failures from the address; with `--apply` bans it (through `threatcrushd`, else a direct `nft`/`iptables` drop), then kills its per-connection `sshd-session` processes and closes its sockets with `ss -K`. Refuses private/loopback/tailnet ranges, Cloudflare and public resolvers, the gateway, the daemon's protected list and the address of your own session. `--ttl` sets the ban (default `30d`). |
+| `respond key <SHA256:fp \| key-file...>` | Finds the key in **every** `authorized_keys*` file under `/root` and `/home/*` and every `AuthorizedKeysFile` (a non-root glob silently misses other users' homes, so run it as root), shows user, file, line and restrictions, and with `--apply` removes those lines, deletes stale copies (`authorized_keys.bak`, `.old`, ...) holding it, and shreds private-key files whose public half matches. `command=` (deploy) keys are removed like any other: a restricted key is still a stolen key. Nothing is backed up; the removed fingerprints are printed. |
+| `respond sshd [--lockdown]` | Shows the effective `PermitRootLogin`, `PasswordAuthentication` and `KbdInteractiveAuthentication` (`sshd -T -C user=root,host=x,addr=1.2.3.4`). `--lockdown` writes `00-0-threatcrush-lockdown.conf` (all three `no`) and, only with `--allow-root-localhost`, `99-threatcrush-root-localhost.conf` (`Match Address 127.0.0.1,::1` then `PermitRootLogin prohibit-password`), validates with `sshd -t`, restores the old files and does **not** reload if that fails, then shows the values before and after. |
+| `respond keys-audit` | Every authorized key on the box with user, file, fingerprint, comment, restrictions and last use (from the sshd journal), flagging unrestricted keys, the same key on several accounts, keys unused for 30 days, stale copies, and deploy keys (`command=`): treat those as secrets and rotate them if CI secrets may have leaked. |
+
+Two guards come from the 2026-11-20 incident:
+
+- **Lockout guard.** `respond key` refuses to remove a key when it would leave
+  the invoking user (`SUDO_USER`, or the ssh login user on a remote host) with
+  no key that gives a shell, and says so when the key is the one this very
+  session logged in with. `command=` and `restrict` keys do not count as a way
+  back in. It prints how to install and test a replacement first;
+  `--allow-lockout` overrides it when you have console access.
+- **Drop-in ordering.** sshd keeps the **first** value it reads, and a `Match`
+  block swallows every directive after it. So the global settings go in a file
+  that sorts first and the `Match` in one that sorts last. `--lockdown` refuses
+  to write when `sshd_config` does not include `sshd_config.d`, when a file read
+  earlier sets a different value, or when another drop-in sorts after the
+  `Match` file.
+
+`--hosts <file|list>` runs any subcommand on remote hosts over ssh (a file with
+one host per line, or `dev1,dev2`), 3 at a time, and prints one report per host
+plus a summary. A host with `threatcrush respond` installed runs
+`sudo -n threatcrush respond ... --json` itself; any other host gets the same
+read-only gather script streamed over ssh's stdin, the same analysis runs here,
+and with `--apply` a second script performs exactly the planned actions. Key
+targets travel as fingerprints only; private keys never leave their host and
+nothing secret is put on a command line. `sudo` must work without a password
+(`sudo -n`); otherwise the host is audited read-only.
+
+Without root nothing is changed: the run is read-only and lists the actions that need root.
+
+Incident runbook (stolen key `SHA256:AbC...`, attacker at `203.0.113.7`):
+
+```bash
+# 0. What is out there? Run read-only across the fleet first.
+threatcrush respond keys-audit --hosts fleet.txt
+threatcrush respond ip 203.0.113.7 --hosts fleet.txt
+
+# 1. Cut the attacker off everywhere: ban, then kill live sessions.
+threatcrush respond ip 203.0.113.7 --hosts fleet.txt --apply
+
+# 2. Install and TEST your replacement key on every host before removing anything.
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_new
+for h in $(cat fleet.txt); do ssh-copy-id -i ~/.ssh/id_ed25519_new.pub "$h"; done
+
+# 3. Pull the stolen key (dry run first: read the lockout guard's verdict).
+threatcrush respond key SHA256:AbC... --hosts fleet.txt
+threatcrush respond key SHA256:AbC... --hosts fleet.txt --apply
+
+# 4. No root and no passwords over ssh; validated before reload.
+threatcrush respond sshd --lockdown --hosts fleet.txt --apply
+
+# 5. Re-audit, and rotate every deploy key it flags.
+threatcrush respond keys-audit --hosts fleet.txt --json > audit.json
+```
 
 ### CIS evidence report export
 
