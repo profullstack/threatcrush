@@ -23,6 +23,8 @@ import { SshIntrusionWatch } from './workers/ssh-intrusion.js';
 import { KeyDirectory, enrichLoginEvent } from './key-directory.js';
 import { LightningWatch } from './workers/lightning-watch.js';
 import { DockerLogsWatch, dockerLogsSettings } from './workers/docker-logs.js';
+import { PostgresShellWatch, postgresShellSettings } from './workers/postgres-shell.js';
+import { LoginWatch, loginWatchSettings } from './workers/login-watch.js';
 import { TorExitList } from '../core/tor-exits.js';
 import { TorExitBlockEnforcer } from './firewall/tor-block.js';
 import { RuleEngine } from './rules/engine.js';
@@ -293,6 +295,17 @@ export async function runDaemon(): Promise<void> {
   });
   sshIntrusion.start();
 
+  // Successful SSH logins a stolen key would also make (`[login_watch]`):
+  // Tor, root/sudoers from an untrusted address, a user's first /24.
+  const loginWatch = new LoginWatch({
+    bus,
+    settings: loginWatchSettings(config.login_watch),
+    tor: torExits,
+    manager: remediation,
+    log: logLine,
+  });
+  loginWatch.start();
+
   // Proactively drop the whole Tor exit list on the SSH port, before any
   // accept. Reactive banning only fires after a login, and a rotating attacker
   // uses a fresh exit each time, so pre-blocking the list is the only defence.
@@ -324,6 +337,15 @@ export async function runDaemon(): Promise<void> {
     log: logLine,
   });
   dockerLogs.start();
+
+  // A shell or LOLBin under postgres, inside containers too (`[postgres_shell]`).
+  const postgresShell = new PostgresShellWatch({
+    bus,
+    settings: postgresShellSettings(config.postgres_shell),
+    dryRun: () => remediation.status().dry_run,
+    log: logLine,
+  });
+  postgresShell.start();
 
   let cloudSyncRef: CloudSync | null = null;
   new AlertDispatcher(bus, config, { cloudHealthy: () => cloudSyncRef?.healthy ?? false, log: logLine });
@@ -440,6 +462,8 @@ export async function runDaemon(): Promise<void> {
     try { sshIntrusion.stop(); } catch {}
     try { lightningWatch.stop(); } catch {}
     try { dockerLogs.stop(); } catch {}
+    try { postgresShell.stop(); } catch {}
+    try { loginWatch.stop(); } catch {}
     try { await ipc.stop(); } catch {}
     try { closeDB(); } catch {}
     try { await flushTelemetry(); } catch {}

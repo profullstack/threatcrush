@@ -10,6 +10,10 @@ export interface HostScanCommandOptions {
   checks?: string;
   skipChecks?: string;
   output?: string;
+  /** secrets-on-disk: search git histories for committed private keys. */
+  deep?: boolean;
+  /** secrets-on-disk time budget in seconds. */
+  secretsTimeout?: string;
 }
 
 const STATUS_STYLE: Record<CheckResult['status'], (s: string) => string> = {
@@ -51,6 +55,16 @@ export async function hostScanCommand(opts: HostScanCommandOptions = {}): Promis
     process.exitCode = 2;
     return null;
   }
+  let secretsTimeoutMs: number | undefined;
+  if (opts.secretsTimeout !== undefined) {
+    const n = Number(opts.secretsTimeout);
+    if (!Number.isFinite(n) || n <= 0) {
+      console.error(chalk.red(`--secrets-timeout must be a positive number of seconds (got "${opts.secretsTimeout}")`));
+      process.exitCode = 2;
+      return null;
+    }
+    secretsTimeoutMs = n * 1000;
+  }
   const only = list(opts.checks);
   const skip = list(opts.skipChecks);
   const known = new Set(HOST_CHECKS.map((c) => c.id));
@@ -63,6 +77,8 @@ export async function hostScanCommand(opts: HostScanCommandOptions = {}): Promis
   const report = runHostScan({
     sinceMs,
     denyKeysFile: opts.denyKeys,
+    deep: opts.deep,
+    secretsTimeoutMs,
     log: opts.json ? undefined : (l) => process.stderr.write(chalk.gray(`  ${l}\n`)),
   }, { only, skip });
   const text = opts.json ? JSON.stringify(report, null, 2) : renderHostScan(report);

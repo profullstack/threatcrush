@@ -145,10 +145,13 @@ export class IpcClient {
   /**
    * Ban an address.
    */
-  async block(ip: string, reason?: string, ttl?: string): Promise<BlockedEntryReply> {
+  async block(ip: string, reason?: string, ttl?: string, opts: { strict?: boolean } = {}): Promise<BlockedEntryReply> {
     // No control token: the daemon writes the rule, so the daemon is what needs
     // the privilege. Who may ask is decided by the socket's permissions.
-    return this.request<BlockedEntryReply>('block', { ip, reason, ttl });
+    // `strict`: only our own addresses (built-ins, shared infrastructure, the
+    // operator's allowlist, gateways) protect the source. `respond ip` needs it:
+    // an attacker on a stolen key is a live SSH peer and a "remembered operator".
+    return this.request<BlockedEntryReply>('block', { ip, reason, ttl, ...(opts.strict ? { strict: true } : {}) });
   }
 
   async unblock(ip: string, forget = true): Promise<{ ip: string }> {

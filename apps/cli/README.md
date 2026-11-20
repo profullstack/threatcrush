@@ -103,6 +103,7 @@ threatcrush action-center # Fleet-wide detections, host health and queued action
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush scan . --format sarif --output out.sarif --fail-on critical,high
 sudo threatcrush scan --host   # Rootkit / host integrity scan of this machine (alias: host-scan)
+sudo threatcrush respond ...   # Incident response: kill sessions, ban, pull stolen keys, lock sshd (dry run unless --apply)
 threatcrush pentest URL  # Quick web security checks against a URL
 threatcrush init         # Auto-detect services, generate config
 threatcrush status       # Show daemon status & loaded modules
@@ -123,6 +124,8 @@ sudo threatcrush host-scan --json > host-scan.json  # machine-readable
 sudo threatcrush host-scan --since 3d --deny-keys ./stolen-keys.txt
 sudo threatcrush host-scan --checks ssh-keys,persistence,uid0-accounts
 sudo threatcrush host-scan --skip-checks rkhunter,chkrootkit,suid-sgid   # the slow ones
+sudo threatcrush host-scan --checks network-exposure,secrets-on-disk     # what an intruder reaches and harvests
+sudo threatcrush host-scan --checks secrets-on-disk --deep --secrets-timeout 600
 ```
 
 | Check | Fails when | Warns when |
@@ -141,9 +144,73 @@ sudo threatcrush host-scan --skip-checks rkhunter,chkrootkit,suid-sgid   # the s
 | `persistence` | | a file under `/etc/cron*`, `/var/spool/cron`, `/etc/systemd/system`, `~/.config/systemd`, `/etc/pam.d`, `/etc/ssh/sshd_config.d`, `/etc/sudoers.d`, `/etc/profile.d`, `authorized_keys` and similar changed inside `--since` (default `7d`) |
 | `uid0-accounts` | an account other than `root` has uid 0 | |
 | `suid-sgid` | | a setuid/setgid file on the root filesystem is not owned by any package (container storage and snaps are skipped) |
+| `network-exposure` | a datastore / admin port (see below) listens on a public address (`0.0.0.0`, `[::]`, a public IP) and no firewall rule blocks it | the `DOCKER-USER` chain is empty while Docker publishes ports on `0.0.0.0`; `DOCKER-USER` has live rules but nothing restores them at boot; a `DOCKER-USER` rule matches `--dport <host port>` for a mapping whose container port differs (it never fires); a sensitive port is explicitly allowed from anywhere in ufw; not root (firewall unreadable) |
+| `secrets-on-disk` | a key, token or credential file is readable by other users (world-readable with every parent directory traversable, or group-readable by a shared group); `--deep`: a private key is in a git repository's history | each plaintext secret found (inventory: path, type, owner, mode, size, age; never the value) |
+
+#### `network-exposure`
+
+Sensitive ports: postgres 5432 / pgbouncer 6432 / 6543, mysql 3306, mongodb
+27017, redis 6379, elasticsearch 9200 / 9300, clickhouse 8123 / 9000, couchdb
+5984, memcached 11211, neo4j 7687 / 7474, influxdb 8086, rabbitmq 5672 / 15672,
+kafka 9092, etcd 2379, Docker API 2375 / 2376, kubelet 10250, cups 631.
+
+Listeners come from `ss -tlnpH` (or `/proc/net/tcp{,6}` without `ss`); Docker
+port bindings from `docker ps`. A Docker mapping counts as sensitive when its
+host port **or its container port** is on the list, so `-p 5601:5432` is postgres.
+
+Docker-published ports never pass through ufw or the `INPUT` chain: only the
+`DOCKER-USER` chain can block them, and it sees packets **after** DNAT. So for
+`-p 6543:6432` the check looks for a `DROP`/`REJECT` matching `--dport 6432`
+(the container port) or `-m conntrack --ctorigdstport 6543` (the host port),
+walking the chain first-match (source-limited `ACCEPT`s are reported as an
+allowlist, source-limited `DROP`s do not count as a block). Host processes are
+judged by ufw when active, else the `INPUT` chain policy and rules, plus any
+native nftables `hook input` chains. IPv6 bindings are only considered when the
+host has a global IPv6 address.
+
+Rules added with `iptables -I DOCKER-USER ...` live only in the kernel. The
+check warns unless something restores them at boot: a file under
+`/etc/systemd/system`, `/usr/local/{s,}bin`, `/etc/network/if-*.d`, `/etc/docker`,
+a script a unit's `ExecStart` runs, `/etc/ufw/*.rules`, or `-A DOCKER-USER`
+lines in `/etc/iptables/rules.v4`.
+
+The check makes no outbound connections. To confirm from outside, from another
+machine run `nc -vz -w3 <public-ip> 5432` (or `nmap -Pn -p 5432,6432,6543,3306,6379,27017 <public-ip>`)
+for each port it lists; "Connection refused" or a timeout is what you want.
+
+#### `secrets-on-disk`
+
+Walks `/root` and `/home/*` (7 levels deep, never following symlinks; skips
+`node_modules`, `.git`, `.cache`, package-manager caches, build output and
+files over 1 MB) and `/etc` (4 levels; only world-readable findings are
+reported there). It opens only files whose name suggests a secret and looks for:
+
+- unencrypted private keys: `id_*`, `*.pem`, `*.key`, anything in `~/.ssh`
+  (OpenSSH keys with cipher `none`, PKCS#1/SEC1 without `Proc-Type: 4,ENCRYPTED`,
+  unencrypted PKCS#8; passphrase-protected keys are not reported)
+- `~/.config/gh/hosts.yml` `oauth_token`, `.npmrc` `_authToken`, `.pypirc`
+  passwords, `.git-credentials`, `.netrc`, `.vault-token`, Terraform Cloud tokens
+- `~/.docker/config.json` registries with stored `auth`, `~/.aws/credentials`,
+  `~/.config/gcloud` credentials, `~/.kube/config` with embedded tokens or keys
+- `.env`, `.env.*` and `*.env` (not `.example` / `.sample` / `.template`): the
+  count and **names** of variables that look like keys, tokens, secrets or
+  passwords, or URLs with an embedded password
+- JSON identity / service-account files holding a private key, secret or token
+- plaintext password-manager exports (Bitwarden / LastPass / 1Password /
+  browser CSV headers, unencrypted Bitwarden JSON, `.1pux` / `.1pif`)
+
+Paths under `test/`, `fixtures/`, `examples/` and similar are labelled
+`[test fixture path]` and never fail. `--deep` also runs
+`git log --all --pickaxe-regex -S '-----BEGIN [A-Z ]*PRIVATE KEY-----'` in each
+repository found (as the repository's owner when run as root, so a hostile repo
+config cannot run anything as root); worktrees sharing a leaked commit are
+reported once. The whole check is time-boxed by `--secrets-timeout <seconds>`
+(default 120); what it found before the budget ran out is reported and the check
+is marked `[partial]`.
 
 The exit code is 1 when any check fails, 2 on bad arguments, 0 otherwise.
 `--json` prints `{ host, kernel, root, summary: {pass, warn, fail, skip}, skipped, checks: [{ id, status, reason, items, partial, install }] }`.
+`--deep` and `--secrets-timeout` only affect `secrets-on-disk`.
 `--deny-keys` takes one entry per line: a full public key line, a bare base64
 key blob, or a `SHA256:` fingerprint.
 
@@ -177,6 +244,73 @@ input piped as data to a non-shell remote command
 (`printf '%s\n' "$IPS" | ssh host 'xargs -n1 threatcrush unblock --'`). Step
 outputs and reusable-workflow inputs are not followed. Suppress a reviewed line
 with `# threatcrush-disable-next-line <rule-id>`.
+
+### Incident response: `threatcrush respond`
+
+Containment for a box, or a fleet, after stolen SSH keys or a stolen password.
+It is a **dry run by default**: it shows what it found and what it would do.
+`--apply` acts. Every action is reported, in text or `--json`, with its status
+(`planned`, `done`, `failed`, `refused`, `needs-root`); the exit code is 1 when
+anything failed or was refused.
+
+| Subcommand | What it does |
+|---|---|
+| `respond ip <ip...>` | Lists established connections and recent sshd logins/failures from the address; with `--apply` bans it (through `threatcrushd`, else a direct `nft`/`iptables` drop), then kills its per-connection `sshd-session` processes and closes its sockets with `ss -K`. Refuses private/loopback/tailnet ranges, Cloudflare and public resolvers, the gateway, the daemon's protected list and the address of your own session. `--ttl` sets the ban (default `30d`). |
+| `respond key <SHA256:fp \| key-file...>` | Finds the key in **every** `authorized_keys*` file under `/root` and `/home/*` and every `AuthorizedKeysFile` (a non-root glob silently misses other users' homes, so run it as root), shows user, file, line and restrictions, and with `--apply` removes those lines, deletes stale copies (`authorized_keys.bak`, `.old`, ...) holding it, and shreds private-key files whose public half matches. `command=` (deploy) keys are removed like any other: a restricted key is still a stolen key. Nothing is backed up; the removed fingerprints are printed. |
+| `respond sshd [--lockdown]` | Shows the effective `PermitRootLogin`, `PasswordAuthentication` and `KbdInteractiveAuthentication` (`sshd -T -C user=root,host=x,addr=1.2.3.4`). `--lockdown` writes `00-0-threatcrush-lockdown.conf` (all three `no`) and, only with `--allow-root-localhost`, `99-threatcrush-root-localhost.conf` (`Match Address 127.0.0.1,::1` then `PermitRootLogin prohibit-password`), validates with `sshd -t`, restores the old files and does **not** reload if that fails, then shows the values before and after. |
+| `respond keys-audit` | Every authorized key on the box with user, file, fingerprint, comment, restrictions and last use (from the sshd journal), flagging unrestricted keys, the same key on several accounts, keys unused for 30 days, stale copies, and deploy keys (`command=`): treat those as secrets and rotate them if CI secrets may have leaked. |
+
+Two guards come from the 2026-11-20 incident:
+
+- **Lockout guard.** `respond key` refuses to remove a key when it would leave
+  the invoking user (`SUDO_USER`, or the ssh login user on a remote host) with
+  no key that gives a shell, and says so when the key is the one this very
+  session logged in with. `command=` and `restrict` keys do not count as a way
+  back in. It prints how to install and test a replacement first;
+  `--allow-lockout` overrides it when you have console access.
+- **Drop-in ordering.** sshd keeps the **first** value it reads, and a `Match`
+  block swallows every directive after it. So the global settings go in a file
+  that sorts first and the `Match` in one that sorts last. `--lockdown` refuses
+  to write when `sshd_config` does not include `sshd_config.d`, when a file read
+  earlier sets a different value, or when another drop-in sorts after the
+  `Match` file.
+
+`--hosts <file|list>` runs any subcommand on remote hosts over ssh (a file with
+one host per line, or `dev1,dev2`), 3 at a time, and prints one report per host
+plus a summary. A host with `threatcrush respond` installed runs
+`sudo -n threatcrush respond ... --json` itself; any other host gets the same
+read-only gather script streamed over ssh's stdin, the same analysis runs here,
+and with `--apply` a second script performs exactly the planned actions. Key
+targets travel as fingerprints only; private keys never leave their host and
+nothing secret is put on a command line. `sudo` must work without a password
+(`sudo -n`); otherwise the host is audited read-only.
+
+Without root nothing is changed: the run is read-only and lists the actions that need root.
+
+Incident runbook (stolen key `SHA256:AbC...`, attacker at `203.0.113.7`):
+
+```bash
+# 0. What is out there? Run read-only across the fleet first.
+threatcrush respond keys-audit --hosts fleet.txt
+threatcrush respond ip 203.0.113.7 --hosts fleet.txt
+
+# 1. Cut the attacker off everywhere: ban, then kill live sessions.
+threatcrush respond ip 203.0.113.7 --hosts fleet.txt --apply
+
+# 2. Install and TEST your replacement key on every host before removing anything.
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_new
+for h in $(cat fleet.txt); do ssh-copy-id -i ~/.ssh/id_ed25519_new.pub "$h"; done
+
+# 3. Pull the stolen key (dry run first: read the lockout guard's verdict).
+threatcrush respond key SHA256:AbC... --hosts fleet.txt
+threatcrush respond key SHA256:AbC... --hosts fleet.txt --apply
+
+# 4. No root and no passwords over ssh; validated before reload.
+threatcrush respond sshd --lockdown --hosts fleet.txt --apply
+
+# 5. Re-audit, and rotate every deploy key it flags.
+threatcrush respond keys-audit --hosts fleet.txt --json > audit.json
+```
 
 ### CIS evidence report export
 
@@ -265,6 +399,44 @@ poll_seconds = 15                       # how soon new or restarted containers a
 ```
 
 Check a line without touching the firewall: `threatcrush rules test postgres-auth-bruteforce --repeat 5 --line '<log line>'`.
+
+### Postgres running a shell (COPY FROM PROGRAM)
+
+A database superuser can run OS commands with `COPY ... FROM PROGRAM`, which starts `/bin/sh -c` as a child of the backend. Every few seconds the daemon walks `/proc` (which includes processes inside containers) and raises a critical `postgres-shell-exec` alert for any shell or common LOLBin (`sh`, `bash`, `dash`, `busybox`, `curl`, `wget`, `nc`, `ncat`, `python*`, `perl`, `base64`, anything touching `/dev/tcp`) whose parent chain includes `postgres`, `postmaster` or `.postgres-wrapper`. With `[docker_logs]` on, Postgres container log lines naming `FROM PROGRAM`/`TO PROGRAM` raise `postgres-copy-program` (critical), and plain shell errors or job-control output in that log (`sh: 1: curl: not found`, `Killed`, `Terminated`) raise `postgres-shell-output` (high). A command that finishes between two polls can be missed by the process check; reverse shells, downloaders and miners cannot.
+
+```toml
+[postgres_shell]
+enabled = true          # default on (Linux)
+poll_seconds = 3
+kill = false            # SIGKILL the process tree postgres spawned; never postgres itself; not in dry_run
+allow_cmdline = []      # extra regexes (whole command line) for programs postgres may run, e.g. an archive_command
+```
+
+Supabase's `pgsodium_getkey` and plain `sh -c wal-g|pgbackrest|barman-wal-* ...` archive commands (with no shell metacharacters) are allowed by default.
+
+### Suspicious successful SSH logins
+
+A stolen key logs in without a single failure. Every accepted SSH login is classified:
+
+- `ssh-login-tor` (critical): from a Tor exit.
+- `ssh-login-sensitive` (critical for root, high otherwise): root, a `sensitive_users` entry or a member of `sensitive_groups` logged in from an address outside `trusted_login_cidrs` and the `[remediation] protected` list. With no trusted CIDRs, every public login of those users alerts.
+- `ssh-login-new-network` (medium): the user's first login from that /24 (IPv6: /48). Seen networks are kept in the state db; the first start learns the last 30 days from the journal.
+
+A key pinned to a forced command in that user's `authorized_keys` (`restrict,command="... ci-deploy owner/repo" ssh-ed25519 ...`, as CI deploy keys are) logs from any address at info as `ssh-login-forced-command`, with the command, instead of raising `ssh-login-sensitive` or `ssh-login-new-network`; from a Tor exit it still raises `ssh-login-tor`. The fingerprint-to-command map is cached per user and re-read when `~/.ssh/authorized_keys` (or `authorized_keys2`) changes. Keys named by a custom `AuthorizedKeysFile` are not read.
+
+Alerts name the user, address, auth method and key fingerprint. Private, loopback and tailnet ranges (10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, ::1, fc00::/7) are never flagged or acted on.
+
+```toml
+[login_watch]
+enabled = true
+sensitive_users = ["root"]                            # root is always included
+sensitive_groups = ["sudo", "admin", "wheel", "docker"]
+trusted_login_cidrs = []                              # e.g. ["203.0.113.0/24"]; empty = alert on every public login of those users
+first_seen = true                                     # first login per user per /24
+auto_response = false                                 # high/critical: ban the address and kill that user's sshd sessions from it (not in dry_run)
+```
+
+`kill` and `auto_response` need `CAP_KILL`, which the unit from `threatcrush install-service` now grants; re-run it after upgrading if you turn either on.
 
 ### Local shell history protection
 

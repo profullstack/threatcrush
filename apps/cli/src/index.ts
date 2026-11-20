@@ -17,6 +17,7 @@ import {
 } from "./commands/watchdog.js";
 import { parseFailOn, scanCommand, type ScanFormat } from "./commands/scan.js";
 import { hostScanCommand } from "./commands/host-scan.js";
+import { registerRespond } from "./commands/respond.js";
 import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { modulesCommand } from "./commands/modules.js";
@@ -564,13 +565,15 @@ program
   .command("scan")
   .description("Scan codebase for vulnerabilities and secrets; --host scans this machine for rootkits and tampering instead")
   .argument("[path]", "Path to scan", ".")
-  .option("--host", "scan this machine instead of code: package integrity, rkhunter/chkrootkit, hidden processes and modules, ld.so.preload, SSH keys, Docker, persistence, SUID (same as `threatcrush host-scan`)")
+  .option("--host", "scan this machine instead of code: package integrity, rkhunter/chkrootkit, hidden processes and modules, ld.so.preload, SSH keys, Docker, persistence, SUID, exposed datastore ports, plaintext secrets (same as `threatcrush host-scan`)")
   .option("--localhost", "alias for --host")
   .option("--json", "(--host) machine-readable JSON")
   .option("--since <duration>", "(--host) window for recently changed persistence files", "7d")
   .option("--deny-keys <file>", "(--host) SSH keys that must not be authorized anywhere (public key lines, base64 blobs or SHA256: fingerprints)")
   .option("--checks <ids>", "(--host) run only these checks (comma-separated)")
   .option("--skip-checks <ids>", "(--host) skip these checks (comma-separated)")
+  .option("--deep", "(--host) secrets-on-disk also searches every git repo's history for committed private keys")
+  .option("--secrets-timeout <seconds>", "(--host) time budget for secrets-on-disk; partial results past it", "120")
   .option("-f, --format <format>", "output format: text, json, or sarif", "text")
   .option("-o, --output <file>", "write json/sarif output to a file instead of stdout")
   .option(
@@ -602,6 +605,8 @@ program
     denyKeys?: string;
     checks?: string;
     skipChecks?: string;
+    deep?: boolean;
+    secretsTimeout?: string;
     upload?: boolean;
     format?: string;
     output?: string;
@@ -616,6 +621,7 @@ program
       await hostScanCommand({
         json: opts.json || (opts.format ?? "").toLowerCase() === "json",
         since: opts.since, denyKeys: opts.denyKeys, checks: opts.checks, skipChecks: opts.skipChecks, output: opts.output,
+        deep: opts.deep, secretsTimeout: opts.secretsTimeout,
       });
       return;
     }
@@ -660,10 +666,16 @@ program
   .option("--deny-keys <file>", "SSH keys that must not be authorized anywhere (public key lines, base64 blobs or SHA256: fingerprints)")
   .option("--checks <ids>", "run only these checks (comma-separated)")
   .option("--skip-checks <ids>", "skip these checks (comma-separated)")
+  .option("--deep", "secrets-on-disk also searches every git repo's history for committed private keys")
+  .option("--secrets-timeout <seconds>", "time budget for secrets-on-disk; partial results past it", "120")
   .option("-o, --output <file>", "also write the report to a file")
-  .action(async (opts: { json?: boolean; since?: string; denyKeys?: string; checks?: string; skipChecks?: string; output?: string }) => {
+  .action(async (opts: { json?: boolean; since?: string; denyKeys?: string; checks?: string; skipChecks?: string; output?: string; deep?: boolean; secretsTimeout?: string }) => {
     await hostScanCommand(opts);
   });
+
+// ─── Incident response: kill sessions, ban, pull stolen keys, lock sshd ───
+
+registerRespond(program);
 
 // ─── CrushAV: free open-source antivirus for your own computer ───
 

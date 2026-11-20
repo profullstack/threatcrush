@@ -12,7 +12,7 @@ export type IpcRequest =
   // Ban and unban are control methods: they change the host's firewall, so
   // they carry the same root-only token as `shutdown` rather than riding on
   // the adm group's read access.
-  | { id: number; method: 'block'; params: { ip: string; reason?: string; ttl?: string; token?: string } }
+  | { id: number; method: 'block'; params: { ip: string; reason?: string; ttl?: string; token?: string; strict?: boolean } }
   | { id: number; method: 'unblock'; params: { ip: string; forget?: boolean; token?: string } }
   // `token` is the root-only daemon control token (TC-33).
   | { id: number; method: 'shutdown'; params?: { token?: string } };

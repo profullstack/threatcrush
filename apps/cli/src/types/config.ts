@@ -283,6 +283,17 @@ export interface ThreatCrushConfig {
   lightning?: { enabled?: boolean; log_paths?: string[] };
   /** `[docker_logs]`: Postgres auth failures from Docker container logs. On when the Docker socket exists. */
   docker_logs?: { enabled?: boolean; socket?: string; name_pattern?: string; image_pattern?: string; poll_seconds?: number };
+  /** `[postgres_shell]`: a shell or LOLBin under a postgres process (COPY FROM PROGRAM). On by default on Linux. */
+  postgres_shell?: { enabled?: boolean; poll_seconds?: number; kill?: boolean; allow_cmdline?: string[] };
+  /** `[login_watch]`: suspicious successful SSH logins (Tor, privileged user from an untrusted address, new network). */
+  login_watch?: {
+    enabled?: boolean;
+    sensitive_users?: string[];
+    sensitive_groups?: string[];
+    trusted_login_cidrs?: string[];
+    first_seen?: boolean;
+    auto_response?: boolean;
+  };
   detection?: DetectionSection;
   cloud?: CloudSection;
   watchdog?: WatchdogSection;

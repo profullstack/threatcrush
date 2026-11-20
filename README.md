@@ -118,6 +118,15 @@ threatcrush update       # Upgrade the CLI using the supported path
 
 Full command reference: [threatcrush.com/docs](https://threatcrush.com/docs).
 
+### Incident response
+
+`threatcrush respond` contains an incident on one box or a fleet (`--hosts`):
+kill an attacker's sessions and ban the address (`respond ip`), pull a stolen
+key from every `authorized_keys` and shred private copies (`respond key`, with a
+lockout guard), lock sshd down with validated drop-ins (`respond sshd --lockdown`)
+and audit every authorized key (`respond keys-audit`). Dry run unless `--apply`.
+See [apps/cli/README.md](apps/cli/README.md#incident-response-threatcrush-respond) for the runbook.
+
 ### Watchdog mode: was that attack a real hole?
 
 A ban answers "who attacked", not "did it work". The daemon keeps every
@@ -193,7 +202,7 @@ threatcrush store publish https://github.com/you/my-module  # Publish your own
 | `network-monitor` | Inbound connections to your listening ports — port scans, SYN floods |
 | `dns-monitor` | Resolver logs (systemd-resolved, dnsmasq, bind, Pi-hole) — DNS tunneling, DGA detection |
 | `threatcrush scan` | Vulnerabilities, secrets, GitHub Actions injection and remote-exec workflows, dependency CVEs (OSV.dev, with `--deps`) |
-| `threatcrush scan --host` | Rootkit / host integrity scan: package file integrity, rkhunter, chkrootkit, hidden processes and kernel modules, `ld.so.preload`, SSH keys, Docker, recent persistence, SUID outside packages |
+| `threatcrush scan --host` | Rootkit / host integrity scan: package file integrity, rkhunter, chkrootkit, hidden processes and kernel modules, `ld.so.preload`, SSH keys, Docker, recent persistence, SUID outside packages, datastore ports exposed past the firewall (incl. Docker DOCKER-USER), plaintext secrets on disk |
 | `threatcrush pentest` | Header, CORS, cookie, SQL-error, path-traversal and HTTP-method checks |
 | auto-defend | Bans via fail2ban, nftables or iptables |
 | alerts | Slack, Discord, email, webhook, PagerDuty |
