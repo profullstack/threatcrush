@@ -1,0 +1,38 @@
+# Sanitised reproduction of the 2026-11-20 incident: the `ips` input reaches
+# the remote shell inside a quoted assignment, so `0.0.0.0'; <payload>; #`
+# closes the quote and runs on the host.
+name: Unban on prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      ips:
+        description: Space-separated addresses to unban.
+        required: false
+        type: string
+
+jobs:
+  unban:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up ssh
+        env:
+          SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Unban
+        if: inputs.ips != ''
+        env:
+          U: ${{ secrets.PROD_USER }}
+          H: ${{ secrets.PROD_HOST }}
+          IPS: ${{ inputs.ips }}
+        run: |
+          # IPS goes through the environment, never interpolated. (It is.)
+          ssh -o BatchMode=yes "$U@$H" "IPS='$IPS' bash -s" <<'REMOTE'
+          for ip in $IPS; do
+            echo "== unblocking $ip"
+          done
+          REMOTE

@@ -88,7 +88,8 @@ by design — from its self-scan.
 ## Adding a rule
 
 Rules live in `src/code-rules.ts`, credentials in `src/secret-rules.ts`,
-manifests in `src/manifest-rules.ts`. Two invariants are enforced by tests:
+manifests in `src/manifest-rules.ts`, GitHub Actions workflows in
+`src/workflow-rules.ts` (YAML-parsed; see the CLI README for the rule list). Two invariants are enforced by tests:
 
 - **Every language the scanner claims must have at least one rule.** `shell`
   and `php` were both listed as supported while no rule targeted them, so those
