@@ -10,7 +10,10 @@ export function loadAllRules(customDir?: string): DetectionRule[] {
   const dir = customDir || RULES_DIR;
 
   if (existsSync(dir)) {
-    const files = readdirSync(dir).filter(f => f.endsWith('.json'));
+    // Unreadable (rules.d is root-only; `rules list` as a user): the defaults.
+    let files: string[] = [];
+    try { files = readdirSync(dir).filter(f => f.endsWith('.json')); }
+    catch (err) { console.warn(`[rules] cannot read ${dir}: ${(err as Error).message}; custom rules not loaded`); }
     for (const file of files) {
       try {
         const raw = readFileSync(join(dir, file), 'utf-8');

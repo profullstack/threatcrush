@@ -42,7 +42,7 @@
 
 ---
 
-ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 96 OWASP CRS rules (paranoia level 1) + 4 ThreatCrush rules with CRS anomaly scoring, runs 24 detection rules over auth, web and network events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
+ThreatCrush is a security daemon that runs on your server, **reading your logs and watching inbound connections** for live attacks. It checks every nginx request against 96 OWASP CRS rules (paranoia level 1) + 4 ThreatCrush rules with CRS anomaly scoring, runs 25 detection rules over auth, web, network and Postgres (Docker container log) events, auto-bans attackers, scans your codebase, spot-checks your URLs, and alerts you in real-time.
 
 ```
 $ threatcrush monitor
@@ -182,6 +182,20 @@ threatcrush init --offline          # Same, without signing in (scripts, CI, con
 ```
 
 Config lives at `/etc/threatcrush/threatcrushd.conf` with module configs in `/etc/threatcrush/threatcrushd.conf.d/`.
+
+### Postgres in Docker (brute-force bans)
+
+Docker's default `json-file` log driver keeps container output out of journald and `/var/log`, so a Postgres container with its port published is invisible to log tailing. When `/var/run/docker.sock` exists, the daemon follows matching containers over the Docker Engine API (picking up restarts and recreates) and turns `password authentication failed` and `no pg_hba.conf entry` lines into `postgres-guard` events. The `postgres-auth-bruteforce` rule bans an address after 5 failures in 10 minutes. Private, loopback and Docker-bridge addresses and the `[remediation] protected` list are never counted. The client address is read from the line, so `log_line_prefix` needs `%h` or `%r` (Supabase's images have it); pg_hba rejects always name the host.
+
+```toml
+[docker_logs]
+enabled = true                          # default: on when the Docker socket exists
+name_pattern = "supabase-db$"           # container name regex
+image_pattern = "(^|/)postgres(:|@|$)"  # image regex; either match is enough
+poll_seconds = 15                       # how soon new or restarted containers are followed
+```
+
+Check a line without touching the firewall: `threatcrush rules test postgres-auth-bruteforce --repeat 5 --line '<log line>'`.
 
 ### Local shell history protection
 

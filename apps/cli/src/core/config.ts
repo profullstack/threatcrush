@@ -64,6 +64,7 @@ export function parseConfigText(raw: string): ThreatCrushConfig {
     file_integrity: parsed.file_integrity,
     edr: parsed.edr,
     lightning: parsed.lightning,
+    docker_logs: parsed.docker_logs,
     storage: parsed.storage,
     // TOML's `[abuse-reporter]` parses to a hyphenated key; expose it under
     // the JS-friendly name the rest of the daemon reads.

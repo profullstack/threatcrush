@@ -1,7 +1,9 @@
 import chalk from 'chalk';
 import { banner } from '../core/logger.js';
 import { loadAllRules } from '../daemon/rules/loader.js';
-import type { RuleMatch } from '../daemon/rules/engine.js';
+import { RuleEngine, type RuleMatch } from '../daemon/rules/engine.js';
+import { loadConfig } from '../core/config.js';
+import { parsePostgresAuthFailure, postgresAuthEvent } from '../daemon/workers/docker-logs.js';
 
 export async function rulesListCommand(): Promise<void> {
   banner();
@@ -82,7 +84,56 @@ export async function rulesShowCommand(ruleId: string): Promise<void> {
   console.log();
 }
 
-export async function rulesCommand(opts: { action?: string; id?: string }): Promise<void> {
+/**
+ * Dry run: feed one log line (repeated) through the daemon's parser and the
+ * rule engine, and say whether the rule fires and whether auto-defence would
+ * ban. Nothing touches the firewall. Today it reads container log lines from
+ * Postgres (the docker-logs source), e.g.
+ *
+ *   threatcrush rules test postgres-auth-bruteforce --repeat 5 \
+ *     --line '45.156.87.10 2026-11-19 16:42:07.224 UTC [1] postgres@postgres FATAL:  password authentication failed for user "postgres"'
+ */
+export async function rulesTestCommand(ruleId: string, line: string, repeat = 1, json = false): Promise<boolean> {
+  const config = loadConfig();
+  const protectedList = [...(config.remediation?.protected ?? []), ...(config.remediation?.allowlist ?? [])].map(String);
+  const rules = loadAllRules();
+  const rule = rules.find((r) => r.id === ruleId);
+  const parsed = parsePostgresAuthFailure(line);
+  const event = postgresAuthEvent(line, 'dry-run', protectedList);
+  const fired: Array<{ rule_id: string; source_ip?: string; description: string }> = [];
+  if (rule && event) {
+    const engine = new RuleEngine((d) => fired.push({ rule_id: d.rule_id, source_ip: d.source_ip, description: d.description }));
+    engine.loadRules([rule]);
+    for (let i = 0; i < Math.max(1, repeat); i++) engine.evaluate({ ...event, timestamp: new Date() });
+  }
+  const wouldBan = fired.length > 0 && rule?.remediation?.action === 'block' && !!fired[0].source_ip;
+  const result = {
+    rule: rule ? rule.id : null,
+    parsed,
+    event: event ? { module: event.module, severity: event.severity, source_ip: event.source_ip, message: event.message } : null,
+    skipped_reason: !rule ? 'unknown rule' : !parsed ? 'not a recognised line' : !parsed.ip ? 'no client address in the line' : !event ? 'protected/private source, never banned' : undefined,
+    repeat,
+    threshold: rule?.threshold,
+    fired: fired.length > 0,
+    would_ban: wouldBan,
+    detections: fired,
+  };
+  if (json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    banner();
+    console.log(chalk.green.bold(`  Dry run: ${ruleId}`));
+    console.log(`  Parsed:     ${chalk.gray(parsed ? JSON.stringify(parsed) : 'no match')}`);
+    console.log(`  Event:      ${chalk.gray(event ? `${event.module} ${event.severity} ${event.source_ip} ${event.message}` : result.skipped_reason ?? 'none')}`);
+    console.log(`  Fed:        ${repeat}x (threshold ${rule?.threshold ?? '?'})`);
+    console.log(`  Fires:      ${fired.length ? chalk.red('yes') : chalk.green('no')}`);
+    console.log(`  Would ban:  ${wouldBan ? chalk.red(fired[0].source_ip) : chalk.green('no')}`);
+    console.log(chalk.gray('  (dry run: nothing was blocked)\n'));
+  }
+  return fired.length > 0;
+}
+
+export async function rulesCommand(opts: { action?: string; id?: string; line?: string; repeat?: number; json?: boolean }): Promise<void> {
   const action = opts.action || 'list';
   switch (action) {
     case 'list':
@@ -97,9 +148,17 @@ export async function rulesCommand(opts: { action?: string; id?: string }): Prom
       }
       await rulesShowCommand(opts.id);
       break;
+    case 'test':
+      if (!opts.id || !opts.line) {
+        console.log(chalk.red('  Usage: threatcrush rules test <rule-id> --line "<log line>" [--repeat N] [--json]\n'));
+        process.exitCode = 1;
+        return;
+      }
+      await rulesTestCommand(opts.id, opts.line, opts.repeat ?? 1, opts.json === true);
+      break;
     default:
       console.log(chalk.yellow(`  Unknown action: ${action}`));
-      console.log(chalk.gray('  Available: list, show\n'));
+      console.log(chalk.gray('  Available: list, show, test\n'));
       break;
   }
 }

@@ -808,10 +808,13 @@ program
 program
   .command("rules")
   .description("Manage detection rules")
-  .argument("[action]", "list | show", "list")
-  .argument("[id]", "Rule ID (for show)")
-  .action(async (action: string, id: string) => {
-    await rulesCommand({ action, id });
+  .argument("[action]", "list | show | test", "list")
+  .argument("[id]", "Rule ID (for show / test)")
+  .option("--line <text>", "test: a log line to feed through the parser and rule (dry run, nothing is blocked)")
+  .option("--repeat <n>", "test: feed the line this many times", (v) => parseInt(v, 10), 1)
+  .option("--json", "test: machine-readable result")
+  .action(async (action: string, id: string, opts: { line?: string; repeat?: number; json?: boolean }) => {
+    await rulesCommand({ action, id, ...opts });
   });
 
 // ─── Hardening Scanner (PRD 03) ───
