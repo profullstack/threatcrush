@@ -37,14 +37,30 @@ export interface Indicator {
   /** botnet_cc, payload_delivery, … or the feed's own label. */
   threat: string;
   feed: string;
+  /** The FEEDS source it came from (threatfox, threatfox-hosts, …), for carry-forward. */
+  source?: string;
 }
+
+export interface FeedSource {
+  feed: string;
+  ok: boolean;
+  count: number;
+  error?: string;
+  /** When this source last fetched cleanly (ISO). */
+  last_ok_at?: string;
+  /** Entries kept from that last good fetch while this one is failing. */
+  carried?: number;
+}
+
+/** How long a failing feed's last good entries stay listed. */
+export const CARRY_MAX_MS = 24 * 3_600_000;
 
 export interface FeedSet {
   fetched_at: string;
   ips: Record<string, Indicator>;
   domains: Record<string, Indicator>;
   /** Per-feed counts and failures, for status output. */
-  sources: { feed: string; ok: boolean; count: number; error?: string }[];
+  sources: FeedSource[];
   /** Feed entries left out because they are shared or protected. */
   skipped_shared: number;
 }
@@ -294,7 +310,7 @@ function redact(message: string, key: string | undefined): string {
  * nothing at all, so a dead source never passes for a clean one (issue #430:
  * abuse.ch's retired URLs answer 410 with an HTML page).
  */
-export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfidence' | 'allow' | 'authKey'>, fetchImpl: FetchLike = fetch, retryDelayMs = 5_000): Promise<FeedSet> {
+export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfidence' | 'allow' | 'authKey'>, fetchImpl: FetchLike = fetch, retryDelayMs = 5_000, previous: FeedSet | null = null, now = new Date()): Promise<FeedSet> {
   const sources: FeedSet['sources'] = [];
   const parts: FeedPart[] = [];
   const key = settings.authKey?.trim() || undefined;
@@ -329,8 +345,11 @@ export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfiden
       }
       const count = (part.ips?.size ?? 0) + (part.domains?.size ?? 0);
       if (count === 0 && !emptyOk) throw new Error('no entries in the response');
+      for (const map of [part.ips, part.domains]) {
+        for (const [k, ind] of map ?? []) map!.set(k, { ...ind, source: feed });
+      }
       parts.push(part);
-      sources.push({ feed, ok: true, count });
+      sources.push({ feed, ok: true, count, last_ok_at: now.toISOString() });
     } catch (err) {
       sources.push({ feed, ok: false, count: 0, error: redact((err as Error).message, key) });
     }
@@ -350,8 +369,33 @@ export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfiden
     // Feodo has been near-empty since 2025; an empty list there is real.
     get('feodo', { url: FEEDS.feodoIps }, (t) => ({ ips: parseIpList(t, 'feodo') }), true),
   ]);
+  carryForward(previous, sources, parts, now);
   sources.sort((a, b) => a.feed.localeCompare(b.feed));
-  return buildFeedSet(parts, settings.allow, sources);
+  return buildFeedSet(parts, settings.allow, sources, now);
+}
+
+/**
+ * A feed that fails this time keeps the entries from its last clean fetch,
+ * for up to CARRY_MAX_MS: abuse.ch drops transfers often enough that one bad
+ * hour should not empty a list that was good an hour ago. The source still
+ * reads as failing, with how many entries were kept and from when.
+ */
+export function carryForward(previous: FeedSet | null | undefined, sources: FeedSource[], parts: FeedPart[], now: Date): void {
+  if (!previous) return;
+  for (const s of sources) {
+    if (s.ok || s.error === NEEDS_KEY) continue;
+    const prev = previous.sources?.find((p) => p.feed === s.feed);
+    const lastOk = prev?.last_ok_at;
+    if (!lastOk || now.getTime() - Date.parse(lastOk) > CARRY_MAX_MS) continue;
+    const part: FeedPart = { ips: new Map(), domains: new Map() };
+    for (const [ip, ind] of Object.entries(previous.ips)) if (ind.source === s.feed) part.ips!.set(ip, ind);
+    for (const [d, ind] of Object.entries(previous.domains)) if (ind.source === s.feed) part.domains!.set(d, ind);
+    const kept = part.ips!.size + part.domains!.size;
+    s.last_ok_at = lastOk;
+    if (!kept) continue;
+    parts.push(part);
+    s.carried = kept;
+  }
 }
 
 export function readFeedCache(path: string): FeedSet | null {

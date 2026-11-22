@@ -157,6 +157,32 @@ describe('abuse.ch keyed feeds (issue #430)', () => {
     expect(ok).toEqual({ feodo: true, threatfox: true, 'threatfox-hosts': false, urlhaus: true });
   });
 
+  it('keeps a failing feed\'s last good entries for 24h, still marked failing', async () => {
+    const good = async (url: string) => {
+      if (url.includes('/api/v1/')) return new Response(THREATFOX);
+      if (url.includes('hostfile')) return new Response('127.0.0.1 bad.example\n');
+      if (url.includes('online.csv')) return new Response(URLHAUS);
+      return new Response('# empty\n');
+    };
+    const t0 = new Date('2026-11-22T10:00:00Z');
+    const first = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'k' }, good, 0, null, t0);
+    expect(first.ips['203.0.113.8']?.source).toBe('threatfox');
+
+    const tfDown = async (url: string) => (url.includes('/api/v1/') ? Promise.reject(new TypeError('terminated')) : good(url));
+    const t1 = new Date('2026-11-22T11:00:00Z');
+    const second = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'k' }, tfDown, 0, first, t1);
+    const tf = second.sources.find((s) => s.feed === 'threatfox')!;
+    expect(tf).toMatchObject({ ok: false, error: 'terminated', last_ok_at: t0.toISOString() });
+    expect(tf.carried).toBeGreaterThan(0);
+    expect(second.ips['203.0.113.8']).toBeDefined();
+    expect(second.domains['evil-c2.example']).toBeDefined();
+
+    // Carried entries keep their original last_ok_at, so they age out after 24h.
+    const third = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'k' }, tfDown, 0, second, new Date('2026-11-23T10:30:00Z'));
+    expect(third.sources.find((s) => s.feed === 'threatfox')?.carried).toBeUndefined();
+    expect(third.ips['203.0.113.8']).toBeUndefined();
+  });
+
   it('takes the key from auth_key_file, then auth_key, then ABUSECH_AUTH_KEY', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'tc-key-')), 'abusech.key');
     writeFileSync(file, 'from-file\n');

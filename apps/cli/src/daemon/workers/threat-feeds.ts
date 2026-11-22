@@ -220,7 +220,7 @@ export class ThreatFeeds {
 
   async refresh(): Promise<void> {
     try {
-      const set = await fetchFeeds(this.opts.settings, this.opts.fetchImpl, this.opts.retryDelayMs);
+      const set = await fetchFeeds(this.opts.settings, this.opts.fetchImpl, this.opts.retryDelayMs, this.set, new Date(this.now()));
       const failed = set.sources.filter((s) => !s.ok);
       // Every feed failing means no data, not an all-clear: keep the old set.
       if (failed.length === set.sources.length) {
@@ -250,7 +250,7 @@ export class ThreatFeeds {
     }
     // A failing feed belongs in the status line, not only the log: a short
     // list should never read as a clean one (issue #430).
-    const failed = (set.sources ?? []).filter((s) => !s.ok).map((s) => s.feed);
+    const failed = (set.sources ?? []).filter((s) => !s.ok).map((s) => (s.carried ? `${s.feed}: kept ${s.carried} from ${s.last_ok_at?.slice(11, 16)} UTC` : s.feed));
     const failing = failed.length ? `; ${failed.length}/${set.sources.length} feeds failing (${failed.join(', ')}), see \`threatcrush feeds\`` : '';
     const detail = `${ips.length} IPs, ${domains} domains, ${mode}${this.writeResolverFiles(set)}${failing}`;
     this.opts.log(`[threat-feeds] ${from === 'cache' ? 'loaded cached' : 'refreshed'} list: ${detail} (${set.skipped_shared} shared/protected entries skipped)`);
