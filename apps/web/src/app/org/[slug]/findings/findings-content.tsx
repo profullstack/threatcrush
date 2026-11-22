@@ -91,7 +91,7 @@ export default function FindingsContent({ slug }: { slug: string }) {
     }
   };
 
-  const exportHardening = async (format: "md" | "json") => {
+  const exportHardening = async (format: "md" | "json" | "pdf") => {
     if (!org) return;
     setExporting(true); setReportError("");
     try {
@@ -142,6 +142,7 @@ export default function FindingsContent({ slug }: { slug: string }) {
             <div className="flex flex-wrap gap-2">
               <button disabled={exporting} onClick={() => void exportHardening("md")} className="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50">{exporting ? "Exporting…" : "Export evidence MD"}</button>
               <button disabled={exporting} onClick={() => void exportHardening("json")} className="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50">Export JSON</button>
+              <button disabled={exporting} onClick={() => void exportHardening("pdf")} className="rounded border border-zinc-700 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50">Export PDF</button>
               <FixReportActions orgId={org.id} canManage={org.user_role === "owner" || org.user_role === "admin"} />
             </div>
             <div className="text-right">

@@ -1,40 +1,50 @@
 import { hostname } from 'node:os';
 import { readFileSync, writeFileSync } from 'node:fs';
+import {
+  CIS_CATALOG_CHECKED_AT,
+  CIS_DISCLAIMER,
+  cisEditionCaveat,
+  cisMappingCell,
+  cisMappingFields,
+  cisProfileFor,
+  currentCisEdition,
+  renderTextPdf,
+  resolveCisMapping,
+  type CisControlRef,
+  type CisMappingStatus,
+} from '@threatcrush/scan/cis';
 import type { HardeningResult } from './harden.js';
 
 export interface CisEvidenceReport {
-  schema_version: 1;
+  schema_version: 2;
   generated_at: string;
-  benchmark_catalog_checked_at: '2026-11-01';
+  disclaimer: string;
+  benchmark_catalog_checked_at: string;
   host: { hostname: string; os_id: string | null; os_version: string | null; pretty_name: string | null };
+  /** The current CIS edition for this OS according to the CIS catalog. */
   benchmark: { name: string; version: string; source: string } | null;
+  /** The pinned ComplianceAsCode profile the control ids come from. */
+  mapping_profile: {
+    name: string; version: string; cac_tag: string; cac_file: string; cac_file_sha: string; source: string;
+  } | null;
   assessment: 'partial';
   mapped_controls: number;
+  mapped_checks: number;
+  unmapped_checks: number;
   total_checks: number;
   hardening_score: number;
-  checks: Array<HardeningResult & { cis_control_ids: string[]; mapping_status: 'verified' | 'unverified'; mapping_source?: string; mapping_benchmark?: string }>;
+  checks: Array<HardeningResult & {
+    cis_control_ids: string[];
+    mapping_status: CisMappingStatus;
+    mapping_coverage?: 'full' | 'partial';
+    mapping_controls?: CisControlRef[];
+    mapping_source?: string;
+    mapping_benchmark?: string;
+    mapping_reason?: string;
+    mapping_detail: string;
+  }>;
   limitations: string[];
 }
-
-const CIS_UBUNTU_URL = 'https://www.cisecurity.org/benchmark/ubuntu_linux';
-const CIS_DEBIAN_URL = 'https://www.cisecurity.org/benchmark/debian_linux';
-const UBUNTU_2404_CIS_CONTROL_SOURCE = 'https://github.com/ComplianceAsCode/content/blob/v0.1.78/controls/cis_ubuntu2404.yml';
-// Release numbers and titles are taken from the official CIS product pages.
-// Keep the check-to-control crosswalk separate; IDs must be verified against
-// each edition before being added to a report.
-const EDITIONS: Record<string, Record<string, { version: string; name: string; source: string }>> = {
-  ubuntu: {
-    '26.04': { version: '1.0.0', name: 'CIS Ubuntu Linux 26.04 LTS', source: CIS_UBUNTU_URL },
-    '24.04': { version: '2.0.0', name: 'CIS Ubuntu Linux 24.04 LTS', source: CIS_UBUNTU_URL },
-    '22.04': { version: '3.0.0', name: 'CIS Ubuntu Linux 22.04 LTS', source: CIS_UBUNTU_URL },
-    '20.04': { version: '3.0.0', name: 'CIS Ubuntu Linux 20.04 LTS', source: CIS_UBUNTU_URL },
-  },
-  debian: {
-    '13': { version: '1.1.0', name: 'CIS Debian Linux 13', source: CIS_DEBIAN_URL },
-    '12': { version: '2.0.0', name: 'CIS Debian Linux 12', source: CIS_DEBIAN_URL },
-    '11': { version: '2.0.0', name: 'CIS Debian Linux 11', source: CIS_DEBIAN_URL },
-  },
-};
 
 function osRelease(): Record<string, string> {
   let raw = '';
@@ -49,113 +59,125 @@ function osRelease(): Record<string, string> {
   return fields;
 }
 
-type CisMapping = { ids: string[]; source: string; osId: string; osVersion: string; benchmarkName: string; benchmarkVersion: string };
-
-// This crosswalk follows Canonical USG's pinned ComplianceAsCode v0.1.78
-// implementation of CIS Ubuntu 24.04 LTS v1.0.0. The current SSH check uses
-// `sshd -T` and requires the exact benchmark value before claiming a match.
-const VERIFIED_CHECK_MAPPINGS: Record<string, Record<string, Record<string, CisMapping>>> = {
-  ubuntu: {
-    '24.04': {
-      'ssh-root-login': {
-        ids: ['5.1.20'],
-        source: UBUNTU_2404_CIS_CONTROL_SOURCE,
-        osId: 'ubuntu',
-        osVersion: '24.04',
-        benchmarkName: 'CIS Ubuntu Linux 24.04 LTS',
-        benchmarkVersion: '1.0.0',
-      },
-    },
-  },
-};
-
+/**
+ * Attach CIS mapping fields from the pinned crosswalk to every finding. The
+ * host OS goes into `details` for every finding, mapped or not, so the
+ * dashboard can re-derive the mapping from the same catalog instead of
+ * trusting ids sent by the agent.
+ */
 export function tagCisMappings(findings: HardeningResult[], os = osRelease()): HardeningResult[] {
-  const distro = os.ID?.toLowerCase() ?? '';
-  const version = os.VERSION_ID ?? '';
-  const checkMappings = VERIFIED_CHECK_MAPPINGS[distro]?.[version] ?? {};
+  const osId = os.ID?.toLowerCase() ?? null;
+  const osVersion = os.VERSION_ID ?? null;
   return findings.map((finding) => {
-    const mapping = checkMappings[finding.key];
-    const ids = mapping?.ids ?? [];
-    const status = mapping ? 'verified' as const : 'unverified' as const;
+    const resolved = resolveCisMapping(finding.key, 'harden', osId, osVersion);
+    const fields = cisMappingFields(resolved);
     return {
       ...finding,
-      cis_control_ids: ids,
-      cis_mapping_status: status,
-      ...(mapping ? { cis_mapping_source: mapping.source } : {}),
-      ...(mapping ? { cis_mapping_benchmark: `${mapping.benchmarkName} v${mapping.benchmarkVersion}` } : {}),
+      cis_control_ids: fields.cis_control_ids,
+      cis_mapping_status: fields.cis_mapping_status,
+      ...(fields.cis_mapping_coverage ? { cis_mapping_coverage: fields.cis_mapping_coverage } : {}),
+      ...(fields.cis_controls ? { cis_controls: fields.cis_controls } : {}),
+      ...(fields.cis_mapping_status === 'verified' && fields.cis_mapping_source ? { cis_mapping_source: fields.cis_mapping_source } : {}),
+      ...(fields.cis_mapping_status === 'verified' && fields.cis_mapping_benchmark ? { cis_mapping_benchmark: fields.cis_mapping_benchmark } : {}),
+      ...(fields.cis_unmapped_reason ? { cis_unmapped_reason: fields.cis_unmapped_reason } : {}),
       details: {
         ...(finding.details ?? {}),
-        cis_control_ids: ids,
-        cis_mapping_status: status,
-        ...(mapping ? { cis_mapping_source: mapping.source } : {}),
-        ...(mapping ? {
-          cis_profile_os_id: mapping.osId,
-          cis_profile_os_version: mapping.osVersion,
-          cis_profile_name: mapping.benchmarkName,
-          cis_profile_version: mapping.benchmarkVersion,
-        } : {}),
+        ...fields,
+        cis_host_os_id: osId,
+        cis_host_os_version: osVersion,
       },
     };
   });
 }
 
-export function buildCisEvidenceReport(findings: HardeningResult[], score: number, now = new Date()): CisEvidenceReport {
-  const os = osRelease();
+export function buildCisEvidenceReport(findings: HardeningResult[], score: number, now = new Date(), os = osRelease()): CisEvidenceReport {
   const id = os.ID?.toLowerCase() ?? null;
   const version = os.VERSION_ID ?? null;
-  const edition = id && version ? EDITIONS[id]?.[version] : undefined;
-  const checks = tagCisMappings(findings, os).map((finding) => ({
-    ...finding,
-    cis_control_ids: finding.cis_control_ids ?? [],
-    mapping_status: finding.cis_mapping_status ?? 'unverified' as const,
-    ...(finding.cis_mapping_source ? { mapping_source: finding.cis_mapping_source } : {}),
-    ...(finding.cis_mapping_benchmark ? { mapping_benchmark: finding.cis_mapping_benchmark } : {}),
-  }));
+  const edition = currentCisEdition(id, version);
+  const profile = cisProfileFor(id, version);
+  const checks = tagCisMappings(findings, os).map((finding) => {
+    const resolved = resolveCisMapping(finding.key, 'harden', id, version);
+    return {
+      ...finding,
+      cis_control_ids: finding.cis_control_ids ?? [],
+      mapping_status: finding.cis_mapping_status ?? 'unverified' as const,
+      ...(finding.cis_mapping_coverage ? { mapping_coverage: finding.cis_mapping_coverage } : {}),
+      ...(finding.cis_controls ? { mapping_controls: finding.cis_controls } : {}),
+      ...(finding.cis_mapping_source ? { mapping_source: finding.cis_mapping_source } : {}),
+      ...(finding.cis_mapping_benchmark ? { mapping_benchmark: finding.cis_mapping_benchmark } : {}),
+      ...(finding.cis_unmapped_reason ? { mapping_reason: finding.cis_unmapped_reason } : {}),
+      mapping_detail: cisMappingCell(resolved),
+    };
+  });
   const mappedControls = new Set(checks.flatMap((check) => check.mapping_status === 'verified' ? check.cis_control_ids : []));
+  const mappedChecks = checks.filter((check) => check.mapping_status === 'verified').length;
   return {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: now.toISOString(),
-    benchmark_catalog_checked_at: '2026-11-01',
+    disclaimer: CIS_DISCLAIMER,
+    benchmark_catalog_checked_at: CIS_CATALOG_CHECKED_AT,
     host: { hostname: hostname(), os_id: id, os_version: version, pretty_name: os.PRETTY_NAME ?? null },
-    benchmark: edition ? { name: edition.name, version: edition.version, source: edition.source } : null,
+    benchmark: edition ? { ...edition } : null,
+    mapping_profile: profile ? {
+      name: profile.benchmarkName,
+      version: profile.benchmarkVersion,
+      cac_tag: profile.cacTag,
+      cac_file: profile.cacFile,
+      cac_file_sha: profile.cacFileSha,
+      source: profile.source,
+    } : null,
     assessment: 'partial',
     mapped_controls: mappedControls.size,
+    mapped_checks: mappedChecks,
+    unmapped_checks: checks.length - mappedChecks,
     total_checks: findings.length,
     hardening_score: score,
     checks,
     limitations: [
       'This report contains ThreatCrush hardening checks only; it does not assess a CIS Benchmark profile.',
-      'The verified SSH mapping uses the CIS Ubuntu 24.04 LTS v1.0.0 implementation. The current CIS catalog lists v2.0.0; no mapping to v2.0.0 is claimed. Other checks remain unverified.',
+      cisEditionCaveat(profile, edition),
+      'A mapping with partial coverage means the check reads the same setting with a narrower scope or looser threshold: its FAIL is a real finding against the control, its PASS does not satisfy the control.',
+      'Checks marked Unmapped have no matching control or ComplianceAsCode rule in the pinned profile; no id is invented for them.',
       'A PASS is a result for the named ThreatCrush check, not a CIS control pass or a certification claim.',
     ],
   };
+}
+
+function cell(value: string): string {
+  return value.replace(/[|\r\n]+/g, ' ').trim();
 }
 
 export function renderCisMarkdown(report: CisEvidenceReport): string {
   const benchmark = report.benchmark
     ? `${report.benchmark.name} v${report.benchmark.version} (${report.benchmark.source})`
     : 'No CIS Benchmark edition is known for this OS release';
+  const profile = report.mapping_profile
+    ? `${report.mapping_profile.name} v${report.mapping_profile.version} via ComplianceAsCode ${report.mapping_profile.cac_tag} ${report.mapping_profile.cac_file} (${report.mapping_profile.source})`
+    : 'None (no pinned ComplianceAsCode profile for this OS release)';
   const rows = report.checks.map((check) => {
-    const facts = check.details ? ` Observed data: ${JSON.stringify(check.details)}` : '';
-    const evidence = `${check.explanation}${facts}`.replace(/[|\r\n]+/g, ' ').trim();
-    const recommendation = check.recommendation?.replace(/[|\r\n]+/g, ' ').trim() ?? '—';
-    const mapping = check.cis_control_ids.length ? check.cis_control_ids.join(', ') : 'Unverified';
-    const reference = [check.mapping_benchmark, check.mapping_source].filter(Boolean).join('; ');
-    const source = reference ? ` (${reference})` : '';
-    return `| ${check.key} | ${check.status.toUpperCase()} | ${mapping}${source} | ${evidence} | ${recommendation} |`;
+    const { details } = check;
+    // The mapping is shown in its own column; keep evidence to observed facts.
+    const observed = details
+      ? Object.fromEntries(Object.entries(details).filter(([key]) => !key.startsWith('cis_')))
+      : {};
+    const facts = Object.keys(observed).length ? ` Observed data: ${JSON.stringify(observed)}` : '';
+    const evidence = cell(`${check.explanation}${facts}`);
+    const recommendation = check.recommendation ? cell(check.recommendation) : '-';
+    return `| ${check.key} | ${check.status.toUpperCase()} | ${cell(check.mapping_detail)} | ${evidence} | ${recommendation} |`;
   });
   return [
     '# CIS benchmark evidence report',
     '',
-    '> Partial ThreatCrush evidence only. This is not a CIS Benchmark assessment or certification report.',
+    `> ${report.disclaimer}`,
     '',
     `- Generated: ${report.generated_at}`,
     `- CIS edition catalog checked: ${report.benchmark_catalog_checked_at}`,
     `- Host: ${report.host.hostname}`,
     `- OS: ${report.host.pretty_name ?? 'unknown'} (${report.host.os_id ?? 'unknown'} ${report.host.os_version ?? 'unknown'})`,
-    `- Benchmark edition: ${benchmark}`,
+    `- Current benchmark edition: ${benchmark}`,
+    `- Mapping profile: ${profile}`,
     `- ThreatCrush hardening score: ${report.hardening_score}/100`,
-    `- Mapped CIS controls: ${report.mapped_controls}`,
+    `- Checks mapped to CIS controls: ${report.mapped_checks} of ${report.total_checks} (${report.mapped_controls} distinct controls); not mapped (unmapped, or no pinned profile for this OS): ${report.unmapped_checks}`,
     '',
     '| Check | Result | CIS mapping | Evidence | Recommendation |',
     '|---|---|---|---|---|',
@@ -168,49 +190,9 @@ export function renderCisMarkdown(report: CisEvidenceReport): string {
   ].join('\n');
 }
 
-function pdfEscape(value: string): string {
-  return value.replace(/[^\x20-\x7e]/g, '?').replace(/[\\()]/g, '\\$&');
-}
-
-/** Minimal dependency-free PDF writer for plain-text evidence reports. */
+/** Plain-text PDF of the Markdown report (dependency-free writer). */
 export function renderCisPdf(markdown: string): Buffer {
-  const lines = markdown.split('\n').flatMap((line) => {
-    const safe = line.replace(/[^\x20-\x7e]/g, '?');
-    if (safe.length <= 96) return [safe];
-    const parts: string[] = [];
-    for (let i = 0; i < safe.length; i += 96) parts.push(safe.slice(i, i + 96));
-    return parts;
-  });
-  const pages: string[][] = [];
-  for (let i = 0; i < lines.length; i += 48) pages.push(lines.slice(i, i + 48));
-  if (pages.length === 0) pages.push([]);
-
-  const objects: string[] = [];
-  const pageRefs: string[] = [];
-  objects.push('<< /Type /Catalog /Pages 2 0 R >>');
-  objects.push('');
-  objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-  pages.forEach((page, index) => {
-    const pageId = 4 + index * 2;
-    const streamId = pageId + 1;
-    pageRefs.push(`${pageId} 0 R`);
-    const text = ['BT', '/F1 9 Tf', '50 760 Td', '14 TL', ...page.flatMap((line) => [`(${pdfEscape(line)}) Tj`, 'T*']), 'ET'].join('\n');
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${streamId} 0 R >>`);
-    objects.push(`<< /Length ${Buffer.byteLength(text, 'ascii')} >>\nstream\n${text}\nendstream`);
-  });
-  objects[1] = `<< /Type /Pages /Kids [${pageRefs.join(' ')}] /Count ${pages.length} >>`;
-
-  let pdf = '%PDF-1.4\n';
-  const offsets = [0];
-  objects.forEach((object, index) => {
-    offsets.push(Buffer.byteLength(pdf, 'ascii'));
-    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
-  });
-  const xref = Buffer.byteLength(pdf, 'ascii');
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  return Buffer.from(pdf, 'ascii');
+  return Buffer.from(renderTextPdf(markdown));
 }
 
 export function writeCisReport(path: string, format: 'md' | 'pdf' | 'json', report: CisEvidenceReport): void {
