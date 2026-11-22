@@ -43,6 +43,12 @@ const WEB_EXTS = new Set(['html', 'htm', 'shtml', 'xhtml', 'svg', 'hta']);
 const SERVER_SCRIPT_EXTS = new Set(['php', 'phtml', 'php3', 'php4', 'php5', 'php7', 'phar', 'asp', 'aspx', 'ashx', 'jsp', 'jspx']);
 
 const isScript = (c: RuleContext) => c.kind === 'script' || SCRIPT_EXTS.has(c.ext);
+const SHELL_EXTS = new Set(['sh', 'bash', 'zsh', 'command', 'bat', 'cmd']);
+/** A shell script: by extension, or an extensionless file with a shell shebang. */
+const isShellScript = (c: RuleContext) =>
+  SHELL_EXTS.has(c.ext) || (!c.ext && /^#!\s*\S*\/(?:env\s+)?(?:ba|z|da|k)?sh\b/.test(c.text));
+/** Something in the file that can run a command line (JS, Python, Ruby, Perl, PHP, PowerShell, VBS). */
+const EXEC_SINK = /child_process|\bexecSync\b|\bspawn(?:Sync)?\s*\(|\bexecFile\b|subprocess\.|os\.(?:system|popen|exec\w*)\s*\(|\bPopen\s*\(|\bsystem\s*\(|(?<![.\w$])exec\s*\(|\bshell_exec\b|\bpassthru\b|\bproc_open\b|Invoke-Expression|\bIEX\b|Start-Process|WScript\.Shell|Runtime\.getRuntime/;
 /**
  * Somewhere Windows would actually run PowerShell from. A `.js` file counts
  * only when it is a Windows Script Host script: a Node bundle that merely
@@ -235,10 +241,16 @@ export const RULES: AvRule[] = [
     test: (c) => {
       if (!isScript(c)) return false;
       const t = c.text;
-      return (
+      // A shell one-liner runs as written in a shell script. In any other
+      // language it is just a string until something executes it, so a
+      // detector's self-test ("catches reverse shell pattern") is not a
+      // backdoor; require a command-execution sink in the same file.
+      const oneLiner =
         /bash\s+-i\s*>&\s*\/dev\/tcp\//.test(t) ||
         /\/dev\/tcp\/\d{1,3}(?:\.\d{1,3}){3}\/\d{2,5}\s*0>&1/.test(t) ||
-        /\bnc(?:at)?\s+(?:-\w+\s+)*-e\s+\/bin\/(?:ba)?sh\b/.test(t) ||
+        /\bnc(?:at)?\s+(?:-\w+\s+)*-e\s+\/bin\/(?:ba)?sh\b/.test(t);
+      if (oneLiner && (isShellScript(c) || EXEC_SINK.test(t))) return true;
+      return (
         /socket\.socket\([\s\S]{0,300}?(?:os\.dup2|pty\.spawn)\([\s\S]{0,300}?\/bin\/(?:ba)?sh/.test(t) ||
         /New-Object\s+System\.Net\.Sockets\.TCPClient\([\s\S]{0,600}?(?:\bIEX\b|Invoke-Expression)/i.test(t)
       );

