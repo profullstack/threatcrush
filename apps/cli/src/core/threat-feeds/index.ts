@@ -5,11 +5,19 @@
  * adds the indicators themselves, so a server talking to a known botnet
  * controller or malware host is caught by name, and optionally blocked.
  *
- * Feeds, all public, no key:
- *   - ThreatFox recent IOCs (JSON): `ip:port` C2 and payload hosts.
- *   - ThreatFox and URLhaus host files: domains.
+ * Feeds:
+ *   - ThreatFox recent IOCs (API, `get_iocs`): `ip:port` C2 and payload hosts,
+ *     and C2 domains.
+ *   - ThreatFox host file: domains.
+ *   - URLhaus online malware URLs (CSV): the host of each URL, domain or IP.
  *   - Feodo Tracker IP blocklist: botnet C2 (nearly empty since 2025, kept
  *     because it is the highest-precision list when it has entries).
+ *
+ * abuse.ch retired its keyless exports in 2026 (issue #430: the old URLs
+ * answer 410 Gone). Everything but Feodo now needs a free Auth-Key from
+ * auth.abuse.ch, set as `[threat_feeds] auth_key_file`, `auth_key` or the
+ * ABUSECH_AUTH_KEY environment variable. Without one those feeds are reported
+ * as failed with the reason, never fetched and never shown as an empty list.
  *
  * The one way this goes wrong is blocking something shared. Plenty of C2
  * sits behind Cloudflare or a public resolver's anycast address, and an
@@ -44,11 +52,18 @@ export interface FeedSet {
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export const FEEDS = {
-  threatfoxRecent: 'https://threatfox.abuse.ch/export/json/recent/',
-  threatfoxHosts: 'https://threatfox.abuse.ch/downloads/hostfile/',
-  urlhausHosts: 'https://urlhaus.abuse.ch/downloads/hostfile/',
+  /** POST `{ query: 'get_iocs', days }` with an `Auth-Key` header. */
+  threatfoxApi: 'https://threatfox-api.abuse.ch/api/v1/',
+  /** Keyed file exports: the Auth-Key is a path segment. */
+  threatfoxHosts: (key: string) => `https://threatfox-api.abuse.ch/v2/files/exports/${encodeURIComponent(key)}/hostfile.txt`,
+  urlhausOnline: (key: string) => `https://urlhaus-api.abuse.ch/v2/files/exports/${encodeURIComponent(key)}/online.csv`,
   feodoIps: 'https://feodotracker.abuse.ch/downloads/ipblocklist.txt',
 } as const;
+
+/** Days of ThreatFox IOCs to ask for (the API allows 1–7). */
+const THREATFOX_DAYS = 3;
+
+export const NEEDS_KEY = 'needs an abuse.ch Auth-Key (free at auth.abuse.ch): set [threat_feeds] auth_key_file or ABUSECH_AUTH_KEY';
 
 /**
  * Shared infrastructure that must never be matched or blocked: Cloudflare's
@@ -82,18 +97,33 @@ export interface ThreatFeedSettings {
   minConfidence: number;
   /** IPs, CIDRs or domains never matched. */
   allow: string[];
+  /** abuse.ch Auth-Key; without it only Feodo is fetched. */
+  authKey?: string;
 }
 
-/** ThreatFox `export/json/recent`: `{ "<id>": [ { ioc_value, ioc_type, … } ] }`. */
+/**
+ * ThreatFox IOCs, in either shape abuse.ch has served them: the API's
+ * `{ query_status, data: [ { ioc, ioc_type, … } ] }` or the retired export's
+ * `{ "<id>": [ { ioc_value, ioc_type, … } ] }`. An API error status throws,
+ * so it is reported as a failed feed rather than parsed as an empty list.
+ */
 export function parseThreatFoxJson(text: string, minConfidence: number): { ips: Map<string, Indicator>; domains: Map<string, Indicator> } {
   const ips = new Map<string, Indicator>();
   const domains = new Map<string, Indicator>();
-  const data = JSON.parse(text) as Record<string, Array<Record<string, unknown>>>;
-  for (const entries of Object.values(data)) {
-    for (const ioc of Array.isArray(entries) ? entries : []) {
+  const data = JSON.parse(text) as Record<string, unknown>;
+  let lists: unknown[];
+  if (typeof data.query_status === 'string') {
+    if (data.query_status === 'no_result') return { ips, domains };
+    if (data.query_status !== 'ok') throw new Error(`ThreatFox API: ${data.query_status}`);
+    lists = [data.data];
+  } else {
+    lists = Object.values(data);
+  }
+  for (const entries of lists) {
+    for (const ioc of Array.isArray(entries) ? (entries as Array<Record<string, unknown>>) : []) {
       const confidence = typeof ioc.confidence_level === 'number' ? ioc.confidence_level : 0;
       if (confidence < minConfidence) continue;
-      const value = String(ioc.ioc_value ?? '').trim();
+      const value = String(ioc.ioc ?? ioc.ioc_value ?? '').trim();
       const ind: Indicator = {
         malware: String(ioc.malware_printable ?? ioc.malware ?? 'unknown'),
         threat: String(ioc.threat_type ?? 'unknown'),
@@ -112,7 +142,71 @@ export function parseThreatFoxJson(text: string, minConfidence: number): { ips: 
   return { ips, domains };
 }
 
-/** `127.0.0.1 <domain>` host files (ThreatFox, URLhaus). */
+/**
+ * Hosts that serve everyone's files. A URLhaus entry on one of these is a
+ * single bad URL, not a bad host, so the host is never listed from a URL.
+ */
+const URL_HOSTING = [
+  ...SHARED_DOMAINS,
+  'github.com', 'gitlab.com', 'bitbucket.org', 'live.com', '1drv.ms', 'sharepoint.com',
+  'mediafire.com', 'pastebin.com', 'transfer.sh', 'catbox.moe', 'gofile.io', 'archive.org',
+  'yandex.ru', 'mega.nz', 'sourceforge.net',
+];
+
+function urlHosting(host: string): boolean {
+  return URL_HOSTING.some((d) => host === d || host.endsWith(`.${d}`));
+}
+
+/** One CSV row with `"…"` quoting (URLhaus quotes every field). */
+function csvRow(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quoted) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else cur += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+/**
+ * URLhaus `online.csv`: `id,dateadded,url,url_status,last_online,threat,tags,
+ * urlhaus_link,reporter`, `#` comments. The host of each online URL becomes a
+ * domain or IP indicator, except shared file hosting (see URL_HOSTING).
+ */
+export function parseUrlhausCsv(text: string): { ips: Map<string, Indicator>; domains: Map<string, Indicator> } {
+  const ips = new Map<string, Indicator>();
+  const domains = new Map<string, Indicator>();
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const cols = csvRow(trimmed);
+    if (cols.length < 6 || (cols[3] && cols[3] !== 'online')) continue;
+    let host: string;
+    try {
+      host = new URL(cols[2]).hostname.replace(/^\[|\]$/g, '');
+    } catch {
+      continue;
+    }
+    const ind: Indicator = { malware: cols[6]?.split(',')[0] || 'unknown', threat: cols[5] || 'malware_download', feed: 'urlhaus' };
+    if (isIP(host)) {
+      ips.set(host, ind);
+      continue;
+    }
+    const domain = normalizeDomain(host);
+    if (domain && !urlHosting(domain)) domains.set(domain, ind);
+  }
+  return { ips, domains };
+}
+
+/** `127.0.0.1 <domain>` host files (ThreatFox). */
 export function parseHostfile(text: string, feed: string): Map<string, Indicator> {
   const out = new Map<string, Indicator>();
   for (const line of text.split('\n')) {
@@ -180,27 +274,63 @@ export function buildFeedSet(
   return { fetched_at: now.toISOString(), ips, domains, sources, skipped_shared: skipped };
 }
 
-/** Fetch every feed; one that fails is reported, not fatal. */
-export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfidence' | 'allow'>, fetchImpl: FetchLike = fetch): Promise<FeedSet> {
+type FeedPart = { ips?: Map<string, Indicator>; domains?: Map<string, Indicator> };
+
+/** The key out of an error message, should a URL carrying it end up in one. */
+function redact(message: string, key: string | undefined): string {
+  if (!key) return message;
+  return message.split(key).join('<auth-key>').split(encodeURIComponent(key)).join('<auth-key>');
+}
+
+/**
+ * Fetch every feed; one that fails is reported, not fatal. A feed counts as
+ * failed when it answers non-2xx, answers HTML instead of data, or parses to
+ * nothing at all, so a dead source never passes for a clean one (issue #430:
+ * abuse.ch's retired URLs answer 410 with an HTML page).
+ */
+export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfidence' | 'allow' | 'authKey'>, fetchImpl: FetchLike = fetch): Promise<FeedSet> {
   const sources: FeedSet['sources'] = [];
-  const parts: { ips?: Map<string, Indicator>; domains?: Map<string, Indicator> }[] = [];
-  const get = async (feed: string, url: string, parse: (text: string) => { ips?: Map<string, Indicator>; domains?: Map<string, Indicator> }) => {
+  const parts: FeedPart[] = [];
+  const key = settings.authKey?.trim() || undefined;
+  const ua = { 'User-Agent': 'threatcrush (+https://threatcrush.com)' };
+  const get = async (feed: string, request: { url: string; init?: RequestInit } | null, parse: (text: string) => FeedPart, emptyOk = false) => {
+    if (!request) {
+      sources.push({ feed, ok: false, count: 0, error: NEEDS_KEY });
+      return;
+    }
     try {
-      const res = await fetchImpl(url, { signal: AbortSignal.timeout(60_000), headers: { 'User-Agent': 'threatcrush (+https://threatcrush.com)' } });
+      const extra = (request.init?.headers ?? {}) as Record<string, string>;
+      const res = await fetchImpl(request.url, { ...request.init, signal: AbortSignal.timeout(60_000), headers: { ...ua, ...extra } });
+      if (res.status === 401 || res.status === 403) throw new Error(`HTTP ${res.status}: abuse.ch refused the Auth-Key`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const part = parse(await res.text());
+      const text = await res.text();
+      const type = res.headers.get('content-type') ?? '';
+      if (type.includes('text/html') || /^\s*<(!doctype|html)/i.test(text)) throw new Error(`HTTP ${res.status} but an HTML page, not feed data`);
+      const part = parse(text);
+      const count = (part.ips?.size ?? 0) + (part.domains?.size ?? 0);
+      if (count === 0 && !emptyOk) throw new Error('no entries in the response');
       parts.push(part);
-      sources.push({ feed, ok: true, count: (part.ips?.size ?? 0) + (part.domains?.size ?? 0) });
+      sources.push({ feed, ok: true, count });
     } catch (err) {
-      sources.push({ feed, ok: false, count: 0, error: (err as Error).message });
+      sources.push({ feed, ok: false, count: 0, error: redact((err as Error).message, key) });
     }
   };
+  const threatfoxApi = key ? {
+    url: FEEDS.threatfoxApi,
+    init: {
+      method: 'POST',
+      headers: { 'Auth-Key': key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'get_iocs', days: THREATFOX_DAYS }),
+    },
+  } : null;
   await Promise.all([
-    get('threatfox', FEEDS.threatfoxRecent, (t) => parseThreatFoxJson(t, settings.minConfidence)),
-    get('threatfox-hosts', FEEDS.threatfoxHosts, (t) => ({ domains: parseHostfile(t, 'threatfox') })),
-    get('urlhaus-hosts', FEEDS.urlhausHosts, (t) => ({ domains: parseHostfile(t, 'urlhaus') })),
-    get('feodo', FEEDS.feodoIps, (t) => ({ ips: parseIpList(t, 'feodo') })),
+    get('threatfox', threatfoxApi, (t) => parseThreatFoxJson(t, settings.minConfidence), true),
+    get('threatfox-hosts', key ? { url: FEEDS.threatfoxHosts(key) } : null, (t) => ({ domains: parseHostfile(t, 'threatfox') })),
+    get('urlhaus', key ? { url: FEEDS.urlhausOnline(key) } : null, parseUrlhausCsv),
+    // Feodo has been near-empty since 2025; an empty list there is real.
+    get('feodo', { url: FEEDS.feodoIps }, (t) => ({ ips: parseIpList(t, 'feodo') }), true),
   ]);
+  sources.sort((a, b) => a.feed.localeCompare(b.feed));
   return buildFeedSet(parts, settings.allow, sources);
 }
 

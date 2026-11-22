@@ -2,7 +2,7 @@ import { isIP } from 'node:net';
 import { join } from 'node:path';
 import chalk from 'chalk';
 import { loadConfig } from '../core/config.js';
-import { fetchFeeds, matchDomain, matchIp, readFeedCache, type FeedSet } from '../core/threat-feeds/index.js';
+import { NEEDS_KEY, fetchFeeds, matchDomain, matchIp, readFeedCache, type FeedSet } from '../core/threat-feeds/index.js';
 import { SYSTEM_PATHS, USER_PATHS } from '../daemon/paths.js';
 import { threatFeedSettings } from '../daemon/workers/threat-feeds.js';
 import { resolverCommand } from './feeds-resolver.js';
@@ -60,6 +60,14 @@ export async function feedsCommand(action: string | undefined, value: string | u
   console.log(`  ${ips} C2/payload IPs, ${domains} malware domains; ${set.skipped_shared} shared or protected entries skipped`);
   for (const s of set.sources) {
     console.log(`    ${s.ok ? chalk.green('✓') : chalk.red('✗')} ${s.feed.padEnd(16)} ${s.ok ? `${s.count}` : chalk.red(s.error ?? 'failed')}`);
+  }
+  const failed = set.sources.filter((s) => !s.ok);
+  if (failed.length) {
+    console.log(chalk.yellow(`\n  ${failed.length} of ${set.sources.length} feeds are failing, so this list is incomplete, not clean.`));
+    if (failed.some((s) => s.error === NEEDS_KEY)) {
+      console.log(chalk.yellow('  Get a free Auth-Key at https://auth.abuse.ch, save it to a root-only file and set'));
+      console.log(chalk.yellow('  [threat_feeds] auth_key_file = "/etc/threatcrush/abusech.key", then restart threatcrushd.'));
+    }
   }
   console.log(chalk.gray('\n  Blocking egress needs [threat_feeds] block = true and [remediation] in enforce mode.'));
 }

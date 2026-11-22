@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isIP } from 'node:net';
 import type { ThreatEvent } from '../../types/events.js';
@@ -38,7 +38,7 @@ const DEFAULT_REFRESH_MS = 3_600_000;
 const POLL_MS = 15_000;
 const REALERT_MS = 3_600_000;
 
-export function threatFeedSettings(section: ThreatFeedsSection | undefined): ThreatFeedSettings {
+export function threatFeedSettings(section: ThreatFeedsSection | undefined, env: NodeJS.ProcessEnv = process.env): ThreatFeedSettings {
   const refresh = parseDuration(section?.refresh);
   return {
     enabled: section?.enabled !== false,
@@ -48,7 +48,22 @@ export function threatFeedSettings(section: ThreatFeedsSection | undefined): Thr
     refreshMs: refresh ? Math.max(900, refresh) * 1000 : DEFAULT_REFRESH_MS,
     minConfidence: typeof section?.min_confidence === 'number' ? section.min_confidence : 75,
     allow: Array.isArray(section?.allow) ? section.allow.map(String) : [],
+    authKey: abusechAuthKey(section, env),
   };
+}
+
+/** The abuse.ch Auth-Key: `auth_key_file`, then `auth_key`, then ABUSECH_AUTH_KEY. */
+export function abusechAuthKey(section: ThreatFeedsSection | undefined, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (section?.auth_key_file) {
+    try {
+      const key = readFileSync(section.auth_key_file, 'utf-8').trim();
+      if (key) return key;
+    } catch {
+      // Unreadable file: fall through; the feeds then report the missing key.
+    }
+  }
+  const key = (section?.auth_key ?? env.ABUSECH_AUTH_KEY ?? '').trim();
+  return key || undefined;
 }
 
 /**
@@ -231,7 +246,11 @@ export class ThreatFeeds {
       this.blocking = ok;
       mode = ok ? 'blocking egress' : 'detecting (nft load failed)';
     }
-    const detail = `${ips.length} IPs, ${domains} domains, ${mode}${this.writeResolverFiles(set)}`;
+    // A failing feed belongs in the status line, not only the log: a short
+    // list should never read as a clean one (issue #430).
+    const failed = (set.sources ?? []).filter((s) => !s.ok).map((s) => s.feed);
+    const failing = failed.length ? `; ${failed.length}/${set.sources.length} feeds failing (${failed.join(', ')}), see \`threatcrush feeds\`` : '';
+    const detail = `${ips.length} IPs, ${domains} domains, ${mode}${this.writeResolverFiles(set)}${failing}`;
     this.opts.log(`[threat-feeds] ${from === 'cache' ? 'loaded cached' : 'refreshed'} list: ${detail} (${set.skipped_shared} shared/protected entries skipped)`);
     this.opts.bus.announceModule('threat-feeds', 'running', detail);
   }
