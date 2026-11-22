@@ -7,6 +7,7 @@ import { banner } from '../core/logger.js';
 import { daemonNodeProblem, versionOfNode } from '../core/node-runtime.js';
 import { loadConfig } from '../core/config.js';
 import { commandHistorySettings, historyWritableHomes } from '../daemon/workers/command-history.js';
+import { containWriterSettings } from '../daemon/workers/writer-containment.js';
 
 const UNIT_PATH = '/etc/systemd/system/threatcrushd.service';
 export const DAEMON_UNIT_NAME = 'threatcrushd.service';
@@ -94,9 +95,11 @@ export function execStartCommand(binPath: string, nodePath: string, isNodeScript
  */
 export function renderUnit(
   template: string,
-  opts: { exec: string; binPath: string; configDir: string; historyPaths?: string[] },
+  opts: { exec: string; binPath: string; configDir: string; historyPaths?: string[]; extraCapabilities?: string[] },
 ): string {
+  const extraCaps = (opts.extraCapabilities ?? []).filter((cap) => /^CAP_[A-Z_]+$/.test(cap));
   return template
+    .replaceAll('{{EXTRA_CAPS}}', extraCaps.map((cap) => ` ${cap}`).join(''))
     .replaceAll('{{BIN_PATH}} daemon', opts.exec)
     .replaceAll('{{BIN_PATH}}', opts.binPath)
     .replaceAll('{{CONFIG_DIR}}', opts.configDir)
@@ -294,10 +297,14 @@ export async function installServiceCommand(): Promise<void> {
   const configDir = join(homedir(), '.threatcrush');
   const commandHistoryEnabled = commandHistorySettings(loadConfig().command_history).enabled;
   const historyPaths = commandHistoryEnabled ? historyWritableHomes() : [];
-  const unit = renderUnit(resolveTemplate(), { exec, binPath, configDir, historyPaths });
+  // `[file_integrity] contain_writer` needs to read other users' /proc/<pid>/fd.
+  const containWriter = containWriterSettings(loadConfig().file_integrity).mode !== 'off';
+  const extraCapabilities = containWriter ? ['CAP_SYS_PTRACE'] : [];
+  const unit = renderUnit(resolveTemplate(), { exec, binPath, configDir, historyPaths, extraCapabilities });
   writeFileSync(UNIT_PATH, unit, { mode: 0o644 });
   console.log(chalk.green(`  ✓ Installed unit file: ${UNIT_PATH}`));
   console.log(chalk.dim(`    ExecStart=${exec}`));
+  if (containWriter) console.log(chalk.dim('    CAP_SYS_PTRACE granted for [file_integrity] contain_writer (reads /proc/<pid>/fd)'));
 
   // A `latest` node is fine on its own: any node runs a CLI living outside it.
   const nodeDir = nodeVersionDir(nodePath);

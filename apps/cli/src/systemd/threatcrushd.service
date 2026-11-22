@@ -63,8 +63,12 @@ StandardError=journal
 #                                 (a shell running as the container's postgres
 #                                 uid) and `[login_watch] auto_response` (the
 #                                 intruder's sshd session). Off unless configured.
-AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN CAP_KILL
-CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN CAP_KILL
+#   CAP_SYS_PTRACE              — added by install-service ONLY when
+#                                 `[file_integrity] contain_writer` is enabled:
+#                                 reading another user's /proc/<pid>/fd to find
+#                                 the process writing a canary needs it.
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN CAP_KILL{{EXTRA_CAPS}}
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN CAP_KILL{{EXTRA_CAPS}}
 
 
 [Install]

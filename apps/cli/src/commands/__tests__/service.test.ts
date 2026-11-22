@@ -110,6 +110,23 @@ describe("renderUnit", () => {
     expect(readWrite.split(" ")).toContain("-/root");
   });
 
+  it("grants CAP_SYS_PTRACE only when asked (file_integrity contain_writer)", () => {
+    const caps = (unit: string) => unit.split("\n").filter((l) => /^(Ambient|CapabilityBounding)/.test(l));
+    for (const line of caps(rendered)) expect(line).not.toContain("CAP_SYS_PTRACE");
+    const withPtrace = renderUnit(UNIT, {
+      exec: "/usr/bin/node /usr/lib/node_modules/@profullstack/threatcrush/dist/index.js daemon",
+      binPath: "/usr/lib/node_modules/@profullstack/threatcrush/dist/index.js",
+      configDir: "/root/.threatcrush",
+      extraCapabilities: ["CAP_SYS_PTRACE", "bogus; rm -rf /"],
+    });
+    const lines = caps(withPtrace);
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(line.endsWith(" CAP_KILL CAP_SYS_PTRACE")).toBe(true);
+      expect(line).not.toContain("bogus");
+    }
+  });
+
   it("lets the fail2ban backend write its jail, and tolerates boxes without fail2ban", () => {
     // ProtectSystem=full made /etc read-only, so the first fail2ban ban died
     // with EROFS writing /etc/fail2ban/filter.d/threatcrush.conf (vienna,
