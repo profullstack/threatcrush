@@ -59,7 +59,8 @@ export async function feedsCommand(action: string | undefined, value: string | u
   console.log(`  Fetched: ${set.fetched_at.replace('T', ' ').slice(0, 16)} UTC`);
   console.log(`  ${ips} C2/payload IPs, ${domains} malware domains; ${set.skipped_shared} shared or protected entries skipped`);
   for (const s of set.sources) {
-    console.log(`    ${s.ok ? chalk.green('✓') : chalk.red('✗')} ${s.feed.padEnd(16)} ${s.ok ? `${s.count}` : chalk.red(s.error ?? 'failed')}`);
+    const kept = s.carried ? chalk.yellow(` (keeping ${s.carried} from ${s.last_ok_at?.replace('T', ' ').slice(0, 16)} UTC)`) : '';
+    console.log(`    ${s.ok ? chalk.green('✓') : chalk.red('✗')} ${s.feed.padEnd(16)} ${s.ok ? `${s.count}` : chalk.red(s.error ?? 'failed')}${kept}`);
   }
   const failed = set.sources.filter((s) => !s.ok);
   if (failed.length) {
