@@ -223,12 +223,19 @@ export interface FileIntegritySection {
 }
 
 /**
- * `[edr]` consumes selected Linux auditd execution events. It is disabled by
- * default; the operator installs the generated, narrowly scoped audit rules.
+ * `[edr]` consumes selected Linux process events from auditd or, optionally,
+ * eBPF (via the `bpftrace` CLI). It is disabled by default; with auditd the
+ * operator installs the generated, narrowly scoped audit rules.
  */
 export interface EdrSection {
   /** Default false. */
   enabled?: boolean;
+  /**
+   * Event source. `"auditd"` (default) tails the audit log; `"ebpf"` runs
+   * bpftrace (needs root, bpftrace and /sys/kernel/btf/vmlinux) and falls back
+   * to auditd when it cannot start; `"auto"` picks eBPF when those are present.
+   */
+  source?: 'auto' | 'auditd' | 'ebpf';
   /** Default `/var/log/audit/audit.log`. */
   audit_log_path?: string;
   /** Account names whose shell or downloader execution is suspicious. */

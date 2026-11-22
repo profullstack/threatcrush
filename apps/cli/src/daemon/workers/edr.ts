@@ -5,6 +5,16 @@ import { LogTail } from '../../core/log-tail.js';
 import { insertEvent } from '../../core/state.js';
 import type { EdrSection } from '../../types/config.js';
 import type { ThreatEvent } from '../../types/events.js';
+import {
+  BpftraceSource,
+  probeHost,
+  selectEdrSource,
+  type EbpfProcessEvent,
+  type EdrSourceKind,
+  type EdrSourceSetting,
+  type SourceProbe,
+  type SourceSelection,
+} from './edr-ebpf.js';
 
 const DEFAULT_AUDIT_LOG = '/var/log/audit/audit.log';
 const DEFAULT_WEB_USERS = ['www-data', 'nginx', 'apache', 'httpd', 'caddy', 'node'];
@@ -25,6 +35,8 @@ const MINERS = new Set(['xmrig', 'minerd', 'cpuminer', 'cpuminer-multi', 'kdevtm
 
 export interface EdrSettings {
   enabled: boolean;
+  /** Event source: auditd log tail, bpftrace (eBPF), or auto-detect. */
+  source: EdrSourceSetting;
   auditLogPath: string;
   webServiceUsers: string[];
   tempExecPaths: string[];
@@ -53,8 +65,10 @@ export function edrSettings(section: EdrSection | undefined): EdrSettings {
     ? Math.max(1, Math.min(60, Math.floor(seconds))) * 1000
     : 2000;
   const baselineSeconds = section?.network_baseline_seconds;
+  const source: EdrSourceSetting = section?.source === 'auto' || section?.source === 'ebpf' ? section.source : 'auditd';
   return {
     enabled: section?.enabled === true,
+    source,
     auditLogPath: configuredLog,
     webServiceUsers: configuredUsers,
     tempExecPaths: configuredPaths,
@@ -67,8 +81,10 @@ export function edrSettings(section: EdrSection | undefined): EdrSettings {
   };
 }
 
-interface AuditRecord {
+export interface AuditRecord {
   timestamp: Date;
+  /** Which event source produced the record. Absent means auditd. */
+  source?: EdrSourceKind;
   serial: string;
   key: string;
   executable: string;
@@ -147,12 +163,71 @@ function clean(value: string): string {
   return value.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 400);
 }
 
+const EXEC_KEYS = [MINER_KEY, WEB_KEY, TEMP_KEY];
+const MAX_EBPF_EXE_CACHE = 4096;
+
+/**
+ * Normalize one eBPF event into the record shape the auditd parser produces,
+ * so the same classifier runs on either source. auditd tags records with the
+ * key of the narrow rule that matched; eBPF sees every exec, so an exec is
+ * offered to each execution rule key in severity order and the classifier
+ * decides which (if any) applies. `resolveExe` maps a pid to its real binary
+ * (auditd's `exe=`); a relative or unresolvable path is dropped.
+ */
+export function ebpfEventToRecords(
+  event: EbpfProcessEvent,
+  resolveExe: (pid: number) => string | null,
+  now: Date = new Date(),
+  serial = 'ebpf',
+): AuditRecord[] {
+  let executable = resolveExe(event.pid);
+  if (!executable && event.kind === 'exec' && event.filename?.startsWith('/')) executable = event.filename;
+  if (!executable || !executable.startsWith('/')) return [];
+  const base = {
+    timestamp: now,
+    source: 'ebpf' as const,
+    serial,
+    executable,
+    comm: event.comm || basename(executable),
+    euid: event.euid,
+    pid: event.pid,
+    ...(event.ppid > 0 ? { ppid: event.ppid } : {}),
+  };
+  if (event.kind === 'connect') return [{ ...base, key: CONNECT_KEY }];
+  if (event.kind === 'listen') return [{ ...base, key: LISTEN_KEY }];
+  return EXEC_KEYS.map((key) => ({ ...base, key }));
+}
+
+export interface EdrSourceStatus {
+  configured: EdrSourceSetting;
+  active: EdrSourceKind | 'none';
+  reason: string;
+  updated_at: string;
+  pid: number;
+}
+
 export interface EdrOptions {
   bus: { publish(event: ThreatEvent): void };
   settings: EdrSettings;
   /** Root-owned file used to retain the learned outbound executable set. */
   networkBaselinePath?: string;
+  /** Where the daemon records which event source is active (read by `threatcrush edr status`). */
+  sourceStatusPath?: string;
+  /** Host facts for source selection; injectable for tests. */
+  probeHost?: (configured: EdrSourceSetting) => SourceProbe;
+  /** bpftrace supervisor factory; injectable for tests. */
+  createBpftrace?: (opts: ConstructorParameters<typeof BpftraceSource>[0]) => Pick<BpftraceSource, 'start' | 'stop'>;
   log: (line: string) => void;
+}
+
+export function readEdrSourceStatus(path: string): EdrSourceStatus | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<EdrSourceStatus>;
+    if (parsed.active !== 'auditd' && parsed.active !== 'ebpf' && parsed.active !== 'none') return null;
+    return parsed as EdrSourceStatus;
+  } catch {
+    return null;
+  }
 }
 
 interface CpuSample {
@@ -164,6 +239,10 @@ interface CpuSample {
 
 export class EdrWatch {
   private tail: LogTail | null = null;
+  private bpftrace: Pick<BpftraceSource, 'start' | 'stop'> | null = null;
+  private ebpfSerial = 0;
+  private readonly ebpfExeCache = new Map<number, string>();
+  private activeSource: EdrSourceKind | 'none' = 'none';
   private timer: NodeJS.Timeout | null = null;
   private cpuTimer: NodeJS.Timeout | null = null;
   private readonly usersById: Map<number, string>;
@@ -188,18 +267,13 @@ export class EdrWatch {
       this.opts.log('[edr] disabled; set [edr] enabled = true after installing the generated audit rules');
       return;
     }
-    if (!existsSync(this.opts.settings.auditLogPath)) {
-      this.opts.log(`[edr] audit log not found at ${this.opts.settings.auditLogPath}; auditd detections are unavailable`);
+    const probe = this.probe();
+    const selection = selectEdrSource(probe);
+    if (selection.source === 'ebpf' && probe.bpftracePath) {
+      this.startEbpf(probe.bpftracePath, selection.reason);
     } else {
-      try {
-        accessSync(this.opts.settings.auditLogPath, constants.R_OK);
-        this.tail = new LogTail(this.opts.settings.auditLogPath);
-        this.timer = setInterval(() => this.poll(), this.opts.settings.pollMs);
-        this.timer.unref?.();
-        this.opts.log(`[edr] watching selected auditd events in ${this.opts.settings.auditLogPath}; command arguments and remote addresses are discarded`);
-      } catch {
-        this.opts.log(`[edr] cannot read ${this.opts.settings.auditLogPath}; run the daemon with permission to read the audit log`);
-      }
+      if (selection.degraded) this.opts.log(`[edr] source = "ebpf" requested but ${selection.reason}`);
+      this.startAuditd(selection.reason);
     }
     if (this.opts.settings.watchUnknownTempCpu) {
       this.cpuTimer = setInterval(() => this.sampleTemporaryProcesses(), CPU_SAMPLE_MS);
@@ -209,7 +283,106 @@ export class EdrWatch {
     }
   }
 
+  /** The event source currently feeding detections. */
+  get source(): EdrSourceKind | 'none' {
+    return this.activeSource;
+  }
+
+  private probe(): SourceProbe {
+    const configured = this.opts.settings.source;
+    if (configured === 'auditd') return { configured, bpftracePath: null, btfPresent: false, isRoot: false };
+    return (this.opts.probeHost ?? probeHost)(configured);
+  }
+
+  private startEbpf(bpftracePath: string, reason: string): void {
+    const options = {
+      bpftracePath,
+      network: this.opts.settings.watchNetworkSyscalls,
+      onEvent: (event: EbpfProcessEvent) => { this.handleEbpfEvent(event); },
+      onFatal: (failure: string) => {
+        this.bpftrace = null;
+        this.opts.log(`[edr] ${failure}; falling back to auditd`);
+        this.startAuditd(`eBPF failed: ${failure}`);
+      },
+      log: this.opts.log,
+    };
+    this.bpftrace = this.opts.createBpftrace ? this.opts.createBpftrace(options) : new BpftraceSource(options);
+    this.setSource('ebpf', reason);
+    this.opts.log(`[edr] event source: eBPF via ${bpftracePath} (exec${this.opts.settings.watchNetworkSyscalls ? ', tcp connect/listen' : ''}); command arguments and remote addresses are not collected`);
+    this.bpftrace.start();
+  }
+
+  private startAuditd(reason: string): void {
+    if (!existsSync(this.opts.settings.auditLogPath)) {
+      this.opts.log(`[edr] audit log not found at ${this.opts.settings.auditLogPath}; auditd detections are unavailable`);
+      this.setSource('none', `${reason}; audit log not found at ${this.opts.settings.auditLogPath}`);
+      return;
+    }
+    try {
+      accessSync(this.opts.settings.auditLogPath, constants.R_OK);
+      this.tail = new LogTail(this.opts.settings.auditLogPath);
+      this.timer = setInterval(() => this.poll(), this.opts.settings.pollMs);
+      this.timer.unref?.();
+      this.setSource('auditd', reason);
+      this.opts.log(`[edr] event source: auditd; watching selected events in ${this.opts.settings.auditLogPath}; command arguments and remote addresses are discarded`);
+    } catch {
+      this.opts.log(`[edr] cannot read ${this.opts.settings.auditLogPath}; run the daemon with permission to read the audit log`);
+      this.setSource('none', `${reason}; cannot read ${this.opts.settings.auditLogPath}`);
+    }
+  }
+
+  private setSource(active: EdrSourceKind | 'none', reason: string): void {
+    this.activeSource = active;
+    const path = this.opts.sourceStatusPath;
+    if (!path) return;
+    const status: EdrSourceStatus = {
+      configured: this.opts.settings.source,
+      active,
+      reason,
+      updated_at: new Date().toISOString(),
+      pid: process.pid,
+    };
+    try {
+      const temp = `${path}.${process.pid}.tmp`;
+      writeFileSync(temp, `${JSON.stringify(status)}\n`, { mode: 0o644 });
+      renameSync(temp, path);
+    } catch { /* status file is informational */ }
+  }
+
+  private resolveEbpfExe(event: EbpfProcessEvent): string | null {
+    let exe: string | null = null;
+    try { exe = readlinkSync(`/proc/${event.pid}/exe`).replace(/ \(deleted\)$/, ''); } catch { /* process already exited */ }
+    if (!exe && event.kind !== 'exec') exe = this.ebpfExeCache.get(event.pid) ?? null;
+    if (!exe && event.kind === 'exec' && event.filename?.startsWith('/')) exe = event.filename;
+    if (exe && event.kind === 'exec') {
+      this.ebpfExeCache.delete(event.pid);
+      this.ebpfExeCache.set(event.pid, exe);
+      if (this.ebpfExeCache.size > MAX_EBPF_EXE_CACHE) this.ebpfExeCache.delete(this.ebpfExeCache.keys().next().value as number);
+    }
+    return exe;
+  }
+
+  /** Classify one eBPF event through the same rules as auditd records. Returns the event published, if any. */
+  handleEbpfEvent(event: EbpfProcessEvent, resolveExe?: (pid: number) => string | null): ThreatEvent | null {
+    if ((event.kind === 'connect' || event.kind === 'listen') && !this.opts.settings.watchNetworkSyscalls) return null;
+    this.ebpfSerial = (this.ebpfSerial + 1) % Number.MAX_SAFE_INTEGER;
+    const resolver = resolveExe ?? (() => this.resolveEbpfExe(event));
+    const records = ebpfEventToRecords(event, resolver, new Date(), `ebpf-${this.ebpfSerial}`);
+    for (const record of records) {
+      const threat = this.classify(record);
+      if (threat) {
+        this.publish(threat);
+        return threat;
+      }
+    }
+    return null;
+  }
+
   stop(): void {
+    try { this.bpftrace?.stop(); } catch { /* child already gone */ }
+    this.bpftrace = null;
+    this.ebpfExeCache.clear();
+    this.activeSource = 'none';
     if (this.timer) clearInterval(this.timer);
     if (this.cpuTimer) clearInterval(this.cpuTimer);
     this.timer = null;
@@ -301,7 +474,8 @@ export class EdrWatch {
         euid: execution.euid,
         ...(execution.pid ? { pid: execution.pid } : {}),
         ...(execution.ppid ? { ppid: execution.ppid } : {}),
-        audit_serial: execution.serial,
+        event_source: execution.source ?? 'auditd',
+        ...(execution.source === 'ebpf' ? {} : { audit_serial: execution.serial }),
       },
     };
   }

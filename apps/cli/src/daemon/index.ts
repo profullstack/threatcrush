@@ -270,12 +270,14 @@ export async function runDaemon(): Promise<void> {
   });
   fileIntegrity.start();
 
-  // Auditd-backed process detections are opt-in and consume only the
-  // narrowly keyed records documented by `threatcrush edr rules`.
+  // Process detections are opt-in. The auditd source consumes only the narrowly
+  // keyed records documented by `threatcrush edr rules`; the optional eBPF
+  // source (`source = "ebpf" | "auto"`) drives bpftrace and feeds the same rules.
   const edr = new EdrWatch({
     bus,
     settings: edrSettings(config.edr),
     networkBaselinePath: join(PATHS.stateDir, 'edr-outbound-executables.json'),
+    sourceStatusPath: join(PATHS.stateDir, 'edr-source.json'),
     log: logLine,
   });
   edr.start();

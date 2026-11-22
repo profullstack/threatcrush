@@ -555,9 +555,9 @@ Reading another user's `/proc/<pid>/fd` needs `CAP_SYS_PTRACE`. Re-run
 gets that capability only while `contain_writer` is on. Without it, only
 writers running as root can be identified.
 
-### Auditd process detections
+### Auditd and eBPF process detections
 
-The first EDR phase reads selected execution records from Linux auditd. It
+EDR reads process events from Linux auditd or, optionally, eBPF. It
 detects shells or downloaders started by configured web-service accounts,
 execution from configured temporary or world-writable paths, and known miner
 process names. It is disabled until you install the generated rules and opt in:
@@ -565,6 +565,7 @@ process names. It is disabled until you install the generated rules and opt in:
 ```toml
 [edr]
 enabled = true
+source = "auditd" # "auditd" (default) | "ebpf" | "auto"
 audit_log_path = "/var/log/audit/audit.log"
 web_service_users = ["www-data", "nginx", "caddy"]
 temp_exec_paths = ["/tmp", "/var/tmp", "/dev/shm"]
@@ -593,6 +594,32 @@ Temporary-path executables that sustain at least 80% of one CPU core for 60
 seconds raise a critical event, including when auditd is unavailable. These
 signals are not proof of compromise; the agent does not kill processes or
 automatically ban them.
+
+#### eBPF source (bpftrace)
+
+`source = "ebpf"` feeds the same rules from eBPF instead of the audit log,
+with no audit rules to load and no native npm dependency: the daemon runs the
+`bpftrace` CLI as a child process (argv, no shell) with an embedded program
+that traces successful `exec` (pid, ppid, effective uid, file name) and, when
+`watch_network_syscalls = true`, TCP connect (`SYN_SENT`) and listen
+transitions. Each event becomes the same normalized record the auditd parser
+produces, so reverse-shell, web-service shell, writable-path execution, miner,
+new-outbound and listener detections behave identically on either source.
+Command arguments and remote addresses are not traced.
+
+It needs root, `bpftrace` (`apt install bpftrace`) and kernel BTF
+(`/sys/kernel/btf/vmlinux`). `source = "auto"` picks eBPF when all three are
+present and auditd otherwise; `source = "ebpf"` logs why and uses auditd when
+they are not. If bpftrace exits it is restarted with exponential backoff (1s
+up to 60s); if it fails to start three times in a row, the daemon falls back
+to auditd. The daemon logs the active source and records it in
+`edr-source.json` in its state directory; `threatcrush edr status` shows the
+configured source, what this host would select, and what the daemon is using.
+Review the exact program with:
+
+```bash
+threatcrush edr bpftrace
+```
 
 ### Findings in the cloud
 
