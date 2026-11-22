@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { COINPAY_UA } from './coinpay-ua';
 
 const COINPAY_API_URL =
   (process.env.COINPAYPORTAL_API_URL || 'https://coinpayportal.com').replace(/\/$/, '') + '/api';
@@ -170,7 +171,7 @@ export async function createCoinpayPayment(opts: {
   if (opts.currency === 'paypal') {
     const res = await fetch(`${COINPAY_API_URL}/paypal/payments/create`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`, 'User-Agent': COINPAY_UA },
       cache: 'no-store',
       body: JSON.stringify({
         business_id: merchantId,
@@ -203,6 +204,7 @@ export async function createCoinpayPayment(opts: {
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
+      'User-Agent': COINPAY_UA,
     },
     cache: 'no-store',
     body: JSON.stringify({
@@ -239,7 +241,7 @@ export async function getCoinpayPaymentStatus(paymentId: string): Promise<Coinpa
   // Encoded: the id comes from the query string, and a raw `../` would walk
   // the authenticated request to another CoinPay endpoint.
   const res = await fetch(`${COINPAY_API_URL}/payments/${encodeURIComponent(paymentId)}`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: { Authorization: `Bearer ${apiKey}`, 'User-Agent': COINPAY_UA },
     cache: 'no-store',
   });
   if (!res.ok) {

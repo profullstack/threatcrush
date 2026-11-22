@@ -1,4 +1,5 @@
 import "server-only";
+import { COINPAY_UA } from "./coinpay-ua";
 
 /**
  * One checkout for everything ThreatCrush sells: Reputation Pro, paid modules
@@ -169,7 +170,7 @@ export async function hostedCheckoutAvailable(
   try {
     const res = await fetchImpl(`${cfg.apiUrl}/checkout/sessions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${cfg.apiKey}`, "User-Agent": COINPAY_UA, "Content-Type": "application/json" },
       body: "{}",
       cache: "no-store",
       signal: AbortSignal.timeout(4000),
@@ -203,6 +204,7 @@ export async function createHostedSession(
     method: "POST",
     headers: {
       Authorization: `Bearer ${cfg.apiKey}`,
+      "User-Agent": COINPAY_UA,
       "Content-Type": "application/json",
       "Idempotency-Key": req.idempotencyKey,
     },
@@ -245,6 +247,7 @@ export async function createCoinPayment(
     method: "POST",
     headers: {
       Authorization: `Bearer ${cfg.apiKey}`,
+      "User-Agent": COINPAY_UA,
       "Content-Type": "application/json",
       "Idempotency-Key": req.idempotencyKey,
     },
@@ -294,7 +297,7 @@ export async function createPaypalPayment(
 ): Promise<CheckoutStarted> {
   const res = await fetchImpl(`${cfg.apiUrl}/paypal/payments/create`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${cfg.apiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, "User-Agent": COINPAY_UA, "Content-Type": "application/json" },
     cache: "no-store",
     body: JSON.stringify({
       business_id: cfg.businessId,
