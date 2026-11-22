@@ -8,11 +8,16 @@
  * 19,000 URLs a day off coinpayportal on 2026-09-08.
  *
  * What is never metered: /api/ (webhooks, daemons, CLIs and polling clients
- * have their own limits and must never be answered with a price), a Next.js
- * link prefetch (a page already loaded asking ahead for the links it shows; a
- * front page full of links would otherwise spend a reader's allowance for
- * them), and whatever the gateway vouches for (verified search crawlers,
- * retrieval crawlers, AI chat fetchers, paid passes).
+ * have their own limits and must never be answered with a price), and whatever
+ * the gateway vouches for (verified search crawlers, retrieval crawlers, AI
+ * chat fetchers, paid passes).
+ *
+ * A Next.js link prefetch IS metered. It used to be exempt, judged by the
+ * Next-Router-Prefetch / Sec-Purpose headers, but those are headers any client
+ * can write: a scraper sending `Next-Router-Prefetch: 1` skipped the allowance
+ * on every page (2026-11-22, the same class as a cookie-name exemption). The
+ * allowance is 500 a minute per browser after headroom, far more than a page
+ * of prefetched links costs a reader.
  *
  * Imports nothing Node-only: the middleware may run at the edge.
  */
@@ -20,13 +25,8 @@
 import { createThrottle } from "@profullstack/throttle";
 import { gateway } from "@/lib/crawl-gateway";
 
-const isPrefetch = (request: Request) =>
-  request.headers.has("next-router-prefetch") ||
-  /prefetch/i.test(request.headers.get("sec-purpose") ?? request.headers.get("purpose") ?? "");
-
 export const throttle = createThrottle({
   gateway,
-  exempt: isPrefetch,
   credential: { limit: 600, ceiling: 1200 },
   rules: [{ path: "/api/", open: true }],
 });
