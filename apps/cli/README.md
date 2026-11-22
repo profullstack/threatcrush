@@ -322,12 +322,53 @@ threatcrush harden --report cis --format json --no-upload
 threatcrush harden --report cis --format pdf --output ./cis-evidence.pdf --no-upload
 ```
 
-The report identifies the host's current CIS benchmark edition when known and
-includes the `harden` evidence and timestamp. The one verified SSH root-login
-crosswalk is against the CIS Ubuntu 24.04 LTS v1.0.0 implementation; the current
-catalog lists v2.0.0, so the report names the v1.0.0 mapping reference and does
-not claim that mapping applies to v2.0.0. Other checks remain unverified. The
-report does not claim a CIS assessment or certification.
+The report is **evidence for an auditor, not certification**; that disclaimer
+is in every format. It carries the timestamp, host, OS, the current CIS edition
+for that OS, and each `harden` check's result, observed evidence and CIS mapping.
+
+**Where the CIS ids come from.** Every id, title and level is copied from a
+[ComplianceAsCode](https://github.com/ComplianceAsCode/content) control file at
+the pinned release tag `v0.1.82`, never guessed. A check is mapped only when a
+CaC rule under the control tests the same setting the check reads. Each mapping
+records the profile, benchmark edition, CaC tag, file, git blob SHA and rule id.
+The catalog lives in `packages/scan/src/cis/crosswalk.ts`, and
+`CIS_VERIFY_ONLINE=1 pnpm --filter @threatcrush/scan exec vitest run cis-crosswalk`
+re-checks it against the pinned files.
+
+| Pinned profile (CaC file) | Edition it implements | Current CIS edition |
+|---|---|---|
+| Ubuntu 24.04 (`cis_ubuntu2404.yml`) | v1.0.0 | v2.0.0 |
+| Ubuntu 22.04 (`cis_ubuntu2204.yml`) | v2.0.0 | v3.0.0 |
+| Debian 12 (`cis_debian12.yml`) | v1.1.0 | v2.0.0 |
+| Debian 13 (`cis_debian13.yml`) | v1.0.0 | v1.1.0 |
+
+CaC `v0.1.82` does not yet carry the current editions, so the report names the
+edition each id comes from and claims no mapping to the newer one. Other OS
+releases (Ubuntu 26.04 and 20.04, Debian 11, non-Debian distros) have no pinned
+profile, so every check is reported as `unverified` with no id.
+
+| Check | Ubuntu 24.04 | Ubuntu 22.04 | Debian 12 | Debian 13 | Coverage |
+|---|---|---|---|---|---|
+| `ssh-root-login` | 5.1.20 | 5.1.20 | 5.1.20 | 5.1.21 | full |
+| `ssh-weak-config` (MaxAuthTries only) | 5.1.16 | 5.1.16 | 5.1.16 | 5.1.17 | partial |
+| `firewall-active` | 4.2.3, 4.3.4 | 4.1.3, 4.2.4 | 4.2.3, 4.3.4 | 4.1.2 | partial |
+| `world-writable-dirs` | 7.1.11 | 7.1.11 | 7.1.11 | 7.1.11 | partial |
+| `risky-services` (tftp only) | 2.1.16 | 2.1.16 | 2.1.16 | 2.1.17 | partial |
+| `ssh-password-auth`, `auto-updates`, `exposed-ports`, `fail2ban-present` | unmapped | unmapped | unmapped | unmapped | - |
+
+*Partial* means the check reads the same setting with a narrower scope or a
+looser threshold (for example ThreatCrush flags `MaxAuthTries` above 6, CIS
+wants 4 or less): a FAIL is a real finding against the control, a PASS does not
+satisfy it. Unmapped checks have no matching control in any pinned profile, and
+the report says why. The PRD 0005 `code-scanner config` checks are in the same
+catalog: `world-writable` maps to 7.1.11 (partial); the web-root, debug,
+container, CORS and credential-file checks are unmapped because the OS
+benchmarks have no control for them.
+
+The dashboard's fleet export (Findings, Export MD/JSON/PDF) re-derives each
+mapping from the same catalog using the OS the agent reported, and never trusts
+ids sent by the agent. Most findings uploaded by agents older than this release show
+as `unverified` until the host runs `harden` again.
 
 ## Features
 

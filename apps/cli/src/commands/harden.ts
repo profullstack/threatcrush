@@ -5,6 +5,7 @@ import ora from 'ora';
 import { banner, logger } from '../core/logger.js';
 import { cloudFetch } from '../core/cli-config.js';
 import { currentLink, findingEvents, type IngestResponse } from '../core/cloud-events.js';
+import type { CisControlRef } from '@threatcrush/scan/cis';
 import { buildCisEvidenceReport, renderCisMarkdown, tagCisMappings, writeCisReport } from './cis-report.js';
 
 export interface HardeningResult {
@@ -17,9 +18,13 @@ export interface HardeningResult {
   /** Structured data the dashboard reads (the os-patches package list). */
   details?: Record<string, unknown>;
   cis_control_ids?: string[];
-  cis_mapping_status?: 'verified' | 'unverified';
+  /** verified: ids from the pinned crosswalk; unmapped: no matching control; unverified: no pinned profile for this OS. */
+  cis_mapping_status?: 'verified' | 'unmapped' | 'unverified';
+  cis_mapping_coverage?: 'full' | 'partial';
+  cis_controls?: CisControlRef[];
   cis_mapping_source?: string;
   cis_mapping_benchmark?: string;
+  cis_unmapped_reason?: string;
 }
 
 function tryExec(cmd: string): string | null {
@@ -340,9 +345,12 @@ function computeScore(results: HardeningResult[]): number {
 }
 
 function cisLabel(result: HardeningResult): string {
-  return result.cis_control_ids?.length
-    ? `CIS ${result.cis_mapping_benchmark ?? 'mapping'}: ${result.cis_control_ids.join(', ')}`
-    : 'CIS: mapping unverified';
+  if (result.cis_control_ids?.length) {
+    const coverage = result.cis_mapping_coverage === 'partial' ? ' (partial coverage)' : '';
+    return `CIS ${result.cis_mapping_benchmark ?? 'mapping'}: ${result.cis_control_ids.join(', ')}${coverage}`;
+  }
+  if (result.cis_mapping_status === 'unmapped') return 'CIS: no matching control in the pinned profile';
+  return 'CIS: no pinned profile for this OS';
 }
 
 /**
