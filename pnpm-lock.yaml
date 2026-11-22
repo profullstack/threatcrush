@@ -389,8 +389,8 @@ importers:
         specifier: ^0.2.0
         version: 0.2.0
       '@profullstack/throttle':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.5.1
+        version: 0.5.1
       '@profullstack/webhooks':
         specifier: 0.2.1
         version: 0.2.1
@@ -2430,8 +2430,8 @@ packages:
       react:
         optional: true
 
-  '@profullstack/throttle@0.4.2':
-    resolution: {integrity: sha512-2ibd5rirK5HyqYtk+XsiORpcSLHWMVCgHX+ZdED7uPkIW7iMJi1mjth3Ly1cQcpJhHWE6uyDaIIirRaeTl7/sw==}
+  '@profullstack/throttle@0.5.1':
+    resolution: {integrity: sha512-/NNyN+ISI+7WeCD5nZbQL4bd/+TegUOOmDtkxljaiMsBKKIIXVofRX8O49dYm/YXpHBc/BYfr5R6jAS6zynqXQ==}
     engines: {node: '>=20.11'}
 
   '@profullstack/webhooks@0.2.1':
@@ -10256,7 +10256,7 @@ snapshots:
     optionalDependencies:
       react: 19.3.1
 
-  '@profullstack/throttle@0.4.2':
+  '@profullstack/throttle@0.5.1':
     dependencies:
       '@profullstack/x402-gateway': 0.18.2
 
