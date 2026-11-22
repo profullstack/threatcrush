@@ -22,6 +22,21 @@ export type { TemplateMatch, TemplateRule } from './template-rules';
 export { evaluateWorkflowRules, isWorkflowPath, WORKFLOW_RULES } from './workflow-rules';
 export type { WorkflowMatch, WorkflowRule } from './workflow-rules';
 
+export {
+  DEPLOY_RULES,
+  evaluateDeployRules,
+  isAuthorizedKeysPath,
+  isComposePath,
+  isDangerousHostPath,
+  isSshdConfigPath,
+  parseAuthorizedKeyLines,
+  suspiciousKeyComment,
+  volumeSource,
+} from './deploy-rules';
+export type { DeployMatch, DeployRule, ParsedAuthorizedKey } from './deploy-rules';
+
+export { ATTACK_VECTOR_SLUGS, ATTACK_VECTORS_BASE, attackVector } from './references';
+
 export { ControlAudit, SECURITY_CONTROLS } from './controls';
 export type { SecurityControl } from './controls';
 
@@ -30,12 +45,19 @@ export type { ManifestFinding, SquatVerdict } from './manifest-rules';
 
 export {
   describesItsOwnKey,
+  hasGithubAppId,
+  isEnvBackupName,
+  isEnvFileName,
   isKnownPlaceholder,
+  jwtClaimsRole,
+  looksLikeKeyMaterial,
   isPlaceholderAttribute,
   redactSecret,
   SECRET_RULES,
   SENSITIVE_FILES,
+  shannonEntropy,
 } from './secret-rules';
+export type { SecretRule } from './secret-rules';
 
 export {
   collectSuppressions,

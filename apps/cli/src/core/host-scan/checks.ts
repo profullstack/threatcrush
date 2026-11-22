@@ -10,7 +10,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpat
 import os from 'node:os';
 import {
   expandAuthorizedKeysFiles, groupMembers, isRkhunterRootkitWarning, isUnrestrictedKey, judgeDockerInspect,
-  judgePackageVerify, judgeSshdConfig, keyIsDenied, parseAuthorizedKeys, parseChkrootkit, parseDenyList,
+  judgeKeyPlacement, judgePackageVerify, judgeSshdConfig, keyIsDenied, parseAuthorizedKeys, parseChkrootkit, parseDenyList,
   parseDpkgSearch, parsePackageVerify, parsePasswd, parseProcModules, parseRkhunter, parseSshdT, parseUnhide,
   uidZeroNonRoot, type AuthorizedKey, type PasswdEntry,
 } from './parsers.js';
@@ -351,12 +351,18 @@ function checkSshKeys(ctx: HostContext): Omit<CheckResult, 'id' | 'title'> {
   const keys: Array<AuthorizedKey & { user: string }> = [];
   let unreadable = 0;
   const files = new Set<string>();
+  const recentFiles = new Set<string>();
   for (const { home, user } of accountHomes(ctx.passwd)) {
     for (const file of expandAuthorizedKeysFiles(spec, home, user)) {
       if (files.has(file)) continue;
       files.add(file);
       let text: string | null = null;
-      try { if (!lstatSync(file).isFile()) continue; text = readFileSync(file, 'utf-8'); } catch (e) {
+      try {
+        const st = lstatSync(file);
+        if (!st.isFile()) continue;
+        if (st.mtimeMs >= Date.now() - ctx.opts.sinceMs) recentFiles.add(file);
+        text = readFileSync(file, 'utf-8');
+      } catch (e) {
         if ((e as NodeJS.ErrnoException).code === 'EACCES') unreadable++;
         continue;
       }
@@ -371,6 +377,7 @@ function checkSshKeys(ctx: HostContext): Omit<CheckResult, 'id' | 'title'> {
     if (keyIsDenied(k, deny)) items.push({ status: 'fail', message: `deny-listed key for ${k.user}: ${label}`, path: where, details: { fingerprint: k.fingerprint } });
     if (isUnrestrictedKey(k)) items.push({ status: 'warn', message: `unrestricted key (no command= or from=) for ${k.user}: ${label}`, path: where, details: { fingerprint: k.fingerprint, restrict: k.restrict } });
   }
+  items.push(...judgeKeyPlacement(keys, recentFiles));
   for (const [, dupes] of byBlob) {
     if (dupes.length < 2) continue;
     items.push({ status: 'warn', message: `same key appears ${dupes.length} times: ${dupes[0].fingerprint} (${dupes.map((d) => `${d.file}:${d.line}`).join(', ')})`, details: { fingerprint: dupes[0].fingerprint } });

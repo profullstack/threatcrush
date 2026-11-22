@@ -4,6 +4,7 @@
  * data, so the tests can feed fixture text without a live box.
  */
 import { createHash } from 'node:crypto';
+import { suspiciousKeyComment } from '@threatcrush/scan';
 
 // ─── dpkg --verify / rpm -Va ───
 
@@ -283,6 +284,73 @@ export function parseAuthorizedKeys(text: string, file = 'authorized_keys'): Aut
 /** A key with neither command= nor from= can log in from anywhere and run anything. */
 export function isUnrestrictedKey(key: AuthorizedKey): boolean {
   return key.command === null && key.from === null;
+}
+
+/** A key together with the account whose file authorizes it. */
+export interface PlacedKey extends AuthorizedKey { user: string }
+
+export interface KeyPlacementItem {
+  status: 'warn' | 'fail';
+  message: string;
+  path?: string;
+  details?: Record<string, unknown>;
+}
+
+function isRootFile(k: PlacedKey): boolean {
+  return k.user === 'root' || k.file.startsWith('/root/');
+}
+
+/**
+ * The planted-persistence pattern (attack-vectors/planted-authorized-keys.md):
+ * one unrestricted key added to a user's file *and* root's, named like a
+ * temporary CI or diagnostic key, in a file that changed recently.
+ *
+ *   - the same key authorizes root and another account            -> fail
+ *   - a dated ci/diag/tmp-style comment, unrestricted             -> fail
+ *     (restricted                                                 -> warn)
+ *   - an unrestricted key in a file modified inside `--since`     -> fail
+ *
+ * `recentFiles` holds the authorized_keys paths whose mtime falls inside the
+ * window; the caller stats them so this stays pure.
+ */
+export function judgeKeyPlacement(keys: readonly PlacedKey[], recentFiles: ReadonlySet<string>): KeyPlacementItem[] {
+  const items: KeyPlacementItem[] = [];
+  const byBlob = new Map<string, PlacedKey[]>();
+  for (const k of keys) byBlob.set(k.blob, [...(byBlob.get(k.blob) ?? []), k]);
+  for (const [, group] of byBlob) {
+    const root = group.filter(isRootFile);
+    const others = group.filter((k) => !isRootFile(k));
+    if (!root.length || !others.length) continue;
+    const users = [...new Set(others.map((k) => k.user))].join(', ');
+    items.push({
+      status: 'fail',
+      message: `same key authorizes root and ${users}: ${root[0].fingerprint} ${root[0].comment || '(no comment)'}`,
+      path: `${root[0].file}:${root[0].line}`,
+      details: { fingerprint: root[0].fingerprint, rule: 'authorized-keys-root-and-user', files: group.map((k) => `${k.file}:${k.line}`) },
+    });
+  }
+  for (const k of keys) {
+    const where = `${k.file}:${k.line}`;
+    const label = `${k.fingerprint ?? k.type} ${k.comment || '(no comment)'}`;
+    const unrestricted = isUnrestrictedKey(k) && !k.restrict;
+    if (suspiciousKeyComment(k.comment)) {
+      items.push({
+        status: unrestricted ? 'fail' : 'warn',
+        message: `key for ${k.user} is named like a temporary CI/diagnostic key${unrestricted ? ' and is unrestricted' : ''}: ${label}`,
+        path: where,
+        details: { fingerprint: k.fingerprint, rule: 'authorized-keys-suspicious-comment' },
+      });
+    }
+    if (unrestricted && recentFiles.has(k.file)) {
+      items.push({
+        status: 'fail',
+        message: `unrestricted key for ${k.user} in a file changed inside the --since window: ${label}`,
+        path: where,
+        details: { fingerprint: k.fingerprint, rule: 'authorized-keys-recent-unrestricted' },
+      });
+    }
+  }
+  return items;
 }
 
 /**

@@ -13,7 +13,9 @@ import {
 } from 'node:fs';
 import { basename, dirname, extname, join, relative, sep } from 'node:path';
 import { ControlAudit } from '../controls';
-import { SENSITIVE_FILES } from '../secret-rules';
+import { attackVector } from '../references';
+import { isAuthorizedKeysPath } from '../deploy-rules';
+import { isEnvFileName, SENSITIVE_FILES } from '../secret-rules';
 import {
   collectSuppressions,
   languageOf,
@@ -250,7 +252,14 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
     const relativePath = toRelative(walkRoot, fullPath);
     const extension = extname(filename).toLowerCase();
     const isManifest = filename === 'package.json' || filename === 'requirements.txt';
-    const scannable = SCAN_EXTENSIONS.has(extension) || filename.startsWith('.env');
+    // Env files and their backups (`app.env.bak.2`) carry an extension that
+    // says nothing about their contents, and `authorized_keys` carries none;
+    // all are read so the credential and key rules see what is inside.
+    const scannable =
+      SCAN_EXTENSIONS.has(extension) ||
+      filename.startsWith('.env') ||
+      isEnvFileName(filename) ||
+      isAuthorizedKeysPath(filename);
 
     // A file with no extension gets one question asked of it before being
     // dismissed: does it start with a shebang? Executables are habitually named
@@ -297,7 +306,13 @@ export function scanPath(targetPath: string, options: ScanOptions = {}): ScanRep
         const prefix = Buffer.alloc(128);
         const read = readSync(handle, prefix, 0, prefix.length, 0);
         declared = languageOfShebang(prefix.subarray(0, read).toString('utf-8').split('\n', 1)[0] ?? '');
-        if (!declared) return;
+        if (!declared) {
+          // Not a script, but the name may still be the finding: `id_rsa` and
+          // `id_ed25519` have no extension, and returning here without this
+          // call is how a committed SSH private key used to scan clean.
+          recordSensitiveFile(filename, relativePath, findings, []);
+          return;
+        }
       }
 
       text = readFileSync(handle, 'utf-8');
@@ -405,7 +420,9 @@ function recordSensitiveFile(
   if (fileFindings.length > 0) return;
 
   for (const sensitive of SENSITIVE_FILES) {
-    const matches = filename === sensitive.pattern || filename.endsWith(sensitive.pattern);
+    const matches = sensitive.test
+      ? sensitive.test(filename)
+      : filename === sensitive.pattern || filename.endsWith(sensitive.pattern);
     if (!matches) continue;
     sink.push({
       ruleId: 'sensitive-file-committed',
@@ -416,6 +433,8 @@ function recordSensitiveFile(
       confidence: 'evidence',
       message: sensitive.message,
       consequence: 'Anything in this file is in every clone, fork and CI cache of the repository.',
+      fix: 'Remove it from the repository and its history, add the name to .gitignore, and rotate every credential it held: treat each one as burned.',
+      reference: attackVector('unrotated-github-app-keys'),
       cwe: 'CWE-538',
       excerpt: '',
       sensitive: true,

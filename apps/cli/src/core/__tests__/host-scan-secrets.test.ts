@@ -106,6 +106,9 @@ describe('.env files', () => {
     expect(isCandidate('www/site/.env', '.env')).toBe(true);
     expect(isCandidate('www/site/.env.production', '.env.production')).toBe(true);
     expect(isCandidate('app.env', 'app.env')).toBe(true);
+    expect(isCandidate('srv/app/app.env.bak', 'app.env.bak')).toBe(true);
+    expect(isCandidate('srv/app/app.env.bak.20261120', 'app.env.bak.20261120')).toBe(true);
+    expect(isCandidate('srv/app/prod.env.old', 'prod.env.old')).toBe(true);
     expect(isCandidate('www/site/.env.example', '.env.example')).toBe(false);
     expect(isCandidate('src/index.ts', 'index.ts')).toBe(false);
     expect(isCandidate('.ssh/id_rsa.pub', 'id_rsa.pub')).toBe(false);

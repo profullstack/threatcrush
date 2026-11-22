@@ -352,6 +352,9 @@ function printHuman(outcome: ScanOutcome): void {
     if (finding.fix) {
       console.log(`    ${chalk.gray('Fix:')}  ${chalk.dim(finding.fix)}`);
     }
+    if (finding.reference) {
+      console.log(`    ${chalk.gray('Ref:')}  ${chalk.dim(finding.reference)}`);
+    }
     if (finding.excerpt) {
       console.log(`    ${chalk.gray('Code:')} ${finding.excerpt}`);
     }
