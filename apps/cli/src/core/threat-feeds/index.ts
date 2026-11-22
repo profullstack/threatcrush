@@ -276,6 +276,12 @@ export function buildFeedSet(
 
 type FeedPart = { ips?: Map<string, Indicator>; domains?: Map<string, Indicator> };
 
+/** Tries per feed per refresh; only transport failures and 5xx are retried. */
+const FETCH_ATTEMPTS = 3;
+
+/** A response no retry will fix: refused key, 4xx, an HTML page. */
+class FatalFeedError extends Error {}
+
 /** The key out of an error message, should a URL carrying it end up in one. */
 function redact(message: string, key: string | undefined): string {
   if (!key) return message;
@@ -288,7 +294,7 @@ function redact(message: string, key: string | undefined): string {
  * nothing at all, so a dead source never passes for a clean one (issue #430:
  * abuse.ch's retired URLs answer 410 with an HTML page).
  */
-export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfidence' | 'allow' | 'authKey'>, fetchImpl: FetchLike = fetch): Promise<FeedSet> {
+export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfidence' | 'allow' | 'authKey'>, fetchImpl: FetchLike = fetch, retryDelayMs = 5_000): Promise<FeedSet> {
   const sources: FeedSet['sources'] = [];
   const parts: FeedPart[] = [];
   const key = settings.authKey?.trim() || undefined;
@@ -300,13 +306,27 @@ export async function fetchFeeds(settings: Pick<ThreatFeedSettings, 'minConfiden
     }
     try {
       const extra = (request.init?.headers ?? {}) as Record<string, string>;
-      const res = await fetchImpl(request.url, { ...request.init, signal: AbortSignal.timeout(60_000), headers: { ...ua, ...extra } });
-      if (res.status === 401 || res.status === 403) throw new Error(`HTTP ${res.status}: abuse.ch refused the Auth-Key`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = await res.text();
-      const type = res.headers.get('content-type') ?? '';
-      if (type.includes('text/html') || /^\s*<(!doctype|html)/i.test(text)) throw new Error(`HTTP ${res.status} but an HTML page, not feed data`);
-      const part = parse(text);
+      // abuse.ch cuts transfers short under load (undici "terminated", or a
+      // JSON body that ends mid-string). Those are worth a retry; a refused
+      // key, a 4xx or an HTML page is not.
+      let part: FeedPart | undefined;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const res = await fetchImpl(request.url, { ...request.init, signal: AbortSignal.timeout(60_000), headers: { ...ua, ...extra } });
+          if (res.status === 401 || res.status === 403) throw new FatalFeedError(`HTTP ${res.status}: abuse.ch refused the Auth-Key`);
+          if (res.status >= 400 && res.status < 500) throw new FatalFeedError(`HTTP ${res.status}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const text = await res.text();
+          const type = res.headers.get('content-type') ?? '';
+          if (type.includes('text/html') || /^\s*<(!doctype|html)/i.test(text)) throw new FatalFeedError(`HTTP ${res.status} but an HTML page, not feed data`);
+          part = parse(text);
+          break;
+        } catch (err) {
+          const retryable = !(err instanceof FatalFeedError) && !/^ThreatFox API: /.test((err as Error).message);
+          if (!retryable || attempt >= FETCH_ATTEMPTS) throw err;
+          await new Promise((r) => setTimeout(r, retryDelayMs * attempt));
+        }
+      }
       const count = (part.ips?.size ?? 0) + (part.domains?.size ?? 0);
       if (count === 0 && !emptyOk) throw new Error('no entries in the response');
       parts.push(part);

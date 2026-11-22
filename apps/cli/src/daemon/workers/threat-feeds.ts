@@ -158,6 +158,8 @@ export interface ThreatFeedsOptions {
   bus: { publish(event: ThreatEvent): void; announceModule(name: string, status: string, detail?: string): void };
   log: (line: string) => void;
   fetchImpl?: FetchLike;
+  /** Pause between retries of a cut-off feed download (tests pass 0). */
+  retryDelayMs?: number;
   /** Runs a command, returns stdout (or null on failure); stdin optional. */
   run?: (cmd: string, args: string[], input?: string) => string | null;
   now?: () => number;
@@ -218,7 +220,7 @@ export class ThreatFeeds {
 
   async refresh(): Promise<void> {
     try {
-      const set = await fetchFeeds(this.opts.settings, this.opts.fetchImpl);
+      const set = await fetchFeeds(this.opts.settings, this.opts.fetchImpl, this.opts.retryDelayMs);
       const failed = set.sources.filter((s) => !s.ok);
       // Every feed failing means no data, not an all-clear: keep the old set.
       if (failed.length === set.sources.length) {
