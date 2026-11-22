@@ -8,6 +8,14 @@ import { randomUUID } from "node:crypto";
  */
 export type Row = Record<string, unknown>;
 
+/** A column, or a PostgREST JSON path (`raw_metadata->evidence->>fingerprint`). */
+function valueAt(r: Row, c: string): unknown {
+  if (!c.includes("->")) return r[c];
+  let v: unknown = r;
+  for (const part of c.split(/->>?/)) v = v && typeof v === "object" ? (v as Row)[part] : undefined;
+  return v;
+}
+
 export function fakeDb(tables: Record<string, Row[]>) {
   const t = (name: string) => (tables[name] ??= []);
   const uniqueViolation = (name: string, row: Row, selfId?: unknown) =>
@@ -54,7 +62,7 @@ export function fakeDb(tables: Record<string, Row[]>) {
       select(_cols?: string, opts?: { count?: string; head?: boolean }) { if (opts?.head) head = true; return q; },
       insert(rows: Row | Row[]) { mode = "insert"; payload = rows; return q; },
       update(patch: Row) { mode = "update"; payload = patch; return q; },
-      eq(c: string, v: unknown) { filters.push((r) => r[c] === v); return q; },
+      eq(c: string, v: unknown) { filters.push((r) => valueAt(r, c) === v); return q; },
       neq(c: string, v: unknown) { filters.push((r) => r[c] !== v); return q; },
       in(c: string, vs: unknown[]) { filters.push((r) => vs.includes(r[c])); return q; },
       gte(c: string, v: string) { filters.push((r) => String(r[c]) >= v); return q; },

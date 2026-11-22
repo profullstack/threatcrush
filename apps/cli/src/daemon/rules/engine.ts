@@ -104,6 +104,10 @@ export function evidenceOf(event: ThreatEvent): Record<string, unknown> {
     const v = details[k];
     if (typeof v === 'string' || typeof v === 'number') out[k] = String(v).slice(0, EVIDENCE_FIELD_CHARS);
   }
+  // An accepted SSH login's context (daemon/ssh-context): already bounded and
+  // free of key material, built for exactly this upload.
+  const ctx = details.ssh_context;
+  if (ctx && typeof ctx === 'object' && !Array.isArray(ctx) && (ctx as { v?: unknown }).v === 1) out.ssh_context = ctx;
   return out;
 }
 

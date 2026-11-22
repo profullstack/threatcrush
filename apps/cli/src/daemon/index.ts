@@ -28,6 +28,8 @@ import { LoginWatch, loginWatchSettings } from './workers/login-watch.js';
 import { TorExitList } from '../core/tor-exits.js';
 import { TorExitBlockEnforcer } from './firewall/tor-block.js';
 import { RuleEngine } from './rules/engine.js';
+import { SshLoginEnricher, sshContextSettings } from './ssh-context/index.js';
+import { describeFailures, type SshLoginContext } from '@threatcrush/event-detail';
 import { loadAllRules } from './rules/loader.js';
 import { detectFirewallAdapter } from './firewall/adapters.js';
 import { RemediationManager } from './firewall/remediation.js';
@@ -173,18 +175,27 @@ export async function runDaemon(): Promise<void> {
 
   // Detection rule engine (PRD 01)
   const ruleEngine = new RuleEngine((detection) => {
+    // An accepted SSH login carries the agent's verdict (key options, address,
+    // failures before it, ci-deploy). Rules tagged ssh-login-verdict take its
+    // severity, so a GitHub Actions deploy does not page as a compromise.
+    const ctx = (detection.raw_metadata?.evidence as { ssh_context?: SshLoginContext } | undefined)?.ssh_context;
+    const useVerdict = !!ctx?.verdict && Array.isArray(detection.raw_metadata?.tags)
+      && (detection.raw_metadata.tags as unknown[]).includes('ssh-login-verdict');
     const event: ThreatEvent = {
       timestamp: new Date(),
       module: 'rule-engine',
       category: (detection.raw_metadata?.category as any) || 'system',
-      severity: detection.severity,
+      severity: useVerdict ? ctx!.verdict.severity : detection.severity,
       message: `[DETECTION] ${detection.title}`,
       source_ip: detection.source_ip,
       details: {
         rule_id: detection.rule_id,
-        description: detection.description,
+        description: useVerdict
+          ? [ctx!.verdict.summary, describeFailures(ctx!.failures, ctx!.source?.ip)].filter(Boolean).join('. ')
+          : detection.description,
         username: detection.username,
         ...detection.raw_metadata,
+        ...(useVerdict && ctx!.verdict.severity !== detection.severity ? { rule_severity: detection.severity } : {}),
       },
     };
     bus.publish(event);
@@ -193,9 +204,19 @@ export async function runDaemon(): Promise<void> {
   // Name the key behind each accepted SSH login (its authorized_keys comment),
   // so the dashboard can tell a GitHub Actions deploy from a person.
   const keyDirectory = new KeyDirectory();
+  // `[ssh_context]`: the full story of each accepted login (key line and
+  // options, address enrichment, failures before it, ci-deploy, session).
+  // Accepted logins wait for it (a few seconds at most) before the rules run.
+  const sshContext = new SshLoginEnricher(sshContextSettings(config.ssh_context), { stateDir: PATHS.stateDir });
+  sshContext.start();
+  bus.on('sshd', (line) => sshContext.recordSshd(line));
   bus.on('event', (event) => {
     if (event.module === 'rule-engine') return;
     enrichLoginEvent(event, keyDirectory);
+    if (sshContext.wants(event)) {
+      void sshContext.enrich(event).finally(() => ruleEngine.evaluate(event));
+      return;
+    }
     ruleEngine.evaluate(event);
   });
   logLine(`[daemon] rule engine loaded ${ruleEngine.getRules().length} rules`);

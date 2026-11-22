@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { formatTimestamp } from '../lib/utils'
 import type { CloudDetection, CloudServer } from '../api'
+import { effectiveSeverity, rowSummary, type EventLike } from '@threatcrush/event-detail'
+import { loadExpectedKeys, saveExpectedKeys } from '../lib/expected-keys'
 
 /**
  * Everything the dashboards show, from two real sources:
@@ -25,6 +27,12 @@ export interface SecurityEvent {
   country?: string
   /** "this machine" or the fleet server's name. */
   origin: string
+  /** The row's one-line story: who, how, from where (SSH logins carry the agent's context). */
+  summary: string
+  /** The event in the shape the shared detail view reads (@threatcrush/event-detail). */
+  detail: EventLike
+  /** threatcrush.com detection id, for fleet events. */
+  detectionId?: string
 }
 
 export interface ThreatSource {
@@ -66,6 +74,9 @@ interface EventStore {
   fleet: FleetState
   servers: CloudServer[]
   fleetDetections: number
+  /** SSH key fingerprints the operator marked as expected CI (shared with the web dashboard's list). */
+  expectedKeys: Set<string>
+  toggleExpectedKey: (fingerprint: string) => boolean
   start: () => void
   refreshFleet: () => Promise<void>
   reconnectLocal: () => Promise<void>
@@ -83,6 +94,18 @@ interface DaemonEvent {
   severity?: string
   message?: string
   source_ip?: string
+  details?: Record<string, unknown> | string | null
+}
+
+function detailsOf(d: DaemonEvent['details']): Record<string, unknown> | null {
+  if (!d) return null
+  if (typeof d === 'object') return d
+  try {
+    const v = JSON.parse(d) as unknown
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
 }
 
 interface DaemonStatus {
@@ -108,29 +131,67 @@ export function levelFor(severity: string | undefined): EventLevel {
 let localSeq = 0
 export function fromDaemon(e: DaemonEvent): SecurityEvent {
   const at = new Date(e.timestamp).getTime() || Date.now()
+  const id = e.id != null ? `local-${e.id}` : `local-push-${++localSeq}-${at}`
+  const details = detailsOf(e.details)
+  const ruleId = typeof details?.rule_id === 'string' ? details.rule_id : undefined
+  const message = (e.message || e.category || 'event').replace(/^\[DETECTION\]\s*/, '')
+  const detail: EventLike = {
+    id,
+    at,
+    severity: e.severity ?? 'info',
+    title: message,
+    message: e.message ?? null,
+    description: typeof details?.description === 'string' ? details.description : null,
+    rule_id: ruleId ?? null,
+    module: e.module ?? null,
+    source_ip: e.source_ip || null,
+    server_id: 'local',
+    host: 'this machine',
+    metadata: details,
+  }
   return {
-    id: e.id != null ? `local-${e.id}` : `local-push-${++localSeq}-${at}`,
+    id,
     timestamp: formatTimestamp(new Date(at)),
     at,
-    level: levelFor(e.severity),
-    module: e.module || e.category || 'daemon',
-    message: e.message || e.category || 'event',
+    level: levelFor(effectiveSeverity(detail)),
+    module: ruleId || e.module || e.category || 'daemon',
+    message,
     sourceIP: e.source_ip || undefined,
     origin: 'this machine',
+    summary: rowSummary(detail).text,
+    detail,
   }
 }
 
 export function fromDetection(d: CloudDetection, serverName: string): SecurityEvent {
   const at = Date.parse(d.detected_at) || Date.now()
+  const detail: EventLike = {
+    id: d.id,
+    at: d.detected_at,
+    severity: d.severity,
+    title: d.title,
+    description: d.description,
+    rule_id: d.rule_id,
+    source_ip: d.source_ip,
+    username: d.username ?? null,
+    server_id: d.server_id,
+    host: serverName,
+    metadata: d.raw_metadata ?? null,
+    status: d.status,
+    occurrences: d.occurrences ?? null,
+  }
   return {
     id: `fleet-${d.id}`,
     timestamp: formatTimestamp(new Date(at)),
     at,
-    level: levelFor(d.severity),
+    level: levelFor(effectiveSeverity(detail)),
     module: d.rule_id || 'detection',
     message: d.title,
     sourceIP: d.source_ip || undefined,
     origin: serverName,
+    summary: rowSummary(detail).text,
+    detail,
+    detectionId: d.id,
   }
 }
 
@@ -215,6 +276,16 @@ export const useEventStore = create<EventStore>((set, get) => {
     fleet: { state: 'signed-out' },
     servers: [],
     fleetDetections: 0,
+    expectedKeys: loadExpectedKeys(),
+
+    toggleExpectedKey: (fingerprint: string) => {
+      const next = new Set(get().expectedKeys)
+      const added = !next.delete(fingerprint)
+      if (added) next.add(fingerprint)
+      saveExpectedKeys(next)
+      set({ expectedKeys: next })
+      return added
+    },
 
     reconnectLocal: async () => {
       const api = window.api

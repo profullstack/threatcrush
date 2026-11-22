@@ -59,12 +59,16 @@ export const DEFAULT_RULES: DetectionRule[] = [
   {
     id: 'ssh-success-after-failures',
     title: 'SSH Login Accepted',
-    // Honest description: this rule does NOT correlate with earlier failures —
-    // it matches any accepted login. It is an alert, and it declares no
-    // remediation precisely because banning the person who just logged in is
-    // never the right response.
+    // Matches every accepted login, not only one after failures (the id is
+    // kept for dashboards and incidents keyed on it). What came before it is
+    // in the login's ssh_context: the failures in the window and whether they
+    // came from the same address. With [ssh_context] on (the default) the
+    // detection's severity is the context's verdict: a GitHub Actions deploy
+    // with a forced-command key is low, an operator-expected CI key is info,
+    // an unrestricted key from the internet stays critical. It declares no
+    // remediation: banning the person who just logged in is never the answer.
     description: 'Successful SSH login (alert only — never grounds for a ban)',
-    version: '1.0.0',
+    version: '1.1.0',
     category: 'auth',
     severity: 'critical',
     source_types: ['ssh-guard', 'auth'],
@@ -76,7 +80,7 @@ export const DEFAULT_RULES: DetectionRule[] = [
     threshold: 1,
     window_seconds: 60,
     cooldown_seconds: 300,
-    tags: ['ssh', 'compromise-indicator'],
+    tags: ['ssh', 'compromise-indicator', 'ssh-login-verdict'],
     enabled: true,
   },
   {

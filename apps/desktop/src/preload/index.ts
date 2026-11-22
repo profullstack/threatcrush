@@ -63,6 +63,8 @@ const api = {
     attackMap: (windowMinutes?: number) => ipcRenderer.invoke('cloud-attack-map', windowMinutes),
     detections: (q?: { server_id?: string; since?: string; limit?: number }) => ipcRenderer.invoke('cloud-detections', q),
     triage: (ids: string[], status: string | null, note?: string) => ipcRenderer.invoke('cloud-triage', ids, status, note),
+    detectionHistory: (id: string) => ipcRenderer.invoke('cloud-detection-history', id),
+    openDetection: (id: string) => ipcRenderer.invoke('cloud-open-detection', id),
   },
 
   /** CrushAV: free antivirus. The engine runs in the main process. */

@@ -223,6 +223,12 @@ ipcMain.handle('cloud-servers', () => wrap(() => cloudClient().servers()))
 ipcMain.handle('cloud-detections', (_e, q: unknown) =>
   wrap(() => cloudClient().detections((q && typeof q === 'object' ? q : {}) as { server_id?: string; since?: string; limit?: number })))
 
+ipcMain.handle('cloud-detection-history', (_e, id: unknown) => wrap(() => cloudClient().detectionHistory(String(id))))
+// Only ever a detection page on our own site.
+ipcMain.handle('cloud-open-detection', (_e, id: unknown) => wrap(async () => {
+  await shell.openExternal(cloudClient().detectionUrl(String(id)))
+}))
+
 // The real app version, for the sidebar (it used to be a hard-coded string).
 ipcMain.on('app-version', (e) => { e.returnValue = app.getVersion() })
 ipcMain.handle('cloud-triage', (_e, ids: unknown, status: unknown, note: unknown) =>

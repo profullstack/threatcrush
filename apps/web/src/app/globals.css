@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* The event detail view shared with the desktop app. */
+@source "../../../../packages/event-detail/src";
 
 :root {
   --tc-green: #00ff41;

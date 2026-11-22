@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush",
-  "version": "0.15.3",
+  "version": "0.16.0",
   "description": "All-in-one security agent daemon — monitor, detect, scan, and protect servers in real-time",
   "bin": {
     "threatcrush": "./dist/index.js"
@@ -55,6 +55,7 @@
   "devDependencies": {
     "@threatcrush/attack-map": "workspace:*",
     "@threatcrush/av": "workspace:*",
+    "@threatcrush/event-detail": "workspace:*",
     "@threatcrush/scan": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",

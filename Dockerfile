@@ -31,6 +31,7 @@ COPY apps/sdk/package.json apps/sdk/
 # @threatcrush/scan), and the web build fails with "Can't resolve 'yaml'".
 COPY packages/attack-map/package.json packages/attack-map/
 COPY packages/av/package.json packages/av/
+COPY packages/event-detail/package.json packages/event-detail/
 COPY packages/scan/package.json packages/scan/
 COPY modules/code-scanner/package.json modules/code-scanner/
 COPY modules/feodo-tracker/package.json modules/feodo-tracker/
