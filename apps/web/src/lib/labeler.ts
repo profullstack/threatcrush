@@ -233,7 +233,17 @@ const rowToLabel = (r: Row): Label => {
  * Expired positives are dropped.
  */
 export async function currentLabels(admin: SupabaseClient, uris: string[], now = Date.now()): Promise<Label[]> {
-  if (uris.length === 0) return [];
+  const out: Label[] = [];
+  for (const r of (await latestRecords(admin, uris)).values()) {
+    if (!r.neg && Date.parse(r.exp) > now) out.push(rowToLabel(r));
+  }
+  return out;
+}
+
+/** The newest record (positive or `neg`) per (uri, val), keyed `${uri}\n${val}`. */
+async function latestRecords(admin: SupabaseClient, uris: string[]): Promise<Map<string, Row>> {
+  const latest = new Map<string, Row>();
+  if (uris.length === 0) return latest;
   const { data, error } = await admin
     .from("labeler_labels")
     .select("id,src,uri,val,neg,cts,exp,evidence,sig")
@@ -241,25 +251,28 @@ export async function currentLabels(admin: SupabaseClient, uris: string[], now =
     .order("id", { ascending: false })
     .limit(5000);
   if (error) throw new Error(`labeler_labels read failed: ${error.message}`);
-  const seen = new Set<string>();
-  const out: Label[] = [];
   for (const r of (data ?? []) as Row[]) {
     const k = `${r.uri}\n${r.val}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    if (!r.neg && Date.parse(r.exp) > now) out.push(rowToLabel(r));
+    if (!latest.has(k)) latest.set(k, r);
   }
-  return out;
+  return latest;
 }
 
-/** Turn findings into signed, stored labels, reusing a stored one with enough life left. */
+/**
+ * Turn findings into signed, stored labels, reusing a stored one with enough
+ * life left. A granted appeal sticks: while an unexpired `neg` is the newest
+ * record for (uri, val), the same finding is not re-issued. The uri is the
+ * file's SHA-256, so a rescan sees the very bytes a person already cleared.
+ */
 export async function issueLabels(admin: SupabaseClient, key: KeyObject, findings: Finding[], now = Date.now()): Promise<Label[]> {
   if (findings.length === 0) return [];
-  const existing = await currentLabels(admin, [...new Set(findings.map((f) => f.uri))], now);
+  const latest = await latestRecords(admin, [...new Set(findings.map((f) => f.uri))]);
   const out: Label[] = [];
   const fresh: Label[] = [];
   for (const f of findings) {
-    const have = existing.find((l) => l.uri === f.uri && l.val === f.val);
+    const rec = latest.get(`${f.uri}\n${f.val}`);
+    if (rec?.neg && Date.parse(rec.exp) > now) continue; // appeal granted for these exact bytes
+    const have = rec && !rec.neg && Date.parse(rec.exp) > now ? rowToLabel(rec) : undefined;
     if (have && Date.parse(have.exp) - now > REISSUE_MARGIN) {
       out.push(have);
       continue;

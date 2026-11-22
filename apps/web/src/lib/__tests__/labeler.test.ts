@@ -313,4 +313,17 @@ describe("label store semantics", () => {
     expect(verifyLabel(l, PUB)).toBe(true);
     expect(l.exp).toBe(isoSeconds(now + f.ttl));
   });
+  it("a granted appeal sticks: a rescan of the same bytes does not re-issue the label", async () => {
+    const f: Finding = { uri, val: "malware", ttl: 7 * 86_400_000, evidence: "domain:pit.world", path: "a" };
+    const appealed = fakeAdmin([row(1, false, now + 1e9), row(2, true, now + 365 * 86_400_000)]);
+    expect(await issueLabels(appealed.admin, KEY, [f], now)).toEqual([]);
+    expect(appealed.inserted).toHaveLength(0);
+    expect(await currentLabels(appealed.admin, [uri], now)).toEqual([]);
+    // Another value for the same file is a different finding and still labels.
+    const other = await issueLabels(appealed.admin, KEY, [{ ...f, val: "phishing" }], now);
+    expect(other.map((l) => l.val)).toEqual(["phishing"]);
+    // An expired appeal no longer blocks.
+    const lapsed = fakeAdmin([row(1, false, now - 10), row(2, true, now - 5)]);
+    expect((await issueLabels(lapsed.admin, KEY, [f], now)).length).toBe(1);
+  });
 });
