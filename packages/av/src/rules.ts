@@ -405,7 +405,87 @@ export const RULES: AvRule[] = [
     description: 'This SVG "image" contains a script that redirects you or decodes hidden content. Phishing emails use SVG attachments like this to send you to fake login pages.',
     test: (c) => c.ext === 'svg' && /<script\b/i.test(c.text) && /(?:location(?:\.href)?\s*=|location\.replace\(|window\.open\(|atob\s*\()/.test(c.text),
   },
+  {
+    // Seen 2026-11-22: "futures-trader", a Go Gate.io futures CLI (UPX, saved
+    // as .txt). `save-key` stores your API key locally AND, in a goroutine,
+    // runs `INSERT INTO api_keys (key_val, secret_val, exchange_name)` on the
+    // author's free public MySQL (mysql5.sqlpub.com) with the DSN in plain text.
+    id: 'CrushAV.Stealer.SecretsToHardcodedDatabase',
+    name: 'Sends your secrets to someone else\'s database',
+    severity: 'critical',
+    impact: 'malicious',
+    description:
+      'This program carries the login for a remote database baked into it and writes API keys, passwords, tokens or wallet seeds into it. That is how fake trading bots and "tools" steal keys: whatever you give it ends up in the author\'s database. Delete it, and revoke any key or password you entered into it.',
+    test: (c) => isStealerHost(c) && findRemoteDsn(allText(c)) !== null && SECRET_INSERT.test(allText(c)),
+  },
+  {
+    id: 'CrushAV.Stealer.ExchangeKeyHarvester',
+    name: 'Crypto exchange tool that leaks your API key',
+    severity: 'critical',
+    impact: 'malicious',
+    description:
+      'A crypto-exchange trading tool that also contains the password for someone\'s remote database. A real trading tool only talks to the exchange; one that also logs in to a private database is copying your exchange API key and secret there. Delete it, revoke the key on the exchange now and check for withdrawals.',
+    test: (c) => isStealerHost(c) && EXCHANGE_API.test(allText(c)) && findRemoteDsn(allText(c)) !== null,
+  },
+  {
+    id: 'CrushAV.Suspicious.FreePublicDatabase',
+    name: 'Logs in to a free public database',
+    severity: 'medium',
+    impact: 'suspicious',
+    description:
+      'This program has the password for a database on a free, anonymous hosting service built in. Real software almost never does this; data thieves use these services as a drop box. If you did not write it, do not give it any keys or passwords.',
+    test: (c) => {
+      if (!isStealerHost(c)) return false;
+      const dsn = findRemoteDsn(allText(c));
+      return dsn !== null && FREE_DB_HOSTS.test(dsn.host);
+    },
+  },
 ];
+
+/**
+ * Programs that could quietly ship your secrets somewhere: native executables
+ * (including a UPX payload unpacked by the engine) and runnable scripts. A
+ * Markdown tutorial or a `.go` source file that shows a DSN is not one.
+ */
+const isStealerHost = (c: RuleContext) =>
+  EXECUTABLE_KINDS.has(c.kind) || (isScript(c) && !NON_RUNNABLE_SOURCE_EXTS.has(c.ext));
+
+/** Crypto exchange REST APIs that take a key + secret. */
+const EXCHANGE_API =
+  /\b(?:api\.gateio\.ws|api\.gate\.io|(?:f|d)?api\.binance\.(?:com|us)|api\.bybit\.com|www\.okx\.com\/api|api\.mexc\.com|contract\.mexc\.com|api\.bitget\.com|api(?:-futures)?\.kucoin\.com|api\.kraken\.com|futures\.kraken\.com|api\.huobi\.pro|api\.htx\.com|api\.coinbase\.com|api\.exchange\.coinbase\.com|api\.bitfinex\.com|api\.hyperliquid\.xyz|api\.bingx\.com|open-api\.bingx\.com|api\.phemex\.com|api\.lbkex\.com|api\.bitmart\.com)\b/i;
+
+/** SQL that stores a secret: column list or table name says key/secret/password/seed/token. */
+const SECRET_INSERT =
+  /\b(?:INSERT|REPLACE)\s+INTO\s+[`"[]?(?:\w+[`"\]]?\.)?[`"[]?\w*(?:api_?keys?|secrets?|passw\w*|credentials?|wallets?|seeds?|mnemonics?|tokens?|cookies?|private_?keys?)\w*[`"\]]?\s*\(|\b(?:INSERT|REPLACE)\s+INTO\s+[`"[]?\w+[`"\]]?\s*\([^)]{0,200}\b\w*(?:secret|passw|private_?key|seed|mnemonic|api_?key|access_?token|cookie)\w*\b[^)]{0,200}\)/i;
+
+/** Free, anonymous database hosts used as drop boxes. */
+const FREE_DB_HOSTS = /(?:^|\.)(?:sqlpub\.com|db4free\.net|freesqldatabase\.com|freemysqlhosting\.net|remotemysql\.com|freedb\.tech|filess\.io)$/i;
+
+const PLACEHOLDER_SECRET = /^(?:pass(?:word|wd)?|pwd|secret|changeme|example|xxx+|\*+|<[^>]*>|\{[^}]*\}|\$\{?\w+\}?|%[sv]|your_?\w*|user(?:name)?|root|test)$/i;
+const LOCAL_HOST = /^(?:localhost|127\.\d+\.\d+\.\d+|0\.0\.0\.0|::1|host|hostname|db|database|mysql|postgres|redis|mongo|example\.(?:com|org|net)|[\w.-]*\.example\.(?:com|org|net)|[\w-]*\.local|[\w-]*\.internal|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)$/i;
+
+/**
+ * A database connection string with a real password to a remote host:
+ * Go's `user:pass@tcp(host:port)/db`, or `mysql://user:pass@host/db` style
+ * URLs. Placeholders (`password`, `${DB_PASS}`, `%s`) and local or private
+ * hosts are ignored, so a driver's own documentation never matches.
+ */
+export function findRemoteDsn(t: string): { user: string; host: string } | null {
+  const res = [
+    /([\w.-]{1,64}):([^\s@:/'"`()]{4,128})@tcp\(([a-z0-9.-]+)(?::\d{2,5})?\)\/[\w-]{0,64}/gi,
+    /(?:mysql|mariadb|postgres(?:ql)?|mongodb(?:\+srv)?|rediss?|mssql|sqlserver):\/\/([\w.%-]{1,64}):([^\s@/'"`]{4,128})@([a-z0-9.-]+)(?::\d{2,5})?(?:\/|\b)/gi,
+    /([\w.-]{1,64}):([^\s@:/'"`()]{4,128})@([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,24}):(?:3306|3307|3308|3309|3310|3311|5432|5433|6379|27017|1433)\/[\w-]{1,64}/gi,
+  ];
+  for (const re of res) {
+    for (const m of t.matchAll(re)) {
+      const [, user, pass, host] = m;
+      if (PLACEHOLDER_SECRET.test(pass)) continue;
+      if (LOCAL_HOST.test(host) || !/\.[a-z]{2,24}$|^\d+\.\d+\.\d+\.\d+$/i.test(host)) continue;
+      return { user, host: host.toLowerCase() };
+    }
+  }
+  return null;
+}
 
 /** Build a rule context. `bytes` may be a prefix of the file. */
 export function buildContext(name: string, bytes: Uint8Array, kind: FileKind, size: number): RuleContext {

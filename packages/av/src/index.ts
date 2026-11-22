@@ -10,7 +10,7 @@
 export type { AvDetection, AvEngine, AvFileResult, AvSeverity, AvSummary, AvVerdict, FileKind, HashReputation } from './types';
 export { Sha256, sha256Hex, SHA256_RE } from './sha256';
 export { baseName, DOCUMENT_EXTENSIONS, EXECUTABLE_KINDS, extOf, RUNNABLE_EXTENSIONS, sniffKind } from './magic';
-export { buildContext, EICAR, RULES, runRules } from './rules';
+export { buildContext, EICAR, findRemoteDsn, RULES, runRules } from './rules';
 export type { AvRule, RuleContext } from './rules';
 export {
   applyReputation,
@@ -31,3 +31,5 @@ export {
   queryMalwareBazaar,
 } from './reputation';
 export { summarize } from './summary';
+export { findUpxHeader, nrvDecompress, upxUnpack, UPX_MAX_OUTPUT } from './upx';
+export type { UpxInfo, UpxMethod, UpxUnpacked } from './upx';

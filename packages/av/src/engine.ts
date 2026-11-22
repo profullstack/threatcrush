@@ -1,7 +1,8 @@
-import { sniffKind } from './magic';
+import { EXECUTABLE_KINDS, sniffKind } from './magic';
 import { buildContext, runRules, RULES, type AvRule } from './rules';
 import { sha256Hex, SHA256_RE } from './sha256';
 import type { AvDetection, AvFileResult, AvVerdict, HashReputation } from './types';
+import { upxUnpack } from './upx';
 
 /** Heuristics read at most this much of a file. Hashing always covers all of it. */
 export const DEFAULT_HEURISTIC_BYTES = 16 * 1024 * 1024;
@@ -103,11 +104,38 @@ export async function scanBytes(input: ScanBytesInput, opts: ScanBytesOptions = 
     });
   }
 
+  const rules = opts.rules ?? RULES;
   const ctx = buildContext(input.name, input.bytes, kind, size);
-  for (const d of runRules(ctx, opts.rules ?? RULES)) {
+  for (const d of runRules(ctx, rules)) {
     // The signature already said EICAR; don't list it twice.
     if (known && d.id === 'CrushAV.Test.EICAR') continue;
     detections.push(d);
+  }
+
+  // A UPX-packed program hides every string the rules look for. Inflate it
+  // and run the rules again on what will actually be in memory.
+  if (EXECUTABLE_KINDS.has(kind)) {
+    const upx = upxUnpack(input.bytes);
+    if (upx) {
+      detections.push({
+        engine: 'heuristic',
+        id: 'CrushAV.Packer.UPX',
+        name: 'Compressed with UPX',
+        severity: 'info',
+        impact: 'info',
+        description: upx.bytes
+          ? `This program is compressed with UPX (${upx.info.method}). Some legitimate tools are; malware uses it to hide its contents. CrushAV unpacked it and scanned the inside too.`
+          : `This program is compressed with UPX (${upx.info.method}) and CrushAV could not unpack it, so its contents were not inspected. Treat it with care if you do not know where it came from.`,
+      });
+      if (upx.bytes) {
+        const seen = new Set(detections.map((d) => d.id));
+        const inner = buildContext(input.name, upx.bytes, kind, upx.bytes.length);
+        for (const d of runRules(inner, rules)) {
+          if (seen.has(d.id)) continue;
+          detections.push({ ...d, description: `${d.description} (Found inside the UPX-packed program.)` });
+        }
+      }
+    }
   }
 
   return {

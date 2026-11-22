@@ -21,6 +21,14 @@ threatcrush av status            # engines, ClamAV version, quarantine
   webshells, miners, ransomware behaviour and notes, credential dumpers, macOS
   stealers, ClickFix pages and HTML smuggling. Each rule is scoped to the file
   types where its pattern means an attack, to keep false positives near zero.
+- **UPX unpacking** (`src/upx.ts`): executables packed with UPX (NRV2B/2D/2E,
+  the default for Windows, Linux and macOS) are inflated in pure TypeScript and
+  the rules run again on the payload, so packing no longer hides a stealer's
+  strings. LZMA-packed files are reported as packed but not inspected.
+- **Credential stealers**: programs that carry a remote database password and
+  write API keys, secrets or seeds into it (fake trading bots), exchange tools
+  that also log in to a private database, and anything that logs in to a free
+  anonymous database host.
 - **ClamAV** (`src/node/clamav.ts`): used automatically when `clamscan` or a
   running `clamd` is installed.
 - **Hash reputation** (`lookupHashes`): SHA-256 fingerprints, never files, are
