@@ -60,6 +60,12 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/api/attack-map/public", limit: 60, windowMs: 60_000 },
   // Public CrushAV hash reputation; each call carries up to 100 hashes, each a CIRCL request on a cache miss.
   { prefix: "/api/av/lookup", limit: 30, windowMs: 60_000 },
+  // DIP-0036 labeler. scan needs a token (gateways at push time); query is public
+  // and can trigger up to 100 reputation lookups; log is a cheap paged read.
+  { prefix: "/api/v1/labels/scan", limit: 120, windowMs: 60_000 },
+  { prefix: "/api/v1/labels/query", limit: 60, windowMs: 60_000 },
+  { prefix: "/api/v1/labels/negate", limit: 20, windowMs: 60_000 },
+  { prefix: "/api/v1/labels/", limit: 120, windowMs: 60_000 },
   { prefix: "/api/", limit: 300, windowMs: 60_000 },
 ];
 

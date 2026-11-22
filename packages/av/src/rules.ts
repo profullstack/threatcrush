@@ -350,6 +350,39 @@ export const RULES: AvRule[] = [
     },
   },
   {
+    id: 'CrushAV.Web.PhishKitExfil',
+    name: 'Phishing page that sends passwords to a chat bot',
+    severity: 'critical',
+    impact: 'malicious',
+    description: 'A login page that sends whatever you type, including your password, to a Telegram bot or a Discord webhook. Real sites never do this: it is how phishing kits deliver stolen credentials. Do not enter anything on this page.',
+    test: (c) => {
+      if (!(WEB_EXTS.has(c.ext) || c.ext === 'js' || c.ext === 'mjs' || c.ext === 'php')) return false;
+      const t = c.text;
+      const exfil = /api\.telegram\.org\/bot[\w$`'"+{}.:-]{0,80}\/send(?:Message|Document)/i.test(t) ||
+        /discord(?:app)?\.com\/api\/webhooks\/\d{5,}\//i.test(t);
+      if (!exfil) return false;
+      // A credential to steal: a password input, or a password/passcode/otp field being read.
+      return /<input\b[^>]*\btype\s*=\s*["']?password\b/i.test(t) ||
+        /(?:getElementById|querySelector|getElementsByName)\s*\(\s*["'`][#.]?[\w-]*(?:pass(?:word|wd|code)?|pwd|otp|pin)[\w-]*["'`]/i.test(t) ||
+        /\$_(?:POST|REQUEST)\s*\[\s*["'][\w-]*(?:pass(?:word|wd)?|pwd)[\w-]*["']\s*\]/i.test(t);
+    },
+  },
+  {
+    id: 'CrushAV.Web.BrowserMiner',
+    name: 'Web page that mines cryptocurrency in your browser',
+    severity: 'high',
+    impact: 'malicious',
+    description: 'This page loads a cryptocurrency miner that runs in the visitor\'s browser and uses their CPU for someone else\'s profit, usually without asking. Close it.',
+    test: (c) => {
+      if (!(WEB_EXTS.has(c.ext) || c.ext === 'js' || c.ext === 'mjs')) return false;
+      const t = c.text;
+      // The miner being started, not merely named: constructor plus .start(), or a script tag from a miner pool.
+      const started = /\b(?:CoinHive|CoinImp|Client|CRLT|WMP|deepMiner|Minero)\.(?:Anonymous|User|Init)\s*\(\s*["'`][\w$]{8,}["'`][\s\S]{0,400}?\.start\s*\(/.test(t);
+      const poolScript = /<script\b[^>]*\bsrc\s*=\s*["']?(?:https?:)?\/\/(?:[\w-]+\.)*(?:coinhive\.com|coin-hive\.com|authedmine\.com|crypto-loot\.(?:com|org)|cryptoloot\.pro|webminepool\.com|coinimp\.com|www\.hostingcloud\.racing|minero\.cc|jsecoin\.com|monerominer\.rocks|webmine\.cz)\//i.test(t);
+      return started || poolScript;
+    },
+  },
+  {
     id: 'CrushAV.Web.HtmlSmuggling',
     name: 'Web page that builds a hidden download',
     severity: 'high',
