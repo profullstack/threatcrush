@@ -395,8 +395,8 @@ importers:
         specifier: 0.2.1
         version: 0.2.1
       '@profullstack/x402-gateway':
-        specifier: ^0.18.2
-        version: 0.18.2
+        specifier: ^0.18.4
+        version: 0.18.4
       '@sentry/node':
         specifier: ^11.9.0
         version: 11.9.0(rollup@4.65.1)
@@ -2438,8 +2438,8 @@ packages:
     resolution: {integrity: sha512-QHeSkpu4O44oJ620qhQqxqFlD3u/OhupmXRnBHw4MGKuDTa0R+Y/727nnF7psSHxxSfnbWfNuVl15z3IXuaZiw==}
     engines: {node: '>=20'}
 
-  '@profullstack/x402-gateway@0.18.2':
-    resolution: {integrity: sha512-PM0S2ADXPKPvPLLlWVbEqMq+EhKxiNxg1wp0jeGf9S5tz2ZGaNIFqun69cO5lJGZgfh03ST4UkJZGr8CmvCWyg==}
+  '@profullstack/x402-gateway@0.18.4':
+    resolution: {integrity: sha512-Glff1R6FvaYbiZK+zJv+vB11DOxUU7zQt9yIw/aLrVnta9OTqkULnGzqLy62egL6BZbxtVfW3kx/yHXiZOKVAw==}
     engines: {node: '>=20.11'}
 
   '@radix-ui/react-compose-refs@1.0.0':
@@ -10258,11 +10258,11 @@ snapshots:
 
   '@profullstack/throttle@0.5.1':
     dependencies:
-      '@profullstack/x402-gateway': 0.18.2
+      '@profullstack/x402-gateway': 0.18.4
 
   '@profullstack/webhooks@0.2.1': {}
 
-  '@profullstack/x402-gateway@0.18.2':
+  '@profullstack/x402-gateway@0.18.4':
     dependencies:
       '@profullstack/keys': 0.1.0
 
