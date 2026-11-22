@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { EICAR } from "@threatcrush/av";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { activeHosts, currentLabels, issueLabels, labelValueFor, LIMITS, scanFiles, type Finding } from "@/lib/labeler";
+import { activeHosts, currentLabels, isFirstParty, issueLabels, labelValueFor, LIMITS, scanFiles, type Finding } from "@/lib/labeler";
 import { parseQueryUris, parseScanFiles, readJsonCapped, scanAuthorized } from "@/lib/labeler-http";
 import { canonicalLabel, isoSeconds, LABELER_DID, labelerKey, publicKeyB64, signLabel, verifyLabel, type Label } from "@/lib/labeler-sign";
 
@@ -103,6 +103,53 @@ describe("scanFiles", () => {
     const { findings } = await scanFiles([{ path: "p.html", bytes: enc(html) }], { reputations: noRep, domain });
     expect(asked).toEqual(["evil-login.example"]);
     expect(findings).toEqual([expect.objectContaining({ val: "phishing", evidence: "domain:evil-login.example" })]);
+  });
+  it("does not label a page that loads from pit.world (our own network), even when a list names it", async () => {
+    // Verbatim nichedb answer for pit.world on 2026-11-22, which produced label 11 (evidence domain:pit.world).
+    const asked: string[] = [];
+    const domain = async (d: string) => {
+      asked.push(d);
+      return {
+        listed: true,
+        score: 100,
+        reasons: [
+          "Spamhaus DBL: malware domain",
+          "23.95.228.174 (A record) on Spamhaus ZEN: SBL (Spamhaus block list), SBL CSS (snowshoe spam), XBL (exploited host)",
+        ],
+      };
+    };
+    const html = `<a href="https://board.saas.pit.world/">Board</a><script src="https://pit.world/snippets/footer.js"></script><iframe src="https://board.saas.pit.world/embed"></iframe><script src="https://c0mpute.com/x.js"></script><form action="https://crawlproof.com/s"></form>`;
+    const { findings } = await scanFiles([{ path: "index.html", bytes: enc(html) }], { reputations: noRep, domain });
+    expect(asked).toEqual([]);
+    expect(findings).toEqual([]);
+  });
+  it("still labels a first-party page on file-content evidence", async () => {
+    const html = `${EICAR}<script src="https://pit.world/x.js"></script>`;
+    const { findings } = await scanFiles([{ path: "e.html", bytes: enc(html) }], { reputations: noRep, domain: noDomain });
+    expect(findings).toEqual([expect.objectContaining({ val: "malware", evidence: expect.stringMatching(/^crushav:.*EICAR/) })]);
+  });
+  it("labels on domain reputation only for malware/phishing reasons about the exact host", async () => {
+    const answers: Record<string, string[]> = {
+      // spam-only listing of the name and its server: not malware
+      "spammy.example": ["Spamhaus DBL: spam domain", "1.2.3.4 (A record) on Spamhaus ZEN: SBL CSS (snowshoe spam), XBL (exploited host)"],
+      // the parent zone is listed for malware, the queried host is not
+      "cdn.parent.example": ["Spamhaus DBL (parent.example): malware domain", "nichedb: URIBL (parent.example): phishing"],
+      // only the address is listed
+      "shared.example": ["5.6.7.8 (A record): abuse.ch urlhaus: malware_download"],
+      // the exact host serves malware
+      "bad.example": ["Spamhaus DBL: spam domain", "abuse.ch urlhaus: malware_download"],
+    };
+    const domain = async (d: string) => ({ listed: true, score: 90, reasons: answers[d] ?? [] });
+    const html = Object.keys(answers).map((h) => `<script src="https://${h}/a.js"></script>`).join("");
+    const { findings } = await scanFiles([{ path: "p.html", bytes: enc(html) }], { reputations: noRep, domain });
+    expect(findings).toEqual([expect.objectContaining({ val: "malware", evidence: "domain:bad.example" })]);
+  });
+  it("isFirstParty matches our domains and subdomains only, plus env extras", () => {
+    expect(isFirstParty("pit.world")).toBe(true);
+    expect(isFirstParty("board.saas.pit.world")).toBe(true);
+    expect(isFirstParty("notpit.world")).toBe(false);
+    expect(isFirstParty("pit.world.evil.example")).toBe(false);
+    expect(isFirstParty("x.ours.example", { LABELER_FIRST_PARTY_DOMAINS: "ours.example" } as unknown as NodeJS.ProcessEnv)).toBe(true);
   });
   it("fails open when reputation and domain lookups break", async () => {
     const boom = async () => {

@@ -88,6 +88,64 @@ export function activeHosts(text: string): string[] {
   return [...out];
 }
 
+/**
+ * Our own domains. A file that loads a script, frame or form target from one
+ * of these is never labelled on that domain alone: hosting, the network footer
+ * and nav all come from here, and a listing of shared infrastructure (a
+ * Spamhaus hit on the box's address, say) would otherwise refuse every site on
+ * the network. File-content evidence (CrushAV, hash reputation) still labels.
+ * Extend with LABELER_FIRST_PARTY_DOMAINS (comma separated).
+ */
+export const FIRST_PARTY_DOMAINS: readonly string[] = [
+  "pit.world",
+  "profullstack.com",
+  "c0mpute.com",
+  "threatcrush.com",
+  "crawlproof.com",
+  "nichedb.dev",
+  "logicsrc.com",
+  "coinpayportal.com",
+  "moshcode.sh",
+  "moshcoding.com",
+  "w3bs.org",
+  "rssamplifier.com",
+];
+
+/** True for one of our domains or any subdomain of one. */
+export function isFirstParty(host: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const h = host.toLowerCase().replace(/\.$/, "");
+  const extra = (env["LABELER_FIRST_PARTY_DOMAINS"] ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase().replace(/^\*?\./, ""))
+    .filter(Boolean);
+  return [...FIRST_PARTY_DOMAINS, ...extra].some((d) => h === d || h.endsWith(`.${d}`));
+}
+
+/** What in a reputation reason says the domain serves malware or phishing, as opposed to sending spam. */
+const SEVERE_REASON = /phish|malware|botnet|c&c|\bc2\b|ransom|skimm|payload|urlhaus|threatfox|malwarebazaar/i;
+
+/**
+ * The label a domain listing justifies, or null. Only reasons about the exact
+ * host count: a listing of a parent zone ("Spamhaus DBL (pit.world): ...") or
+ * of an address the name resolves to ("1.2.3.4 (A record) on ...") is about
+ * shared infrastructure, not this name. And only malware/phishing reasons
+ * label: a spam listing (Spamhaus DBL "spam domain", SBL CSS) is not evidence
+ * that a file is dangerous.
+ */
+export function domainLabelValue(host: string, reasons: string[]): LabelValue | null {
+  const h = host.toLowerCase();
+  const exact = reasons.filter((raw) => {
+    const r = raw.replace(/^nichedb:\s*/i, "");
+    if (/\((?:A|AAAA) record\b/i.test(r) || /^resolves to\b/i.test(r)) return false;
+    // "<list> (<subject>[, via]): ..." names a subject other than the queried host.
+    const subj = /^[^:(]*\(([^),\s]+)/.exec(r)?.[1]?.toLowerCase();
+    return !subj || subj === h;
+  });
+  const severe = exact.filter((r) => SEVERE_REASON.test(r));
+  if (severe.length === 0) return null;
+  return severe.some((r) => /phish/i.test(r)) ? "phishing" : "malware";
+}
+
 const isTexty = (r: AvFileResult) => r.kind === "text" || r.kind === "script" || r.kind === "unknown";
 
 export interface ScanDeps {
@@ -128,6 +186,8 @@ export async function scanFiles(files: ScanFile[], deps: ScanDeps = {}): Promise
     const r = results[i];
     if (!r.sha256 || !isTexty(r) || f.bytes.length > LIMITS.maxFileBytes) return;
     for (const h of activeHosts(Buffer.from(f.bytes).toString("latin1"))) {
+      // Our own network is never evidence on its own (see FIRST_PARTY_DOMAINS).
+      if (isFirstParty(h)) continue;
       if (!byHost.has(h) && byHost.size >= LIMITS.maxDomainsPerScan) continue;
       byHost.set(h, [...(byHost.get(h) ?? []), r]);
     }
@@ -137,8 +197,8 @@ export async function scanFiles(files: ScanFile[], deps: ScanDeps = {}): Promise
   hosts.forEach((host, i) => {
     const rep = reports[i];
     if (!rep?.listed) return;
-    const why = rep.reasons.join(" ").toLowerCase();
-    const val: LabelValue = /phish/.test(why) ? "phishing" : "malware";
+    const val = domainLabelValue(host, rep.reasons);
+    if (!val) return;
     for (const r of byHost.get(host) ?? []) {
       add({ uri: `sha256:${r.sha256}`, val, ttl: TTL.domain, evidence: `domain:${host}`, path: r.path });
     }
