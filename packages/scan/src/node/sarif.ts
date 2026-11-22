@@ -166,6 +166,7 @@ interface SarifRule {
   shortDescription: { text: string };
   fullDescription: { text: string };
   help: { text: string; markdown: string };
+  helpUri?: string;
   defaultConfiguration: { level: SarifLevel };
   properties: {
     tags: string[];
@@ -206,6 +207,7 @@ export function buildSarif(findings: readonly ScanFinding[], options: SarifOptio
             ? `**${finding.title}**\n\n${finding.consequence}`
             : `**${finding.title}**`) + (finding.fix ? `\n\n**Fix:** ${finding.fix}` : ''),
       },
+      ...(finding.reference ? { helpUri: finding.reference } : {}),
       defaultConfiguration: { level: sarifLevel(finding.severity) },
       properties: {
         tags,

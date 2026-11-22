@@ -74,6 +74,9 @@ export function envSecretNames(text: string): string[] {
 }
 
 function isEnvFile(base: string): boolean {
+  // Backups (`app.env.bak`, `prod.env.old.2`) hold the same secrets and are
+  // never rotated with the original: attack-vectors/unrotated-github-app-keys.md.
+  if (/^[\w.-]*\.env\.(?:bak|old|orig|save|backup|prev)(?:[.~_-][\w.~-]*)?$/i.test(base)) return true;
   if (/^\.env(\..+)?$/.test(base) || /^[\w.-]+\.env$/.test(base)) {
     return !/(example|sample|template|dist|defaults?|schema|test)$/i.test(base.replace(/\.env$/, ''));
   }

@@ -89,7 +89,16 @@ by design — from its self-scan.
 
 Rules live in `src/code-rules.ts`, credentials in `src/secret-rules.ts`,
 manifests in `src/manifest-rules.ts`, GitHub Actions workflows in
-`src/workflow-rules.ts` (YAML-parsed; see the CLI README for the rule list). Two invariants are enforced by tests:
+`src/workflow-rules.ts` (YAML-parsed; see the CLI README for the rule list),
+and whole-file deploy-path rules (compose mounts, upload-then-run deploy
+scripts, authorized_keys and sshd hygiene, the GitHub App callback IDOR) in
+`src/deploy-rules.ts`.
+
+`SECRET_RULES` is the pluggable credential table: a new token format is one
+entry (`id`, `name`, `pattern`, `severity`, `cwe`, `consequence`), with
+optional `confirm` for a second look at the match, `supersedes` to replace a
+more generic rule on the same line, and `reference` to link an
+`attack-vectors/` write-up (see `src/references.ts`). Two invariants are enforced by tests:
 
 - **Every language the scanner claims must have at least one rule.** `shell`
   and `php` were both listed as supported while no rule targeted them, so those

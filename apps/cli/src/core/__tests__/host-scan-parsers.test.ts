@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   expandAuthorizedKeysFiles, groupMembers, isRkhunterRootkitWarning, isUnrestrictedKey, judgeDockerInspect,
-  judgePackageVerify, judgeSshdConfig, keyFingerprint, keyIsDenied, parseAuthorizedKeys, parseChkrootkit,
+  judgeKeyPlacement, judgePackageVerify, judgeSshdConfig, keyFingerprint, keyIsDenied, parseAuthorizedKeys, parseChkrootkit,
   parseDenyList, parseDpkgSearch, parsePackageVerify, parsePasswd, parseProcModules, parseRkhunter, parseSince,
   parseSshdT, parseUnhide, uidZeroNonRoot,
 } from '../host-scan/parsers.js';
@@ -148,6 +148,43 @@ not a key line
   it('expands AuthorizedKeysFile tokens', () => {
     expect(expandAuthorizedKeysFiles('.ssh/authorized_keys /etc/ssh/keys/%u', '/home/bob', 'bob'))
       .toEqual(['/home/bob/.ssh/authorized_keys', '/etc/ssh/keys/bob']);
+  });
+});
+
+describe('authorized_keys placement (planted persistence)', () => {
+  const PLANTED = `ssh-ed25519 ${BLOB_A} ci-diag-20261120`;
+  const place = (text: string, file: string, user: string) => parseAuthorizedKeys(text, file).map((k) => ({ ...k, user }));
+
+  it('fails a key that authorizes both root and another account', () => {
+    const keys = [...place(PLANTED, '/root/.ssh/authorized_keys', 'root'), ...place(PLANTED, '/home/app/.ssh/authorized_keys', 'app')];
+    const items = judgeKeyPlacement(keys, new Set());
+    const shared = items.filter((i) => i.details?.rule === 'authorized-keys-root-and-user');
+    expect(shared).toHaveLength(1);
+    expect(shared[0]).toMatchObject({ status: 'fail', path: '/root/.ssh/authorized_keys:1' });
+    expect(shared[0].message).toContain('root and app');
+  });
+
+  it('fails a dated ci/diag-style comment on an unrestricted key, warns when restricted', () => {
+    const unrestricted = judgeKeyPlacement(place(PLANTED, '/home/app/.ssh/authorized_keys', 'app'), new Set());
+    expect(unrestricted.filter((i) => i.details?.rule === 'authorized-keys-suspicious-comment').map((i) => i.status)).toEqual(['fail']);
+    const restricted = judgeKeyPlacement(place(`restrict,command="/bin/true" ${PLANTED}`, '/home/app/.ssh/authorized_keys', 'app'), new Set());
+    expect(restricted.filter((i) => i.details?.rule === 'authorized-keys-suspicious-comment').map((i) => i.status)).toEqual(['warn']);
+  });
+
+  it('fails an unrestricted key in a recently changed file only', () => {
+    const file = '/home/bob/.ssh/authorized_keys';
+    const keys = place(`ssh-ed25519 ${BLOB_B} bob@laptop\nrestrict ssh-ed25519 ${BLOB_C} bob@phone`, file, 'bob');
+    expect(judgeKeyPlacement(keys, new Set())).toEqual([]);
+    const recent = judgeKeyPlacement(keys, new Set([file]));
+    expect(recent.map((i) => [i.details?.rule, i.path])).toEqual([['authorized-keys-recent-unrestricted', `${file}:1`]]);
+  });
+
+  it('stays quiet on ordinary keys', () => {
+    const keys = [
+      ...place(`ssh-ed25519 ${BLOB_A} alice@laptop`, '/home/alice/.ssh/authorized_keys', 'alice'),
+      ...place(`restrict,from="192.0.2.1" ssh-ed25519 ${BLOB_B} deploy@ci`, '/root/.ssh/authorized_keys', 'root'),
+    ];
+    expect(judgeKeyPlacement(keys, new Set())).toEqual([]);
   });
 });
 

@@ -137,7 +137,7 @@ sudo threatcrush host-scan --checks secrets-on-disk --deep --secrets-timeout 600
 | `kernel-modules` | a module has an initstate in `/sys/module` but is missing from `/proc/modules`, or a loaded module is not from `/lib/modules/$(uname -r)` | |
 | `ld-preload` | `/etc/ld.so.preload` exists | |
 | `suspicious-exe` | | a process runs a `(deleted)` executable or one under `/tmp`, `/dev/shm`, `/var/tmp` (deleted after a package upgrade is common, so this is a warning) |
-| `ssh-keys` | a key in any `authorized_keys` (root, every account home, `/home/*`, honouring `AuthorizedKeysFile`) matches `--deny-keys` | a key has no `command=` and no `from=`; the same key appears more than once |
+| `ssh-keys` | a key in any `authorized_keys` (root, every account home, `/home/*`, honouring `AuthorizedKeysFile`) matches `--deny-keys`; the same key authorizes root and another account; an unrestricted key has a dated CI/diagnostic-style comment (`ci-diag-YYYYMMDD`); an unrestricted key sits in a file modified inside `--since` | a key has no `command=` and no `from=`; the same key appears more than once; a restricted key has a dated CI/diagnostic-style comment |
 | `sshd-config` | | `sshd -T` shows `PermitRootLogin` other than `no`, or `PasswordAuthentication yes` |
 | `docker-containers` | | a running container is `--privileged`, `--pid=host`, or bind-mounts `/` or the Docker socket |
 | `docker-group` | | anyone is in the `docker` group (docker group == root) |
@@ -192,7 +192,7 @@ reported there). It opens only files whose name suggests a secret and looks for:
   passwords, `.git-credentials`, `.netrc`, `.vault-token`, Terraform Cloud tokens
 - `~/.docker/config.json` registries with stored `auth`, `~/.aws/credentials`,
   `~/.config/gcloud` credentials, `~/.kube/config` with embedded tokens or keys
-- `.env`, `.env.*` and `*.env` (not `.example` / `.sample` / `.template`): the
+- `.env`, `.env.*`, `*.env` and backups such as `app.env.bak.<date>` (not `.example` / `.sample` / `.template`): the
   count and **names** of variables that look like keys, tokens, secrets or
   passwords, or URLs with an embedded password
 - JSON identity / service-account files holding a private key, secret or token
@@ -244,6 +244,38 @@ input piped as data to a non-shell remote command
 (`printf '%s\n' "$IPS" | ssh host 'xargs -n1 threatcrush unblock --'`). Step
 outputs and reusable-workflow inputs are not followed. Suppress a reviewed line
 with `# threatcrush-disable-next-line <rule-id>`.
+
+### Deploy-path rules
+
+`threatcrush scan <path>` also reads whole files for the relationships that
+turn write access to a repository into a shell on a host. Each finding links
+(`Ref:` in the text report, `helpUri` in SARIF) to the matching write-up in
+[`attack-vectors/`](../../attack-vectors/README.md).
+
+| Rule | Severity | Flags |
+|---|---|---|
+| `compose-host-root-mount` | critical | A `compose*.yml` / `docker-compose*.yml` service bind-mounts `/`, `/root`, `/etc`, `/boot`, `/home` or a home directory, or any `.ssh` directory (short or long volume syntax, read-only included). |
+| `compose-docker-socket` | high | A service mounts `/var/run/docker.sock`. |
+| `compose-privileged` | high | `privileged: true`, or `cap_add` of `SYS_ADMIN` / `ALL`. |
+| `compose-root-user` | medium | `user: 0`, `0:0` or `root`. |
+| `deploy-compose-from-synced-repo` | high | In a shell script, workflow or `SSH_ORIGINAL_COMMAND` wrapper: `docker compose -f <path>` run on a host where the path is under a directory the same file uploads to with `rsync`/`scp`, under a checkout updated with `git pull` on the host, or in a forced-command allowlist that also accepts `rsync --server`. |
+| `deploy-remote-exec-uploaded-script` | high | A script uploaded with `rsync`/`scp`/`appleboy/scp-action` then run over ssh (`bash /srv/app/deploy.sh`, `cd /srv/app && ./deploy.sh`, an `appleboy/ssh-action` `script:`), and `ssh host bash -s < scripts/deploy.sh`. |
+| `github-app-installation-idor` | high | Source code: a handler reads `installation_id` from the query string and writes it to a database without calling `GET /user/installations` (or a helper in the same file that does). |
+| `authorized-keys-unrestricted` | medium | An `authorized_keys` file in the tree has a key with no `from=`, `command=` or `restrict`. |
+| `authorized-keys-suspicious-comment` | high | A key comment that is a temporary role word plus a date (`ci-diag-20261120`, `ops-recovery-20261027`), with no `user@host`. |
+| `authorized-keys-sftp-unjailed` | medium | A key forced to `internal-sftp` / `sftp-server`: limits what it runs, not what it reads. |
+| `sshd-sftp-without-chroot` | medium | An `sshd_config` (or `sshd_config.d/*.conf`) `ForceCommand internal-sftp` with no `ChrootDirectory`. |
+
+Credential rules added alongside them: `secret-github-app-private-key`
+(a PEM key with a body in a file that also names `GITHUB_APP_ID`/`APP_ID`),
+`secret-resend-key`, `secret-supabase-service-role` (a JWT whose payload role
+is `service_role`; the anon key is not flagged) and
+`secret-generic-high-entropy` (an unquoted `*_SECRET=`, `*_PRIVATE_KEY=`,
+`*_TOKEN=`, `*_API_KEY=` or `*_PASSWORD=` value that is long, mixed-class and
+high-entropy). `secret-private-key` now also matches `ENCRYPTED PRIVATE KEY`.
+Env backups (`*.env.bak*`, `.env.old`, ...) are read for secrets and, when none
+match, reported by name as critical; `id_rsa`/`id_ed25519`/`id_ecdsa`/`id_dsa`
+are reported by name. Excerpts are always masked.
 
 ### Incident response: `threatcrush respond`
 

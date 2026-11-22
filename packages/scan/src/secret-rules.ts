@@ -22,6 +22,7 @@
  * flag both.
  */
 
+import { attackVector } from './references';
 import type { Severity } from './types';
 
 export interface SecretRule {
@@ -53,6 +54,22 @@ export interface SecretRule {
    * false drops the match: it is not key material. See `hasPemBody`.
    */
   confirm?: (lines: readonly string[], index: number, match: RegExpExecArray) => boolean;
+  /**
+   * Rule ids this one replaces when both match the same line. A GitHub App key
+   * is also a private key, and one finding that says which is better than two
+   * that say the same thing at different levels of detail.
+   */
+  supersedes?: readonly string[];
+  /**
+   * Drop this match when any vendor-format (non-`keywordShaped`) rule matched
+   * the same line. `GITHUB_TOKEN=ghp_…` is a GitHub token; the generic
+   * high-entropy rule has nothing to add to that.
+   */
+  yieldsToVendorRules?: boolean;
+  /** How to fix it, in a sentence. */
+  fix?: string;
+  /** Write-up of the attack this credential enables. See `references.ts`. */
+  reference?: string;
 }
 
 export const SECRET_RULES: readonly SecretRule[] = [
@@ -92,11 +109,29 @@ export const SECRET_RULES: readonly SecretRule[] = [
   {
     id: 'secret-private-key',
     name: 'Private Key',
-    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----/,
+    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY(?: BLOCK)?-----/,
     severity: 'critical',
     cwe: 'CWE-798',
     consequence: 'Key material, committed. Rotation is the only remediation.',
     confirm: (lines, index, match) => hasPemBody(lines, index, match),
+    fix: 'Regenerate the key at its issuer, delete the old one there, and load the new one from a secret manager. Deleting the file does not help: it is in the history.',
+    reference: attackVector('unrotated-github-app-keys'),
+  },
+  {
+    id: 'secret-github-app-private-key',
+    name: 'GitHub App Private Key',
+    // The same banner, confirmed by an App id in the same file. That pairing is
+    // everything needed to mint installation tokens for every org the App is
+    // installed in, which is why it outranks a bare private key.
+    pattern: /-----BEGIN (?:RSA |ENCRYPTED )?PRIVATE KEY-----/,
+    severity: 'critical',
+    cwe: 'CWE-798',
+    consequence:
+      'With the App id beside it, anyone holding this file mints installation tokens for every account the App is installed on and pushes, merges or reads as `<app>[bot]`. Suspending the App does not stop it: the key can unsuspend.',
+    confirm: (lines, index, match) => hasPemBody(lines, index, match) && hasGithubAppId(lines),
+    supersedes: ['secret-private-key'],
+    fix: 'Generate a new private key in the App settings, delete every old key there, then delete or rotate the installations that matter. Treat every copy on disk (and its `.bak`) as burned.',
+    reference: attackVector('unrotated-github-app-keys'),
   },
   {
     id: 'secret-slack-token',
@@ -165,6 +200,28 @@ export const SECRET_RULES: readonly SecretRule[] = [
     consequence: 'Direct database access, usually bypassing every application-level authorisation check.',
   },
   {
+    id: 'secret-resend-key',
+    name: 'Resend API Key',
+    pattern: /\bre_[A-Za-z0-9]{8}_[A-Za-z0-9]{16,}\b/,
+    severity: 'critical',
+    cwe: 'CWE-798',
+    consequence: 'Send mail as every verified domain on the account.',
+  },
+  {
+    id: 'secret-supabase-service-role',
+    name: 'Supabase service-role key',
+    // A JWT whose payload claims `role: service_role`. Decoded rather than
+    // guessed from the variable name: the anon key has the same shape and is
+    // public by design.
+    pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{16,}/,
+    severity: 'critical',
+    cwe: 'CWE-798',
+    consequence: 'Bypasses every row-level security policy: full read and write on the project database.',
+    confirm: (_lines, _index, match) => jwtClaimsRole(match[0], 'service_role'),
+    supersedes: ['secret-jwt', 'secret-generic-high-entropy'],
+    fix: 'Rotate the JWT secret (which reissues both keys) and keep the service-role key server-side only.',
+  },
+  {
     id: 'secret-jwt',
     name: 'JSON Web Token',
     pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_.+/=-]*/,
@@ -193,6 +250,27 @@ export const SECRET_RULES: readonly SecretRule[] = [
     cwe: 'CWE-798',
     consequence: 'A password in source is a password in every clone, fork and CI cache of that source.',
     keywordShaped: true,
+  },
+  {
+    id: 'secret-generic-high-entropy',
+    name: 'High-entropy secret in a *_SECRET / *_PRIVATE_KEY / *_TOKEN variable',
+    // The unquoted `.env` assignment the quoted-only generic rules above leave
+    // alone. Safe to key on the name only because the value must also look
+    // like key material: long, mixed-class and high-entropy (see
+    // `looksLikeKeyMaterial`). An ARN or a parameter-store path fails that,
+    // which is what keeps the header's two counter-examples quiet. All-hex
+    // values belong to `secret-hex-token` and are left to it.
+    pattern:
+      /^\s*(?:export\s+)?(?![A-Z0-9_]*(?:PUBLIC|ANON|PUBLISHABLE))[A-Z][A-Z0-9_]*(?:SECRET|PRIVATE_KEY|_TOKEN|_API_KEY|_PASSWORD|_PASSWD)[A-Z0-9_]*\s*[=:]\s*([A-Za-z0-9+/_.~-]{20,}={0,2})\s*$/,
+    severity: 'high',
+    cwe: 'CWE-798',
+    consequence: 'Whatever the variable unlocks, in every clone, backup and image layer that carries this file.',
+    keywordShaped: true,
+    yieldsToVendorRules: true,
+    confirm: (_lines, _index, match) => looksLikeKeyMaterial(match[1] ?? ''),
+    supersedes: ['secret-jwt'],
+    fix: 'Rotate the value, then load it from a secret manager or the deploy environment instead of a committed file.',
+    reference: attackVector('unrotated-github-app-keys'),
   },
   {
     id: 'secret-hex-token',
@@ -339,6 +417,54 @@ export function hasPemBody(lines: readonly string[], index: number, match: RegEx
     if (PEM_BODY_LINE.test(lines[i])) return true;
   }
   return false;
+}
+
+/** Does the file name a GitHub App id (`GITHUB_APP_ID=123`, `"app_id": 123`, `appId: 123`)? */
+const GITHUB_APP_ID = /\b(?:GITHUB_APP_ID|GH_APP_ID|APP_ID|app_id|appId)\b['"]?\s*[=:]\s*['"]?\d{2,}/;
+
+export function hasGithubAppId(lines: readonly string[]): boolean {
+  return lines.some((line) => GITHUB_APP_ID.test(line));
+}
+
+/** Decode a JWT's payload and check its `role` claim. Never throws. */
+export function jwtClaimsRole(token: string, role: string): boolean {
+  const payload = token.split('.')[1];
+  if (!payload) return false;
+  try {
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))) as { role?: unknown };
+    return json.role === role;
+  } catch {
+    return false;
+  }
+}
+
+/** Shannon entropy in bits per character. */
+export function shannonEntropy(value: string): number {
+  if (!value) return 0;
+  const counts = new Map<string, number>();
+  for (const ch of value) counts.set(ch, (counts.get(ch) ?? 0) + 1);
+  let bits = 0;
+  for (const n of counts.values()) {
+    const p = n / value.length;
+    bits -= p * Math.log2(p);
+  }
+  return bits;
+}
+
+/**
+ * Is an unquoted value shaped like issued key material rather than a word,
+ * a path or a hex digest? At least 20 characters, at least two of lower /
+ * upper / digit, not all hex, not a path or URL, and at least 3.5 bits of
+ * entropy per character. `changeme-in-production` has none of the last three.
+ */
+export function looksLikeKeyMaterial(value: string): boolean {
+  if (value.length < 20) return false;
+  if (value.startsWith('/') || value.includes('://')) return false;
+  if (/^[0-9a-f]+$/i.test(value)) return false;
+  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/].filter((re) => re.test(value)).length;
+  if (classes < 2) return false;
+  return shannonEntropy(value) >= 3.5;
 }
 
 /**
@@ -520,14 +646,43 @@ export function redactSecret(line: string): string {
   });
 }
 
+/**
+ * Environment files and their backups, by name: `.env`, `.env.production`,
+ * `app.env`, `app.env.bak`, `.env.bak.20261120`, `prod.env.old`. Templates
+ * (`.env.example`, `.env.sample`, `.env.template`) are not environment files.
+ */
+export function isEnvFileName(filename: string): boolean {
+  const name = filename.toLowerCase();
+  if (/\.(?:example|sample|template|dist|defaults?)$/.test(name)) return false;
+  return /^\.env(?:\..*)?$/.test(name) || /\.env$/.test(name) || isEnvBackupName(name);
+}
+
+/** A backup copy of an env file: `*.env.bak*`, `.env.old`, `app.env.orig.2`. */
+export function isEnvBackupName(filename: string): boolean {
+  return /(?:^|\.)env\.(?:bak|old|orig|save|backup|prev|swp)(?:[.~_-].*)?$/i.test(filename) || /\.env~$/i.test(filename);
+}
+
 /** Files whose mere presence is worth reporting, independent of content. */
-export const SENSITIVE_FILES: readonly { pattern: string; message: string; severity: Severity }[] = [
+export const SENSITIVE_FILES: readonly {
+  pattern: string;
+  /** When present, matched against the file name instead of `pattern`. */
+  test?: (filename: string) => boolean;
+  message: string;
+  severity: Severity;
+}[] = [
+  {
+    pattern: '.env.bak',
+    test: isEnvBackupName,
+    message: 'Backup copy of an environment file committed: backups are never rotated with the original',
+    severity: 'critical',
+  },
   { pattern: '.env', message: 'Environment file committed — the usual home of every runtime credential', severity: 'high' },
   { pattern: '.env.local', message: 'Local environment file committed', severity: 'high' },
   { pattern: '.env.production', message: 'Production environment file committed', severity: 'critical' },
   { pattern: 'id_rsa', message: 'Private SSH key committed', severity: 'critical' },
   { pattern: 'id_ed25519', message: 'Private SSH key committed', severity: 'critical' },
   { pattern: 'id_ecdsa', message: 'Private SSH key committed', severity: 'critical' },
+  { pattern: 'id_dsa', message: 'Private SSH key committed', severity: 'critical' },
   { pattern: '.pem', message: 'PEM certificate or key file committed', severity: 'high' },
   { pattern: '.p12', message: 'PKCS#12 keystore committed', severity: 'high' },
   { pattern: '.pfx', message: 'PKCS#12 keystore committed', severity: 'high' },

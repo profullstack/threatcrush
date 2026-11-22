@@ -59,6 +59,12 @@ export interface ScanFinding {
   /** `CWE-89`. Absent for findings with no clean CWE mapping. */
   cwe?: string;
   /**
+   * A write-up of the attack this finding is evidence of, usually an
+   * `attack-vectors/` entry in the ThreatCrush repository. Emitted as the
+   * SARIF rule `helpUri`.
+   */
+  reference?: string;
+  /**
    * The matched source line, trimmed. Redacted by the reporters for secret
    * findings — see `redactSecret`.
    */

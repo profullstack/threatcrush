@@ -26,6 +26,7 @@ import {
   SECRET_RULES,
 } from './secret-rules';
 import { evaluateTemplateRules, TEMPLATE_EXTENSIONS } from './template-rules';
+import { evaluateDeployRules } from './deploy-rules';
 import { evaluateWorkflowRules, isWorkflowPath } from './workflow-rules';
 import type { ScanFinding, ScanLanguage, Severity } from './types';
 import { severityRank } from './types';
@@ -519,11 +520,23 @@ export function scanText(
 
   // ── Credentials ────────────────────────────────────────────────────────
   lines.forEach((line, index) => {
+    // Every rule that matches this line first, so a more specific rule can
+    // replace a generic one (`supersedes`, `yieldsToVendorRules`) before
+    // anything is reported. Order within the line is the table's order.
+    const lineMatches: { rule: (typeof SECRET_RULES)[number]; match: RegExpExecArray }[] = [];
     for (const rule of SECRET_RULES) {
       const match = rule.pattern.exec(line);
       if (!match) continue;
       if (isKnownPlaceholder(match[0])) continue;
       if (rule.confirm && !rule.confirm(lines, index, match)) continue;
+      lineMatches.push({ rule, match });
+    }
+    const superseded = new Set(lineMatches.flatMap(({ rule }) => rule.supersedes ?? []));
+    const vendorMatched = lineMatches.some(({ rule }) => !rule.keywordShaped);
+
+    for (const { rule, match } of lineMatches) {
+      if (superseded.has(rule.id)) continue;
+      if (rule.yieldsToVendorRules && vendorMatched) continue;
       if (isSuppressed(suppressions, index, rule.id)) continue;
 
       // The value the rule actually captured, falling back to the whole match
@@ -578,6 +591,8 @@ export function scanText(
           ? `Possible ${rule.name} detected ${SECRET_SOFTENING[soft]}`
           : `Possible ${rule.name} detected`,
         consequence: rule.consequence,
+        ...(rule.fix ? { fix: rule.fix } : {}),
+        ...(rule.reference ? { reference: rule.reference } : {}),
         cwe: rule.cwe,
         excerpt: redactSecret(line.trim()).slice(0, 200),
         sensitive: true,
@@ -664,7 +679,8 @@ export function scanText(
   // Parsed as YAML and read with the workflow around each `run:` script, so a
   // value that is safe as an env var locally is still caught when it is
   // pasted into an ssh command line. See `workflow-rules.ts`.
-  if (isWorkflowPath(relativePath, text)) {
+  const isWorkflow = isWorkflowPath(relativePath, text);
+  if (isWorkflow) {
     for (const match of evaluateWorkflowRules(text)) {
       const index = match.line - 1;
       if (isSuppressed(suppressions, index, match.rule.id)) continue;
@@ -690,6 +706,38 @@ export function scanText(
         category: 'code',
       });
     }
+  }
+
+  // ── Deploy paths ───────────────────────────────────────────────────────
+  //
+  // Whole-file relationships: compose bind mounts, a compose file or script
+  // the same file uploads and then runs on a host, authorized_keys and sshd
+  // hygiene, and the GitHub App setup-callback IDOR. See `deploy-rules.ts`.
+  for (const match of evaluateDeployRules(relativePath, text, language, isWorkflow)) {
+    const index = match.line - 1;
+    if (isSuppressed(suppressions, index, match.rule.id)) continue;
+
+    const soft = softening({
+      test: inTests,
+      docs: inDocs,
+      suppressed: foreignSecurityMark(lines[index] ?? ''),
+    });
+
+    findings.push({
+      ruleId: match.rule.id,
+      title: match.rule.title,
+      file: relativePath,
+      line: match.line,
+      severity: soft ? 'low' : match.severity,
+      confidence: match.rule.confidence,
+      message: soft ? `${match.message} (${CODE_SOFTENING[soft]})` : match.message,
+      consequence: match.rule.consequence,
+      fix: match.rule.fix,
+      reference: match.rule.reference,
+      cwe: match.rule.cwe,
+      excerpt: (lines[index] ?? '').trim().slice(0, 200),
+      category: 'code',
+    });
   }
 
   return findings;
