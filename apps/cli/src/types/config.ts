@@ -203,6 +203,23 @@ export interface FileIntegritySection {
   canary_directories?: string[];
   /** Polling interval in seconds, clamped to 60–86400 (default 900). */
   poll_interval_seconds?: number;
+  /**
+   * Opt-in response when a canary is written or a mass change fires: find the
+   * process holding the changed files open for writing (via /proc/<pid>/fd)
+   * and send it SIGSTOP (`"stop"`, recommended and reversible with
+   * `kill -CONT`) or SIGKILL (`"kill"`). Default `"off"`: alert only. Re-run
+   * `threatcrush install-service` after enabling so the unit gets
+   * CAP_SYS_PTRACE, which reading other users' /proc/<pid>/fd requires.
+   */
+  contain_writer?: 'off' | 'stop' | 'kill';
+  /** More candidate writers than this is ambiguous and only alerts (default 3, max 20). */
+  contain_max_processes?: number;
+  /**
+   * Executables never signalled, on top of the built-in list (pid 1, the
+   * daemon and its parent, kernel threads, sshd, systemd*). An entry ending
+   * in `/` covers every executable under that directory.
+   */
+  never_contain?: string[];
 }
 
 /**

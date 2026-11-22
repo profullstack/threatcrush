@@ -264,6 +264,8 @@ export async function runDaemon(): Promise<void> {
     settings: fileIntegritySettings(config.file_integrity),
     baselinePath: join(PATHS.stateDir, 'file-integrity-baseline.json'),
     observedPath: join(PATHS.stateDir, 'file-integrity-observed.json'),
+    // `[remediation] dry_run` also covers the opt-in contain_writer response.
+    dryRun: () => remediation.status().dry_run,
     log: logLine,
   });
   fileIntegrity.start();

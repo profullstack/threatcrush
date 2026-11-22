@@ -514,9 +514,46 @@ least 10 changed files with a 0.5-bit average entropy increase is also critical.
 Each configured
 `canary_directories` entry gets a hidden, writable `.threatcrush-canary` file
 on its first baseline; existing files are never replaced, and the canary is
-not recreated after a baseline exists if it is deleted. Process killing
-remains unavailable; the entropy signal is a mass-change heuristic, not a
-content classifier.
+not recreated after a baseline exists if it is deleted. The entropy signal is
+a mass-change heuristic, not a content classifier.
+
+#### Stopping the writer (opt-in)
+
+By default a canary hit or mass change only alerts. Set `contain_writer` to
+have the daemon find the process doing the writing and freeze or kill it:
+
+```toml
+[file_integrity]
+contain_writer = "stop"     # "off" (default) | "stop" (SIGSTOP, recommended) | "kill" (SIGKILL)
+contain_max_processes = 3   # more candidate writers than this: alert only
+never_contain = ["/usr/bin/rsync", "/opt/backup/bin/"] # exact executables, or a directory ending in /
+```
+
+inotify does not say which process changed a file, so the daemon walks
+`/proc/<pid>/fd` and keeps processes holding a changed file open **for
+writing** (read from `/proc/<pid>/fdinfo`). Only when nobody holds the changed
+files does it fall back to processes writing inside the same directories. The
+walk is bounded (8,192 processes, 4,096 descriptors each, 1.5 s); a writer that
+already closed its files cannot be found.
+
+It never signals pid 1, the daemon or its parent, kernel threads, `sshd`
+(including `sshd-session`), anything named `systemd*`, or a `never_contain`
+executable. It alerts without acting when the `/proc` walk was incomplete,
+when it finds more than `contain_max_processes` candidates, or when nobody
+holds the files. Each pid's start time is re-checked just before the signal so
+a recycled pid is never hit, and `[remediation] dry_run = true` reports the
+signal instead of sending it. The critical event and the daemon log record
+what was done under `details.containment` (pid, executable, signal, result,
+files).
+
+`"stop"` is reversible: after reviewing, resume with `kill -CONT <pid>` or end
+it with `kill -KILL <pid>`. Use `"kill"` only if you would rather lose the
+process than leave it suspended.
+
+Reading another user's `/proc/<pid>/fd` needs `CAP_SYS_PTRACE`. Re-run
+`sudo threatcrush install-service` after enabling `contain_writer`; the unit
+gets that capability only while `contain_writer` is on. Without it, only
+writers running as root can be identified.
 
 ### Auditd process detections
 

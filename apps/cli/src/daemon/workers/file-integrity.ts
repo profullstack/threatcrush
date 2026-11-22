@@ -5,6 +5,14 @@ import { basename, dirname, isAbsolute, join, normalize, sep } from 'node:path';
 import type { ThreatEvent } from '../../types/events.js';
 import type { FileIntegritySection } from '../../types/config.js';
 import { insertEvent } from '../../core/state.js';
+import {
+  containWriterSettings,
+  summarizeContainment,
+  WriterContainment,
+  type ContainmentReport,
+  type WriterContainmentSettings,
+  type WriterProcFs,
+} from './writer-containment.js';
 
 const DEFAULT_POLL_MS = 15 * 60_000;
 const MAX_FILES = 50_000;
@@ -52,6 +60,8 @@ export interface FileIntegritySettings {
   canaries: string[];
   canaryDirectories: string[];
   pollMs: number;
+  /** Opt-in response to a canary write or mass change; mode 'off' by default. */
+  containment: WriterContainmentSettings;
 }
 
 export function fileIntegritySettings(section: FileIntegritySection | undefined): FileIntegritySettings {
@@ -75,6 +85,7 @@ export function fileIntegritySettings(section: FileIntegritySection | undefined)
     canaries: strings(section?.canaries),
     canaryDirectories: strings(section?.canary_directories),
     pollMs,
+    containment: containWriterSettings(section),
   };
 }
 
@@ -85,6 +96,10 @@ export interface FileIntegrityOptions {
   settings: FileIntegritySettings;
   log: (line: string) => void;
   now?: () => Date;
+  /** `[remediation] dry_run`: report writer containment instead of signalling. */
+  dryRun?: () => boolean;
+  /** Injected /proc for writer containment tests. */
+  procfs?: WriterProcFs;
 }
 
 function signature(value: FileSignature): string {
@@ -330,9 +345,16 @@ export class FileIntegrityWatch {
   private eventFirstAt = 0;
   private eventScanPending = false;
   private watcherLimitLogged = false;
+  private readonly containment: WriterContainment;
 
   constructor(private readonly opts: FileIntegrityOptions) {
     this.now = opts.now ?? (() => new Date());
+    this.containment = new WriterContainment({
+      settings: opts.settings.containment ?? containWriterSettings(undefined),
+      log: opts.log,
+      dryRun: opts.dryRun,
+      procfs: opts.procfs,
+    });
     this.canaries = new Set([
       ...opts.settings.canaries,
       ...opts.settings.canaryDirectories.map(autoCanaryPath),
@@ -365,6 +387,9 @@ export class FileIntegrityWatch {
       return;
     }
     this.opts.log(`[file-integrity] monitoring ${targets.length} configured path(s), polling every ${Math.round(this.opts.settings.pollMs / 60_000)}m; content is hashed locally`);
+    if (this.containment.enabled) {
+      this.opts.log(`[file-integrity] contain_writer=${this.opts.settings.containment.mode}: canary writes and mass changes ${this.opts.settings.containment.mode === 'kill' ? 'SIGKILL' : 'SIGSTOP'} an unambiguous writer`);
+    }
     void this.scanOnce();
     this.timer = setInterval(() => { void this.scanOnce(); }, this.opts.settings.pollMs);
     this.timer.unref?.();
@@ -508,7 +533,8 @@ export class FileIntegrityWatch {
         const removedCanaries = changedPaths(observed.files, current.files)
           .filter((change) => this.canaries.has(change.path) && observed.targets.includes(change.path));
         if (removedCanaries.length) {
-          this.emit('critical', 'A file integrity canary changed or disappeared', 'file-integrity-canary', removedCanaries);
+          const containment = await this.containWriters(removedCanaries.map((change) => change.path));
+          this.emit('critical', 'A file integrity canary changed or disappeared', 'file-integrity-canary', removedCanaries, containment);
         }
         if (!sameTargets(observed.targets, targets)) {
           this.emit('medium', 'File integrity monitoring paths changed; review them and rebaseline', 'file-integrity-scope-changed',
@@ -519,17 +545,23 @@ export class FileIntegrityWatch {
       }
       const changes = changedPaths(observed.files, current.files);
       const canaryChanges = changes.filter((change) => this.canaries.has(change.path));
-      if (canaryChanges.length) {
-        this.emit('critical', 'A file integrity canary changed or disappeared', 'file-integrity-canary', canaryChanges);
-      }
       const ordinary = changes.filter((change) => !this.canaries.has(change.path));
       const paths = ordinary.map((change) => change.path);
       const beforeEntropy = meanEntropy(paths, observed.files);
       const afterEntropy = meanEntropy(paths, current.files);
       const entropyRose = beforeEntropy !== null && afterEntropy !== null && afterEntropy - beforeEntropy >= MASS_CHANGE_ENTROPY_RISE_BITS;
-      if (ordinary.length >= MASS_CHANGE_COUNT || (ordinary.length >= 10 && entropyRose)) {
+      const massChange = ordinary.length >= MASS_CHANGE_COUNT || (ordinary.length >= 10 && entropyRose);
+      // One attribution pass per scan, so a canary hit and a mass change in
+      // the same scan never signal the same writer twice.
+      const containment = canaryChanges.length || massChange
+        ? await this.containWriters([...canaryChanges.map((change) => change.path), ...(massChange ? paths : [])])
+        : undefined;
+      if (canaryChanges.length) {
+        this.emit('critical', 'A file integrity canary changed or disappeared', 'file-integrity-canary', canaryChanges, containment);
+      }
+      if (massChange) {
         const entropyDetail = entropyRose ? `; mean changed-file entropy rose from ${beforeEntropy?.toFixed(2)} to ${afterEntropy?.toFixed(2)} bits` : '';
-        this.emit('critical', `${ordinary.length} monitored files changed in one scan${entropyDetail}`, 'file-integrity-mass-change', ordinary);
+        this.emit('critical', `${ordinary.length} monitored files changed in one scan${entropyDetail}`, 'file-integrity-mass-change', ordinary, containment);
       } else {
         for (const change of ordinary) {
           const expected = baseline.files[change.path] ?? 'missing';
@@ -551,18 +583,32 @@ export class FileIntegrityWatch {
     }
   }
 
+  /** Opt-in: find and stop (or kill) the writer. Undefined when contain_writer is off. */
+  private async containWriters(paths: string[]): Promise<ContainmentReport | undefined> {
+    if (!this.containment.enabled) return undefined;
+    try {
+      return await this.containment.contain(paths);
+    } catch (error) {
+      this.opts.log(`[file-integrity] writer containment failed: ${(error as Error).message.split('\n')[0]}`);
+      return undefined;
+    }
+  }
+
   private emit(
     severity: ThreatEvent['severity'],
     message: string,
     ruleId: string,
     changes: Array<{ path: string; state: FileState }>,
+    containment?: ContainmentReport,
   ): void {
+    const fullMessage = containment ? `${message}; ${summarizeContainment(containment)}` : message;
+    if (containment) this.opts.log(`[file-integrity] ${fullMessage}`);
     const event: ThreatEvent = {
       timestamp: this.now(),
       module: 'file-integrity',
       category: 'system',
       severity,
-      message: message.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 500),
+      message: fullMessage.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 500),
       details: {
         rule_id: ruleId,
         change_count: changes.length,
@@ -571,6 +617,7 @@ export class FileIntegrityWatch {
           state: state === 'missing' ? 'missing' : 'present',
         })),
         truncated: changes.length > MAX_CHANGES_PER_EVENT,
+        ...(containment ? { containment } : {}),
       },
     };
     try { insertEvent(event); } catch { /* state DB is optional */ }
