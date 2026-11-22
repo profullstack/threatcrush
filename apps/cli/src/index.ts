@@ -960,7 +960,7 @@ program
 
 program
   .command("edr [action]")
-  .description("Auditd-backed process detection status or narrowly scoped rule template (status | rules)")
+  .description("Process detection (auditd or eBPF) status, auditd rule template, or the eBPF bpftrace program (status | rules | bpftrace)")
   .option("--json", "Output status as JSON")
   .option("--limit <n>", "How many recent events to show", "25")
   .action(async (action: string | undefined, opts: { json?: boolean; limit?: string }) => {
