@@ -127,7 +127,7 @@ describe('abuse.ch keyed feeds (issue #430)', () => {
       if (url.includes('hostfile')) return new Response(GONE, { status: 410, headers: { 'content-type': 'text/html' } });
       if (url.includes('online.csv')) throw new Error(`fetch failed for ${url}`);
       return new Response(GONE, { status: 200 });
-    });
+    }, 0);
     const err = Object.fromEntries(set.sources.map((s) => [s.feed, s.error]));
     expect(err.threatfox).toMatch(/401: abuse.ch refused the Auth-Key/);
     expect(err['threatfox-hosts']).toBe('HTTP 410');
@@ -135,9 +135,26 @@ describe('abuse.ch keyed feeds (issue #430)', () => {
     expect(err.urlhaus).not.toContain('secret-key');
     expect(err.feodo).toMatch(/HTML page, not feed data/);
 
-    const empty = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'k' }, async () => new Response('# nothing\n'));
+    const empty = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'k' }, async () => new Response('# nothing\n'), 0);
     expect(empty.sources.find((s) => s.feed === 'urlhaus')).toMatchObject({ ok: false, error: 'no entries in the response' });
     expect(empty.sources.find((s) => s.feed === 'feodo')?.ok).toBe(true); // empty Feodo is real
+  });
+
+  it('retries a cut-off download or truncated JSON, never a refused key', async () => {
+    const calls: Record<string, number> = {};
+    const set = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'k' }, async (url) => {
+      const feed = url.includes('/api/v1/') ? 'threatfox' : url.includes('hostfile') ? 'hosts' : url.includes('online.csv') ? 'urlhaus' : 'feodo';
+      calls[feed] = (calls[feed] ?? 0) + 1;
+      if (feed === 'threatfox' && calls[feed] < 3) return new Response(THREATFOX.slice(0, 40)); // ends mid-JSON
+      if (feed === 'urlhaus' && calls[feed] < 2) throw new TypeError('terminated');
+      if (feed === 'hosts') return new Response('', { status: 401 });
+      if (feed === 'urlhaus') return new Response(URLHAUS);
+      if (feed === 'threatfox') return new Response(THREATFOX);
+      return new Response('# empty\n');
+    }, 0);
+    expect(calls).toEqual({ threatfox: 3, urlhaus: 2, hosts: 1, feodo: 1 });
+    const ok = Object.fromEntries(set.sources.map((s) => [s.feed, s.ok]));
+    expect(ok).toEqual({ feodo: true, threatfox: true, 'threatfox-hosts': false, urlhaus: true });
   });
 
   it('takes the key from auth_key_file, then auth_key, then ABUSECH_AUTH_KEY', () => {
@@ -241,6 +258,7 @@ function worker(over: Partial<{ block: boolean; enforcing: boolean; ss: string; 
     bus: { publish: (e) => events.push(e), announceModule: () => {} },
     log: (l) => logs.push(l),
     now: () => now,
+    retryDelayMs: 0,
     fetchImpl: async (url) => {
       if (over.fetchFail) throw new Error('offline');
       if (url.includes('threatfox-api.abuse.ch/api/v1')) return new Response(THREATFOX);
