@@ -148,6 +148,15 @@ export interface ThreatFeedsSection {
   min_confidence?: number;
   /** IPs, CIDRs or domains never matched or blocked. */
   allow?: string[];
+  /**
+   * File holding an abuse.ch Auth-Key (free at auth.abuse.ch). Needed for
+   * ThreatFox and URLhaus since abuse.ch retired its keyless exports; without
+   * it only Feodo is fetched and the others show as failed. Preferred over
+   * `auth_key` so the key stays out of a config file others may read.
+   */
+  auth_key_file?: string;
+  /** The Auth-Key inline. ABUSECH_AUTH_KEY in the environment also works. */
+  auth_key?: string;
 }
 
 /**

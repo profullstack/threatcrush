@@ -2,24 +2,43 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
 import {
+  NEEDS_KEY,
   buildFeedSet,
+  fetchFeeds,
   matchDomain,
   matchIp,
   parseHostfile,
   parseIpList,
   parseThreatFoxJson,
+  parseUrlhausCsv,
   readFeedCache,
   type FeedSet,
 } from '../threat-feeds/index.js';
 import {
   EGRESS_TABLE,
   ThreatFeeds,
+  abusechAuthKey,
   egressRuleset,
   parseListeningPorts,
   parseSs,
   threatFeedSettings,
 } from '../../daemon/workers/threat-feeds.js';
+
+const URLHAUS = [
+  '################################################################',
+  '# abuse.ch URLhaus Database Dump (CSV - online URLs only)       #',
+  '# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter',
+  '"3001","2026-11-20 10:00:00","http://malhost.example/x.sh","online","2026-11-22 01:00:00","malware_download","Mozi,elf","https://urlhaus.abuse.ch/url/3001/","r"',
+  '"3002","2026-11-20 10:00:00","http://203.0.113.77:8080/i","online","2026-11-22 01:00:00","malware_download","","https://urlhaus.abuse.ch/url/3002/","r"',
+  '"3003","2026-11-20 10:00:00","https://github.com/someone/repo/raw/main/a.exe","online","","malware_download","","https://urlhaus.abuse.ch/url/3003/","r"',
+  '"3004","2026-11-20 10:00:00","https://raw.githubusercontent.com/x/y/main/a.ps1","online","","malware_download","","https://urlhaus.abuse.ch/url/3004/","r"',
+  '"3005","2026-11-20 10:00:00","http://gone.example/old","offline","","malware_download","","https://urlhaus.abuse.ch/url/3005/","r"',
+  '"3006","2026-11-20 10:00:00","not a url","online","","malware_download","","https://urlhaus.abuse.ch/url/3006/","r"',
+].join('\n');
+
+const GONE = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN">\n<html><head><title>410 Gone</title></head></html>';
 import type { ThreatEvent } from '../../types/events.js';
 
 const THREATFOX = JSON.stringify({
@@ -44,6 +63,90 @@ describe('feed parsers', () => {
     const hosts = parseHostfile('# header\n127.0.0.1\tbad.example\n127.0.0.1 localhost\n127.0.0.1 Bad2.Example.\n\n', 'urlhaus');
     expect([...hosts.keys()]).toEqual(['bad.example', 'bad2.example']);
     expect([...parseIpList('# Feodo\n192.0.2.44\nnot-an-ip\n', 'feodo').keys()]).toEqual(['192.0.2.44']);
+  });
+});
+
+describe('abuse.ch keyed feeds (issue #430)', () => {
+  it('reads the ThreatFox API shape and throws on an API error status', () => {
+    const api = JSON.stringify({
+      query_status: 'ok',
+      data: [
+        { ioc: '203.0.113.8:443', ioc_type: 'ip:port', threat_type: 'botnet_cc', malware_printable: 'QakBot', confidence_level: 100 },
+        { ioc: 'evil-c2.example', ioc_type: 'domain', threat_type: 'botnet_cc', malware_printable: 'Remcos', confidence_level: 90 },
+      ],
+    });
+    const { ips, domains } = parseThreatFoxJson(api, 75);
+    expect([...ips.keys()]).toEqual(['203.0.113.8']);
+    expect([...domains.keys()]).toEqual(['evil-c2.example']);
+    expect(parseThreatFoxJson(JSON.stringify({ query_status: 'no_result' }), 75).ips.size).toBe(0);
+    expect(() => parseThreatFoxJson(JSON.stringify({ query_status: 'unknown_auth_key' }), 75)).toThrow(/unknown_auth_key/);
+  });
+
+  it('takes hosts of online URLhaus URLs, never shared file hosting or offline rows', () => {
+    const { ips, domains } = parseUrlhausCsv(URLHAUS);
+    expect([...domains.keys()]).toEqual(['malhost.example']);
+    expect(domains.get('malhost.example')).toEqual({ malware: 'Mozi', threat: 'malware_download', feed: 'urlhaus' });
+    expect([...ips.keys()]).toEqual(['203.0.113.77']);
+  });
+
+  it('without a key, reports the keyed feeds as needing one and never requests them', async () => {
+    const urls: string[] = [];
+    const set = await fetchFeeds({ minConfidence: 75, allow: [] }, async (url) => {
+      urls.push(url);
+      return new Response('# Feodo\n198.51.100.1\n');
+    });
+    expect(urls).toEqual(['https://feodotracker.abuse.ch/downloads/ipblocklist.txt']);
+    expect(set.sources.map((s) => [s.feed, s.ok, s.error ?? null])).toEqual([
+      ['feodo', true, null],
+      ['threatfox', false, NEEDS_KEY],
+      ['threatfox-hosts', false, NEEDS_KEY],
+      ['urlhaus', false, NEEDS_KEY],
+    ]);
+    expect(Object.keys(set.ips)).toEqual(['198.51.100.1']);
+  });
+
+  it('sends the key as a header to the API and in the path to exports', async () => {
+    const seen: { url: string; key?: string; body?: string }[] = [];
+    const set = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'k3y' }, async (url, init) => {
+      seen.push({ url, key: (init?.headers as Record<string, string>)['Auth-Key'], body: init?.body as string | undefined });
+      if (url.includes('/api/v1/')) return new Response(THREATFOX);
+      if (url.includes('hostfile')) return new Response('127.0.0.1 bad.example\n');
+      if (url.includes('online.csv')) return new Response(URLHAUS);
+      return new Response('# empty\n');
+    });
+    expect(seen.find((s) => s.url.endsWith('/api/v1/'))).toMatchObject({ key: 'k3y', body: '{"query":"get_iocs","days":3}' });
+    expect(seen.map((s) => s.url)).toContain('https://threatfox-api.abuse.ch/v2/files/exports/k3y/hostfile.txt');
+    expect(seen.map((s) => s.url)).toContain('https://urlhaus-api.abuse.ch/v2/files/exports/k3y/online.csv');
+    expect(set.sources.every((s) => s.ok)).toBe(true);
+    expect(set.domains['malhost.example']?.feed).toBe('urlhaus');
+  });
+
+  it('counts a 410, an HTML 200, an empty list and a refused key as failures, with the key redacted', async () => {
+    const set = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'secret-key' }, async (url) => {
+      if (url.includes('/api/v1/')) return new Response('', { status: 401 });
+      if (url.includes('hostfile')) return new Response(GONE, { status: 410, headers: { 'content-type': 'text/html' } });
+      if (url.includes('online.csv')) throw new Error(`fetch failed for ${url}`);
+      return new Response(GONE, { status: 200 });
+    });
+    const err = Object.fromEntries(set.sources.map((s) => [s.feed, s.error]));
+    expect(err.threatfox).toMatch(/401: abuse.ch refused the Auth-Key/);
+    expect(err['threatfox-hosts']).toBe('HTTP 410');
+    expect(err.urlhaus).toContain('<auth-key>');
+    expect(err.urlhaus).not.toContain('secret-key');
+    expect(err.feodo).toMatch(/HTML page, not feed data/);
+
+    const empty = await fetchFeeds({ minConfidence: 75, allow: [], authKey: 'k' }, async () => new Response('# nothing\n'));
+    expect(empty.sources.find((s) => s.feed === 'urlhaus')).toMatchObject({ ok: false, error: 'no entries in the response' });
+    expect(empty.sources.find((s) => s.feed === 'feodo')?.ok).toBe(true); // empty Feodo is real
+  });
+
+  it('takes the key from auth_key_file, then auth_key, then ABUSECH_AUTH_KEY', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'tc-key-')), 'abusech.key');
+    writeFileSync(file, 'from-file\n');
+    expect(abusechAuthKey({ auth_key_file: file, auth_key: 'inline' }, { ABUSECH_AUTH_KEY: 'env' })).toBe('from-file');
+    expect(abusechAuthKey({ auth_key_file: '/nonexistent', auth_key: 'inline' }, { ABUSECH_AUTH_KEY: 'env' })).toBe('inline');
+    expect(abusechAuthKey({}, { ABUSECH_AUTH_KEY: ' env ' })).toBe('env');
+    expect(abusechAuthKey({}, {})).toBeUndefined();
   });
 });
 
@@ -132,7 +235,7 @@ function worker(over: Partial<{ block: boolean; enforcing: boolean; ss: string; 
   const logs: string[] = [];
   let now = Date.parse('2026-10-17T06:00:00Z');
   const feeds = new ThreatFeeds({
-    settings: { ...threatFeedSettings({ block: over.block }), allow: [] },
+    settings: { ...threatFeedSettings({ block: over.block }, {}), allow: [], authKey: 'test-key' },
     enforcing: over.enforcing ?? true,
     cachePath: join(mkdtempSync(join(tmpdir(), 'tc-feeds-')), 'threat-feeds.json'),
     bus: { publish: (e) => events.push(e), announceModule: () => {} },
@@ -140,8 +243,9 @@ function worker(over: Partial<{ block: boolean; enforcing: boolean; ss: string; 
     now: () => now,
     fetchImpl: async (url) => {
       if (over.fetchFail) throw new Error('offline');
-      if (url.includes('export/json')) return new Response(THREATFOX);
+      if (url.includes('threatfox-api.abuse.ch/api/v1')) return new Response(THREATFOX);
       if (url.includes('hostfile')) return new Response('127.0.0.1 bad.example\n');
+      if (url.includes('online.csv')) return new Response(URLHAUS);
       return new Response('# empty\n');
     },
     run: (cmd, args, input) => {
