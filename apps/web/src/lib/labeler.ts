@@ -88,6 +88,64 @@ export function activeHosts(text: string): string[] {
   return [...out];
 }
 
+/**
+ * Our own domains. A file that loads a script, frame or form target from one
+ * of these is never labelled on that domain alone: hosting, the network footer
+ * and nav all come from here, and a listing of shared infrastructure (a
+ * Spamhaus hit on the box's address, say) would otherwise refuse every site on
+ * the network. File-content evidence (CrushAV, hash reputation) still labels.
+ * Extend with LABELER_FIRST_PARTY_DOMAINS (comma separated).
+ */
+export const FIRST_PARTY_DOMAINS: readonly string[] = [
+  "pit.world",
+  "profullstack.com",
+  "c0mpute.com",
+  "threatcrush.com",
+  "crawlproof.com",
+  "nichedb.dev",
+  "logicsrc.com",
+  "coinpayportal.com",
+  "moshcode.sh",
+  "moshcoding.com",
+  "w3bs.org",
+  "rssamplifier.com",
+];
+
+/** True for one of our domains or any subdomain of one. */
+export function isFirstParty(host: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const h = host.toLowerCase().replace(/\.$/, "");
+  const extra = (env["LABELER_FIRST_PARTY_DOMAINS"] ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase().replace(/^\*?\./, ""))
+    .filter(Boolean);
+  return [...FIRST_PARTY_DOMAINS, ...extra].some((d) => h === d || h.endsWith(`.${d}`));
+}
+
+/** What in a reputation reason says the domain serves malware or phishing, as opposed to sending spam. */
+const SEVERE_REASON = /phish|malware|botnet|c&c|\bc2\b|ransom|skimm|payload|urlhaus|threatfox|malwarebazaar/i;
+
+/**
+ * The label a domain listing justifies, or null. Only reasons about the exact
+ * host count: a listing of a parent zone ("Spamhaus DBL (pit.world): ...") or
+ * of an address the name resolves to ("1.2.3.4 (A record) on ...") is about
+ * shared infrastructure, not this name. And only malware/phishing reasons
+ * label: a spam listing (Spamhaus DBL "spam domain", SBL CSS) is not evidence
+ * that a file is dangerous.
+ */
+export function domainLabelValue(host: string, reasons: string[]): LabelValue | null {
+  const h = host.toLowerCase();
+  const exact = reasons.filter((raw) => {
+    const r = raw.replace(/^nichedb:\s*/i, "");
+    if (/\((?:A|AAAA) record\b/i.test(r) || /^resolves to\b/i.test(r)) return false;
+    // "<list> (<subject>[, via]): ..." names a subject other than the queried host.
+    const subj = /^[^:(]*\(([^),\s]+)/.exec(r)?.[1]?.toLowerCase();
+    return !subj || subj === h;
+  });
+  const severe = exact.filter((r) => SEVERE_REASON.test(r));
+  if (severe.length === 0) return null;
+  return severe.some((r) => /phish/i.test(r)) ? "phishing" : "malware";
+}
+
 const isTexty = (r: AvFileResult) => r.kind === "text" || r.kind === "script" || r.kind === "unknown";
 
 export interface ScanDeps {
@@ -128,6 +186,8 @@ export async function scanFiles(files: ScanFile[], deps: ScanDeps = {}): Promise
     const r = results[i];
     if (!r.sha256 || !isTexty(r) || f.bytes.length > LIMITS.maxFileBytes) return;
     for (const h of activeHosts(Buffer.from(f.bytes).toString("latin1"))) {
+      // Our own network is never evidence on its own (see FIRST_PARTY_DOMAINS).
+      if (isFirstParty(h)) continue;
       if (!byHost.has(h) && byHost.size >= LIMITS.maxDomainsPerScan) continue;
       byHost.set(h, [...(byHost.get(h) ?? []), r]);
     }
@@ -137,8 +197,8 @@ export async function scanFiles(files: ScanFile[], deps: ScanDeps = {}): Promise
   hosts.forEach((host, i) => {
     const rep = reports[i];
     if (!rep?.listed) return;
-    const why = rep.reasons.join(" ").toLowerCase();
-    const val: LabelValue = /phish/.test(why) ? "phishing" : "malware";
+    const val = domainLabelValue(host, rep.reasons);
+    if (!val) return;
     for (const r of byHost.get(host) ?? []) {
       add({ uri: `sha256:${r.sha256}`, val, ttl: TTL.domain, evidence: `domain:${host}`, path: r.path });
     }
@@ -173,7 +233,17 @@ const rowToLabel = (r: Row): Label => {
  * Expired positives are dropped.
  */
 export async function currentLabels(admin: SupabaseClient, uris: string[], now = Date.now()): Promise<Label[]> {
-  if (uris.length === 0) return [];
+  const out: Label[] = [];
+  for (const r of (await latestRecords(admin, uris)).values()) {
+    if (!r.neg && Date.parse(r.exp) > now) out.push(rowToLabel(r));
+  }
+  return out;
+}
+
+/** The newest record (positive or `neg`) per (uri, val), keyed `${uri}\n${val}`. */
+async function latestRecords(admin: SupabaseClient, uris: string[]): Promise<Map<string, Row>> {
+  const latest = new Map<string, Row>();
+  if (uris.length === 0) return latest;
   const { data, error } = await admin
     .from("labeler_labels")
     .select("id,src,uri,val,neg,cts,exp,evidence,sig")
@@ -181,25 +251,28 @@ export async function currentLabels(admin: SupabaseClient, uris: string[], now =
     .order("id", { ascending: false })
     .limit(5000);
   if (error) throw new Error(`labeler_labels read failed: ${error.message}`);
-  const seen = new Set<string>();
-  const out: Label[] = [];
   for (const r of (data ?? []) as Row[]) {
     const k = `${r.uri}\n${r.val}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    if (!r.neg && Date.parse(r.exp) > now) out.push(rowToLabel(r));
+    if (!latest.has(k)) latest.set(k, r);
   }
-  return out;
+  return latest;
 }
 
-/** Turn findings into signed, stored labels, reusing a stored one with enough life left. */
+/**
+ * Turn findings into signed, stored labels, reusing a stored one with enough
+ * life left. A granted appeal sticks: while an unexpired `neg` is the newest
+ * record for (uri, val), the same finding is not re-issued. The uri is the
+ * file's SHA-256, so a rescan sees the very bytes a person already cleared.
+ */
 export async function issueLabels(admin: SupabaseClient, key: KeyObject, findings: Finding[], now = Date.now()): Promise<Label[]> {
   if (findings.length === 0) return [];
-  const existing = await currentLabels(admin, [...new Set(findings.map((f) => f.uri))], now);
+  const latest = await latestRecords(admin, [...new Set(findings.map((f) => f.uri))]);
   const out: Label[] = [];
   const fresh: Label[] = [];
   for (const f of findings) {
-    const have = existing.find((l) => l.uri === f.uri && l.val === f.val);
+    const rec = latest.get(`${f.uri}\n${f.val}`);
+    if (rec?.neg && Date.parse(rec.exp) > now) continue; // appeal granted for these exact bytes
+    const have = rec && !rec.neg && Date.parse(rec.exp) > now ? rowToLabel(rec) : undefined;
     if (have && Date.parse(have.exp) - now > REISSUE_MARGIN) {
       out.push(have);
       continue;
