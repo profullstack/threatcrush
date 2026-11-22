@@ -26,6 +26,16 @@ COPY apps/desktop/package.json apps/desktop/
 COPY apps/mobile/package.json apps/mobile/
 COPY apps/extension/package.json apps/extension/
 COPY apps/sdk/package.json apps/sdk/
+# Internal packages and modules are workspace members too. Without their
+# manifests here, pnpm never installs their own dependencies (`yaml` for
+# @threatcrush/scan), and the web build fails with "Can't resolve 'yaml'".
+COPY packages/attack-map/package.json packages/attack-map/
+COPY packages/av/package.json packages/av/
+COPY packages/scan/package.json packages/scan/
+COPY modules/code-scanner/package.json modules/code-scanner/
+COPY modules/feodo-tracker/package.json modules/feodo-tracker/
+COPY modules/link-watch/package.json modules/link-watch/
+COPY modules/spend-guard/package.json modules/spend-guard/
 
 RUN pnpm install --frozen-lockfile
 
