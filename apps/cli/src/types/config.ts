@@ -178,6 +178,23 @@ export interface PrivilegedSection {
   geo?: boolean;
 }
 
+export interface SshContextSection {
+  /** Default true. */
+  enabled?: boolean;
+  /** Default true. Reverse DNS and Team Cymru ASN/country lookups (DNS) for public source addresses. */
+  network_lookups?: boolean;
+  /** Default true. Fetch GitHub's Actions runner ranges from api.github.com/meta (cached a day). */
+  github_actions_ranges?: boolean;
+  /** Fingerprints (SHA256:...) of keys expected to log in from CI: their logins become a quiet info row. */
+  expected_keys?: string[];
+  /** Syslog identifier the CI forced command logs under. Default "ci-deploy". */
+  ci_deploy_tag?: string;
+  /** How far back failed attempts count, seconds. Default 600. */
+  failure_window_seconds?: number;
+  /** How long to wait for the ci-deploy line and session close before sending, ms. Default 5000, max 20000. */
+  settle_ms?: number;
+}
+
 /**
  * `[command_history]` stores local snapshots of supported interactive-shell
  * history files. Snapshots are private to root and never uploaded.
@@ -327,6 +344,14 @@ export interface ThreatCrushConfig {
     first_seen?: boolean;
     auto_response?: boolean;
   };
+  /**
+   * `[ssh_context]`: what every accepted SSH login carries to the dashboard
+   * and desktop app: the authorized_keys line (blob masked) and its options,
+   * the source address's reverse DNS / ASN / country / GitHub Actions or
+   * Tailscale membership, the failed attempts before it, the matching
+   * ci-deploy journal line and session length, and a verdict. On by default.
+   */
+  ssh_context?: SshContextSection;
   detection?: DetectionSection;
   cloud?: CloudSection;
   watchdog?: WatchdogSection;

@@ -62,6 +62,9 @@ jobs:
       - name: Test attack-map package
         run: pnpm --filter @threatcrush/attack-map test
 
+      - name: Test event-detail package
+        run: pnpm --filter @threatcrush/event-detail test && pnpm --filter @threatcrush/event-detail typecheck
+
       - name: Test CrushAV engine
         run: pnpm --filter @threatcrush/av test && pnpm --filter @threatcrush/av typecheck
 

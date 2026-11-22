@@ -1,6 +1,6 @@
 {
   "name": "@profullstack/threatcrush-desktop",
-  "version": "0.7.76",
+  "version": "0.8.0",
   "description": "ThreatCrush Desktop - Security Monitoring Dashboard",
   "main": "./out/main/index.js",
   "homepage": "https://threatcrush.com",
@@ -38,6 +38,7 @@
   "devDependencies": {
     "@threatcrush/attack-map": "workspace:*",
     "@threatcrush/av": "workspace:*",
+    "@threatcrush/event-detail": "workspace:*",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@types/react": "^19.3.0",

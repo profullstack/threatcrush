@@ -511,6 +511,30 @@ auto_response = false                                 # high/critical: ban the a
 
 `kill` and `auto_response` need `CAP_KILL`, which the unit from `threatcrush install-service` now grants; re-run it after upgrading if you turn either on.
 
+### SSH login context
+
+Every accepted SSH login carries `ssh_context` to the dashboard and the desktop app, so an "SSH Login Accepted" alert explains itself:
+
+- **when and where**: host, host-local time and UTC;
+- **login**: user, auth method, key type and fingerprint, and the matching `authorized_keys` line from root's and every login account's `authorized_keys`/`authorized_keys2`: comment, options (`restrict`, `command=`, `from=`), every file that carries it, with the key blob masked (`AAAAC3Nz…[masked]`). Flags a key that authorizes both root and another account, and a dated ci/diag-style comment ([planted-authorized-keys](../../attack-vectors/planted-authorized-keys.md));
+- **source**: loopback, one of this host's addresses, Tailscale (100.64.0.0/10), private, a GitHub Actions runner (api.github.com/meta `actions`, cached a day on disk) or public, plus reverse DNS and Team Cymru ASN, owner and country (DNS lookups, 2.5 s timeout, cached);
+- **before it**: failed attempts in the last 10 minutes, how many from the address that got in and how many from others, with addresses and users. The rule `ssh-success-after-failures` fires on every accepted login; this says whether a brute force actually preceded it;
+- **the session**: for a forced-command key, the `ci-deploy` journal line from the same address (ALLOW/DENY, repo, action, command with secret-looking values redacted) and the session length when it closed within the settle time;
+- **verdict**: e.g. `Likely CI deploy: GitHub Actions IP, forced-command deploy key, ci-deploy ALLOW deploy app 5addb4f2` or `Suspicious login: unrestricted key (no command=, from= or restrict) from a non-CI address`. The `ssh-success-after-failures` detection takes the verdict's severity: expected key info, likely CI low, internal low, review high, suspicious critical. A lowered detection is still uploaded, as a quiet row.
+
+```toml
+[ssh_context]
+enabled = true
+network_lookups = true         # reverse DNS + Team Cymru ASN/country for public addresses
+github_actions_ranges = true   # api.github.com/meta, refreshed daily
+expected_keys = []             # ["SHA256:..."]: CI keys whose logins become a quiet info row
+ci_deploy_tag = "ci-deploy"    # syslog identifier of the forced command
+failure_window_seconds = 600
+settle_ms = 5000               # wait for the ci-deploy line / session close before sending (max 20000)
+```
+
+Accepted logins reach the rule engine after at most `settle_ms` plus the lookup timeouts. Nothing secret leaves the box: no key blob, no private material, no environment.
+
 ### Local shell history protection
 
 Command-history collection is opt-in because shell histories may contain credentials or private work details:

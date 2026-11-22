@@ -1,5 +1,6 @@
 import { useEventStore } from '../stores/events'
 import { cn } from '../lib/utils'
+import EventRow from '../components/EventRow'
 
 export default function Monitor() {
   const events = useEventStore((s) => s.events)
@@ -38,28 +39,7 @@ export default function Monitor() {
         </div>
         <div className="overflow-y-auto h-full pb-10">
           {events.map((event) => (
-            <div
-              key={event.id}
-              className={cn(
-                'flex gap-2 px-4 py-1 text-[11px] font-mono hover:bg-white/[0.02]',
-                event.level === 'threat' && 'bg-threat/5'
-              )}
-            >
-              <span className="text-dim shrink-0">{event.timestamp}</span>
-              <span className={cn(
-                'shrink-0 w-7 font-bold',
-                event.level === 'info' ? 'text-primary' :
-                event.level === 'warning' ? 'text-warning' :
-                'text-threat'
-              )}>
-                {event.level === 'info' ? 'INF' : event.level === 'warning' ? 'WRN' : 'THR'}
-              </span>
-              <span className="text-dim shrink-0 w-20">[{event.module}]</span>
-              <span className="text-text/80 truncate">{event.message}</span>
-              {event.sourceIP && (
-                <span className="ml-auto text-dim shrink-0">{event.sourceIP}</span>
-              )}
-            </div>
+            <EventRow key={event.id} event={event} />
           ))}
         </div>
       </div>

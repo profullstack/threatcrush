@@ -218,6 +218,23 @@ export class CloudClient {
     return this.call(`/api/orgs/${this.orgId()}/detections?${qs}`)
   }
 
+  /**
+   * One detection with everything related to it (same IP / key across the
+   * org, same host, same rule), from the same endpoint the web dashboard's
+   * detail view uses, so both show the same history.
+   */
+  async detectionHistory(id: string): Promise<unknown> {
+    if (!UUID.test(id)) throw new Error('bad id')
+    return this.call(`/api/orgs/${this.orgId()}/detections/${id}/history`)
+  }
+
+  /** The dashboard page for a detection, for "Open in threatcrush.com". */
+  detectionUrl(id: string): string {
+    const slug = this.store.load()?.org_slug
+    if (!UUID.test(id) || !slug || !/^[a-z0-9-]{1,100}$/i.test(slug)) throw new Error('bad id')
+    return `${this.api}/org/${encodeURIComponent(slug)}/detections/${id}`
+  }
+
   async finding(id: string): Promise<unknown> {
     if (!UUID.test(id)) throw new Error('bad id')
     return this.call(`/api/orgs/${this.orgId()}/scan-findings/${id}`)

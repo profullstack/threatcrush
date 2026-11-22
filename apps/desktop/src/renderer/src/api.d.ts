@@ -37,6 +37,18 @@ export interface CloudDetection {
   source_ip: string | null
   detected_at: string
   status: string
+  /** Present on every current dashboard; optional so older responses still type. */
+  username?: string | null
+  raw_metadata?: Record<string, unknown> | null
+  occurrences?: number | null
+}
+
+export interface CloudDetectionHistory {
+  detection: import('@threatcrush/event-detail').EventLike & { server_name: string | null }
+  related: Array<import('@threatcrush/event-detail').EventLike & { server_name: string | null }>
+  origin: string | null
+  incident: { id: string; status: string; assignee_id: string | null } | null
+  window_days: number
 }
 
 export interface AvDetectionView {
@@ -132,6 +144,10 @@ declare global {
         attackMap(windowMinutes?: number): Promise<Res<import('@threatcrush/attack-map').AttackMapData>>
         detections(q?: { server_id?: string; since?: string; limit?: number }): Promise<Res<{ detections: CloudDetection[]; total: number }>>
         triage(ids: string[], status: string | null, note?: string): Promise<Res<{ updated: Array<{ id: string; status: string }> }>>
+        /** The detection with its related history (shared with the web detail view). */
+        detectionHistory(id: string): Promise<Res<CloudDetectionHistory>>
+        /** Opens the detection's page on threatcrush.com in the browser. */
+        openDetection(id: string): Promise<Res<void>>
       }
     }
   }

@@ -8,6 +8,7 @@ import Settings from './pages/Settings'
 import Findings from './pages/Findings'
 import VirusScan from './pages/VirusScan'
 import Fleet from './pages/Fleet'
+import EventDetail from './pages/EventDetail'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/fleet" element={<Fleet />} />
             <Route path="/monitor" element={<Monitor />} />
+            <Route path="/event/:id" element={<EventDetail />} />
             <Route path="/modules" element={<Modules />} />
             <Route path="/findings" element={<Findings />} />
             <Route path="/antivirus" element={<VirusScan />} />

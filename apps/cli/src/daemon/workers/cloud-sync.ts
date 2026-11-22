@@ -43,6 +43,17 @@ export interface CloudSyncOptions {
 const MAX_BATCH_BYTES = 900 * 1024;
 
 /**
+ * The severity that decides whether a detection is uploaded. An SSH login the
+ * agent's verdict lowered (a CI deploy: low, an expected key: info) still goes
+ * up when the rule itself would have, so the dashboard and desktop keep its
+ * history as a quiet row instead of losing it.
+ */
+export function uploadSeverity(event: ThreatEvent): EventSeverity {
+  const rule = event.details?.rule_severity;
+  return typeof rule === 'string' && rule in SEVERITY_RANK ? rule as EventSeverity : event.severity;
+}
+
+/**
  * Reports this machine to the ThreatCrush dashboard: detections, bans and
  * unbans, hardening findings and a heartbeat.
  *
@@ -143,7 +154,7 @@ export class CloudSync {
     } else if (
       (event.module === 'rule-engine' || !this.opts.ruleModules.has(event.module)) &&
       event.details?.heartbeat !== true &&
-      SEVERITY_RANK[event.severity] >= SEVERITY_RANK[this.opts.minSeverity]
+      SEVERITY_RANK[uploadSeverity(event)] >= SEVERITY_RANK[this.opts.minSeverity]
     ) {
       out = detectionEvent(link.serverId, event);
     }

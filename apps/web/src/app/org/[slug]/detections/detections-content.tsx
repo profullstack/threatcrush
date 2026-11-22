@@ -9,6 +9,9 @@ import ConnectServerHint from "@/components/ConnectServerHint";
 import FixReportActions from "@/components/FixReportActions";
 import { detectionUsername, isSshDetection } from "@/lib/detection-display";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { applyExpectedKeys, effectiveSeverity, rowSummary, type EventLike } from "@threatcrush/event-detail";
+import { loadExpectedKeys } from "@/lib/expected-keys";
 
 interface Detection {
   id: string;
@@ -63,6 +66,14 @@ function systemAccountOf(detection: Detection): { name: string | null; uid: stri
   return { name, uid };
 }
 
+function asEventLike(d: Detection): EventLike {
+  return {
+    id: d.id, at: d.detected_at, severity: d.severity, title: d.title, description: d.description,
+    rule_id: d.rule_id, source_ip: d.source_ip, username: d.username, server_id: d.server_id,
+    metadata: d.raw_metadata, status: d.status, occurrences: d.occurrences,
+  };
+}
+
 export default function DetectionsContent({ slug, highlightId }: { slug: string; highlightId: string | null }) {
   const { signedIn, loading: authLoading } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
@@ -76,6 +87,9 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(0);
   const scrolledTo = useRef<string | null>(null);
+  const router = useRouter();
+  const [expected, setExpected] = useState<Set<string>>(() => new Set());
+  useEffect(() => { setExpected(loadExpectedKeys()); }, []);
   const limit = 25;
 
   const fetchDetections = useCallback(async (orgId: string) => {
@@ -174,16 +188,28 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
     const lastSeen = d.last_detected_at ?? d.detected_at;
     const systemAccount = systemAccountOf(d);
     const username = detectionUsername(d);
+    // The agent's SSH login context, when it sent one: the row says who, how,
+    // from where and the verdict, and the severity is the verdict's.
+    const like = applyExpectedKeys(asEventLike(d), expected);
+    const summary = rowSummary(like);
+    const shownSeverity = effectiveSeverity(like);
+    const detailHref = `/org/${slug}/detections/${d.id}`;
     return (
       <div key={d.id} id={`detection-${d.id}`}
-        className={`rounded-lg bg-zinc-900 border p-4 transition-colors ${
+        onClick={(e) => {
+          // The whole card opens the detail view; buttons and links keep their own action.
+          if ((e.target as HTMLElement).closest("a,button,select,input")) return;
+          router.push(detailHref);
+        }}
+        className={`cursor-pointer rounded-lg bg-zinc-900 border p-4 transition-colors ${
           highlighted ? "border-green-500/60 ring-1 ring-green-500/40" : "border-zinc-800 hover:border-zinc-700"
         }`}>
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${SEVERITY_COLORS[d.severity] || SEVERITY_COLORS.info}`}>
-                {d.severity.toUpperCase()}
+              <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium ${SEVERITY_COLORS[shownSeverity] || SEVERITY_COLORS.info}`}
+                title={shownSeverity !== d.severity ? `Raised as ${d.severity}; the agent's verdict is ${shownSeverity}` : undefined}>
+                {shownSeverity.toUpperCase()}
               </span>
               {count > 1 && (
                 <span className="inline-flex items-center rounded-md bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-xs font-medium text-zinc-200"
@@ -196,8 +222,16 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
               </span>
               {d.rule_id && <span className="text-xs text-zinc-600 font-mono">{d.rule_id}</span>}
             </div>
-            <h3 className="text-white font-medium truncate">{d.title}</h3>
-            {d.description && <p className="text-zinc-400 text-sm mt-1 line-clamp-2">{d.description}</p>}
+            <h3 className="text-white font-medium truncate">
+              <Link href={detailHref} className="hover:underline">{d.title}</Link>
+            </h3>
+            {summary.text !== d.title && <p className="font-mono text-xs text-zinc-400 mt-1 break-words">{summary.text}</p>}
+            {summary.verdict && (
+              <p className={`text-sm mt-1 ${summary.verdict.level === "suspicious" ? "text-red-300" : summary.verdict.level === "review" ? "text-amber-300" : "text-emerald-300"}`}>
+                {summary.verdict.summary}
+              </p>
+            )}
+            {d.description && !summary.verdict && <p className="text-zinc-400 text-sm mt-1 line-clamp-2">{d.description}</p>}
             <div className="flex items-center gap-4 mt-2 text-xs text-zinc-500 flex-wrap">
               <span>
                 <Link href={`/org/${slug}/servers/${d.server_id}`} className="text-zinc-400 hover:text-zinc-200">
@@ -213,6 +247,7 @@ export default function DetectionsContent({ slug, highlightId }: { slug: string;
               )}
               <span>{count > 1 ? "First " : ""}{new Date(d.detected_at).toLocaleString()}</span>
               {count > 1 && <span>Last seen {new Date(lastSeen).toLocaleString()}</span>}
+              <Link href={detailHref} className="text-blue-300 hover:text-blue-200">Details and history →</Link>
             </div>
             {d.incident && (
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-zinc-800 bg-black/30 px-3 py-2 text-xs">

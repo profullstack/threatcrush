@@ -1,0 +1,40 @@
+{
+  "name": "@threatcrush/event-detail",
+  "version": "0.1.0",
+  "description": "ThreatCrush event detail: the SSH login context schema, verdict, detail model, related-event timeline and the shared React view used by the web dashboard (PWA) and the desktop app.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react.tsx"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "react": "19.3.1",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/profullstack/threatcrush.git",
+    "directory": "packages/event-detail"
+  },
+  "homepage": "https://threatcrush.com"
+}

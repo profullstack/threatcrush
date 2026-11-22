@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ['./src/renderer/src/**/*.{js,ts,jsx,tsx}', './src/renderer/index.html'],
+  // The event detail view is shared with the web dashboard (packages/event-detail).
+  content: ['./src/renderer/src/**/*.{js,ts,jsx,tsx}', './src/renderer/index.html', '../../packages/event-detail/src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
