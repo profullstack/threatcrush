@@ -17,3 +17,6 @@ apps/desktop/release
 apps/extension/dist
 apps/mobile/.expo
 .qwen
+.env
+.env.*
+!.env.example
