@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { accessSync, constants, existsSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { delimiter, join } from 'node:path';
 
 /**
@@ -14,6 +15,10 @@ import { delimiter, join } from 'node:path';
  * cannot shift the other fields. argv is deliberately not traced: the auditd
  * path discards command arguments, and the eBPF path keeps the same privacy
  * contract (comm after exec is the kernel's basename of the file name anyway).
+ *
+ * With `peers` on, a connect record also carries the remote address and port
+ * (kind `connectp`). The address is there for one purpose: the daemon looks it
+ * up in the threat feeds in memory and drops it unless it is listed.
  */
 
 export type EdrSourceSetting = 'auto' | 'auditd' | 'ebpf';
@@ -26,6 +31,8 @@ export const BTF_VMLINUX_PATH = '/sys/kernel/btf/vmlinux';
 const TCP_SYN_SENT = 2;
 const TCP_LISTEN = 10;
 const IPPROTO_TCP = 6;
+const AF_INET = 2;
+const AF_INET6 = 10;
 
 /**
  * The embedded bpftrace program. sched_process_exec fires after a successful
@@ -35,8 +42,10 @@ const IPPROTO_TCP = 6;
  * context, so pid/comm identify the process. Requires kernel BTF for
  * `curtask->...` field access.
  */
-export function bpftraceScript(opts: { network: boolean }): string {
+export function bpftraceScript(opts: { network: boolean; peers?: boolean }): string {
   const prefix = `"${BPFTRACE_RECORD_TAG}\\t%s\\t%d\\t%d\\t%d\\t%s\\n"`;
+  // connectp: the remote address and port sit before comm, which stays last.
+  const peerPrefix = `"${BPFTRACE_RECORD_TAG}\\t%s\\t%d\\t%d\\t%d\\t%s\\t%d\\t%s\\n"`;
   const lines = [
     'tracepoint:sched:sched_process_exec',
     '{',
@@ -44,12 +53,29 @@ export function bpftraceScript(opts: { network: boolean }): string {
     '}',
   ];
   if (opts.network) {
+    if (opts.peers) {
+      lines.push(
+        'tracepoint:sock:inet_sock_set_state',
+        `/args.protocol == ${IPPROTO_TCP} && args.newstate == ${TCP_SYN_SENT} && args.family == ${AF_INET}/`,
+        '{',
+        `  printf(${peerPrefix}, "connectp", pid, curtask->real_parent->tgid, curtask->cred->euid.val, ntop(args.daddr), args.dport, comm);`,
+        '}',
+        'tracepoint:sock:inet_sock_set_state',
+        `/args.protocol == ${IPPROTO_TCP} && args.newstate == ${TCP_SYN_SENT} && args.family == ${AF_INET6}/`,
+        '{',
+        `  printf(${peerPrefix}, "connectp", pid, curtask->real_parent->tgid, curtask->cred->euid.val, ntop(args.daddr_v6), args.dport, comm);`,
+        '}',
+      );
+    } else {
+      lines.push(
+        'tracepoint:sock:inet_sock_set_state',
+        `/args.protocol == ${IPPROTO_TCP} && args.newstate == ${TCP_SYN_SENT}/`,
+        '{',
+        `  printf(${prefix}, "connect", pid, curtask->real_parent->tgid, curtask->cred->euid.val, comm);`,
+        '}',
+      );
+    }
     lines.push(
-      'tracepoint:sock:inet_sock_set_state',
-      `/args.protocol == ${IPPROTO_TCP} && args.newstate == ${TCP_SYN_SENT}/`,
-      '{',
-      `  printf(${prefix}, "connect", pid, curtask->real_parent->tgid, curtask->cred->euid.val, comm);`,
-      '}',
       'tracepoint:sock:inet_sock_set_state',
       `/args.protocol == ${IPPROTO_TCP} && args.newstate == ${TCP_LISTEN}/`,
       '{',
@@ -61,7 +87,7 @@ export function bpftraceScript(opts: { network: boolean }): string {
 }
 
 /** argv for spawning bpftrace (never through a shell). */
-export function bpftraceArgs(opts: { network: boolean }): string[] {
+export function bpftraceArgs(opts: { network: boolean; peers?: boolean }): string[] {
   return ['-q', '-B', 'line', '-f', 'json', '-e', bpftraceScript(opts)];
 }
 
@@ -74,6 +100,9 @@ export interface EbpfProcessEvent {
   filename?: string;
   /** connect/listen: task comm; exec: kernel basename of filename (max 15 bytes). */
   comm: string;
+  /** connect with `peers` on: the remote address (v4-mapped v6 unwrapped) and port. */
+  peerIp?: string;
+  peerPort?: number;
 }
 
 export type BpftraceLine =
@@ -98,12 +127,23 @@ function parseRecordText(text: string): EbpfProcessEvent | null {
   }
   const [tag, kind, pidText, ppidText, euidText] = parts;
   if (tag !== BPFTRACE_RECORD_TAG) return null;
-  if (kind !== 'exec' && kind !== 'connect' && kind !== 'listen') return null;
+  if (kind !== 'exec' && kind !== 'connect' && kind !== 'connectp' && kind !== 'listen') return null;
   const pid = Number(pidText);
   const ppid = Number(ppidText);
   const euid = Number(euidText);
   if (!/^\d+$/.test(pidText) || !/^\d+$/.test(ppidText) || !/^\d+$/.test(euidText)) return null;
   if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(ppid) || !Number.isSafeInteger(euid)) return null;
+  if (kind === 'connectp') {
+    // Two more fixed fields (address, port) precede comm.
+    const addrEnd = rest.indexOf('\t');
+    const portEnd = addrEnd < 0 ? -1 : rest.indexOf('\t', addrEnd + 1);
+    if (portEnd < 0) return null;
+    const peerIp = rest.slice(0, addrEnd).replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, '');
+    const portText = rest.slice(addrEnd + 1, portEnd);
+    const comm = rest.slice(portEnd + 1, portEnd + 1 + MAX_FIELD);
+    if (!isIP(peerIp) || !/^\d{1,5}$/.test(portText) || Number(portText) > 65535 || !comm) return null;
+    return { kind: 'connect', pid, ppid, euid, comm: comm.slice(0, 64), peerIp, peerPort: Number(portText) };
+  }
   const value = rest.slice(0, MAX_FIELD);
   if (!value) return null;
   if (kind === 'exec') {
@@ -209,6 +249,8 @@ type SpawnFn = (command: string, args: string[], options: SpawnOptions) => Child
 export interface BpftraceSourceOptions {
   bpftracePath: string;
   network: boolean;
+  /** Trace the remote address of each connect, for threat-feed matching. */
+  peers?: boolean;
   onEvent: (event: EbpfProcessEvent) => void;
   /** Called once when bpftrace cannot be kept running; the caller falls back to auditd. */
   onFatal: (reason: string) => void;
@@ -335,7 +377,7 @@ export class BpftraceSource {
     this.stderrTail = '';
     let child: ChildProcess;
     try {
-      child = this.spawnFn(this.opts.bpftracePath, bpftraceArgs({ network: this.opts.network }), {
+      child = this.spawnFn(this.opts.bpftracePath, bpftraceArgs({ network: this.opts.network, peers: this.opts.peers }), {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
         env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C' },

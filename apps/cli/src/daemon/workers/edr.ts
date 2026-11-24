@@ -41,6 +41,8 @@ export interface EdrSettings {
   webServiceUsers: string[];
   tempExecPaths: string[];
   watchNetworkSyscalls: boolean;
+  /** Look every traced connection's remote address up in the threat feeds (eBPF source only). */
+  matchThreatFeeds: boolean;
   networkBaselineMs: number;
   watchUnknownTempCpu: boolean;
   pollMs: number;
@@ -73,6 +75,7 @@ export function edrSettings(section: EdrSection | undefined): EdrSettings {
     webServiceUsers: configuredUsers,
     tempExecPaths: configuredPaths,
     watchNetworkSyscalls: section?.watch_network_syscalls === true,
+    matchThreatFeeds: section?.watch_network_syscalls === true && section?.match_threat_feeds !== false,
     networkBaselineMs: typeof baselineSeconds === 'number' && Number.isFinite(baselineSeconds)
       ? Math.max(0, Math.min(3600, Math.floor(baselineSeconds))) * 1000
       : 60_000,
@@ -206,6 +209,21 @@ export interface EdrSourceStatus {
   pid: number;
 }
 
+/** One outbound TCP connect seen by the eBPF source. */
+export interface TracedConnection {
+  peerIp: string;
+  peerPort: number;
+  pid: number;
+  comm: string;
+  euid: number;
+  /**
+   * The connecting binary, when /proc still has it. Lazy on purpose: a busy
+   * proxy opens hundreds of connections a second and almost none are listed,
+   * so the receiver resolves it only after an address matches.
+   */
+  resolveExecutable: () => string | null;
+}
+
 export interface EdrOptions {
   bus: { publish(event: ThreatEvent): void };
   settings: EdrSettings;
@@ -215,6 +233,12 @@ export interface EdrOptions {
   sourceStatusPath?: string;
   /** Host facts for source selection; injectable for tests. */
   probeHost?: (configured: EdrSourceSetting) => SourceProbe;
+  /**
+   * Called for every traced outbound connection when `match_threat_feeds` is
+   * on. The receiver matches the address against the threat feeds and keeps
+   * nothing on a miss.
+   */
+  onConnection?: (conn: TracedConnection) => void;
   /** bpftrace supervisor factory; injectable for tests. */
   createBpftrace?: (opts: ConstructorParameters<typeof BpftraceSource>[0]) => Pick<BpftraceSource, 'start' | 'stop'>;
   log: (line: string) => void;
@@ -298,6 +322,7 @@ export class EdrWatch {
     const options = {
       bpftracePath,
       network: this.opts.settings.watchNetworkSyscalls,
+      peers: this.opts.settings.matchThreatFeeds,
       onEvent: (event: EbpfProcessEvent) => { this.handleEbpfEvent(event); },
       onFatal: (failure: string) => {
         this.bpftrace = null;
@@ -308,7 +333,10 @@ export class EdrWatch {
     };
     this.bpftrace = this.opts.createBpftrace ? this.opts.createBpftrace(options) : new BpftraceSource(options);
     this.setSource('ebpf', reason);
-    this.opts.log(`[edr] event source: eBPF via ${bpftracePath} (exec${this.opts.settings.watchNetworkSyscalls ? ', tcp connect/listen' : ''}); command arguments and remote addresses are not collected`);
+    const addresses = this.opts.settings.matchThreatFeeds
+      ? 'command arguments are not collected; remote addresses are matched against the threat feeds and kept only on a hit'
+      : 'command arguments and remote addresses are not collected';
+    this.opts.log(`[edr] event source: eBPF via ${bpftracePath} (exec${this.opts.settings.watchNetworkSyscalls ? ', tcp connect/listen' : ''}); ${addresses}`);
     this.bpftrace.start();
   }
 
@@ -367,6 +395,18 @@ export class EdrWatch {
     if ((event.kind === 'connect' || event.kind === 'listen') && !this.opts.settings.watchNetworkSyscalls) return null;
     this.ebpfSerial = (this.ebpfSerial + 1) % Number.MAX_SAFE_INTEGER;
     const resolver = resolveExe ?? (() => this.resolveEbpfExe(event));
+    if (event.kind === 'connect' && event.peerIp && event.peerPort !== undefined && this.opts.settings.matchThreatFeeds && this.opts.onConnection) {
+      try {
+        this.opts.onConnection({
+          peerIp: event.peerIp,
+          peerPort: event.peerPort,
+          pid: event.pid,
+          comm: event.comm,
+          euid: event.euid,
+          resolveExecutable: () => resolver(event.pid),
+        });
+      } catch { /* a feed lookup must never stop process detections */ }
+    }
     const records = ebpfEventToRecords(event, resolver, new Date(), `ebpf-${this.ebpfSerial}`);
     for (const record of records) {
       const threat = this.classify(record);

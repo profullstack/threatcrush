@@ -261,6 +261,13 @@ export interface EdrSection {
   temp_exec_paths?: string[];
   /** Audit successful connect/listen syscalls; can create substantial audit volume. Default false. */
   watch_network_syscalls?: boolean;
+  /**
+   * With `watch_network_syscalls` on the eBPF source, look the remote address
+   * of every outbound connection up in the threat feeds and raise a critical
+   * event, naming the process, on a hit. Addresses that are not listed are not
+   * stored. Default true.
+   */
+  match_threat_feeds?: boolean;
   /** Seconds to learn known outbound executables before alerting on newly seen ones (default 60). */
   network_baseline_seconds?: number;
   /** Watch sustained high CPU from binaries running in temporary directories. Default true when EDR is enabled. */
