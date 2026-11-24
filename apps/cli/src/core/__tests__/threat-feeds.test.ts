@@ -270,9 +270,21 @@ describe('ss parsing', () => {
     ]);
     expect([...parseListeningPorts('LISTEN 0 511 0.0.0.0:443 0.0.0.0:*\nLISTEN 0 4096 [::]:22 [::]:*\n')]).toEqual([443, 22]);
   });
+
+  it('counts a dual-stack wildcard listener (`*:22`) as a listening port', () => {
+    const listeners = [
+      'LISTEN 0 4096 *:22 *:* users:(("agentbbs",pid=812,fd=9))',
+      'LISTEN 0 4096 *:443 *:* users:(("caddy",pid=700,fd=7))',
+      'LISTEN 0 128 0.0.0.0:2202 0.0.0.0:*',
+      'LISTEN 0 128 [::]:2202 [::]:*',
+      'LISTEN 0 4096 127.0.0.1:3000 0.0.0.0:*',
+      'LISTEN 0 4096 [::1]:6667 [::]:*',
+    ].join('\n');
+    expect([...parseListeningPorts(listeners)].sort((a, b) => a - b)).toEqual([22, 443, 2202, 3000, 6667]);
+  });
 });
 
-function worker(over: Partial<{ block: boolean; enforcing: boolean; ss: string; fetchFail: boolean }> = {}) {
+function worker(over: Partial<{ block: boolean; enforcing: boolean; ss: string; listeners: string; fetchFail: boolean }> = {}) {
   const events: ThreatEvent[] = [];
   const calls: { cmd: string; args: string[]; input?: string }[] = [];
   const logs: string[] = [];
@@ -294,7 +306,7 @@ function worker(over: Partial<{ block: boolean; enforcing: boolean; ss: string; 
     },
     run: (cmd, args, input) => {
       calls.push({ cmd, args, input });
-      if (cmd === 'ss' && args[0] === '-ltnH') return 'LISTEN 0 511 0.0.0.0:443 0.0.0.0:*\n';
+      if (cmd === 'ss' && args[0] === '-ltnH') return over.listeners ?? 'LISTEN 0 511 0.0.0.0:443 0.0.0.0:*\n';
       if (cmd === 'ss') return over.ss ?? '';
       if (cmd === 'nft' && args[0] === 'list') return null; // no table yet
       return '';
@@ -323,6 +335,25 @@ describe('ThreatFeeds worker', () => {
     w.advance(3_600_001);
     w.feeds.pollConnections();
     expect(w.events).toHaveLength(2);
+  });
+
+  it('does not call a listed IP connecting in to a wildcard listener an outbound connection', async () => {
+    // A scanner on a listed IP reaching our SSH port, the socket already
+    // orphaned (no owning process) by the time ss sampled it.
+    const w = worker({
+      ss: 'FIN-WAIT-1 0 1 [::ffff:10.0.0.5]:22 [::ffff:203.0.113.8]:48188',
+      listeners: 'LISTEN 0 4096 *:22 *:* users:(("agentbbs",pid=812,fd=9))\n',
+    });
+    await w.feeds.refresh();
+    w.feeds.pollConnections();
+    expect(w.events).toHaveLength(0);
+  });
+
+  it('records the local port, so an alert shows which end opened the connection', async () => {
+    const w = worker({ ss });
+    await w.feeds.refresh();
+    w.feeds.pollConnections();
+    expect(w.events[0].details).toMatchObject({ destination_port: 443, local_port: 44312 });
   });
 
   it('loads the egress table only when block is on and remediation enforces', async () => {

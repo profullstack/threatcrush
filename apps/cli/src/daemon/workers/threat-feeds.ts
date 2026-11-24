@@ -135,13 +135,18 @@ export function parseSs(text: string): OutboundConn[] {
   return out;
 }
 
-/** Listening TCP ports from `ss -ltnH`; a connection on one of them is inbound. */
+/**
+ * Listening TCP ports from `ss -ltnH`; a connection on one of them is inbound.
+ * Only the port is read: a dual-stack wildcard listener prints as `*:22`, which
+ * is not an IP, and dropping it made every inbound connection to that port look
+ * like this box calling out.
+ */
 export function parseListeningPorts(text: string): Set<number> {
   const ports = new Set<number>();
   for (const line of text.split('\n')) {
     const cols = line.trim().split(/\s+/);
-    const local = cols.length >= 4 ? splitAddr(cols[3]) : null;
-    if (local) ports.add(local.port);
+    const m = cols.length >= 4 ? /:(\d+)$/.exec(cols[3]) : null;
+    if (m) ports.add(Number(m[1]));
   }
   return ports;
 }
@@ -348,6 +353,7 @@ export class ThreatFeeds {
           rule_id: 'threat-feed-outbound',
           destination_ip: c.peerIp,
           destination_port: c.peerPort,
+          local_port: c.localPort,
           state: c.state,
           process: c.process,
           pid: c.pid,
