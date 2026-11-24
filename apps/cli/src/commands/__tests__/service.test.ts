@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { nodeVersionDir, renderLogrotate, renderUnit, stableBinPath, systemdUnavailableReason } from "../service.js";
+import { nodeVersionDir, renderLogrotate, renderUnit, stableBinPath, systemdUnavailableReason, unitExtraCapabilities } from "../service.js";
 
 const UNIT = readFileSync(
   join(__dirname, "..", "..", "systemd", "threatcrushd.service"),
@@ -125,6 +125,23 @@ describe("renderUnit", () => {
       expect(line.endsWith(" CAP_KILL CAP_SYS_PTRACE")).toBe(true);
       expect(line).not.toContain("bogus");
     }
+  });
+
+  it("grants CAP_BPF and CAP_PERFMON only when [edr] uses the eBPF source", () => {
+    // bpftrace under the base set exits with "Missing CAP_BPF capability".
+    expect(unitExtraCapabilities({ containWriter: false, edrEbpf: false })).toEqual([]);
+    expect(unitExtraCapabilities({ containWriter: false, edrEbpf: true })).toEqual(["CAP_BPF", "CAP_PERFMON"]);
+    expect(unitExtraCapabilities({ containWriter: true, edrEbpf: true })).toEqual(["CAP_SYS_PTRACE", "CAP_BPF", "CAP_PERFMON"]);
+    const unit = renderUnit(UNIT, {
+      exec: "/usr/bin/node /usr/lib/node_modules/@profullstack/threatcrush/dist/index.js daemon",
+      binPath: "/usr/lib/node_modules/@profullstack/threatcrush/dist/index.js",
+      configDir: "/root/.threatcrush",
+      extraCapabilities: unitExtraCapabilities({ containWriter: false, edrEbpf: true }),
+    });
+    const lines = unit.split("\n").filter((l) => /^(Ambient|CapabilityBounding)/.test(l));
+    expect(lines).toHaveLength(2);
+    for (const line of lines) expect(line.endsWith(" CAP_KILL CAP_BPF CAP_PERFMON")).toBe(true);
+    for (const line of rendered.split("\n").filter((l) => /^(Ambient|CapabilityBounding)/.test(l))) expect(line).not.toContain("CAP_BPF");
   });
 
   it("lets the fail2ban backend write its jail, and tolerates boxes without fail2ban", () => {

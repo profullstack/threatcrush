@@ -67,6 +67,10 @@ StandardError=journal
 #                                 `[file_integrity] contain_writer` is enabled:
 #                                 reading another user's /proc/<pid>/fd to find
 #                                 the process writing a canary needs it.
+#   CAP_BPF / CAP_PERFMON       — added by install-service ONLY when `[edr]` is
+#                                 enabled with `source = "ebpf"` or `"auto"`:
+#                                 bpftrace, run as a child of the daemon, needs
+#                                 both to load its tracing program.
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN CAP_KILL{{EXTRA_CAPS}}
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_CHOWN CAP_KILL{{EXTRA_CAPS}}
 
