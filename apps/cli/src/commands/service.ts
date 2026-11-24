@@ -8,6 +8,7 @@ import { daemonNodeProblem, versionOfNode } from '../core/node-runtime.js';
 import { loadConfig } from '../core/config.js';
 import { commandHistorySettings, historyWritableHomes } from '../daemon/workers/command-history.js';
 import { containWriterSettings } from '../daemon/workers/writer-containment.js';
+import { edrSettings } from '../daemon/workers/edr.js';
 
 const UNIT_PATH = '/etc/systemd/system/threatcrushd.service';
 export const DAEMON_UNIT_NAME = 'threatcrushd.service';
@@ -105,6 +106,23 @@ export function renderUnit(
     .replaceAll('{{CONFIG_DIR}}', opts.configDir)
     .replaceAll('{{HISTORY_PATHS}}', (opts.historyPaths ?? []).map((path) => `-${path}`).join(' '))
     .replace(/ReadWritePaths=([^\n]*)/, (_line, paths: string) => `ReadWritePaths=${paths.split(/\s+/).filter(Boolean).join(' ')}`);
+}
+
+/**
+ * Capabilities the unit needs beyond its base set, from what the config turns
+ * on. Each is granted only when its feature is enabled.
+ *
+ *   CAP_SYS_PTRACE         `[file_integrity] contain_writer`: read other users' /proc/<pid>/fd.
+ *   CAP_BPF, CAP_PERFMON   `[edr]` with `source = "ebpf"` or `"auto"`: the daemon runs
+ *                          bpftrace as a child, and loading a tracing program needs both.
+ *                          Without them bpftrace exits with "Missing CAP_BPF capability"
+ *                          and the daemon falls back to auditd, or to nothing.
+ */
+export function unitExtraCapabilities(opts: { containWriter: boolean; edrEbpf: boolean }): string[] {
+  return [
+    ...(opts.containWriter ? ['CAP_SYS_PTRACE'] : []),
+    ...(opts.edrEbpf ? ['CAP_BPF', 'CAP_PERFMON'] : []),
+  ];
 }
 
 /**
@@ -299,12 +317,16 @@ export async function installServiceCommand(): Promise<void> {
   const historyPaths = commandHistoryEnabled ? historyWritableHomes() : [];
   // `[file_integrity] contain_writer` needs to read other users' /proc/<pid>/fd.
   const containWriter = containWriterSettings(loadConfig().file_integrity).mode !== 'off';
-  const extraCapabilities = containWriter ? ['CAP_SYS_PTRACE'] : [];
+  // `[edr]` on the eBPF source runs bpftrace under this unit's capability set.
+  const edr = edrSettings(loadConfig().edr);
+  const edrEbpf = edr.enabled && edr.source !== 'auditd';
+  const extraCapabilities = unitExtraCapabilities({ containWriter, edrEbpf });
   const unit = renderUnit(resolveTemplate(), { exec, binPath, configDir, historyPaths, extraCapabilities });
   writeFileSync(UNIT_PATH, unit, { mode: 0o644 });
   console.log(chalk.green(`  ✓ Installed unit file: ${UNIT_PATH}`));
   console.log(chalk.dim(`    ExecStart=${exec}`));
   if (containWriter) console.log(chalk.dim('    CAP_SYS_PTRACE granted for [file_integrity] contain_writer (reads /proc/<pid>/fd)'));
+  if (edrEbpf) console.log(chalk.dim('    CAP_BPF and CAP_PERFMON granted for [edr] source = "ebpf" (bpftrace loads a tracing program)'));
 
   // A `latest` node is fine on its own: any node runs a CLI living outside it.
   const nodeDir = nodeVersionDir(nodePath);

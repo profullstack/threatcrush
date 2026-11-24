@@ -265,6 +265,13 @@ export interface BpftraceSourceOptions {
   maxLineBytes?: number;
 }
 
+/**
+ * The whole environment bpftrace runs with. Declared as a plain string map:
+ * the web app's build type-checks this file too, and Next narrows ProcessEnv
+ * to require NODE_ENV, which bpftrace has no use for.
+ */
+const BPFTRACE_ENV: Record<string, string | undefined> = { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C' };
+
 const STDERR_TAIL = 2048;
 const HEALTHY_AFTER_MS = 30_000;
 const KILL_GRACE_MS = 3000;
@@ -380,7 +387,7 @@ export class BpftraceSource {
       child = this.spawnFn(this.opts.bpftracePath, bpftraceArgs({ network: this.opts.network, peers: this.opts.peers }), {
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
-        env: { PATH: '/usr/sbin:/usr/bin:/sbin:/bin', LANG: 'C' },
+        env: BPFTRACE_ENV as NodeJS.ProcessEnv,
       });
     } catch (error) {
       this.onExit(null, null, (error as Error).message);

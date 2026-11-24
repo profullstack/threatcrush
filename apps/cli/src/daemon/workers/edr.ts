@@ -327,6 +327,9 @@ export class EdrWatch {
       onFatal: (failure: string) => {
         this.bpftrace = null;
         this.opts.log(`[edr] ${failure}; falling back to auditd`);
+        if (/Missing CAP_(BPF|PERFMON)/.test(failure)) {
+          this.opts.log('[edr] the service unit does not grant CAP_BPF and CAP_PERFMON: re-run `threatcrush install-service` with [edr] enabled, then restart the daemon');
+        }
         this.startAuditd(`eBPF failed: ${failure}`);
       },
       log: this.opts.log,

@@ -687,7 +687,10 @@ box's listening ports raises a high `threat-feed-inbound` event that carries
 the source address, so auto-defence can ban it.
 
 It needs root, `bpftrace` (`apt install bpftrace`) and kernel BTF
-(`/sys/kernel/btf/vmlinux`). `source = "auto"` picks eBPF when all three are
+(`/sys/kernel/btf/vmlinux`). Under systemd the unit must also grant `CAP_BPF`
+and `CAP_PERFMON`: enable `[edr]` first, then run `threatcrush install-service`
+again, which adds them when the eBPF source is configured. A unit installed
+before that makes bpftrace exit with "Missing CAP_BPF capability". `source = "auto"` picks eBPF when all three are
 present and auditd otherwise; `source = "ebpf"` logs why and uses auditd when
 they are not. If bpftrace exits it is restarted with exponential backoff (1s
 up to 60s); if it fails to start three times in a row, the daemon falls back
