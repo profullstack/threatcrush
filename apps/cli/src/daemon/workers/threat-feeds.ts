@@ -324,46 +324,122 @@ export class ThreatFeeds {
     this.blocking = false;
   }
 
-  /** Outbound connections to listed IPs, one alert per IP and process per hour. */
+  /**
+   * Listed IPs among the open sockets, one alert per IP and process per hour.
+   * A socket on one of our listening ports is the listed host connecting in;
+   * any other is this box calling out. This is a 15 s snapshot of the host's
+   * own network namespace: a short connection, or one made inside a container,
+   * is only seen by the `[edr]` eBPF source, which reports through
+   * `observeOutbound`.
+   */
   pollConnections(): void {
     if (!this.set || Object.keys(this.set.ips).length === 0) return;
     const conns = this.run('ss', ['-tnpH']);
     if (conns === null) return;
     const listening = parseListeningPorts(this.run('ss', ['-ltnH']) ?? '');
-    const now = this.now();
     for (const c of parseSs(conns)) {
-      if (listening.has(c.localPort)) continue; // inbound to a service of ours
-      const ind = matchIp(c.peerIp, this.set);
-      if (!ind) continue;
-      const key = `${c.peerIp}|${c.process ?? '?'}`;
-      if (now - (this.alerted.get(key) ?? 0) < REALERT_MS) continue;
-      this.alerted.set(key, now);
-      const who = c.process ? `${c.process} (pid ${c.pid})` : 'an unknown process';
-      const blocked = this.blocking ? ' — blocked' : '';
-      this.opts.bus.publish({
-        timestamp: new Date(now),
-        module: 'threat-feeds',
-        category: 'network',
-        severity: 'critical',
-        message: `Outbound connection to known ${ind.malware} ${ind.threat === 'botnet_cc' ? 'C2' : 'malware host'} ${c.peerIp}:${c.peerPort} by ${who}${blocked}`,
-        // No source_ip on purpose: the remote end is not an attacker to ban
-        // inbound, so remediation has nothing to act on and the egress table
-        // stays the only enforcement.
-        details: {
-          rule_id: 'threat-feed-outbound',
-          destination_ip: c.peerIp,
-          destination_port: c.peerPort,
-          local_port: c.localPort,
-          state: c.state,
-          process: c.process,
-          pid: c.pid,
-          malware: ind.malware,
-          threat: ind.threat,
-          feed: ind.feed,
-          blocked: this.blocking,
-        },
-      });
+      if (listening.has(c.localPort)) this.reportInbound(c);
+      else this.reportOutbound({ ...c, seenBy: 'ss' });
     }
+    this.forgetOldAlerts();
+  }
+
+  /**
+   * One outbound connect traced by the `[edr]` eBPF source: every namespace,
+   * however short-lived, with the process that made it. The address is looked
+   * up and dropped unless it is listed. Returns whether an event was raised.
+   */
+  observeOutbound(conn: { peerIp: string; peerPort: number; pid: number; comm: string; resolveExecutable?: () => string | null }): boolean {
+    // The lookup comes first and is all that happens for an unlisted address.
+    if (!this.set || !matchIp(conn.peerIp, this.set)) return false;
+    let executable: string | null = null;
+    try { executable = conn.resolveExecutable?.() ?? null; } catch { /* process already gone */ }
+    const process = executable ? executable.slice(executable.lastIndexOf('/') + 1) : conn.comm;
+    return this.reportOutbound({
+      state: 'SYN-SENT',
+      localPort: 0,
+      peerIp: conn.peerIp,
+      peerPort: conn.peerPort,
+      process: process || conn.comm || null,
+      pid: conn.pid,
+      executable,
+      seenBy: 'ebpf',
+    });
+  }
+
+  private reportOutbound(c: OutboundConn & { seenBy: 'ss' | 'ebpf'; executable?: string | null }): boolean {
+    const ind = matchIp(c.peerIp, this.set);
+    if (!ind) return false;
+    const now = this.now();
+    const key = `${c.peerIp}|${c.process ?? '?'}`;
+    if (now - (this.alerted.get(key) ?? 0) < REALERT_MS) return false;
+    this.alerted.set(key, now);
+    const who = c.process ? `${c.process} (pid ${c.pid})` : 'an unknown process';
+    const blocked = this.blocking ? ' — blocked' : '';
+    this.opts.bus.publish({
+      timestamp: new Date(now),
+      module: 'threat-feeds',
+      category: 'network',
+      severity: 'critical',
+      message: `Outbound connection to known ${ind.malware} ${ind.threat === 'botnet_cc' ? 'C2' : 'malware host'} ${c.peerIp}:${c.peerPort} by ${who}${blocked}`,
+      // No source_ip on purpose: the remote end is not an attacker to ban
+      // inbound, so remediation has nothing to act on and the egress table
+      // stays the only enforcement.
+      details: {
+        rule_id: 'threat-feed-outbound',
+        destination_ip: c.peerIp,
+        destination_port: c.peerPort,
+        ...(c.seenBy === 'ss' ? { local_port: c.localPort } : {}),
+        state: c.state,
+        process: c.process,
+        pid: c.pid,
+        ...(c.executable ? { executable: c.executable } : {}),
+        seen_by: c.seenBy,
+        malware: ind.malware,
+        threat: ind.threat,
+        feed: ind.feed,
+        blocked: this.blocking,
+      },
+    });
+    return true;
+  }
+
+  /**
+   * A listed malware host connecting in to one of our services. It is the
+   * remote end reaching us, not a sign that this box is compromised, so it is
+   * `high`, not `critical`; it carries source_ip so auto-defence can ban it.
+   */
+  private reportInbound(c: OutboundConn): boolean {
+    const ind = matchIp(c.peerIp, this.set);
+    if (!ind) return false;
+    const now = this.now();
+    const key = `in|${c.peerIp}|${c.localPort}`;
+    if (now - (this.alerted.get(key) ?? 0) < REALERT_MS) return false;
+    this.alerted.set(key, now);
+    this.opts.bus.publish({
+      timestamp: new Date(now),
+      module: 'threat-feeds',
+      category: 'network',
+      severity: 'high',
+      message: `Inbound connection from known ${ind.malware} ${ind.threat === 'botnet_cc' ? 'C2' : 'malware host'} ${c.peerIp} to port ${c.localPort}`,
+      source_ip: c.peerIp,
+      details: {
+        rule_id: 'threat-feed-inbound',
+        local_port: c.localPort,
+        remote_port: c.peerPort,
+        state: c.state,
+        process: c.process,
+        pid: c.pid,
+        malware: ind.malware,
+        threat: ind.threat,
+        feed: ind.feed,
+      },
+    });
+    return true;
+  }
+
+  private forgetOldAlerts(): void {
+    const now = this.now();
     // Forget old alerts so the map does not grow for the life of the daemon.
     for (const [key, at] of this.alerted) if (now - at > REALERT_MS) this.alerted.delete(key);
   }

@@ -299,6 +299,10 @@ export async function runDaemon(): Promise<void> {
     settings: edrSettings(config.edr),
     networkBaselinePath: join(PATHS.stateDir, 'edr-outbound-executables.json'),
     sourceStatusPath: join(PATHS.stateDir, 'edr-source.json'),
+    // Every traced connect is checked against the abuse.ch lists: this is what
+    // sees a one-second download or a container calling out, which the
+    // threat-feeds socket snapshot cannot.
+    onConnection: (conn) => { threatFeeds.observeOutbound(conn); },
     log: logLine,
   });
   edr.start();

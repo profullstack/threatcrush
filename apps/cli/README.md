@@ -670,7 +670,21 @@ that traces successful `exec` (pid, ppid, effective uid, file name) and, when
 transitions. Each event becomes the same normalized record the auditd parser
 produces, so reverse-shell, web-service shell, writable-path execution, miner,
 new-outbound and listener detections behave identically on either source.
-Command arguments and remote addresses are not traced.
+Command arguments are not traced.
+
+With `watch_network_syscalls = true` the eBPF source also reads the remote
+address and port of every outbound TCP connect and looks it up in the
+`[threat_feeds]` lists. A hit raises a critical `threat-feed-outbound` event
+naming the process and its binary. This is the path that sees a one-second
+download or a connection made inside a container: the threat-feeds socket
+snapshot runs every 15 seconds in the host's own network namespace and misses
+both. An address that is not listed is dropped at once and never stored or
+sent anywhere. Set `match_threat_feeds = false` under `[edr]` to trace no
+remote addresses at all. The auditd source does not do this matching.
+
+Inbound is covered by the snapshot: a listed host connected to one of this
+box's listening ports raises a high `threat-feed-inbound` event that carries
+the source address, so auto-defence can ban it.
 
 It needs root, `bpftrace` (`apt install bpftrace`) and kernel BTF
 (`/sys/kernel/btf/vmlinux`). `source = "auto"` picks eBPF when all three are

@@ -12,7 +12,7 @@ import {
   parseBpftraceLine,
   selectEdrSource,
 } from '../workers/edr-ebpf.js';
-import { EdrWatch, ebpfEventToRecords, edrSettings, readEdrSourceStatus } from '../workers/edr.js';
+import { EdrWatch, ebpfEventToRecords, edrSettings, readEdrSourceStatus, type TracedConnection } from '../workers/edr.js';
 import type { ThreatEvent } from '../../types/events.js';
 
 const json = (data: string) => JSON.stringify({ type: 'printf', data });
@@ -32,6 +32,24 @@ describe('parseBpftraceLine', () => {
     expect(parseBpftraceLine('TC1\tlisten\t8\t1\t33\tnc')).toEqual({
       type: 'event', event: { kind: 'listen', pid: 8, ppid: 1, euid: 33, comm: 'nc' },
     });
+  });
+
+  it('parses a connect record that carries the remote address and port', () => {
+    expect(parseBpftraceLine(json('TC1\tconnectp\t7\t1\t33\t203.0.113.8\t8787\tcurl\n'))).toEqual({
+      type: 'event', event: { kind: 'connect', pid: 7, ppid: 1, euid: 33, comm: 'curl', peerIp: '203.0.113.8', peerPort: 8787 },
+    });
+    // A v4-mapped v6 peer is the v4 address; a real v6 peer stays as it is.
+    expect(parseBpftraceLine('TC1\tconnectp\t7\t1\t0\t::ffff:203.0.113.8\t443\tnode')).toMatchObject({ event: { peerIp: '203.0.113.8', peerPort: 443 } });
+    expect(parseBpftraceLine('TC1\tconnectp\t7\t1\t0\t2001:db8::5\t443\tnode')).toMatchObject({ event: { peerIp: '2001:db8::5' } });
+    // comm is still the last field, so a tab in it cannot move the address.
+    expect(parseBpftraceLine('TC1\tconnectp\t7\t1\t0\t203.0.113.8\t443\ta\tb')).toMatchObject({ event: { peerIp: '203.0.113.8', comm: 'a\tb' } });
+    for (const bad of [
+      'TC1\tconnectp\t7\t1\t0\tnot-an-ip\t443\tcurl',
+      'TC1\tconnectp\t7\t1\t0\t203.0.113.8\t70000\tcurl',
+      'TC1\tconnectp\t7\t1\t0\t203.0.113.8\t443x\tcurl',
+      'TC1\tconnectp\t7\t1\t0\t203.0.113.8\tcurl',
+      'TC1\tconnectp\t7\t1\t0\t203.0.113.8\t443\t',
+    ]) expect(parseBpftraceLine(bad)).toBeNull();
   });
 
   it('keeps tabs and escaped newlines inside the trailing string field', () => {
@@ -78,6 +96,19 @@ describe('bpftrace program', () => {
     expect(net).toContain('args.newstate == 2');
     expect(net).toContain('args.newstate == 10');
     expect(net).not.toMatch(/argv/);
+  });
+
+  it('traces the remote address only when peers is on, v4 and v6 separately', () => {
+    const plain = bpftraceScript({ network: true });
+    expect(plain).not.toContain('daddr');
+    const peers = bpftraceScript({ network: true, peers: true });
+    expect(peers).toContain('args.family == 2');
+    expect(peers).toContain('ntop(args.daddr), args.dport, comm');
+    expect(peers).toContain('args.family == 10');
+    expect(peers).toContain('ntop(args.daddr_v6), args.dport, comm');
+    expect(peers).toContain('args.newstate == 10');
+    // Without network watching there is nothing to attach the address to.
+    expect(bpftraceScript({ network: false, peers: true })).not.toContain('daddr');
   });
 
   it('is passed as one argv element with JSON line output', () => {
@@ -140,6 +171,8 @@ describe('EdrWatch with the eBPF source', () => {
   function watch(overrides: Parameters<typeof edrSettings>[0] = {}) {
     const events: ThreatEvent[] = [];
     const logs: string[] = [];
+    const connections: TracedConnection[] = [];
+    const peers: (boolean | undefined)[] = [];
     const dir = mkdtempSync(join(tmpdir(), 'tc-edr-'));
     dirs.push(dir);
     let fatal: ((reason: string) => void) | null = null;
@@ -147,13 +180,14 @@ describe('EdrWatch with the eBPF source', () => {
     const stopped = vi.fn();
     const edr = new EdrWatch({
       bus: { publish: (event) => events.push(event) },
+      onConnection: (conn) => { connections.push(conn); },
       settings: { ...edrSettings({ enabled: true, source: 'ebpf', watch_unknown_temp_cpu: false, audit_log_path: join(dir, 'audit.log'), ...overrides }) },
       sourceStatusPath: join(dir, 'edr-source.json'),
       probeHost: (configured) => ({ configured, bpftracePath: '/usr/bin/bpftrace', btfPresent: true, isRoot: true, platform: 'linux' }),
-      createBpftrace: (opts) => { fatal = opts.onFatal; return { start: started, stop: stopped }; },
+      createBpftrace: (opts) => { fatal = opts.onFatal; peers.push(opts.peers); return { start: started, stop: stopped }; },
       log: (line) => logs.push(line),
     });
-    return { edr, events, logs, dir, started, stopped, fail: (reason: string) => fatal?.(reason) };
+    return { edr, events, logs, dir, started, stopped, connections, peers, fail: (reason: string) => fatal?.(reason) };
   }
 
   it('starts bpftrace, records the active source and runs the shared rules', () => {
@@ -189,6 +223,37 @@ describe('EdrWatch with the eBPF source', () => {
     const listen = on.edr.handleEbpfEvent({ kind: 'listen', pid: 4, ppid: 1, euid: 0, comm: 'nc' }, () => '/usr/bin/nc');
     expect(listen?.details).toMatchObject({ rule_id: 'edr-process-listener' });
     on.edr.stop();
+  });
+
+  it('hands every traced connection to the feed matcher, with the resolved binary', () => {
+    const on = watch({ watch_network_syscalls: true });
+    on.edr.start();
+    expect(on.peers).toEqual([true]);
+    expect(on.logs.join('\n')).toContain('remote addresses are matched against the threat feeds and kept only on a hit');
+    // An ordinary binary raises no EDR event of its own, but the connection is still offered for matching.
+    on.edr.handleEbpfEvent({ kind: 'connect', pid: 5, ppid: 1, euid: 33, comm: 'curl', peerIp: '203.0.113.8', peerPort: 8787 }, () => '/usr/bin/curl');
+    // The process may already be gone: the connection is still reported, without a binary.
+    on.edr.handleEbpfEvent({ kind: 'connect', pid: 6, ppid: 1, euid: 0, comm: 'x', peerIp: '198.51.100.9', peerPort: 443 }, () => null);
+    expect(on.connections.map(({ resolveExecutable, ...rest }) => ({ ...rest, executable: resolveExecutable() }))).toEqual([
+      { peerIp: '203.0.113.8', peerPort: 8787, pid: 5, comm: 'curl', euid: 33, executable: '/usr/bin/curl' },
+      { peerIp: '198.51.100.9', peerPort: 443, pid: 6, comm: 'x', euid: 0, executable: null },
+    ]);
+    on.edr.stop();
+  });
+
+  it('collects no remote addresses when match_threat_feeds is off or network watching is off', () => {
+    const off = watch({ watch_network_syscalls: true, match_threat_feeds: false });
+    off.edr.start();
+    expect(off.peers).toEqual([false]);
+    expect(off.logs.join('\n')).toContain('command arguments and remote addresses are not collected');
+    off.edr.handleEbpfEvent({ kind: 'connect', pid: 5, ppid: 1, euid: 33, comm: 'curl', peerIp: '203.0.113.8', peerPort: 8787 }, () => '/usr/bin/curl');
+    expect(off.connections).toEqual([]);
+    off.edr.stop();
+
+    const noNet = watch();
+    noNet.edr.start();
+    expect(noNet.peers).toEqual([false]);
+    noNet.edr.stop();
   });
 
   it('falls back to auditd when bpftrace cannot be started', () => {

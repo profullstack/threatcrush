@@ -284,6 +284,10 @@ describe('ss parsing', () => {
   });
 });
 
+const ruleOf = (e: ThreatEvent) => (e.details as { rule_id?: string } | undefined)?.rule_id;
+const outbound = (events: ThreatEvent[]) => events.filter((e) => ruleOf(e) === 'threat-feed-outbound');
+const inbound = (events: ThreatEvent[]) => events.filter((e) => ruleOf(e) === 'threat-feed-inbound');
+
 function worker(over: Partial<{ block: boolean; enforcing: boolean; ss: string; listeners: string; fetchFail: boolean }> = {}) {
   const events: ThreatEvent[] = [];
   const calls: { cmd: string; args: string[]; input?: string }[] = [];
@@ -327,14 +331,17 @@ describe('ThreatFeeds worker', () => {
     await w.feeds.refresh();
     w.feeds.pollConnections();
     w.feeds.pollConnections();
-    expect(w.events).toHaveLength(1);
-    expect(w.events[0]).toMatchObject({ module: 'threat-feeds', severity: 'critical' });
+    const out = outbound(w.events);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ module: 'threat-feeds', severity: 'critical' });
     // The remote end must never reach auto-defence as an attacker to ban.
-    expect(w.events[0].source_ip).toBeUndefined();
-    expect(w.events[0].message).toBe('Outbound connection to known QakBot C2 203.0.113.8:443 by curl (pid 1234)');
+    expect(out[0].source_ip).toBeUndefined();
+    expect(out[0].message).toBe('Outbound connection to known QakBot C2 203.0.113.8:443 by curl (pid 1234)');
+    // The listed host on our :443 is the other direction, and says so.
+    expect(inbound(w.events).map((e) => e.source_ip)).toEqual(['198.51.100.9']);
     w.advance(3_600_001);
     w.feeds.pollConnections();
-    expect(w.events).toHaveLength(2);
+    expect(outbound(w.events)).toHaveLength(2);
   });
 
   it('does not call a listed IP connecting in to a wildcard listener an outbound connection', async () => {
@@ -346,14 +353,61 @@ describe('ThreatFeeds worker', () => {
     });
     await w.feeds.refresh();
     w.feeds.pollConnections();
+    expect(outbound(w.events)).toHaveLength(0);
+    expect(inbound(w.events)).toHaveLength(1);
+  });
+
+  it('reports a listed host connecting in as inbound: high, bannable, once per hour', async () => {
+    const w = worker({
+      ss: 'ESTAB 0 0 [::ffff:10.0.0.5]:22 [::ffff:203.0.113.8]:48188 users:(("sshd",pid=9,fd=4))',
+      listeners: 'LISTEN 0 4096 *:22 *:*\n',
+    });
+    await w.feeds.refresh();
+    w.feeds.pollConnections();
+    w.feeds.pollConnections();
+    expect(w.events).toHaveLength(1);
+    expect(w.events[0]).toMatchObject({ module: 'threat-feeds', severity: 'high', source_ip: '203.0.113.8' });
+    expect(w.events[0].message).toBe('Inbound connection from known QakBot C2 203.0.113.8 to port 22');
+    expect(w.events[0].details).toMatchObject({ rule_id: 'threat-feed-inbound', local_port: 22, remote_port: 48188 });
+    w.advance(3_600_001);
+    w.feeds.pollConnections();
+    expect(w.events).toHaveLength(2);
+  });
+
+  it('flags a traced connection to a listed IP with its process, and nothing else', async () => {
+    const w = worker();
+    await w.feeds.refresh();
+    // Not listed: nothing raised, nothing kept.
+    let resolved = 0;
+    expect(w.feeds.observeOutbound({ peerIp: '192.0.2.77', peerPort: 443, pid: 50, comm: 'node', resolveExecutable: () => { resolved++; return '/usr/bin/node'; } })).toBe(false);
     expect(w.events).toHaveLength(0);
+    // The binary is only looked up once an address matches.
+    expect(resolved).toBe(0);
+    expect(w.feeds.observeOutbound({ peerIp: '203.0.113.8', peerPort: 8787, pid: 51, comm: 'sh', resolveExecutable: () => '/tmp/.x/payload' })).toBe(true);
+    expect(w.events).toHaveLength(1);
+    expect(w.events[0]).toMatchObject({ severity: 'critical' });
+    expect(w.events[0].source_ip).toBeUndefined();
+    expect(w.events[0].message).toBe('Outbound connection to known QakBot C2 203.0.113.8:8787 by payload (pid 51)');
+    expect(w.events[0].details).toMatchObject({ rule_id: 'threat-feed-outbound', seen_by: 'ebpf', executable: '/tmp/.x/payload', destination_port: 8787 });
+    expect(w.events[0].details).not.toHaveProperty('local_port');
+    // The process already gone: comm stands in for the binary.
+    expect(w.feeds.observeOutbound({ peerIp: '203.0.113.8', peerPort: 8787, pid: 52, comm: 'python3', resolveExecutable: () => null })).toBe(true);
+    expect(w.events[1].message).toContain('by python3 (pid 52)');
+  });
+
+  it('does not alert twice when the tracer and the socket snapshot see the same connection', async () => {
+    const w = worker({ ss });
+    await w.feeds.refresh();
+    expect(w.feeds.observeOutbound({ peerIp: '203.0.113.8', peerPort: 443, pid: 1234, comm: 'curl', resolveExecutable: () => '/usr/bin/curl' })).toBe(true);
+    w.feeds.pollConnections();
+    expect(outbound(w.events)).toHaveLength(1);
   });
 
   it('records the local port, so an alert shows which end opened the connection', async () => {
     const w = worker({ ss });
     await w.feeds.refresh();
     w.feeds.pollConnections();
-    expect(w.events[0].details).toMatchObject({ destination_port: 443, local_port: 44312 });
+    expect(outbound(w.events)[0].details).toMatchObject({ destination_port: 443, local_port: 44312, seen_by: 'ss' });
   });
 
   it('loads the egress table only when block is on and remediation enforces', async () => {
