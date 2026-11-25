@@ -21,6 +21,7 @@ import { statusCommand } from "./commands/status.js";
 import { modulesCommand } from "./commands/modules.js";
 import { pentestCommand } from "./commands/pentest.js";
 import { aiScanCommand, aiScanMoshCommand } from "./commands/ai-scan.js";
+import { shieldsCommand } from "./commands/shields.js";
 import { orgsCommand } from "./commands/orgs.js";
 import { serversCommand } from "./commands/servers.js";
 import { connectCommand } from "./commands/connect.js";
@@ -333,6 +334,7 @@ ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush scan ./src       ${chalk.dim("# Scan code for vulns")}
   ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
   ${chalk.green("$")} threatcrush ai-scan URL      ${chalk.dim("# Red-team your AI/LLM endpoint (OWASP LLM Top 10)")}
+  ${chalk.green("$")} threatcrush shields          ${chalk.dim("# Firewall self-test: is your own IP stealthed?")}
   ${chalk.green("$")} threatcrush modules install  ${chalk.dim("# Install a module")}
   ${chalk.green("$")} threatcrush update           ${chalk.dim("# Update to latest")}
   ${chalk.green("$")} threatcrush remove           ${chalk.dim("# Uninstall completely")}`)
@@ -596,6 +598,22 @@ program
   .argument("<url>", "Target URL to pentest")
   .action(async (url: string) => {
     await pentestCommand(url);
+  });
+
+// ─── Shields (firewall port-exposure self-test) ───
+
+program
+  .command("shields")
+  .description("Firewall port-exposure self-test: probe your own public IP and report Open/Closed/Stealth")
+  .argument("[target]", "Host to test (default: your own public IPv4). Must be yours or authorized.")
+  .option("--all", "sweep all service ports 0–1055 (1056 ports)")
+  .option("--file-sharing", "test only NetBIOS/SMB file-sharing ports (135–139, 445)")
+  .option("--ports <list>", 'explicit ports, e.g. "22,80,443,8000-8010"')
+  .option("--timeout <ms>", "per-port timeout in ms (default 3000)")
+  .option("--concurrency <n>", "ports probed at once (default 64)")
+  .option("--json", "emit JSON")
+  .action(async (target: string | undefined, opts) => {
+    await shieldsCommand(target, opts);
   });
 
 // ─── AI Red-Team Scan (LLM/agent endpoints you own) ───
