@@ -102,6 +102,7 @@ threatcrush tui          # Interactive dashboard (htop for security)
 threatcrush action-center # Fleet-wide detections, host health and queued actions (login required)
 threatcrush scan ./src   # Scan code for vulnerabilities & secrets
 threatcrush scan . --format sarif --output out.sarif --fail-on critical,high
+threatcrush scan . --verify    # AI second-read of every finding; drops confident false positives
 sudo threatcrush scan --host   # Rootkit / host integrity scan of this machine (alias: host-scan)
 sudo threatcrush respond ...   # Incident response: kill sessions, ban, pull stolen keys, lock sshd (dry run unless --apply)
 threatcrush pentest URL  # Quick web security checks against a URL
@@ -111,6 +112,28 @@ threatcrush modules      # Manage security modules
 threatcrush store        # Browse the module marketplace
 threatcrush update       # Upgrade the CLI using the supported path
 ```
+
+### AI-verified scan (`--verify`)
+
+`threatcrush scan --verify` hands each rule hit, with about 20 lines of context,
+to a model that must say whether it is real and quote the attacker-controlled
+expression that reaches the sink. Confident false positives (test fixtures,
+constant input, a match inside a regex or string, a value from your own API)
+are dismissed from the report and from `--fail-on`; JSON output still lists
+them under `dismissed`. A "confirmed" verdict that cites no source visible in
+the code is downgraded to uncertain.
+
+Opt-in, because code leaves the machine: by default masked excerpts go to a
+[c0mpute](https://c0mpute.com) peer node (end-to-end encrypted to that worker).
+High-entropy strings are masked first, so found secrets are described, never
+sent. To keep everything local, point it at any OpenAI-compatible server:
+
+```bash
+threatcrush scan . --verify --ai-url http://localhost:11434/v1 --ai-model qwen2.5-coder:7b   # Ollama
+C0MPUTE_API_KEY=ik_live_... threatcrush scan . --verify --format json   # c0mpute account key
+```
+
+See [docs/scan-verify.md](docs/scan-verify.md) for flags, models and output.
 
 ### Host integrity / rootkit scan
 

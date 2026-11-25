@@ -27,7 +27,9 @@ export default defineConfig({
   // `require` of it would throw ERR_REQUIRE_ESM at runtime. It has zero
   // runtime dependencies and imports no node builtins, so bundling it in is
   // both safe and what keeps the published CLI dependency-light.
-  noExternal: ['chalk', 'ora', '@iarna/toml', 'commander', '@threatcrush/scan', 'yaml', '@threatcrush/av', '@threatcrush/attack-map', '@threatcrush/event-detail', '@profullstack/hqtui'],
+  noExternal: ['chalk', 'ora', '@iarna/toml', 'commander', '@threatcrush/scan', 'yaml', '@threatcrush/av', '@threatcrush/attack-map', '@threatcrush/event-detail', '@profullstack/hqtui',
+    // ESM-only, zero dependencies: same reasoning as hqtui. Used by `scan --verify`.
+    '@profullstack/ai-providers'],
 
   async onSuccess() {
     // Ship the systemd unit template alongside the compiled bundle.

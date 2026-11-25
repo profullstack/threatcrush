@@ -8,6 +8,13 @@ import { summarize } from '../core/run-result.js';
 import { meetsFailThreshold, SEVERITY_ORDER } from '@threatcrush/scan';
 import type { ScanFinding, Severity } from '@threatcrush/scan';
 import { buildSarif, scanDependencies, scanPath } from '@threatcrush/scan/node';
+import {
+  describeTarget,
+  verifyFindings,
+  type VerifiedFinding,
+  type VerifyOptions,
+  type VerifyReport,
+} from '../scanverify/index.js';
 
 export type ScanFormat = 'text' | 'json' | 'sarif';
 
@@ -46,6 +53,14 @@ export interface ScanCommandOptions {
    * only of things that are actually there.
    */
   missingControls?: boolean;
+  /**
+   * Have a model second-read each finding and drop confident false positives.
+   * Opt-in: it sends masked code excerpts to c0mpute (or to `verify.aiUrl`).
+   */
+  verify?: boolean;
+  verifyOptions?: VerifyOptions;
+  /** With --verify, keep dismissed findings in the human report (marked). */
+  showDismissed?: boolean;
 }
 
 interface ScanOutcome {
@@ -56,6 +71,7 @@ interface ScanOutcome {
   suppressed: number;
   excluded: number;
   root: string;
+  verify?: VerifyReport;
 }
 
 function readVersion(): string {
@@ -212,6 +228,10 @@ export async function scanCommand(
 
   spinner?.succeed(`Scanned ${outcome.filesScanned} files\n`);
 
+  if (options.verify && outcome.findings.length > 0) {
+    await applyVerification(targetPath, outcome, options, say, machineReadable);
+  }
+
   if (outcome.unreadable.length > 0) {
     // Surfaced, never swallowed. An unexamined file is not a clean one, and a
     // scanner that hides read failures reports silence as safety.
@@ -244,7 +264,7 @@ export async function scanCommand(
   if (machineReadable) {
     emitMachineReadable(format, outcome, targetPath, options, say);
   } else {
-    printHuman(outcome);
+    printHuman(outcome, options.showDismissed);
   }
 
   const failOn = options.failOn ?? [];
@@ -258,6 +278,58 @@ export async function scanCommand(
   }
 
   return outcome.result;
+}
+
+async function applyVerification(
+  targetPath: string,
+  outcome: ScanOutcome,
+  options: ScanCommandOptions,
+  say: (line: string) => void,
+  machineReadable: boolean,
+): Promise<void> {
+  const verifyOpts = options.verifyOptions ?? {};
+  const target = describeTarget(verifyOpts);
+  say(
+    chalk.gray(
+      target.local
+        ? `  · AI verification via ${target.label} (code stays on this endpoint)`
+        : `  · AI verification: masked code excerpts go to the ${target.label}; ` +
+            `use --ai-url http://localhost:11434/v1 to keep them local`,
+    ),
+  );
+  const vspin = machineReadable
+    ? null
+    : ora({ text: 'Verifying findings with AI...', color: 'cyan' }).start();
+  const report = await verifyFindings(outcome.root, outcome.findings, {
+    ...verifyOpts,
+    onProgress: (done, total) => {
+      if (vspin) vspin.text = `Verifying findings with AI... (${done}/${total})`;
+    },
+  });
+  const line =
+    `AI verified ${report.checked} finding(s): ${report.dismissed.length} dismissed as false positives, ` +
+    `${report.kept.filter((f) => f.verification.verdict === 'true_positive').length} confirmed`;
+  if (vspin) {
+    if (report.checked === 0 && report.errors > 0) vspin.fail('AI verification failed');
+    else vspin.succeed(line + '\n');
+  } else {
+    say(chalk.gray(`  · ${line}`));
+  }
+  if (report.errors > 0) {
+    say(
+      chalk.yellow(
+        `  ! ${report.errors} verification call(s) failed (${report.firstError ?? 'unknown error'}); ` +
+          `those findings are kept unverified` +
+          (/429|daily limit/i.test(report.firstError ?? '')
+            ? ' (free c0mpute tier is 10 calls/day: set C0MPUTE_API_KEY or use --ai-url)'
+            : ''),
+      ),
+    );
+  }
+
+  outcome.verify = report;
+  outcome.findings = report.kept;
+  outcome.result = toRunResult(targetPath, report.kept, outcome.filesScanned);
 }
 
 function emitMachineReadable(
@@ -292,6 +364,17 @@ function emitMachineReadable(
           suppressed: outcome.suppressed,
           summary: outcome.result.severity_summary,
           findings: outcome.findings,
+          ...(outcome.verify
+            ? {
+                verification: {
+                  provider: outcome.verify.provider,
+                  models: outcome.verify.models,
+                  checked: outcome.verify.checked,
+                  errors: outcome.verify.errors,
+                },
+                dismissed: outcome.verify.dismissed,
+              }
+            : {}),
         };
 
   const serialized = `${JSON.stringify(payload, null, 2)}\n`;
@@ -309,8 +392,35 @@ function emitMachineReadable(
   process.stdout.write(serialized);
 }
 
-function printHuman(outcome: ScanOutcome): void {
+function printVerdict(finding: VerifiedFinding | ScanFinding): void {
+  const v = (finding as VerifiedFinding).verification;
+  if (!v) return;
+  const pct = `${Math.round(v.confidence * 100)}%`;
+  const tag =
+    v.verdict === 'true_positive'
+      ? chalk.red.bold(`confirmed ${pct}`)
+      : v.verdict === 'false_positive'
+        ? chalk.green(`likely false positive ${pct}`)
+        : v.verdict === 'uncertain'
+          ? chalk.yellow(`uncertain ${pct}`)
+          : chalk.gray('unverified');
+  console.log(`    ${chalk.gray('AI:')}   ${tag} ${chalk.dim(`· ${v.reason}`)}`);
+}
+
+function printHuman(outcome: ScanOutcome, showDismissed = false): void {
   const { findings, filesScanned } = outcome;
+  const dismissed = outcome.verify?.dismissed ?? [];
+
+  if (dismissed.length > 0 && showDismissed) {
+    console.log(chalk.gray.bold(`  Dismissed by AI verification (${dismissed.length})`));
+    for (const f of dismissed) {
+      console.log(`  ${chalk.gray('[FP]')} ${chalk.dim(f.title)} ${chalk.cyan(f.file)}:${chalk.yellow(String(f.line))}`);
+      printVerdict(f);
+    }
+    console.log();
+  } else if (dismissed.length > 0) {
+    console.log(chalk.gray(`  · ${dismissed.length} finding(s) dismissed by AI verification (--show-dismissed to list)\n`));
+  }
 
   if (findings.length === 0) {
     console.log(chalk.green.bold('  ✓ No security issues found!'));
@@ -363,6 +473,7 @@ function printHuman(outcome: ScanOutcome): void {
         (finding.cwe ? chalk.dim(` · ${finding.cwe}`) : '') +
         chalk.dim(` · confidence: ${finding.confidence}`),
     );
+    printVerdict(finding);
     console.log();
   }
 
