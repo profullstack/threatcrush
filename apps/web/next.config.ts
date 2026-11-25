@@ -23,12 +23,13 @@ const securityHeaders = [
     // The third-party hosts are exactly what app/layout.tsx loads on every
     // page: the robauto, datafa.st and crawlproof analytics scripts (crawlproof
     // may add its own careers.js), and Google Fonts (stylesheet + font files). Their
-    // beacons and XHRs already fall under connect-src https:.
+    // beacons and XHRs already fall under connect-src https:. real.clicks.pit.world serves the
+    // quote-form widget (components/QuoteForm.tsx) and its stylesheet.
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://robauto.ai https://datafa.st https://crawlproof.com https://cdn.jsdelivr.net",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://robauto.ai https://datafa.st https://crawlproof.com https://cdn.jsdelivr.net https://real.clicks.pit.world",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://real.clicks.pit.world",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data: https://fonts.gstatic.com",
       "connect-src 'self' https:",

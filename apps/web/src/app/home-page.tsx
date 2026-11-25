@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { QuoteForm } from "@/components/QuoteForm";
 import { serializeJsonForHtml } from "@/lib/safe-json";
 import AttackMap from "@/components/AttackMap";
 import ScrollReveal from "@/components/ScrollReveal";
@@ -374,6 +375,12 @@ export default function Home() {
                   </div>
                 </ScrollReveal>
               ))}
+            </div>
+            <div className="mt-10 mx-auto max-w-2xl">
+              <QuoteForm
+                title="Want a human-led pentest on top?"
+                blurb="Ask a partner pentest firm for a quote: tell them what to test and they reply with a price. Free for you; the firm pays us for verified requests."
+              />
             </div>
           </div>
         </section>
