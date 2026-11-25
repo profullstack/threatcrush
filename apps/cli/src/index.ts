@@ -26,6 +26,7 @@ import { avQuarantineCommand, avScanCommand, avStatusCommand, avTestCommand, avW
 import { aiScanCommand, aiScanMoshCommand } from "./commands/ai-scan.js";
 import { shieldsCommand } from "./commands/shields.js";
 import { haystackCommand, genpassCommand, fingerprintCommand, dnsbenchCommand } from "./commands/tools.js";
+import { redteamCommand } from "./commands/redteam.js";
 import { orgsCommand } from "./commands/orgs.js";
 import { invitesCommand, redeemCommand } from "./commands/credits.js";
 import { fleetCostCommand, fleetImportCommand } from "./commands/fleet.js";
@@ -360,6 +361,7 @@ ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
   ${chalk.green("$")} threatcrush ai-scan URL      ${chalk.dim("# Red-team your AI/LLM endpoint (OWASP LLM Top 10)")}
   ${chalk.green("$")} threatcrush shields          ${chalk.dim("# Firewall self-test: is your own IP stealthed?")}
+  ${chalk.green("$")} threatcrush redteam URL      ${chalk.dim("# Autonomous recon+probe of a site you own")}
   ${chalk.green("$")} threatcrush haystack PW      ${chalk.dim("# Password brute-force-time calculator")}
   ${chalk.green("$")} threatcrush genpass          ${chalk.dim("# Strong random strings; also fingerprint, dns-bench")}
   ${chalk.green("$")} threatcrush modules install  ${chalk.dim("# Install a module")}
@@ -807,6 +809,21 @@ program
   .option("--timeout <ms>", "per-query timeout (default 2000)")
   .option("--json", "emit JSON")
   .action(async (opts) => { await dnsbenchCommand(opts); });
+// ─── Redteam (autonomous recon + probe of a site you own) ───
+
+program
+  .command("redteam")
+  .description("Autonomous security pass: map a target you own, probe it safely, and report")
+  .argument("<url>", "Target URL (must be yours or authorized)")
+  .option("--authorized", "affirm you own or are authorized to test the target (skips the prompt)")
+  .option("--max <n>", "max routes to probe (default 25)")
+  .option("--timeout <ms>", "per-request timeout in ms (default 8000)")
+  .option("--html-only", "recon from the landing page only (skip specs/robots/sitemap)")
+  .option("--ai", "let a c0mpute model re-rank the probe queue (needs TC_COMPUTE_URL)")
+  .option("--json", "emit JSON")
+  .action(async (url: string, opts) => {
+    await redteamCommand(url, opts);
+  });
 
 // ─── AI Red-Team Scan (LLM/agent endpoints you own) ───
 

@@ -11,7 +11,7 @@ export interface StructuredFinding {
 }
 
 export interface RunResult {
-  type: 'scan' | 'pentest' | 'shields';
+  type: 'scan' | 'pentest' | 'shields' | 'redteam';
   target: string;
   findings: StructuredFinding[];
   severity_summary: Record<Severity, number>;
