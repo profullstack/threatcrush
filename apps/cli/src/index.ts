@@ -25,6 +25,7 @@ import { pentestCommand } from "./commands/pentest.js";
 import { avQuarantineCommand, avScanCommand, avStatusCommand, avTestCommand, avWatchCommand } from "./commands/av.js";
 import { aiScanCommand, aiScanMoshCommand } from "./commands/ai-scan.js";
 import { shieldsCommand } from "./commands/shields.js";
+import { haystackCommand, genpassCommand, fingerprintCommand, dnsbenchCommand } from "./commands/tools.js";
 import { orgsCommand } from "./commands/orgs.js";
 import { invitesCommand, redeemCommand } from "./commands/credits.js";
 import { fleetCostCommand, fleetImportCommand } from "./commands/fleet.js";
@@ -359,6 +360,8 @@ ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush pentest URL      ${chalk.dim("# Quick web checks on a URL")}
   ${chalk.green("$")} threatcrush ai-scan URL      ${chalk.dim("# Red-team your AI/LLM endpoint (OWASP LLM Top 10)")}
   ${chalk.green("$")} threatcrush shields          ${chalk.dim("# Firewall self-test: is your own IP stealthed?")}
+  ${chalk.green("$")} threatcrush haystack PW      ${chalk.dim("# Password brute-force-time calculator")}
+  ${chalk.green("$")} threatcrush genpass          ${chalk.dim("# Strong random strings; also fingerprint, dns-bench")}
   ${chalk.green("$")} threatcrush modules install  ${chalk.dim("# Install a module")}
   ${chalk.green("$")} threatcrush update           ${chalk.dim("# Update to latest")}
   ${chalk.green("$")} threatcrush remove           ${chalk.dim("# Uninstall completely")}`)
@@ -769,6 +772,41 @@ program
   .action(async (target: string | undefined, opts) => {
     await shieldsCommand(target, opts);
   });
+
+// ─── Free utility tools (password, keys, TLS fingerprint, DNS) ───
+
+program
+  .command("haystack")
+  .description("Password search-space / brute-force-time calculator")
+  .argument("<password>", "Password to analyze (processed locally, never sent)")
+  .option("--json", "emit JSON")
+  .action(async (password: string, opts) => { await haystackCommand(password, opts); });
+
+program
+  .command("genpass")
+  .description("Generate cryptographically strong random strings")
+  .option("--length <n>", "length of one string (default 32)")
+  .option("--charset <name|chars>", "hex|alnum|ascii|base58, or literal characters (default ascii)")
+  .option("--count <n>", "how many to generate (default 1)")
+  .option("--json", "emit JSON")
+  .action(async (opts) => { await genpassCommand(opts); });
+
+program
+  .command("fingerprint")
+  .description("Read a site's TLS certificate fingerprint (detect MITM/interception)")
+  .argument("<host>", "Hostname, e.g. example.com")
+  .option("--port <n>", "TLS port (default 443)")
+  .option("--compare <sha256>", "compare against a fingerprint you already have")
+  .option("--json", "emit JSON")
+  .action(async (host: string, opts) => { await fingerprintCommand(host, opts); });
+
+program
+  .command("dns-bench")
+  .description("Benchmark public DNS resolvers by speed and reliability from this machine")
+  .option("--names <list>", "comma list of domains to resolve (default a common basket)")
+  .option("--timeout <ms>", "per-query timeout (default 2000)")
+  .option("--json", "emit JSON")
+  .action(async (opts) => { await dnsbenchCommand(opts); });
 
 // ─── AI Red-Team Scan (LLM/agent endpoints you own) ───
 
