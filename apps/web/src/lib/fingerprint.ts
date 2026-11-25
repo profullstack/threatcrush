@@ -45,6 +45,7 @@ export function cleanHost(input: string): string {
 
 export async function getFingerprint(host: string, port = 443, timeoutMs = 8000): Promise<FingerprintResult> {
   return new Promise<FingerprintResult>((resolve, reject) => {
+    // threatcrush-disable-next-line tls-verification-disabled  intentional: a fingerprint/MITM-detection tool must read whatever certificate is presented (including invalid/self-signed ones); we only read the cert and never send data over this socket.
     const socket = tls.connect({ host, port, servername: host, rejectUnauthorized: false }, () => {
       const cert = socket.getPeerCertificate(true);
       socket.destroy();

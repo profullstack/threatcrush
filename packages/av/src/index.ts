@@ -29,6 +29,7 @@ export {
   mergeReputation,
   queryCircl,
   queryMalwareBazaar,
+  queryVirusTotal,
 } from './reputation';
 export { summarize } from './summary';
 export { findUpxHeader, nrvDecompress, upxUnpack, UPX_MAX_OUTPUT } from './upx';
