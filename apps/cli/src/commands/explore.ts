@@ -12,6 +12,7 @@ export interface ExploreCliOptions {
   aiModel?: string;
   maxSteps?: string;
   maxToolCalls?: string;
+  timeout?: string;
   json?: boolean;
   graph?: boolean;
   upload?: boolean;
@@ -52,10 +53,11 @@ export async function exploreCommand(
     model: opts.aiModel,
     maxSteps: opts.maxSteps ? Math.max(1, Number(opts.maxSteps) || 12) : undefined,
     maxToolCalls: opts.maxToolCalls ? Math.max(1, Number(opts.maxToolCalls) || 6) : undefined,
+    timeoutMs: opts.timeout ? Math.max(10, Number(opts.timeout) || 600) * 1000 : undefined,
   };
 
   const spinner = opts.json ? null : ora({ text: 'Starting exploration...', color: 'green' }).start();
-  const say = (l: string) => (opts.json ? process.stderr.write(l + '\n') : (spinner ? spinner.stop() : null, console.log(l), spinner?.start()));
+  const warnings: string[] = [];
 
   const { result, engine, target } = await runExploreEngine(dir, {
     ...runOpts,
@@ -64,7 +66,12 @@ export async function exploreCommand(
       if (spinner) spinner.text = `step ${s.step} [${s.kind}] ${s.outcome}${tag ? ' +finding' : ''}`;
     },
     onTool: (c) => { if (spinner) spinner.text = `  ${c.tool} ${c.path ?? c.needle ?? ''}`; },
-    onError: (k, m) => { if (!opts.json) logger.warn(`${k} step failed: ${m}`); },
+    onError: (k, m) => {
+      // stderr, so it never pollutes --json on stdout but is never swallowed.
+      warnings.push(`${k}: ${m}`);
+      if (spinner) { spinner.stop(); logger.warn(`${k} step failed: ${m}`); spinner.start(); }
+      else logger.warn(`${k} step failed: ${m}`);
+    },
   });
   spinner?.stop();
 
@@ -87,7 +94,7 @@ export async function exploreCommand(
   }
 
   if (opts.json) {
-    console.log(JSON.stringify({ ...result, steps: engine.steps, graph: engine.board.render() }, null, 2));
+    console.log(JSON.stringify({ ...result, steps: engine.steps, errors: engine.errors, warnings, graph: engine.board.render() }, null, 2));
     return result;
   }
 

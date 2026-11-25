@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 import type { TextProvider, TextRequest } from '@profullstack/ai-providers';
 import { Board, GOAL, ORIGIN } from '../graph.js';
 import { Workspace } from '../tools.js';
-import { parseBootstrap, parseExplore, parseReason, parseToolCall } from '../tasks.js';
+import { parseBootstrap, parseExplore, parseReason, parseToolCall, stripThinking } from '../tasks.js';
+import { runBootstrap } from '../worker.js';
 import { runEngine } from '../engine.js';
 import { runExploreEngine } from '../index.js';
 
@@ -119,6 +120,34 @@ describe('parsers', () => {
     expect(parseExplore('{"fact":"dead end, input is constant"}').finding).toBeUndefined();
     const r = parseReason('{"complete":false,"intents":[{"from":["f001"],"description":"trace req.body into exec"}]}');
     expect(r.intents?.[0].description).toContain('exec');
+  });
+});
+
+describe('thinking-model robustness', () => {
+  it('strips closed and unterminated <think> blocks', () => {
+    expect(stripThinking('<think>reasoning...</think>{"fact":"x"}')).toBe('{"fact":"x"}');
+    // the real failure: budget spent thinking, JSON never emitted
+    expect(stripThinking('{"fact":"y"}\n<think>still going when it ran out')).toBe('{"fact":"y"}');
+    expect(stripThinking('<think>only thought, no json, hit the cap')).toBe('');
+  });
+
+  it('re-asks once for JSON when the first answer is all reasoning', async () => {
+    const root = tmpRepo({ 'x.js': 'eval(req.body.code)\n' });
+    let n = 0;
+    const provider: TextProvider = {
+      name: 'thinky',
+      async generate() {
+        n += 1;
+        const text = n === 1
+          ? '<think>let me look at this carefully and reason for a very long time'  // no JSON: budget spent
+          : '{"fact":"eval of req.body.code at x.js:1","complete":true,"supporting":["f001"],"finding":{"severity":"critical","title":"Code injection","file":"x.js","line":1}}';
+        return { text, model: 'thinky', usage: { inputTokens: 0, outputTokens: 0, estimated: true } };
+      },
+    };
+    const board = new Board({ origin: 'repo', goal: 'g', clock });
+    const r = await runBootstrap({ provider, workspace: new Workspace(root) }, board.render());
+    expect(n).toBe(2); // first all-thinking, retry produced JSON
+    expect(r.finding?.severity).toBe('critical');
   });
 });
 

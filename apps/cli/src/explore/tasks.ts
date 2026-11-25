@@ -54,7 +54,19 @@ export interface ReasonResult {
   intents?: Array<{ from: string[]; description: string }>;
 }
 
-export const SYSTEM = `You are a methodical application-security researcher auditing a codebase the operator owns and has authorized you to review. You work only from the source you are shown; you never execute code, open network connections, or modify files. You reason about real, exploitable weaknesses — injection, auth bypass, SSRF, path traversal, deserialization, secrets, unsafe sinks reached by attacker-controlled input — and you are precise about whether attacker input actually reaches a sink. You answer strictly in the JSON shape requested, with no prose outside it.`;
+export const SYSTEM = `You are a methodical application-security researcher auditing a codebase the operator owns and has authorized you to review. You work only from the source you are shown; you never execute code, open network connections, or modify files. You reason about real, exploitable weaknesses — injection, auth bypass, SSRF, path traversal, deserialization, secrets, unsafe sinks reached by attacker-controlled input — and you are precise about whether attacker input actually reaches a sink.
+Answer with ONE JSON object and nothing else: no explanation before or after it, and do NOT emit any reasoning or <think>…</think> block. Think silently; output only the JSON. /no_think`;
+
+/**
+ * Remove reasoning a small "thinking" model leaks around its JSON: a closed
+ * <think>…</think> block, and — the failure that actually bit us — an *unclosed*
+ * <think> that ran to the end of the token budget, leaving no JSON at all. We
+ * strip the dangling tail so a re-ask starts clean. extractJson handles closed
+ * blocks and fences already; this just covers the unterminated case.
+ */
+export function stripThinking(text: string): string {
+  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').trim();
+}
 
 /** Preamble letting the worker gather evidence before answering. */
 export const TOOL_PROTOCOL = `You may inspect the code before answering. Reply with ONE json object per turn:

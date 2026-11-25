@@ -34,6 +34,8 @@ export interface ExploreOptions {
   model?: string;
   maxSteps?: number;
   maxToolCalls?: number;
+  /** Per-call model timeout (ms). Default 600s — local CPU models are slow. */
+  timeoutMs?: number;
   worker?: string;
   env?: NodeJS.ProcessEnv;
   /** Test seam: a ready-made provider, bypassing c0mpute/endpoint selection. */
@@ -69,6 +71,9 @@ export async function runExploreEngine(dir: string, opts: ExploreOptions = {}): 
     model: opts.model,
     env: opts.env,
     provider: opts.provider,
+    // Explore turns can be long (a tool loop then an answer); give slow local
+    // CPU models room rather than aborting mid-think.
+    timeoutMs: opts.timeoutMs ?? 600_000,
   };
   const { provider } = buildProvider(verifyOpts);
   const target = describeTarget(verifyOpts);

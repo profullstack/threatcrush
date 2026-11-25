@@ -839,6 +839,7 @@ program
   .option("--ai-model <models>", "model(s), comma-separated (also THREATCRUSH_AI_MODEL)")
   .option("--max-steps <n>", "max scheduler steps (default 12)")
   .option("--max-tool-calls <n>", "max read-tool calls per worker turn (default 6)")
+  .option("--timeout <seconds>", "per-call model timeout in seconds (default 600; raise for slow local models)")
   .option("--graph", "print the final Fact/Intent graph")
   .option("--json", "emit JSON (result + steps + graph)")
   .action(async (path: string, opts) => {
