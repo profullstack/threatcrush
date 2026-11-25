@@ -41,7 +41,14 @@ export async function POST(req: NextRequest) {
   const results: Record<string, HashReputation> = {};
   for (const [h, rep] of found) results[h] = rep;
   return NextResponse.json(
-    { results, sources: ["hashlookup.circl.lu", ...(malwareBazaarKey() ? ["MalwareBazaar"] : [])] },
+    {
+      results,
+      sources: [
+        "hashlookup.circl.lu",
+        ...(malwareBazaarKey() ? ["MalwareBazaar"] : []),
+        ...(virusTotalKey() ? ["VirusTotal"] : []),
+      ],
+    },
     { headers: CORS },
   );
 }
@@ -49,5 +56,10 @@ export async function POST(req: NextRequest) {
 /** Read at request time: Next.js inlines `process.env.NAME` at build. */
 function malwareBazaarKey(): string {
   const name = "ABUSECH_AUTH_KEY";
+  return process.env[name] ?? "";
+}
+
+function virusTotalKey(): string {
+  const name = "VIRUSTOTAL_API_KEY";
   return process.env[name] ?? "";
 }

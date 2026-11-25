@@ -103,6 +103,44 @@ export async function queryMalwareBazaar(sha256: string, authKey: string, f: Fet
   }
 }
 
+/**
+ * Server side: VirusTotal, when the deployment has a VirusTotal API key (free
+ * at virustotal.com). VT aggregates ~70 AV engines; we report a file as
+ * malicious when any engine flags it, with VT's suggested threat label.
+ * Returns null for an unknown hash, no key, or an error.
+ */
+export async function queryVirusTotal(sha256: string, apiKey: string, f: FetchLike = fetch): Promise<HashReputation | null> {
+  if (!SHA256_RE.test(sha256) || !apiKey) return null;
+  try {
+    const res = await f(`https://www.virustotal.com/api/v3/files/${sha256}`, { headers: { 'x-apikey': apiKey } });
+    if (res.status !== 200) return null; // 404 = unknown to VT
+    const j = (await res.json()) as {
+      data?: { attributes?: {
+        last_analysis_stats?: { malicious?: number; suspicious?: number };
+        popular_threat_classification?: { suggested_threat_label?: string };
+        meaningful_name?: string;
+      } };
+    };
+    const attr = j.data?.attributes;
+    if (!attr) return null;
+    const malicious = (attr.last_analysis_stats?.malicious ?? 0) + (attr.last_analysis_stats?.suspicious ?? 0);
+    const fileName = attr.meaningful_name ?? null;
+    if (malicious > 0) {
+      return {
+        sha256,
+        knownMalicious: `VirusTotal (${attr.last_analysis_stats?.malicious ?? 0} engines)`,
+        malwareName: attr.popular_threat_classification?.suggested_threat_label ?? null,
+        trust: 0,
+        fileName,
+      };
+    }
+    // Known to VT but flagged by nobody: contribute a filename, make no trust claim.
+    return { sha256, knownMalicious: null, malwareName: null, trust: null, fileName };
+  } catch {
+    return null;
+  }
+}
+
 /** Combine sources: any malicious verdict wins; otherwise the best trust. */
 export function mergeReputation(sha256: string, reps: Array<HashReputation | null>): HashReputation | null {
   const found = reps.filter((r): r is HashReputation => !!r);
