@@ -27,6 +27,7 @@ import { aiScanCommand, aiScanMoshCommand } from "./commands/ai-scan.js";
 import { shieldsCommand } from "./commands/shields.js";
 import { haystackCommand, genpassCommand, fingerprintCommand, dnsbenchCommand } from "./commands/tools.js";
 import { redteamCommand } from "./commands/redteam.js";
+import { exploreCommand } from "./commands/explore.js";
 import { orgsCommand } from "./commands/orgs.js";
 import { invitesCommand, redeemCommand } from "./commands/credits.js";
 import { fleetCostCommand, fleetImportCommand } from "./commands/fleet.js";
@@ -362,6 +363,7 @@ ${chalk.dim("Examples:")}
   ${chalk.green("$")} threatcrush ai-scan URL      ${chalk.dim("# Red-team your AI/LLM endpoint (OWASP LLM Top 10)")}
   ${chalk.green("$")} threatcrush shields          ${chalk.dim("# Firewall self-test: is your own IP stealthed?")}
   ${chalk.green("$")} threatcrush redteam URL      ${chalk.dim("# Autonomous recon+probe of a site you own")}
+  ${chalk.green("$")} threatcrush explore ./src   ${chalk.dim("# Blackboard state-space audit of code you own")}
   ${chalk.green("$")} threatcrush haystack PW      ${chalk.dim("# Password brute-force-time calculator")}
   ${chalk.green("$")} threatcrush genpass          ${chalk.dim("# Strong random strings; also fingerprint, dns-bench")}
   ${chalk.green("$")} threatcrush modules install  ${chalk.dim("# Install a module")}
@@ -823,6 +825,24 @@ program
   .option("--json", "emit JSON")
   .action(async (url: string, opts) => {
     await redteamCommand(url, opts);
+  });
+
+// ─── Explore (blackboard state-space audit of code you own) ───
+
+program
+  .command("explore")
+  .description("Blackboard state-space vulnerability research over a codebase you own (read-only; c0mpute or a local model)")
+  .argument("[path]", "Path to the codebase to audit", ".")
+  .option("--goal <text>", "what to search for (default: the most serious exploitable vulnerability)")
+  .option("--hint <text>", "a strategy hint for the workers (repeatable)", (v: string, prev: string[]) => [...prev, v], [] as string[])
+  .option("--ai-url <url>", "OpenAI-compatible endpoint, e.g. http://localhost:11434/v1 (keeps code local; also THREATCRUSH_AI_URL)")
+  .option("--ai-model <models>", "model(s), comma-separated (also THREATCRUSH_AI_MODEL)")
+  .option("--max-steps <n>", "max scheduler steps (default 12)")
+  .option("--max-tool-calls <n>", "max read-tool calls per worker turn (default 6)")
+  .option("--graph", "print the final Fact/Intent graph")
+  .option("--json", "emit JSON (result + steps + graph)")
+  .action(async (path: string, opts) => {
+    await exploreCommand(path, opts);
   });
 
 // ─── AI Red-Team Scan (LLM/agent endpoints you own) ───

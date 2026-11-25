@@ -106,6 +106,7 @@ threatcrush scan . --verify    # AI second-read of every finding; drops confiden
 sudo threatcrush scan --host   # Rootkit / host integrity scan of this machine (alias: host-scan)
 sudo threatcrush respond ...   # Incident response: kill sessions, ban, pull stolen keys, lock sshd (dry run unless --apply)
 threatcrush pentest URL  # Quick web security checks against a URL
+threatcrush explore ./src # Blackboard state-space vulnerability research over code you own (docs/explore.md)
 threatcrush init         # Auto-detect services, generate config
 threatcrush status       # Show daemon status & loaded modules
 threatcrush modules      # Manage security modules
