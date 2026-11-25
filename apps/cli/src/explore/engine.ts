@@ -19,6 +19,12 @@ import { Board, BOOTSTRAP_DESCRIPTION, ORIGIN } from './graph.js';
 import type { Finding } from './tasks.js';
 import { runBootstrap, runExplore, runReason, type WorkerContext } from './worker.js';
 
+/** Keep only ids that name a real fact; if none survive, use `fallback`. */
+function knownFacts(board: Board, ids: string[] | undefined, fallback: string[]): string[] {
+  const real = (ids ?? []).filter((id) => board.fact(id));
+  return real.length > 0 ? real : fallback;
+}
+
 export interface EngineOptions {
   worker: string;
   /** Max scheduler steps before stopping. Default 12. */
@@ -77,7 +83,9 @@ export async function runEngine(
         const { fact } = board.concludeIntent(intent.id, worker, r.fact);
         if (r.finding) findings.push({ factId: fact.id, finding: r.finding });
         record('bootstrap', `${fact.id}${r.complete ? ' (claims goal met)' : ''}`, r.finding);
-        if (r.complete) board.complete(r.supporting?.length ? r.supporting : [fact.id], worker);
+        // Small models sometimes cite an intent id where a fact id belongs;
+        // keep only real facts, and fall back to the fact we just concluded.
+        if (r.complete) board.complete(knownFacts(board, r.supporting, [fact.id]), worker);
         continue;
       }
 
@@ -92,13 +100,16 @@ export async function runEngine(
       }
 
       const r = await runReason(ctx, board.render());
-      if (r.complete && r.supporting && r.supporting.length > 0) {
-        board.complete(r.supporting, worker);
-        record('reason', `complete via ${r.supporting.join(', ')}`);
+      const support = knownFacts(board, r.supporting, []);
+      if (r.complete && support.length > 0) {
+        board.complete(support, worker);
+        record('reason', `complete via ${support.join(', ')}`);
         break;
       }
-      if (r.intents && r.intents.length > 0) {
-        const ids = r.intents.map((it) => board.declareIntent(it.from, it.description, worker).id);
+      // Keep only intents whose source facts actually exist on the board.
+      const grounded = (r.intents ?? []).map((it) => ({ ...it, from: knownFacts(board, it.from, []) })).filter((it) => it.from.length > 0);
+      if (grounded.length > 0) {
+        const ids = grounded.map((it) => board.declareIntent(it.from, it.description, worker).id);
         record('reason', `opened ${ids.join(', ')}`);
         continue;
       }

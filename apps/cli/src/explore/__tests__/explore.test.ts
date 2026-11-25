@@ -191,6 +191,18 @@ describe('engine', () => {
     expect(out.steps.at(-1)?.outcome).toMatch(/fixed point/);
   });
 
+  it('tolerates a model citing an intent id where a fact id belongs', async () => {
+    const provider = scripted([
+      // bootstrap claims complete but cites i001 (an intent) as supporting
+      '{"fact":"SQLi in login.ts:1","complete":true,"supporting":["i001"],"finding":{"severity":"critical","title":"SQLi","file":"login.ts","line":1}}',
+    ]);
+    const board = new Board({ origin: 'repo', goal: 'g', clock });
+    const out = await runEngine(board, { provider, workspace: new Workspace(repo()) }, { worker: 'w', maxSteps: 3 });
+    expect(out.completed).toBe(true); // fell back to the concluded fact, no throw
+    expect(out.errors).toBe(0);
+    expect(board.intents.some((i) => i.to === GOAL)).toBe(true);
+  });
+
   it('bails when every worker call fails', async () => {
     const provider: TextProvider = { name: 'bad', async generate() { throw new Error('endpoint down'); } };
     const board = new Board({ origin: 'repo', goal: 'g', clock });
@@ -213,5 +225,22 @@ describe('runExploreEngine', () => {
     expect(result.severity_summary.critical).toBe(1);
     expect(engine.completed).toBe(true);
     expect(engine.board.render()).toContain('f001');
+  });
+
+  it('drops a finding that cites a file not in the tree (hallucination guard)', async () => {
+    const root = tmpRepo({ 'real.ts': 'const x = 1;\n' });
+    const provider = scripted([
+      '{"fact":"invented a bug in a file that does not exist","complete":true,"supporting":["f001"],"finding":{"severity":"high","title":"Ghost bug","file":"nope/made-up.ts","line":9}}',
+    ]);
+    const { result } = await runExploreEngine(root, { provider, worker: 'w', maxSteps: 3 });
+    expect(result.findings).toHaveLength(0);
+    expect(result.summary).toMatch(/dropped: cited a file not in the tree/);
+  });
+
+  it('seeds the origin with the real file list', async () => {
+    const root = tmpRepo({ 'src/login.js': 'x', 'package.json': '{}' });
+    const provider = scripted(['{"fact":"looked around","complete":false}', '{"complete":false,"intents":[]}']);
+    const { engine } = await runExploreEngine(root, { provider, worker: 'w', maxSteps: 2 });
+    expect(engine.board.fact('origin')?.description).toContain('src/login.js');
   });
 });

@@ -71,7 +71,13 @@ on the small model; set `C0MPUTE_API_KEY` for real runs, or use `--ai-url`.
 
 ## Limits
 
-- It is a small-model search, not a proof. Treat concluded Facts as leads.
+- It is a model-driven search, not a proof. Treat concluded Facts as leads and
+  confirm them. **Finding quality tracks model capability**: a tiny model (≤2B)
+  grounds to a real file but will confabulate the exact line or evidence snippet,
+  so prefer a capable coder/uncensored model (c0mpute's GPU models, or a strong
+  local one). A finding that cites a file not in the tree is dropped
+  automatically (reported in the summary), but a wrong line within a real file is
+  not caught.
 - Workers only see the window around what they read, so cross-file taint over
   many hops is hard; those directions tend to conclude as dead ends.
 - This increment runs one worker at a time (a correct sequential subset of the
