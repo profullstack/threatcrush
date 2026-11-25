@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { CheckoutPanel } from "@/components/CheckoutPanel";
+import { QuoteForm } from "@/components/QuoteForm";
 import { SITE_URL } from "@/lib/blog";
 import { catalog, SCAN_PRICE_USD, type CatalogProduct } from "@/lib/catalog";
 import { availableMethods } from "@/lib/checkout";
@@ -182,6 +183,13 @@ export default async function PricingPage({
               </li>
             </ul>
           </div>
+        </section>
+
+        <section className="mt-6">
+          <QuoteForm
+            title="Need a dedicated pentest firm or a compliance assessment?"
+            blurb="For a manual pentest by an outside firm, or a PCI or SOC 2 assessment, ask a partner firm for a quote. Free for you; the firm pays us for verified requests."
+          />
         </section>
       </div>
     </main>
