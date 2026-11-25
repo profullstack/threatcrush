@@ -11,6 +11,7 @@ import {
 } from "./community-threats";
 import { isPublicIp, lookupAsn, lookupIps } from "./geoip";
 import { buildReport, HISTORY_DAYS, loadDetectionsFor, type ReputationReport, type ReputationTier } from "./reputation";
+import { vtEnabled, vtIp, vtDomain, type VtVerdict } from "./virustotal";
 
 /**
  * One indicator, IP or domain, looked up the same way for every surface:
@@ -45,6 +46,8 @@ export interface DomainReport {
   /** False when nichedb did not answer: "not listed" then only covers the addresses. */
   complete: boolean;
   public_record: string;
+  /** VirusTotal second opinion, present only when a VT key is configured. */
+  virustotal?: VtVerdict;
 }
 
 export type AnyReport = (ReputationReport & { type: "ip" }) | DomainReport;
@@ -143,6 +146,18 @@ export function assembleDomain(
 }
 
 export async function lookupIndicator(admin: SupabaseClient, ind: Indicator, tier: ReputationTier): Promise<AnyReport> {
-  if (ind.type === "ip") return { ...(await ipReport(admin, ind.value, tier)), type: "ip" };
-  return domainReport(admin, ind.value, tier);
+  if (ind.type === "ip") {
+    const report = { ...(await ipReport(admin, ind.value, tier)), type: "ip" as const };
+    if (vtEnabled()) {
+      const vt = await vtIp(ind.value).catch(() => null);
+      if (vt) report.virustotal = vt;
+    }
+    return report;
+  }
+  const report = await domainReport(admin, ind.value, tier);
+  if (vtEnabled()) {
+    const vt = await vtDomain(ind.value).catch(() => null);
+    if (vt) report.virustotal = vt;
+  }
+  return report;
 }

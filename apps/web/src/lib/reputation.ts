@@ -5,6 +5,7 @@ import { orgRoleOf } from "./access";
 import { isPublishable, type BlocklistEntry, type DetectionRow } from "./community-threats";
 import type { AsnHit, GeoHit } from "./geoip";
 import { isSettledStatus } from "./payment-status";
+import type { VtVerdict } from "./virustotal";
 
 /**
  * ThreatCrush Reputation: one address looked up against the community
@@ -251,6 +252,8 @@ export interface ReputationReport {
     history: HistoryDay[];
   };
   upgrade?: { url: string; adds: string[] };
+  /** VirusTotal second opinion, present only when a VT key is configured. */
+  virustotal?: VtVerdict;
 }
 
 export const UPGRADE = {

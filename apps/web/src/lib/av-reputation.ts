@@ -1,4 +1,4 @@
-import { mergeReputation, queryCircl, queryMalwareBazaar, type HashReputation } from "@threatcrush/av";
+import { mergeReputation, queryCircl, queryMalwareBazaar, queryVirusTotal, type HashReputation } from "@threatcrush/av";
 
 /**
  * Server-side hash reputation with an in-memory cache, shared by
@@ -29,6 +29,12 @@ function authKey(): string {
   return process.env[name] ?? "";
 }
 
+/** Read at request time: Next.js inlines `process.env.NAME` at build. */
+function virusTotalKey(): string {
+  const name = "VIRUSTOTAL_API_KEY";
+  return process.env[name] ?? "";
+}
+
 export async function lookupReputations(hashes: string[], f: typeof fetch = fetch): Promise<Map<string, HashReputation>> {
   const out = new Map<string, HashReputation>();
   const todo: string[] = [];
@@ -40,12 +46,17 @@ export async function lookupReputations(hashes: string[], f: typeof fetch = fetc
     } else todo.push(h);
   }
   const key = authKey();
+  const vtKey = virusTotalKey();
   let i = 0;
   const worker = async () => {
     while (i < todo.length) {
       const h = todo[i++];
-      const [circl, mb] = await Promise.all([queryCircl(h, f), key ? queryMalwareBazaar(h, key, f) : Promise.resolve(null)]);
-      const rep = mergeReputation(h, [circl, mb]);
+      const [circl, mb, vt] = await Promise.all([
+        queryCircl(h, f),
+        key ? queryMalwareBazaar(h, key, f) : Promise.resolve(null),
+        vtKey ? queryVirusTotal(h, vtKey, f) : Promise.resolve(null),
+      ]);
+      const rep = mergeReputation(h, [circl, mb, vt]);
       remember(h, rep);
       if (rep) out.set(h, rep);
     }
