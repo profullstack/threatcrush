@@ -86,6 +86,13 @@ export default function SiteHeader() {
                       🛡️ Shields (free port test)
                     </a>
                     <a
+                      href="/tools"
+                      className="block px-4 py-2 text-sm font-semibold text-tc-green hover:bg-tc-darker transition-colors"
+                      onClick={() => setMoreDropdownOpen(false)}
+                    >
+                      🧰 Free tools
+                    </a>
+                    <a
                       href="/#features"
                       className="block px-4 py-2 text-sm text-tc-text-dim hover:text-white hover:bg-tc-darker transition-colors"
                       onClick={() => setMoreDropdownOpen(false)}
