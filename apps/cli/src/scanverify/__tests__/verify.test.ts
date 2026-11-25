@@ -141,6 +141,15 @@ describe("verifyFindings", () => {
     expect(report.kept[0].verification.reason).toMatch(/cited no attacker source/);
   });
 
+  it("downgrades a true_positive whose reason argues the opposite", async () => {
+    const provider = fakeProvider(() =>
+      '{"match_is_code":true,"attacker_source":"dir","verdict":"true_positive","confidence":0.9,"reason":"The redirect target comes from the app\'s own API response, not from the user."}',
+    );
+    const report = await verifyFindings(root, [finding({ file: "contra.js" })], { provider });
+    expect(report.kept[0].verification.verdict).toBe("uncertain");
+    expect(report.kept[0].verification.reason).toMatch(/contradicts its own reasoning/);
+  });
+
   it("never sends dependency advisories and respects --verify-max by severity", async () => {
     const provider = fakeProvider(() => '{"verdict":"uncertain","confidence":0.5,"reason":"?"}');
     const report = await verifyFindings(
