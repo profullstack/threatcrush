@@ -34,6 +34,8 @@ export interface ExploreOptions {
   model?: string;
   maxSteps?: number;
   maxToolCalls?: number;
+  /** Per-call model timeout (ms). Default 600s — local CPU models are slow. */
+  timeoutMs?: number;
   worker?: string;
   env?: NodeJS.ProcessEnv;
   /** Test seam: a ready-made provider, bypassing c0mpute/endpoint selection. */
@@ -57,8 +59,15 @@ export async function runExploreEngine(dir: string, opts: ExploreOptions = {}): 
   const name = basename(root);
   const goal = (opts.goal ?? DEFAULT_GOAL).trim();
 
+  // Seed the origin with the real file list. Without it a small model invents
+  // paths — in testing a 1.5B anchored on the word "bootstrap" and reported a
+  // non-existent bootstrap/README.md instead of reading the actual sources.
+  const files = workspace.list('.').filter((f) => !f.endsWith('/')).slice(0, 60);
   const board = new Board({
-    origin: `Source code of the project "${name}" at the repository root. Audit it for exploitable weaknesses.`,
+    origin:
+      `Source code of the project "${name}". These are its real files — audit ONLY these, ` +
+      `reading them with the tools, and cite only a file:line you have actually read:\n` +
+      files.map((f) => `- ${f}`).join('\n'),
     goal,
     hints: (opts.hints ?? []).map((content) => ({ content, creator: 'human' })),
   });
@@ -69,6 +78,9 @@ export async function runExploreEngine(dir: string, opts: ExploreOptions = {}): 
     model: opts.model,
     env: opts.env,
     provider: opts.provider,
+    // Explore turns can be long (a tool loop then an answer); give slow local
+    // CPU models room rather than aborting mid-think.
+    timeoutMs: opts.timeoutMs ?? 600_000,
   };
   const { provider } = buildProvider(verifyOpts);
   const target = describeTarget(verifyOpts);
@@ -81,22 +93,34 @@ export async function runExploreEngine(dir: string, opts: ExploreOptions = {}): 
     { onStep: opts.onStep, onError: opts.onError },
   );
 
-  const findings: StructuredFinding[] = engine.findings.map(({ factId, finding }) => ({
-    type: finding.title,
-    severity: finding.severity,
-    message: finding.evidence ? `${finding.title} — ${finding.evidence}` : finding.title,
-    location: finding.file ? `${finding.file}${finding.line ? `:${finding.line}` : ''}` : undefined,
-    details: {
-      factId,
-      cwe: finding.cwe,
-      source: 'explore',
-    },
-  }));
+  // Hallucination guard: a finding that cites a file not in the tree is noise
+  // (the model invented it). Keep file-less findings (a general observation),
+  // drop ones whose named file does not exist, and count the drops.
+  let hallucinated = 0;
+  const findings: StructuredFinding[] = engine.findings
+    .filter(({ finding }) => {
+      if (!finding.file) return true;
+      if (workspace.has(finding.file)) return true;
+      hallucinated += 1;
+      return false;
+    })
+    .map(({ factId, finding }) => ({
+      type: finding.title,
+      severity: finding.severity,
+      message: finding.evidence ? `${finding.title} — ${finding.evidence}` : finding.title,
+      location: finding.file ? `${finding.file}${finding.line ? `:${finding.line}` : ''}` : undefined,
+      details: {
+        factId,
+        cwe: finding.cwe,
+        source: 'explore',
+      },
+    }));
 
   const counts = findings.length ? summarize(findings) : emptyCounts();
+  const drop = hallucinated > 0 ? ` (${hallucinated} dropped: cited a file not in the tree)` : '';
   const summary = engine.completed
-    ? `Goal met in ${engine.steps.length} steps; ${findings.length} finding(s). ${board.derivedFacts().length} facts on the graph.`
-    : `Explored ${engine.steps.length} steps; ${findings.length} finding(s); ${board.derivedFacts().length} facts on the graph.`;
+    ? `Goal met in ${engine.steps.length} steps; ${findings.length} finding(s)${drop}. ${board.derivedFacts().length} facts on the graph.`
+    : `Explored ${engine.steps.length} steps; ${findings.length} finding(s)${drop}; ${board.derivedFacts().length} facts on the graph.`;
 
   const result: RunResult = {
     type: 'explore',

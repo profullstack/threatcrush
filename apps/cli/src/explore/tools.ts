@@ -25,6 +25,17 @@ export class Workspace {
     if (!statSync(this.root).isDirectory()) throw new Error(`not a directory: ${root}`);
   }
 
+  /** True if `rel` is a readable file inside the workspace. Used to reject
+   *  findings a model invented against a path that does not exist. */
+  has(rel: string): boolean {
+    if (!rel) return false;
+    try {
+      return statSync(this.within(rel)).isFile();
+    } catch {
+      return false;
+    }
+  }
+
   /** Resolve a repo-relative path and confine it to the root. */
   private within(rel: string): string {
     const abs = resolve(this.root, rel);

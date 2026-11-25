@@ -18,6 +18,7 @@ import {
   parseExplore,
   parseReason,
   parseToolCall,
+  stripThinking,
   SYSTEM,
   type BootstrapResult,
   type ExploreResult,
@@ -70,19 +71,42 @@ async function drive<T>(ctx: WorkerContext, prompt: string, parse: (text: string
       messages,
       json: true,
       temperature: opts.temperature ?? 0.2,
-      maxTokens: opts.maxTokens ?? 700,
-      models: opts.model ? { c0mpute: opts.model } : undefined,
+      maxTokens: opts.maxTokens ?? 1200,
+      models: opts.model ? { c0mpute: opts.model, openai: opts.model } : undefined,
       feature,
     });
-    lastText = out.text;
-    const call = step < maxTools ? parseToolCall(out.text) : null;
+    lastText = stripThinking(out.text);
+    const call = step < maxTools ? parseToolCall(lastText) : null;
     if (!call) break;
     const result = runTool(ctx.workspace, call);
     ctx.onTool?.(call, result.length);
-    messages.push({ role: 'assistant', content: out.text });
+    messages.push({ role: 'assistant', content: lastText });
     messages.push({ role: 'user', content: `tool result (${call.tool}):\n${result.slice(0, 8000)}\n\nContinue, or give the final answer.` });
   }
-  return parse(lastText);
+  try {
+    return parse(lastText);
+  } catch (first) {
+    // A small/thinking model often spends its budget reasoning and never emits
+    // the JSON. Re-ask once, forcefully, for only the object.
+    messages.push({ role: 'assistant', content: lastText.slice(0, 2000) });
+    messages.push({
+      role: 'user',
+      content: 'Output ONLY the final JSON object now — no explanation, no reasoning, no <think>. Just the JSON. /no_think',
+    });
+    const retry = await ctx.provider.generate({
+      messages,
+      json: true,
+      temperature: 0,
+      maxTokens: opts.maxTokens ?? 1200,
+      models: opts.model ? { c0mpute: opts.model, openai: opts.model } : undefined,
+      feature: `${feature}-retry`,
+    });
+    try {
+      return parse(stripThinking(retry.text));
+    } catch {
+      throw first;
+    }
+  }
 }
 
 export function runBootstrap(ctx: WorkerContext, board: string): Promise<BootstrapResult> {

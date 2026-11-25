@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 import type { TextProvider, TextRequest } from '@profullstack/ai-providers';
 import { Board, GOAL, ORIGIN } from '../graph.js';
 import { Workspace } from '../tools.js';
-import { parseBootstrap, parseExplore, parseReason, parseToolCall } from '../tasks.js';
+import { parseBootstrap, parseExplore, parseReason, parseToolCall, stripThinking } from '../tasks.js';
+import { runBootstrap } from '../worker.js';
 import { runEngine } from '../engine.js';
 import { runExploreEngine } from '../index.js';
 
@@ -122,6 +123,34 @@ describe('parsers', () => {
   });
 });
 
+describe('thinking-model robustness', () => {
+  it('strips closed and unterminated <think> blocks', () => {
+    expect(stripThinking('<think>reasoning...</think>{"fact":"x"}')).toBe('{"fact":"x"}');
+    // the real failure: budget spent thinking, JSON never emitted
+    expect(stripThinking('{"fact":"y"}\n<think>still going when it ran out')).toBe('{"fact":"y"}');
+    expect(stripThinking('<think>only thought, no json, hit the cap')).toBe('');
+  });
+
+  it('re-asks once for JSON when the first answer is all reasoning', async () => {
+    const root = tmpRepo({ 'x.js': 'eval(req.body.code)\n' });
+    let n = 0;
+    const provider: TextProvider = {
+      name: 'thinky',
+      async generate() {
+        n += 1;
+        const text = n === 1
+          ? '<think>let me look at this carefully and reason for a very long time'  // no JSON: budget spent
+          : '{"fact":"eval of req.body.code at x.js:1","complete":true,"supporting":["f001"],"finding":{"severity":"critical","title":"Code injection","file":"x.js","line":1}}';
+        return { text, model: 'thinky', usage: { inputTokens: 0, outputTokens: 0, estimated: true } };
+      },
+    };
+    const board = new Board({ origin: 'repo', goal: 'g', clock });
+    const r = await runBootstrap({ provider, workspace: new Workspace(root) }, board.render());
+    expect(n).toBe(2); // first all-thinking, retry produced JSON
+    expect(r.finding?.severity).toBe('critical');
+  });
+});
+
 describe('engine', () => {
   const repo = () => tmpRepo({ 'login.ts': 'app.post("/login", (req,res)=>{ db.query("select * from u where id="+req.body.id) })\n' });
 
@@ -162,6 +191,18 @@ describe('engine', () => {
     expect(out.steps.at(-1)?.outcome).toMatch(/fixed point/);
   });
 
+  it('tolerates a model citing an intent id where a fact id belongs', async () => {
+    const provider = scripted([
+      // bootstrap claims complete but cites i001 (an intent) as supporting
+      '{"fact":"SQLi in login.ts:1","complete":true,"supporting":["i001"],"finding":{"severity":"critical","title":"SQLi","file":"login.ts","line":1}}',
+    ]);
+    const board = new Board({ origin: 'repo', goal: 'g', clock });
+    const out = await runEngine(board, { provider, workspace: new Workspace(repo()) }, { worker: 'w', maxSteps: 3 });
+    expect(out.completed).toBe(true); // fell back to the concluded fact, no throw
+    expect(out.errors).toBe(0);
+    expect(board.intents.some((i) => i.to === GOAL)).toBe(true);
+  });
+
   it('bails when every worker call fails', async () => {
     const provider: TextProvider = { name: 'bad', async generate() { throw new Error('endpoint down'); } };
     const board = new Board({ origin: 'repo', goal: 'g', clock });
@@ -184,5 +225,22 @@ describe('runExploreEngine', () => {
     expect(result.severity_summary.critical).toBe(1);
     expect(engine.completed).toBe(true);
     expect(engine.board.render()).toContain('f001');
+  });
+
+  it('drops a finding that cites a file not in the tree (hallucination guard)', async () => {
+    const root = tmpRepo({ 'real.ts': 'const x = 1;\n' });
+    const provider = scripted([
+      '{"fact":"invented a bug in a file that does not exist","complete":true,"supporting":["f001"],"finding":{"severity":"high","title":"Ghost bug","file":"nope/made-up.ts","line":9}}',
+    ]);
+    const { result } = await runExploreEngine(root, { provider, worker: 'w', maxSteps: 3 });
+    expect(result.findings).toHaveLength(0);
+    expect(result.summary).toMatch(/dropped: cited a file not in the tree/);
+  });
+
+  it('seeds the origin with the real file list', async () => {
+    const root = tmpRepo({ 'src/login.js': 'x', 'package.json': '{}' });
+    const provider = scripted(['{"fact":"looked around","complete":false}', '{"complete":false,"intents":[]}']);
+    const { engine } = await runExploreEngine(root, { provider, worker: 'w', maxSteps: 2 });
+    expect(engine.board.fact('origin')?.description).toContain('src/login.js');
   });
 });

@@ -65,6 +65,8 @@ export interface VerifyOptions {
   contextLines?: number;
   /** Calls in flight. */
   concurrency?: number;
+  /** Per-call timeout (ms). Local CPU models need longer than the 180s default. */
+  timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
   /** Test seam: replaces the provider built from the options above. */
   provider?: TextProvider;
@@ -130,7 +132,7 @@ export function buildProvider(opts: VerifyOptions): { provider: TextProvider; mo
         // Ollama and llama.cpp ignore the token but OpenAIProvider always sends one.
         apiKey: opts.aiKey || env.THREATCRUSH_AI_KEY || 'local',
         model,
-        timeoutMs: 180_000,
+        timeoutMs: opts.timeoutMs ?? 180_000,
       }),
       models: [model],
     };
@@ -147,7 +149,7 @@ export function buildProvider(opts: VerifyOptions): { provider: TextProvider; mo
             models: [model],
             concurrency: opts.concurrency ?? 4,
             // The free 4B runs on CPU nodes: ~150 s for a short answer.
-            timeoutMs: 300_000,
+            timeoutMs: opts.timeoutMs ?? 300_000,
             stallMs: 200_000,
           }),
       ),
