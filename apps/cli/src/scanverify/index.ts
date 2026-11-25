@@ -292,6 +292,10 @@ function needsSource(finding: ScanFinding): boolean {
   return finding.category === 'code' && !finding.ruleId.startsWith('gha-ssh');
 }
 
+/** Reasoning that argues against the verdict it came with. */
+const SELF_CONTRADICTION =
+  /\bnot (?:attacker[- ]controlled|attacker[- ]influenced|user[- ]supplied|user[- ]controlled|from the user|controlled by (?:the )?(?:user|attacker))\b|\b(?:app(?:lication)?'s|its) own (?:backend|api|server|constants?)\b|\bnever ships?\b|\btest (?:value|file|fixture)\b/i;
+
 function norm(s: string): string {
   return s.replace(/\s+/g, '').replace(/[`'"]/g, '');
 }
@@ -307,7 +311,17 @@ export function enforceEvidence(
   text: string,
   parsed: Omit<Verification, 'model' | 'provider'>,
 ): Omit<Verification, 'model' | 'provider'> {
-  if (parsed.verdict !== 'true_positive' || !needsSource(finding)) return parsed;
+  if (parsed.verdict !== 'true_positive') return parsed;
+  // Measured on ugig.net: 5 of 11 7B "confirmations" said in the same breath
+  // that the value comes from the app's own API and not from the user.
+  if (SELF_CONTRADICTION.test(parsed.reason)) {
+    return {
+      verdict: 'uncertain',
+      confidence: Math.min(parsed.confidence, 0.5),
+      reason: `model's verdict contradicts its own reasoning: ${parsed.reason}`,
+    };
+  }
+  if (!needsSource(finding)) return parsed;
   let source = '';
   try {
     const obj = extractJson(text) as Record<string, unknown>;
