@@ -596,6 +596,12 @@ program
     "also report security controls the tree shows no evidence of (headers, CSRF, rate limiting, body size limits)",
   )
   .option("-v, --verbose", "list the paths that could not be read")
+  .option("--verify", "AI second-read of every finding; confident false positives are dismissed (sends masked excerpts to c0mpute unless --ai-url)")
+  .option("--ai-url <url>", "(--verify) OpenAI-compatible endpoint, e.g. http://localhost:11434/v1 for local Ollama (also THREATCRUSH_AI_URL)")
+  .option("--ai-model <models>", "(--verify) model(s), comma-separated; default qwen2.5-coder:7b, uncensored qwen 9B, then the free qwen 4B (also THREATCRUSH_AI_MODEL)")
+  .option("--verify-max <n>", "(--verify) verify at most n findings, highest severity first", "50")
+  .option("--verify-threshold <0-1>", "(--verify) dismiss a false positive only at or above this model confidence", "0.7")
+  .option("--show-dismissed", "(--verify) list dismissed findings in the text report")
   .option("--no-upload", "do not save the results to your threatcrush.com org (also THREATCRUSH_UPLOAD=0)")
   .action(async (targetPath: string, opts: {
     host?: boolean;
@@ -616,6 +622,12 @@ program
     exclude?: string[];
     missingControls?: boolean;
     verbose?: boolean;
+    verify?: boolean;
+    aiUrl?: string;
+    aiModel?: string;
+    verifyMax?: string;
+    verifyThreshold?: string;
+    showDismissed?: boolean;
   }) => {
     if (opts.host || opts.localhost) {
       await hostScanCommand({
@@ -648,11 +660,19 @@ program
       exclude: opts.exclude,
       missingControls: opts.missingControls,
       verbose: opts.verbose,
+      verify: opts.verify,
+      showDismissed: opts.showDismissed,
+      verifyOptions: {
+        aiUrl: opts.aiUrl,
+        model: opts.aiModel,
+        max: Number.parseInt(opts.verifyMax ?? "50", 10) || 50,
+        threshold: Math.min(1, Math.max(0, Number(opts.verifyThreshold ?? "0.7") || 0.7)),
+      },
     });
     // A scan that never ran (bad path) proves nothing about the repo's findings.
     if (!result.error) {
       const repo = repoTarget(targetPath);
-      const scope = [`path=${repo.sub}`, opts.deps ? "deps" : "", opts.missingControls ? "missing-controls" : "",
+      const scope = [`path=${repo.sub}`, opts.deps ? "deps" : "", opts.missingControls ? "missing-controls" : "", opts.verify ? "verify" : "",
         ...(opts.exclude ?? []).map((g) => `exclude=${g}`)].filter(Boolean).join(";");
       await uploadResult(result, { source: "scan", target: repo.target, kind: "repo", scope, upload: opts.upload, machineReadable: format !== "text" });
     }
