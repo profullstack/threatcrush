@@ -194,12 +194,13 @@ describe('abuse.ch keyed feeds (issue #430)', () => {
 });
 
 describe('buildFeedSet', () => {
-  it('never lists CDN, resolver, private or allowlisted addresses, nor a shared platform as a whole', () => {
+  it('never lists CDN, PaaS edge, resolver, private or allowlisted addresses, nor a shared platform as a whole', () => {
     const set = buildFeedSet([
       { ips: new Map([
         ['203.0.113.8', { malware: 'QakBot', threat: 'botnet_cc', feed: 'threatfox' }],
         ['104.21.3.4', { malware: 'x', threat: 'botnet_cc', feed: 'threatfox' }], // Cloudflare
         ['8.8.8.8', { malware: 'x', threat: 'botnet_cc', feed: 'threatfox' }],
+        ['153.52.255.3', { malware: 'unknown', threat: 'botnet_cc', feed: 'threatfox' }], // Railway edge
         ['10.1.2.3', { malware: 'x', threat: 'botnet_cc', feed: 'threatfox' }],
         ['198.51.100.9', { malware: 'x', threat: 'payload_delivery', feed: 'threatfox' }], // allowlisted
       ]) },
@@ -211,7 +212,7 @@ describe('buildFeedSet', () => {
     ], ['198.51.100.0/24', 'example'], []);
     expect(Object.keys(set.ips)).toEqual(['203.0.113.8']);
     expect(Object.keys(set.domains)).toEqual(['evil.workers.dev']);
-    expect(set.skipped_shared).toBe(6);
+    expect(set.skipped_shared).toBe(7);
   });
 });
 

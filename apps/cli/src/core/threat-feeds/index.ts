@@ -83,7 +83,15 @@ export const NEEDS_KEY = 'needs an abuse.ch Auth-Key (free at auth.abuse.ch): se
 
 /**
  * Shared infrastructure that must never be matched or blocked: Cloudflare's
- * published ranges (www.cloudflare.com/ips) and the big public resolvers.
+ * published ranges (www.cloudflare.com/ips), the big public resolvers, and
+ * PaaS edges that front thousands of unrelated apps on one address.
+ *
+ * Railway (153.52.224.0/19, ARIN NET-153-52-224-0-1): every *.up.railway.app
+ * and custom domain resolves to a shared edge such as 153.52.255.3. ThreatFox
+ * listed that address as botnet C2 on 2026-11-24, and every outbound call to
+ * any Railway-hosted site then paged CRITICAL (pit.world's MCP prober reaching
+ * mcp.ml.ink, 2026-11-25). The bad app is a hostname, which the domain feeds
+ * still match.
  */
 export const SHARED_RANGES: string[] = [
   '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
@@ -94,6 +102,7 @@ export const SHARED_RANGES: string[] = [
   '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
   '1.1.1.1/32', '1.0.0.1/32', '8.8.8.8/32', '8.8.4.4/32', '9.9.9.9/32',
   '149.112.112.112/32', '208.67.222.222/32', '208.67.220.220/32',
+  '153.52.224.0/19', // Railway shared edge
 ];
 
 /** Domains that host other people's content: never matched as a whole. */
