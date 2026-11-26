@@ -60,8 +60,11 @@ describe('secret redaction', () => {
   });
 
   it('is applied to findings, so a CI log never gains a secret', () => {
-    const findings = scanText('a.env', 'GITHUB_TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
-    expect(findings).toHaveLength(1);
+    const all = scanText('a.env', 'GITHUB_TOKEN=ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+    // The file-level dotenv finding never carries a value; its excerpt is checked too.
+    expect(all.map((f) => f.ruleId).sort()).toEqual(['secret-committed-env-file', 'secret-github-token']);
+    for (const f of all) expect(f.excerpt).not.toContain('ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+    const findings = all.filter((f) => f.ruleId === 'secret-github-token');
     expect(findings[0]!.excerpt).not.toContain('ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
   });
 });
@@ -105,9 +108,11 @@ describe('placeholders', () => {
   // The exemption is the pair, never the username alone, or a scanner would go
   // quiet on the most common real leak there is.
   it('still flags a real password beside a common username', () => {
-    expect(scanText('a.env', 'DATABASE_URL=postgres://root:Xk9d2LmQpZ@db.internal/app')).toHaveLength(1);
-    expect(scanText('a.env', 'DATABASE_URL=postgres://user:Xk9d2LmQpZ@db.internal/app')).toHaveLength(1);
-    expect(scanText('a.env', 'DATABASE_URL=mongodb+srv://admin:s3cr3tP4ss@cluster.mongodb.net/db')).toHaveLength(1);
+    // `secret-committed-env-file` is the file-level finding and is covered in key-exposure.test.ts.
+    const dsn = (source: string) => scanText('a.env', source).filter((f) => f.ruleId !== 'secret-committed-env-file');
+    expect(dsn('DATABASE_URL=postgres://root:Xk9d2LmQpZ@db.internal/app')).toHaveLength(1);
+    expect(dsn('DATABASE_URL=postgres://user:Xk9d2LmQpZ@db.internal/app')).toHaveLength(1);
+    expect(dsn('DATABASE_URL=mongodb+srv://admin:s3cr3tP4ss@cluster.mongodb.net/db')).toHaveLength(1);
   });
 });
 

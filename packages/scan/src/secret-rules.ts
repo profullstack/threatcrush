@@ -202,10 +202,18 @@ export const SECRET_RULES: readonly SecretRule[] = [
   {
     id: 'secret-resend-key',
     name: 'Resend API Key',
-    pattern: /\bre_[A-Za-z0-9]{8}_[A-Za-z0-9]{16,}\b/,
+    // Resend issues `re_` + 8 base58 + `_` + 24 base58 (the shape TruffleHog's
+    // detector pins). The pattern is wider than that on purpose: a key that has
+    // been re-cut, truncated in a paste or issued under an older layout still
+    // starts `re_` and is still a key, and the narrow form let one through in a
+    // committed `.env` backup. Wide alone would flag `re_compile_pattern_cache`,
+    // so `looksLikeResendKey` asks for the issued shape or for key material.
+    pattern: /\bre_[A-Za-z0-9_]{20,}\b/,
     severity: 'critical',
     cwe: 'CWE-798',
     consequence: 'Send mail as every verified domain on the account.',
+    confirm: (_lines, _index, match) => looksLikeResendKey(match[0]),
+    fix: 'Revoke the key in the Resend dashboard, issue a new one scoped to sending, and load it from a secret manager.',
   },
   {
     id: 'secret-supabase-service-role',
@@ -439,6 +447,19 @@ export function jwtClaimsRole(token: string, role: string): boolean {
   }
 }
 
+/**
+ * Is a `re_…` token a Resend key rather than an identifier that happens to
+ * start with `re_` (Python's `re_` prefix for regex helpers is the common one)?
+ * Either the issued layout, or a body with upper case, lower case and digits at
+ * key-material entropy. Identifiers are one case or carry no digits.
+ */
+export function looksLikeResendKey(token: string): boolean {
+  if (/^re_[A-Za-z0-9]{8}_[A-Za-z0-9]{16,}$/.test(token)) return true;
+  const body = token.slice(3);
+  if (!/[a-z]/.test(body) || !/[A-Z]/.test(body) || !/[0-9]/.test(body)) return false;
+  return shannonEntropy(body.replace(/_/g, '')) >= 3.5;
+}
+
 /** Shannon entropy in bits per character. */
 export function shannonEntropy(value: string): number {
   if (!value) return 0;
@@ -661,6 +682,119 @@ export function isEnvFileName(filename: string): boolean {
 export function isEnvBackupName(filename: string): boolean {
   return /(?:^|\.)env\.(?:bak|old|orig|save|backup|prev|swp)(?:[.~_-].*)?$/i.test(filename) || /\.env~$/i.test(filename);
 }
+
+/**
+ * A committed dotenv file, by name: `.env`, `.env.*`, `*.env`, `*.env.*`
+ * (`.env.bak-2026-07-28`, `.env.production`, `app.env`, `deploy.env.bak-1`).
+ *
+ * Templates are not dotenv files: any name carrying `.example`, `.sample`,
+ * `.template`, `.dist`, `.defaults` or `.schema` anywhere is skipped, so
+ * `.env.example.bak` stays quiet too. Neither is source code that merely has
+ * `env` in its name (`vite.env.d.ts`, `config.env.js`): the `*.env.*` form is
+ * only taken when the trailing extension is not a programming language.
+ */
+const ENV_TEMPLATE_MARKER = /\.(?:example|sample|template|dist|defaults?|schema)(?:[.\-_~]|$)/;
+const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?|d\.ts|py|go|rb|rs|java|kts?|php|cs|swift|scala|vue|svelte|astro|json|md|mdx|html?|css|scss)$/;
+
+export function isDotenvFileName(filename: string): boolean {
+  const name = filename.toLowerCase();
+  if (ENV_TEMPLATE_MARKER.test(name)) return false;
+  if (name === '.env' || name.startsWith('.env.')) return true;
+  if (name.endsWith('.env') && name.length > 4) return true;
+  if (name.includes('.env.')) return !SOURCE_EXTENSION.test(name);
+  return false;
+}
+
+/** A variable name that announces a credential. */
+const SECRET_KEY_NAME = /KEY|SECRET|TOKEN|PASSWORD|PASS|PEPPER|PRIVATE|CREDENTIAL|DSN|AUTH/;
+/**
+ * Names that carry a secret word but are public by design (`ANON_KEY`,
+ * `PUBLISHABLE_KEY`) or hold configuration about a credential rather than the
+ * credential (`NEXTAUTH_URL`, `TOKEN_TTL`, `KEYCLOAK_REALM`'s `_ID`s).
+ */
+const PUBLIC_KEY_NAME = /PUBLIC|ANON|PUBLISHABLE/;
+const CONFIG_KEY_SUFFIX =
+  /_(?:URL|URI|ENDPOINT|HOST|HOSTNAME|PORT|PATH|DIR|FILE|REGION|ID|NAME|USER|USERNAME|EMAIL|ENABLED|DISABLED|MODE|TYPE|TTL|EXPIRY|EXPIRES(?:_IN)?|TIMEOUT|LENGTH|ALGORITHM|ALG|VERSION|ISSUER|AUDIENCE|PROVIDER|SCOPES?)$/;
+/** A URL with a `user:password@` segment is a credential under any name. */
+const URL_WITH_CREDENTIALS = /^[a-z][a-z0-9+.-]*:\/\/[^\s/@:]*:[^\s/@]+@/i;
+
+const DOTENV_LINE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.*)$/;
+
+/** Strip the quotes, or the trailing ` # comment` of an unquoted value. */
+function dotenvValue(raw: string): string {
+  const trimmed = raw.trim();
+  const quoted = /^(['"`])([\s\S]*?)\1/.exec(trimmed);
+  if (quoted) return quoted[2];
+  return trimmed.replace(/\s+#.*$/, '').trim();
+}
+
+/**
+ * Is a dotenv value something a template writer typed instead of a secret?
+ * `changeme`, `xxx`, `your-api-key`, `<token>`, `${VAR}`, `example`,
+ * `placeholder`, `TODO`, `aaaaaaaa`, and anything under 8 characters.
+ */
+export function isDotenvPlaceholder(value: string): boolean {
+  const v = value.trim();
+  if (v.length < 8) return true;
+  if (/^(.)\1*$/.test(v)) return true;
+  if (isVariableReference(v) || /\$\{[^}]*\}/.test(v)) return true;
+  if (/^<[^>]*>$/.test(v)) return true;
+  if (/^your[-_ ]/i.test(v)) return true;
+  if (/changeme|change[-_]me|xxx|example|placeholder|\btodo\b|replace[-_]?me|\*{3,}/i.test(v)) return true;
+  return false;
+}
+
+export interface CommittedEnvFile {
+  /** 0-based index of the first secret-looking line. */
+  index: number;
+  /** Its variable name: safe to show, unlike its value. */
+  key: string;
+  /** Secret-looking keys with real-looking values in the file. */
+  count: number;
+}
+
+/**
+ * The `secret-committed-env-file` check: a dotenv file (by name) that holds at
+ * least one secret-named key with a value that is not a placeholder.
+ *
+ * This is the finding the vendor-shaped rules above cannot make. A production
+ * `.env` backup carries `DATAFORSEO_PASSWORD=…`, an SMTP password, a session
+ * pepper: values no vendor format describes, any of which is a live
+ * credential. The name says what the file is and the keys say what it holds,
+ * which together are enough; the values themselves are never read out.
+ */
+export function committedEnvFile(filename: string, lines: readonly string[]): CommittedEnvFile | null {
+  if (!isDotenvFileName(filename)) return null;
+  let first: { index: number; key: string } | null = null;
+  let count = 0;
+  lines.forEach((line, index) => {
+    const m = DOTENV_LINE.exec(line);
+    if (!m) return;
+    const key = m[1].toUpperCase();
+    const value = dotenvValue(m[2]);
+    if (isDotenvPlaceholder(value)) return;
+    const credentialUrl = URL_WITH_CREDENTIALS.test(value);
+    if (!credentialUrl) {
+      if (!SECRET_KEY_NAME.test(key)) return;
+      if (PUBLIC_KEY_NAME.test(key) || CONFIG_KEY_SUFFIX.test(key)) return;
+    }
+    count++;
+    if (!first) first = { index, key: m[1] };
+  });
+  if (!first) return null;
+  return { ...(first as { index: number; key: string }), count };
+}
+
+export const COMMITTED_ENV_FILE_RULE = {
+  id: 'secret-committed-env-file',
+  name: 'Committed dotenv file with credentials',
+  severity: 'critical' as Severity,
+  cwe: 'CWE-538',
+  consequence:
+    'Every credential in the file is in every clone, fork, CI cache and archive of the repository, and backups are never rotated with the original.',
+  fix: 'Rotate every value in the file first (deleting it does not help: it is in the history), then remove it, add the name to .gitignore, and load the values from a secret manager or the deploy environment.',
+  reference: attackVector('unrotated-github-app-keys'),
+} as const;
 
 /** Files whose mere presence is worth reporting, independent of content. */
 export const SENSITIVE_FILES: readonly {

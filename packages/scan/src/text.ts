@@ -17,6 +17,8 @@
 import { CODE_RULES, evaluateRule, proseLines } from './code-rules';
 import { scanPackageJson, scanRequirementsTxt } from './manifest-rules';
 import {
+  COMMITTED_ENV_FILE_RULE,
+  committedEnvFile,
   describesItsOwnKey,
   isKnownPlaceholder,
   isPlaceholderAttribute,
@@ -600,6 +602,36 @@ export function scanText(
       });
     }
   });
+
+  // ── Committed dotenv file ──────────────────────────────────────────────
+  //
+  // One finding per file, on the first secret-named key, whatever the vendor
+  // rules above found in it: `DATAFORSEO_PASSWORD=…` matches no issued format
+  // and is still a live credential. Names the count, never a value.
+  const envFile = committedEnvFile(baseNameOf(relativePath), lines);
+  if (envFile && !isSuppressed(suppressions, envFile.index, COMMITTED_ENV_FILE_RULE.id)) {
+    const rule = COMMITTED_ENV_FILE_RULE;
+    const soft = softening({ test: inTests });
+    const plural = envFile.count === 1 ? 'key' : 'keys';
+    findings.push({
+      ruleId: rule.id,
+      title: rule.name,
+      file: relativePath,
+      line: envFile.index + 1,
+      severity: soft ? 'low' : rule.severity,
+      confidence: 'evidence',
+      message: soft
+        ? `Dotenv file committed with ${envFile.count} secret-looking ${plural} ${SECRET_SOFTENING[soft]}`
+        : `Dotenv file committed with ${envFile.count} secret-looking ${plural}: rotate every value in it`,
+      consequence: rule.consequence,
+      fix: rule.fix,
+      reference: rule.reference,
+      cwe: rule.cwe,
+      excerpt: `${envFile.key}=<redacted>`,
+      sensitive: true,
+      category: 'secret',
+    });
+  }
 
   // ── Code-level constructs ──────────────────────────────────────────────
   const prose = proseLines(lines);
