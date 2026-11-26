@@ -297,8 +297,15 @@ is `service_role`; the anon key is not flagged) and
 `secret-generic-high-entropy` (an unquoted `*_SECRET=`, `*_PRIVATE_KEY=`,
 `*_TOKEN=`, `*_API_KEY=` or `*_PASSWORD=` value that is long, mixed-class and
 high-entropy). `secret-private-key` now also matches `ENCRYPTED PRIVATE KEY`.
-Env backups (`*.env.bak*`, `.env.old`, ...) are read for secrets and, when none
-match, reported by name as critical; `id_rsa`/`id_ed25519`/`id_ecdsa`/`id_dsa`
+`secret-committed-env-file` (critical) reports a dotenv file by name (`.env`,
+`.env.*`, `*.env`, `*.env.*`, so `.env.bak-2026-07-28` and `deploy.env.bak-1`;
+never `.env.example`/`.sample`/`.template`/`.dist`/`.defaults`/`.schema`) once,
+on its first secret-named key (`*KEY*`, `*SECRET*`, `*TOKEN*`, `*PASS*`,
+`*PEPPER*`, `*PRIVATE*`, `*CREDENTIAL*`, `*DSN*`, `*AUTH*`) whose value is not a
+placeholder, with the count of such keys and never a value. `secret-resend-key`
+also accepts a `re_` key without the inner underscore when the body reads as key
+material. Env backups (`*.env.bak*`, `.env.old`, ...) are read for secrets and,
+when none match, reported by name as critical; `id_rsa`/`id_ed25519`/`id_ecdsa`/`id_dsa`
 are reported by name. Excerpts are always masked.
 
 ### Incident response: `threatcrush respond`

@@ -64,6 +64,10 @@ and push commits directly to a default branch as `<app>[bot]`.
 - **`secret-generic-high-entropy`**: an unquoted `*_SECRET=`, `*_PRIVATE_KEY=`,
   `*_TOKEN=`, `*_API_KEY=` or `*_PASSWORD=` whose value is long, mixed-class
   and high-entropy.
+- **`secret-committed-env-file`**: a dotenv file (`.env`, `.env.*`, `*.env`,
+  `*.env.*`, templates excluded) holding at least one secret-named key with a
+  real-looking value, such as a plain `*_PASSWORD=` no vendor format describes.
+  One critical finding per file, naming the count of such keys, never a value.
 - **`sensitive-file-committed`**: `.env`, `app.env`, any env backup
   (`*.env.bak*`, `.env.old`, ...; critical), `id_rsa` / `id_ed25519` /
   `id_ecdsa` / `id_dsa`, `*.pem`, `*.p12`, keystores.

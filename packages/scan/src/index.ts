@@ -44,11 +44,16 @@ export { scanPackageJson, scanRequirementsTxt, detectTyposquat, editDistance } f
 export type { ManifestFinding, SquatVerdict } from './manifest-rules';
 
 export {
+  COMMITTED_ENV_FILE_RULE,
+  committedEnvFile,
   describesItsOwnKey,
   hasGithubAppId,
   isEnvBackupName,
   isEnvFileName,
+  isDotenvFileName,
+  isDotenvPlaceholder,
   isKnownPlaceholder,
+  looksLikeResendKey,
   jwtClaimsRole,
   looksLikeKeyMaterial,
   isPlaceholderAttribute,
@@ -57,7 +62,7 @@ export {
   SENSITIVE_FILES,
   shannonEntropy,
 } from './secret-rules';
-export type { SecretRule } from './secret-rules';
+export type { CommittedEnvFile, SecretRule } from './secret-rules';
 
 export {
   collectSuppressions,

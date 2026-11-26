@@ -4,9 +4,13 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { scanPath } from '../node/walk';
 import {
+  committedEnvFile,
+  isDotenvFileName,
+  isDotenvPlaceholder,
   isEnvBackupName,
   isEnvFileName,
   jwtClaimsRole,
+  looksLikeResendKey,
   looksLikeKeyMaterial,
   SECRET_RULES,
 } from '../secret-rules';
@@ -144,7 +148,9 @@ describe('Supabase service-role JWTs', () => {
   });
 
   it('reports a service-role key as critical, once', () => {
-    const found = scanText('.env', `SUPABASE_SERVICE_ROLE_KEY=${jwt('service_role')}`).filter((f) => f.category === 'secret');
+    const found = scanText('.env', `SUPABASE_SERVICE_ROLE_KEY=${jwt('service_role')}`).filter(
+      (f) => f.category === 'secret' && f.ruleId !== 'secret-committed-env-file',
+    );
     expect(found.map((f) => f.ruleId)).toEqual(['secret-supabase-service-role']);
     expect(found[0]!.severity).toBe('critical');
   });
@@ -255,5 +261,182 @@ describe('scanPath: committed key and env files', () => {
 
   it('ids helper agrees with scanText for a single file', () => {
     expect(ids('x.env', pem())).toContain('secret-private-key');
+  });
+});
+
+/**
+ * `secret-committed-env-file`: a production `.env` backup committed to a public
+ * repository. Its vendor-shaped keys were found one by one, but nothing said
+ * "this whole file is a dotenv file full of credentials", and plain passwords
+ * like a DataForSEO login match no vendor format at all.
+ *
+ * Every value is FAKE and assembled at runtime so no secret scanner (GitHub
+ * push protection included) reads this file as a leak.
+ */
+const FAKE_PASSWORD = 'fake' + 'Pass' + '9876';
+const FAKE_SECRET = ['FAKE', 'secret', 'value', '1234'].join('');
+const FAKE_RESEND = 're_' + 'FAKEab12' + '_' + 'FAKEcd34FAKEef56FAKEgh78';
+const FAKE_RESEND_LOOSE = 're_' + 'FAKEab12FAKEcd34FAKEef56FAKEgh78';
+const PROD_ENV = [
+  '# production, copied 2026-07-28',
+  'NODE_ENV=production',
+  'APP_URL=https://app.invalid',
+  `DATAFORSEO_PASSWORD=${FAKE_PASSWORD}`,
+  `SESSION_SECRET="${FAKE_SECRET}"`,
+  `RESEND_API_KEY=${FAKE_RESEND}`,
+].join('\n');
+const envFinding = (path: string, source: string) =>
+  scanText(path, source).find((f) => f.ruleId === 'secret-committed-env-file');
+
+describe('dotenv file names', () => {
+  it('accepts .env, .env.*, *.env and *.env.*', () => {
+    for (const name of [
+      '.env',
+      '.env.bak-2026-07-28',
+      '.env.production',
+      '.env.local',
+      'app.env',
+      'deploy.env.bak-1',
+      'prod.env.old',
+    ]) {
+      expect(isDotenvFileName(name), name).toBe(true);
+    }
+  });
+
+  it('rejects templates and source files that merely mention env', () => {
+    for (const name of [
+      '.env.example',
+      '.env.sample',
+      '.env.template',
+      '.env.dist',
+      '.env.defaults',
+      '.env.schema',
+      '.env.example.bak',
+      'app.env.sample',
+      'vite.env.d.ts',
+      'config.env.js',
+      'environment.ts',
+      'env',
+      '.envrc',
+    ]) {
+      expect(isDotenvFileName(name), name).toBe(false);
+    }
+  });
+
+  it('treats template values as placeholders', () => {
+    for (const value of ['', 'changeme', 'xxxxxxxxxx', 'your-api-key-here', '<token>', '${API_TOKEN}', 'example-secret', 'placeholder', 'TODO set me', 'aaaaaaaaaaaa', 'short']) {
+      expect(isDotenvPlaceholder(value), value).toBe(true);
+    }
+    expect(isDotenvPlaceholder(FAKE_PASSWORD)).toBe(false);
+  });
+});
+
+describe('secret-committed-env-file', () => {
+  it('flags a committed production .env backup once, as critical, on the first secret key', () => {
+    const findings = scanText('.env.bak-2026-07-28', PROD_ENV).filter((f) => f.ruleId === 'secret-committed-env-file');
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.severity).toBe('critical');
+    expect(findings[0]!.line).toBe(4);
+    expect(findings[0]!.message).toMatch(/3 secret-looking keys/);
+    expect(findings[0]!.category).toBe('secret');
+    expect(findings[0]!.sensitive).toBe(true);
+  });
+
+  it('never prints a value', () => {
+    const finding = envFinding('.env.bak-2026-07-28', PROD_ENV)!;
+    const text = JSON.stringify(finding);
+    for (const value of [FAKE_PASSWORD, FAKE_SECRET, FAKE_RESEND]) expect(text).not.toContain(value);
+    expect(finding.excerpt).toBe('DATAFORSEO_PASSWORD=<redacted>');
+  });
+
+  it('catches a plain password no vendor rule describes', () => {
+    expect(envFinding('deploy/app.env', `DATAFORSEO_PASSWORD=${FAKE_PASSWORD}`)).toBeDefined();
+    expect(envFinding('deploy.env.bak-1', `export SMTP_PASS='${FAKE_PASSWORD}'`)).toBeDefined();
+  });
+
+  it('stays silent on a committed .env.example full of placeholders', () => {
+    const template = [
+      'DATAFORSEO_PASSWORD=changeme',
+      'SESSION_SECRET=your-session-secret',
+      'RESEND_API_KEY=<resend key>',
+      'API_TOKEN=${API_TOKEN}',
+      `STRIPE_SECRET_KEY=${FAKE_PASSWORD}`,
+    ].join('\n');
+    expect(scanText('.env.example', template).filter((f) => f.ruleId === 'secret-committed-env-file')).toEqual([]);
+    expect(committedEnvFile('.env.example', template.split('\n'))).toBeNull();
+  });
+
+  it('stays silent on a real .env whose secret keys are all placeholders or empty', () => {
+    const source = ['API_TOKEN=', 'DB_PASSWORD=changeme', 'JWT_SECRET=xxxxxxxx', 'SECRET_KEY="<generate one>"'].join('\n');
+    expect(envFinding('.env', source)).toBeUndefined();
+  });
+
+  it('ignores public and configuration keys', () => {
+    const source = [
+      'NEXT_PUBLIC_SUPABASE_ANON_KEY=' + 'FAKEanonFAKEanon',
+      'STRIPE_PUBLISHABLE_KEY=' + 'pk_' + 'FAKEFAKEFAKE',
+      'NEXTAUTH_URL=https://app.invalid',
+      'TOKEN_TTL=86400000',
+      'AUTH_PROVIDER=github-oauth',
+    ].join('\n');
+    expect(envFinding('.env.production', source)).toBeUndefined();
+  });
+
+  it('counts a URL with credentials under any name', () => {
+    const finding = envFinding('.env', 'DATABASE_URL=postgres://app:' + FAKE_PASSWORD + '@db.invalid/app');
+    expect(finding?.message).toMatch(/1 secret-looking key\b/);
+  });
+
+  it('honours an inline suppression on the reported line', () => {
+    const source = ['# threatcrush-disable-next-line secret-committed-env-file', `SMTP_PASSWORD=${FAKE_PASSWORD}`].join('\n');
+    expect(envFinding('.env', source)).toBeUndefined();
+  });
+
+  it('is softened, not dropped, under a test path', () => {
+    expect(envFinding('test/fixtures/.env', `SMTP_PASSWORD=${FAKE_PASSWORD}`)?.severity).toBe('low');
+  });
+
+  it('does not fire on source files', () => {
+    expect(envFinding('src/vite.env.d.ts', `API_KEY=${FAKE_PASSWORD}`)).toBeUndefined();
+  });
+});
+
+describe('secret-resend-key', () => {
+  it('matches the issued re_<8>_<24> layout', () => {
+    expect(secretIds('.env', `RESEND_API_KEY=${FAKE_RESEND}`)).toContain('secret-resend-key');
+    expect(secretIds('src/mail.ts', `const resend = new Resend("${FAKE_RESEND}");`)).toContain('secret-resend-key');
+  });
+
+  it('matches a re_ key without the inner underscore', () => {
+    expect(looksLikeResendKey(FAKE_RESEND_LOOSE)).toBe(true);
+    expect(secretIds('.env', `RESEND_API_KEY=${FAKE_RESEND_LOOSE}`)).toContain('secret-resend-key');
+  });
+
+  it('does not match identifiers that start with re_', () => {
+    for (const ident of ['re_compile_pattern_cache', 're_split_on_whitespace_regex', 'RE_MATCH_EVERYTHING_PATTERN', 're_compileRegexPatternCache']) {
+      expect(secretIds('src/util.py', `${ident} = None`), ident).not.toContain('secret-resend-key');
+    }
+  });
+
+  it('redacts the key in the excerpt', () => {
+    const finding = scanText('src/mail.ts', `const k = "${FAKE_RESEND}";`).find((f) => f.ruleId === 'secret-resend-key')!;
+    expect(finding.excerpt).not.toContain(FAKE_RESEND);
+  });
+});
+
+describe('scanPath: committed dotenv backup', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tc-dotenv-'));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, '.env.bak-2026-07-28'), PROD_ENV);
+  writeFileSync(join(root, '.env.example'), ['DATAFORSEO_PASSWORD=changeme', 'RESEND_API_KEY=re_xxxxxxxx'].join('\n'));
+  const report = scanPath(root);
+  const at = (file: string) => report.findings.filter((f) => f.file === file).map((f) => f.ruleId);
+
+  it('reports the backup as a committed env file and the Resend key inside it', () => {
+    expect(at('.env.bak-2026-07-28')).toEqual(expect.arrayContaining(['secret-committed-env-file', 'secret-resend-key']));
+  });
+
+  it('leaves the template alone', () => {
+    expect(at('.env.example')).toEqual([]);
   });
 });
