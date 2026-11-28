@@ -4,6 +4,7 @@ import { isIP } from 'node:net';
 import type { ThreatEvent } from '../../types/events.js';
 import { insertEvent } from '../../core/state.js';
 import { DEFAULT_PROTECTED, isProtected } from '../firewall/protected.js';
+import { isSuccessfulAuth } from '../firewall/remediation.js';
 import { shellLogDetector } from './postgres-shell.js';
 
 /**
@@ -31,6 +32,19 @@ import { shellLogDetector } from './postgres-shell.js';
  * Docker-bridge addresses and the `[remediation] protected` list are never
  * reported as a source: a misconfigured app on the bridge must not get its own
  * network banned.
+ *
+ * App detections (`app_detections`, on by default): an application that sees
+ * an attack the network cannot (a logged-in HTTPS POST carrying an RCE payload
+ * in a JSON body, which nginx never logs) prints one line to stdout/stderr:
+ *
+ *   THREATCRUSH_DETECTION {"v":1,"ip":"…","severity":"high","category":"app.rce_payload","source":"infernet","reason":"…"}
+ *
+ * and the matching container (`app_name_pattern`, every container by default)
+ * becomes an ordinary `app-detection` event with that source address and
+ * severity. It goes through the rule engine and remediation like every other
+ * detection, so `min_severity`, the strike ladder, `max_ban`, `protected`, the
+ * operator's SSH session and dry-run all apply; nothing here touches the
+ * firewall. See `parseAppDetection` for what is accepted.
  */
 export interface DockerLogsSettings {
   enabled: boolean;
@@ -38,6 +52,10 @@ export interface DockerLogsSettings {
   namePattern: RegExp;
   imagePattern: RegExp;
   pollMs: number;
+  /** Follow `app_name_pattern` containers for `THREATCRUSH_DETECTION` lines. */
+  appDetections: boolean;
+  /** Which containers are trusted to report attackers. */
+  appNamePattern: RegExp;
 }
 
 export interface DockerLogsSection {
@@ -46,12 +64,16 @@ export interface DockerLogsSection {
   name_pattern?: string;
   image_pattern?: string;
   poll_seconds?: number;
+  app_detections?: boolean;
+  app_name_pattern?: string;
 }
 
 export const DEFAULT_DOCKER_SOCKET = '/var/run/docker.sock';
 export const DEFAULT_NAME_PATTERN = 'supabase-db$';
 /** `postgres`, `supabase/postgres:15.8`, `postgres@sha256:…`; not `postgrest/postgrest`. */
 export const DEFAULT_IMAGE_PATTERN = '(^|/)postgres(:|@|$)';
+/** Every container may report app detections unless the operator narrows it. */
+export const DEFAULT_APP_NAME_PATTERN = '.*';
 
 function regexOr(source: unknown, fallback: string): RegExp {
   if (typeof source === 'string' && source) {
@@ -68,6 +90,8 @@ export function dockerLogsSettings(section?: DockerLogsSection): DockerLogsSetti
     namePattern: regexOr(section?.name_pattern, DEFAULT_NAME_PATTERN),
     imagePattern: regexOr(section?.image_pattern, DEFAULT_IMAGE_PATTERN),
     pollMs: Number.isFinite(poll) && poll >= 2 ? poll * 1000 : 15_000,
+    appDetections: section?.app_detections !== false,
+    appNamePattern: regexOr(section?.app_name_pattern, DEFAULT_APP_NAME_PATTERN),
   };
 }
 
@@ -166,6 +190,131 @@ export function postgresAuthEvent(
   };
 }
 
+// ─── App detections (THREATCRUSH_DETECTION) ─────────────────────────────────
+
+export const APP_DETECTION_MARKER = 'THREATCRUSH_DETECTION ';
+/** A detection line longer than this is ignored, not truncated. */
+export const APP_DETECTION_MAX_LINE = 4096;
+/**
+ * At most this much may precede the marker: a console timestamp or a
+ * `[app]` tag. A marker deeper in the line is more likely user input an app
+ * echoed into its log than the app's own report.
+ */
+const APP_DETECTION_MAX_PREFIX = 80;
+const APP_SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
+/** Never a real client: unspecified, multicast and reserved. */
+const NOT_A_CLIENT = ['0.0.0.0/8', '224.0.0.0/4', '240.0.0.0/4', '::/128', 'ff00::/8'];
+
+export interface AppDetection {
+  ip: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  /** Always `app.<name>`. */
+  category: string;
+  source?: string;
+  reason?: string;
+  account?: string;
+}
+
+/** Control characters out, whitespace collapsed, capped; undefined when nothing is left. */
+function cleanText(value: unknown, max: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  // eslint-disable-next-line no-control-regex
+  const text = value.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+  return text ? text.slice(0, max) : undefined;
+}
+
+/** `rce_payload`, `app.rce_payload`, `App.RCE Payload` → `app.rce_payload`. */
+function appCategory(value: unknown): string | undefined {
+  const text = cleanText(value, 64)?.toLowerCase().replace(/^app\./, '').replace(/[^a-z0-9._-]+/g, '_').replace(/^[._-]+|[._-]+$/g, '');
+  return text ? `app.${text}`.slice(0, 64) : undefined;
+}
+
+/** `1.2.3.4`, `::ffff:1.2.3.4`, `[2001:db8::1]` → a bare address, or undefined. */
+function cleanIp(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  let ip = value.trim().replace(/^\[|\]$/g, '');
+  if (/^::ffff:\d+\.\d+\.\d+\.\d+$/i.test(ip)) ip = ip.slice(7);
+  return isIP(ip) ? ip : undefined;
+}
+
+/**
+ * The detection on one log line, or null. Accepted: the marker at the start of
+ * the line or after a short prefix (no quotes or braces), then one JSON object
+ * and nothing else, `v` 1, a valid IP, a known severity and a category. Any
+ * line over 4 KB, any malformed JSON, any other version is ignored.
+ * Whether the address may be banned is decided by the caller.
+ */
+export function parseAppDetection(line: string): AppDetection | null {
+  if (line.length > APP_DETECTION_MAX_LINE) return null;
+  const at = line.indexOf(APP_DETECTION_MARKER);
+  if (at < 0 || at > APP_DETECTION_MAX_PREFIX) return null;
+  if (/["'{}]/.test(line.slice(0, at))) return null;
+  let doc: unknown;
+  try { doc = JSON.parse(line.slice(at + APP_DETECTION_MARKER.length)); } catch { return null; }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return null;
+  const d = doc as Record<string, unknown>;
+  if (d.v !== 1) return null;
+  const ip = cleanIp(d.ip);
+  if (!ip) return null;
+  if (typeof d.severity !== 'string' || !APP_SEVERITIES.has(d.severity)) return null;
+  const category = appCategory(d.category);
+  if (!category) return null;
+  const source = cleanText(d.source, 64);
+  const reason = cleanText(d.reason, 300);
+  const account = cleanText(d.account, 128);
+  return {
+    ip,
+    severity: d.severity as AppDetection['severity'],
+    category,
+    ...(source ? { source } : {}),
+    ...(reason ? { reason } : {}),
+    ...(account ? { account } : {}),
+  };
+}
+
+/**
+ * The `app-detection` event for one container log line, or null when the line
+ * is not a valid detection or its address may never be banned (private,
+ * loopback, link-local, Docker bridge, CGNAT, the protected list, or whatever
+ * `isProtected` says: the live remediation allowlist, which includes the
+ * operator's SSH session).
+ *
+ * The category is `web`: the app saw the request, so the handshake completed
+ * and the source is not spoofed (the abuse-reporter's bar), and it maps to
+ * AbuseIPDB 21 (Web App Attack). The app's own category is `details.app_category`.
+ */
+export function appDetectionEvent(
+  line: string,
+  container: string,
+  protectedList: string[] = [],
+  isProtectedNow?: (ip: string) => boolean,
+  now: Date = new Date(),
+): ThreatEvent | null {
+  const d = parseAppDetection(line);
+  if (!d) return null;
+  if (isUnbannableSource(d.ip, [...NOT_A_CLIENT, ...protectedList])) return null;
+  if (isProtectedNow?.(d.ip)) return null;
+  const source = d.source ?? container;
+  // The reason may quote attacker input (a field name); it must never read as
+  // a successful login, which remediation declines to ban.
+  const reason = d.reason && !isSuccessfulAuth(d.reason) ? `: ${d.reason}` : '';
+  return {
+    timestamp: now,
+    module: 'app-detection',
+    category: 'web',
+    severity: d.severity,
+    message: `${source} reported ${d.category} from ${d.ip} (${container})${reason}`,
+    source_ip: d.ip,
+    details: {
+      app_category: d.category,
+      source,
+      container,
+      ...(d.reason ? { reason: d.reason } : {}),
+      ...(d.account ? { account: d.account } : {}),
+    },
+  };
+}
+
 // ─── Docker log stream framing ───────────────────────────────────────────────
 
 /**
@@ -219,7 +368,10 @@ export class DockerLogDecoder {
 
 interface ContainerSummary { Id: string; Names?: string[]; Image?: string; State?: string }
 
-interface Follow { req: ClientRequest; name: string }
+/** What a container is followed for: Postgres auth lines, app detections, or both. */
+export interface FollowRoles { postgres: boolean; app: boolean }
+
+interface Follow { req: ClientRequest; name: string; roles: FollowRoles }
 
 export interface DockerLogsDeps {
   /** GET a JSON document from the Engine API. */
@@ -279,6 +431,8 @@ export class DockerLogsWatch {
     bus: { publish(event: ThreatEvent): void };
     settings: DockerLogsSettings;
     protectedList?: string[];
+    /** Live never-ban check (remediation's allowlist, the operator's SSH session included). */
+    isProtected?: (ip: string) => boolean;
     log: (line: string) => void;
     deps?: DockerLogsDeps;
   }) {
@@ -291,6 +445,9 @@ export class DockerLogsWatch {
     if (!settings.enabled) return false;
     if (!this.opts.deps && !existsSync(settings.socket)) return false;
     this.opts.log(`[docker-logs] following containers named /${settings.namePattern.source}/ or with image /${settings.imagePattern.source}/ for Postgres auth failures`);
+    if (settings.appDetections) {
+      this.opts.log(`[docker-logs] containers named /${settings.appNamePattern.source}/ may report attackers with THREATCRUSH_DETECTION lines`);
+    }
     void this.poll();
     this.timer = setInterval(() => { void this.poll(); }, settings.pollMs);
     this.timer.unref?.();
@@ -310,9 +467,19 @@ export class DockerLogsWatch {
     return [...this.follows.values()].map((f) => f.name).sort();
   }
 
-  matches(c: ContainerSummary): boolean {
+  /** What to follow `c` for; neither role means it is not followed. */
+  roles(c: ContainerSummary): FollowRoles {
+    const { settings } = this.opts;
     const name = (c.Names?.[0] ?? '').replace(/^\//, '');
-    return this.opts.settings.namePattern.test(name) || this.opts.settings.imagePattern.test(c.Image ?? '');
+    return {
+      postgres: settings.namePattern.test(name) || settings.imagePattern.test(c.Image ?? ''),
+      app: settings.appDetections && settings.appNamePattern.test(name),
+    };
+  }
+
+  matches(c: ContainerSummary): boolean {
+    const r = this.roles(c);
+    return r.postgres || r.app;
   }
 
   /** One discovery pass: follow new or restarted matches, drop gone ones. */
@@ -332,13 +499,15 @@ export class DockerLogsWatch {
     this.lastPoll = now;
     const running = new Set<string>();
     for (const c of Array.isArray(list) ? list : []) {
-      if (!c?.Id || !this.matches(c)) continue;
+      if (!c?.Id) continue;
+      const roles = this.roles(c);
+      if (!roles.postgres && !roles.app) continue;
       running.add(c.Id);
       if (this.follows.has(c.Id)) continue;
       // Resume where the last stream stopped (a restart), or from the previous
       // pass (a container that appeared since); the first pass starts at now.
       const from = this.closedAt.get(c.Id) ?? (previous || now);
-      await this.follow(c, from);
+      await this.follow(c, from, roles);
     }
     for (const [id, f] of this.follows) {
       if (!running.has(id)) { try { f.req.destroy(); } catch { /* closing */ } this.follows.delete(id); }
@@ -346,7 +515,7 @@ export class DockerLogsWatch {
     for (const id of this.closedAt.keys()) if (!running.has(id)) this.closedAt.delete(id);
   }
 
-  private async follow(c: ContainerSummary, fromMs: number): Promise<void> {
+  private async follow(c: ContainerSummary, fromMs: number, roles: FollowRoles): Promise<void> {
     const name = (c.Names?.[0] ?? c.Id.slice(0, 12)).replace(/^\//, '');
     let tty = false;
     try {
@@ -355,7 +524,7 @@ export class DockerLogsWatch {
     } catch { /* framed is the common case; the decoder notices otherwise */ }
     if (this.stopped || this.follows.has(c.Id)) return;
     const since = Math.max(1, Math.floor(fromMs / 1000));
-    const decoder = new DockerLogDecoder(tty, (line) => this.line(line, name));
+    const decoder = new DockerLogDecoder(tty, (line) => this.line(line, name, roles));
     const req = this.deps.stream(
       `/containers/${c.Id}/logs?follow=1&stdout=1&stderr=1&since=${since}`,
       (chunk) => { try { decoder.push(chunk); } catch { /* one bad chunk must not stop the rest */ } },
@@ -366,14 +535,27 @@ export class DockerLogsWatch {
         }
       },
     );
-    this.follows.set(c.Id, { req, name });
-    this.opts.log(`[docker-logs] following ${name}`);
+    this.follows.set(c.Id, { req, name, roles });
+    // One line per container would be ~100 lines at start on a busy host when
+    // every container may report app detections; name only the Postgres ones.
+    if (roles.postgres) this.opts.log(`[docker-logs] following ${name}`);
   }
 
-  /** Exposed for tests and `rules test`: one container log line through the parser. */
-  line(line: string, container: string): ThreatEvent | null {
-    const event = postgresAuthEvent(line, container, this.opts.protectedList ?? [])
-      ?? this.shellLine(line, container);
+  /**
+   * Exposed for tests and `rules test`: one container log line through the
+   * parsers. Without `roles`, a container is a Postgres one, and may report app
+   * detections when its name matches `app_name_pattern`.
+   */
+  line(line: string, container: string, roles?: FollowRoles): ThreatEvent | null {
+    const { settings } = this.opts;
+    const r = roles ?? { postgres: true, app: settings.appDetections && settings.appNamePattern.test(container) };
+    let event: ThreatEvent | null = null;
+    if (r.app && line.includes(APP_DETECTION_MARKER)) {
+      event = appDetectionEvent(line, container, this.opts.protectedList ?? [], this.opts.isProtected);
+    } else if (r.postgres) {
+      event = postgresAuthEvent(line, container, this.opts.protectedList ?? [])
+        ?? this.shellLine(line, container);
+    }
     if (!event) return null;
     try { insertEvent(event); } catch { /* db optional */ }
     this.opts.bus.publish(event);
