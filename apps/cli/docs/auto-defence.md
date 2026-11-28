@@ -312,6 +312,13 @@ api_key_env = "SMSHUB_ALERT_API_KEY"   # or api_key = "..."
 min_severity = "critical"
 fallback_only = true          # false: page from the box as well as from the dashboard
 
+[docker_logs]                 # Postgres auth failures + app THREATCRUSH_DETECTION lines from containers
+enabled = true                # default: on when /var/run/docker.sock exists
+name_pattern = "supabase-db$"
+image_pattern = "(^|/)postgres(:|@|$)"
+app_detections = true         # containers may report attackers; banned like any other detection
+app_name_pattern = ".*"       # which containers are trusted to report (name regex); default: all
+
 [postgres_shell]              # a shell/LOLBin under postgres (COPY FROM PROGRAM): critical alert
 enabled = true
 poll_seconds = 3

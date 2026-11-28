@@ -359,10 +359,12 @@ export async function runDaemon(): Promise<void> {
 
   // Postgres auth failures inside Docker containers (`[docker_logs]`, on when
   // the Docker socket exists): json-file container logs never reach journald.
+  // Also apps' own THREATCRUSH_DETECTION lines (`app_detections`).
   const dockerLogs = new DockerLogsWatch({
     bus,
     settings: dockerLogsSettings(config.docker_logs),
     protectedList: remediation.getAllowlist(),
+    isProtected: (ip) => remediation.isAllowlisted(ip),
     log: logLine,
   });
   dockerLogs.start();

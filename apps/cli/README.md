@@ -500,9 +500,23 @@ enabled = true                          # default: on when the Docker socket exi
 name_pattern = "supabase-db$"           # container name regex
 image_pattern = "(^|/)postgres(:|@|$)"  # image regex; either match is enough
 poll_seconds = 15                       # how soon new or restarted containers are followed
+app_detections = true                   # apps may report attackers (THREATCRUSH_DETECTION lines)
+app_name_pattern = ".*"                 # which containers may do so (name regex); default: all
 ```
 
 Check a line without touching the firewall: `threatcrush rules test postgres-auth-bruteforce --repeat 5 --line '<log line>'`.
+
+### App detections from containers (`THREATCRUSH_DETECTION`)
+
+Some attacks are only visible to the application: a logged-in HTTPS POST whose JSON body carries a code payload is a well-formed request to nginx, which does not log bodies. An app running in Docker can hand such a source to the daemon by printing one line to stdout or stderr:
+
+```
+THREATCRUSH_DETECTION {"v":1,"ip":"203.0.113.9","severity":"high","category":"app.rce_payload","source":"infernet","reason":"code in training config field training.max_seq_len","account":"<opaque id, optional>"}
+```
+
+A short prefix before the marker (a console timestamp, an `[app]` tag; at most 80 characters, no quotes or braces) is fine. `v` must be `1`, `ip` a valid address, `severity` one of `low`, `medium`, `high`, `critical`, and `category` a name (`app.` is added when missing). `source`, `reason` and `account` are optional, stripped of control characters and capped at 64, 300 and 128 characters. Lines over 4 KB, malformed JSON and other versions are ignored. Private, loopback, link-local, Docker-bridge and CGNAT addresses, the `[remediation] protected` list and the operator's current SSH session are never acted on.
+
+Each valid line becomes an `app-detection` event (category `web`, `details.app_category` = the app's category) with the app's severity, and goes through the same path as every other detection: at or above `min_severity` it bans the address on the doubling ladder up to `max_ban`, honouring `protected`, strike memory and dry-run, and the abuse-reporter maps it to AbuseIPDB 21 (Web App Attack) once its evidence bar is met. With `app_detections` on (the default), the daemon follows every container whose name matches `app_name_pattern` (all of them by default); narrow it (`app_name_pattern = "^(infernet|myapp)"`) to the apps you trust, since any process able to write that container's log can name an address. `app_detections = false` turns it off.
 
 ### Postgres running a shell (COPY FROM PROGRAM)
 

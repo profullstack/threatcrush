@@ -138,12 +138,12 @@ describe('DockerLogDecoder', () => {
 });
 
 describe('DockerLogsWatch', () => {
-  function harness(containers: () => Array<{ Id: string; Names: string[]; Image: string }>) {
+  function harness(containers: () => Array<{ Id: string; Names: string[]; Image: string }>, section: Record<string, unknown> = {}) {
     const streams: Array<{ path: string; onData: (b: Buffer) => void; onEnd: () => void; destroyed: boolean }> = [];
     const published: ThreatEvent[] = [];
     const watch = new DockerLogsWatch({
       bus: { publish: (e) => published.push(e) },
-      settings: dockerLogsSettings({}),
+      settings: dockerLogsSettings(section),
       log: () => {},
       deps: {
         getJson: async (path) => (path === '/containers/json' ? containers() : { Config: { Tty: true } }),
@@ -157,14 +157,14 @@ describe('DockerLogsWatch', () => {
     return { watch, streams, published };
   }
 
-  it('follows supabase-db and postgres images only', async () => {
+  it('follows supabase-db and postgres images only (app detections off)', async () => {
     const { watch } = harness(() => [
       { Id: 'a', Names: ['/supabase-db'], Image: 'supabase/postgres:15.8.1' },
       { Id: 'b', Names: ['/nichedb-supabase-db'], Image: 'x' },
       { Id: 'c', Names: ['/plain-pg'], Image: 'postgres:16' },
       { Id: 'd', Names: ['/supabase-rest'], Image: 'postgrest/postgrest:v12' },
       { Id: 'e', Names: ['/web'], Image: 'nginx' },
-    ]);
+    ], { app_detections: false });
     await watch.poll();
     expect(watch.following()).toEqual(['nichedb-supabase-db', 'plain-pg', 'supabase-db']);
   });

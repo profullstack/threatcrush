@@ -338,8 +338,20 @@ export interface ThreatCrushConfig {
   remediation?: RemediationSection;
   /** `[lightning]`: Core Lightning channel-close alerts. On when a cln.log is found. */
   lightning?: { enabled?: boolean; log_paths?: string[] };
-  /** `[docker_logs]`: Postgres auth failures from Docker container logs. On when the Docker socket exists. */
-  docker_logs?: { enabled?: boolean; socket?: string; name_pattern?: string; image_pattern?: string; poll_seconds?: number };
+  /**
+   * `[docker_logs]`: Postgres auth failures from Docker container logs. On when the Docker socket exists.
+   * `app_detections` (default true): containers whose name matches `app_name_pattern` (regex, default
+   * every container) may report an attacker by printing `THREATCRUSH_DETECTION {"v":1,"ip":…}`.
+   */
+  docker_logs?: {
+    enabled?: boolean;
+    socket?: string;
+    name_pattern?: string;
+    image_pattern?: string;
+    poll_seconds?: number;
+    app_detections?: boolean;
+    app_name_pattern?: string;
+  };
   /** `[postgres_shell]`: a shell or LOLBin under a postgres process (COPY FROM PROGRAM). On by default on Linux. */
   postgres_shell?: { enabled?: boolean; poll_seconds?: number; kill?: boolean; allow_cmdline?: string[] };
   /** `[login_watch]`: suspicious successful SSH logins (Tor, privileged user from an untrusted address, new network). */
